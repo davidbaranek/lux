@@ -90,7 +90,7 @@ struct ChatListBatchTests {
     private func row(_ id: String, _ preview: String = "") -> ChatRow { ChatRow(id: id, name: id, preview: preview, date: nil) }
 
     private func batch(sections: [ChatListBatch.Header]? = nil, _ rows: [ChatListBatch.SectionEdits]) -> ChatListBatch {
-        ChatListBatch(place: .inbox, places: nil, sections: sections, rows: rows, saved: [:], scheduled: [:], labels: nil,
+        ChatListBatch(place: .inbox, places: nil, theme: nil, sections: sections, rows: rows, saved: [:], scheduled: [:], labels: nil,
                       reminders: nil, loading: nil)
     }
 

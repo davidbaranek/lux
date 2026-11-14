@@ -69,13 +69,22 @@ final class ChatCellView: NSTableCellView {
         self.row = row
         name.stringValue = row.name
         time.stringValue = TimeText.list(row.date)
-        time.textColor = row.isUnread && !row.isMuted ? .controlAccentColor : .secondaryLabelColor
+        updateTime()
         preview.stringValue = row.preview
         badge.isHidden = !row.isUnread
         badge.count = row.unreadCount
         badge.muted = row.isMuted
         avatar.show(row.avatar, name: row.name, members: row.memberAvatars, images: images)
         setAccessibilityLabel([row.name, row.isUnread ? String(localized: "unread") : nil, row.preview].compactMap { $0 }.joined(separator: ", "))
+    }
+
+    /// The shown place's accent, for an unread chat's time.
+    var accent = NSColor.controlAccentColor {
+        didSet { if accent != oldValue { updateTime() } }
+    }
+
+    private func updateTime() {
+        time.textColor = row.map { $0.isUnread && !$0.isMuted } == true ? accent : .secondaryLabelColor
     }
 
     /// The selected row's text turns white on the accent colour, as the sidebar's own rows do.
@@ -94,6 +103,11 @@ final class ChatCellView: NSTableCellView {
 final class ChatRowView: NSTableRowView {
     static let reuse = NSUserInterfaceItemIdentifier("ChatRow")
 
+    /// The shown place's accent.
+    var accent = NSColor.controlAccentColor {
+        didSet { if accent != oldValue, isSelected { needsDisplay = true } }
+    }
+
     override var isEmphasized: Bool {
         get { true }
         set {}
@@ -105,7 +119,7 @@ final class ChatRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
-        NSColor.controlAccentColor.setFill()
+        accent.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 1), xRadius: 8, yRadius: 8).fill()
     }
 }

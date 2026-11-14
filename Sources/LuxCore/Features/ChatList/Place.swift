@@ -63,6 +63,10 @@ public struct PlaceItem: Hashable, Sendable, Identifiable {
     public var unread: Int
     /// The user hid it from the rail; the inbox never is.
     public var isHidden = false
+    /// The colour it shows in: its own, else the one for every place.
+    public var theme = PlaceTheme.neutral
+    /// The colour the user gave it; nil takes the one for every place.
+    public var ownTheme: PlaceTheme?
 }
 
 /// The places as the app words and draws them; the core composes the list of them and what

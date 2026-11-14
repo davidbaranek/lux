@@ -6,6 +6,8 @@ import LuxCore
 final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, NSMenuDelegate {
     private let session: Session
     private let sidebarController: SidebarController
+    /// The chat list's model: the Settings window sets the places' colour on it.
+    var listModel: ChatListModel { sidebarController.listModel }
     var onAccount: (() -> Void)? {
         get { sidebarController.onAccount }
         set { sidebarController.onAccount = newValue }

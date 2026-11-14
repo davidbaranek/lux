@@ -67,6 +67,8 @@ final class RustChatList: Sendable {
     func reorder(_ places: [Place]) { list.reorder(places: places.map(CorePlace.init)) }
     func setHidden(_ place: Place, _ hidden: Bool) { list.setHidden(place: CorePlace(place), hidden: hidden) }
     func showAllPlaces() { list.showAllPlaces() }
+    func setTheme(_ place: Place, _ theme: PlaceTheme?) { list.setTheme(place: CorePlace(place), theme: theme.map(CoreTheme.init)) }
+    func setDefaultTheme(_ theme: PlaceTheme) { list.setDefaultTheme(theme: CoreTheme(theme)) }
 }
 
 /// Passes the core's batches on, mapped where they arrive, so the main actor only applies them;
@@ -114,8 +116,12 @@ private extension ChatListBatch {
                   places: update.places?.map { listed in
                       let place = Place(listed.place)
                       let avatar: ImageRef? = if case .space(let id) = place { listed.avatar.map { .room(id: id, version: $0) } } else { nil }
-                      return Places.item(place, unread: Int(listed.unread), isHidden: listed.isHidden, name: listed.name, avatar: avatar)
+                      var item = Places.item(place, unread: Int(listed.unread), isHidden: listed.isHidden, name: listed.name, avatar: avatar)
+                      item.theme = PlaceTheme(listed.theme)
+                      item.ownTheme = listed.ownTheme.map(PlaceTheme.init)
+                      return item
                   },
+                  theme: update.theme.map(PlaceTheme.init),
                   sections: update.sections?.map { header in
                       Header(id: header.id.key, title: header.title, style: header.style == .grid ? .grid : .list)
                   },

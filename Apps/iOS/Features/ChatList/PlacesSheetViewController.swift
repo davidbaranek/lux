@@ -9,7 +9,8 @@ import UIKit
 /// spaces' order the account keeps; the pinned order is this device's).
 /// In edit mode the handles reorder and the pins choose which places the bottom toolbar shows.
 /// A long press hides a place (the account keeps it, as the Mac's rail does) into the Hidden
-/// section at the foot, or shows it again.
+/// section at the foot, or shows it again. Each row's swatch in edit mode (and the long press)
+/// chooses the place's colour, which the account keeps.
 final class PlacesSheetViewController: UIViewController, UICollectionViewDelegate {
     /// The pinned places, then the rail's groups, then the hidden places.
     enum Group: Hashable { case pinned, places(Place.Group), hidden }
@@ -78,6 +79,7 @@ final class PlacesSheetViewController: UIViewController, UICollectionViewDelegat
             } else {
                 accessories.append(.insert(displayed: .whenEditing, actionHandler: { [weak self] in self?.setPinned(true, place) }))
             }
+            accessories.append(.customView(configuration: themeAccessory(item)))
             if pinned || (place.group != .folders && !item.isHidden) {
                 accessories.append(.reorder(displayed: .whenEditing, options: .init(showsVerticalSeparator: false)))
             }
@@ -185,8 +187,29 @@ final class PlacesSheetViewController: UIViewController, UICollectionViewDelegat
             let action = item.isHidden
                 ? UIAction(title: String(localized: "Show"), image: UIImage(systemName: "eye")) { _ in self?.model.setHidden(place, false) }
                 : UIAction(title: String(localized: "Hide"), image: UIImage(systemName: "eye.slash")) { _ in self?.model.setHidden(place, true) }
-            return UIMenu(children: [action])
+            return UIMenu(children: [action, self?.themeMenu(item)].compactMap(\.self))
         }
+    }
+
+    /// The place's colours: its own, or the one for every place.
+    private func themeMenu(_ item: PlaceItem) -> UIMenu {
+        ThemeMenu.menu(title: String(localized: "Colour"), current: item.ownTheme, defaultTheme: model.defaultTheme) { [weak self] theme in
+            self?.model.setTheme(item.id, theme)
+        }
+    }
+
+    /// In edit mode, the place's swatch: a tap opens its colours.
+    private func themeAccessory(_ item: PlaceItem) -> UICellAccessory.CustomViewConfiguration {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = ThemeMenu.swatch(item.ownTheme)
+        configuration.preferredSymbolConfigurationForImage = .init(pointSize: 20)
+        configuration.contentInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
+        let button = UIButton(configuration: configuration)
+        button.menu = themeMenu(item)
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityLabel = String(localized: "Colour")
+        button.accessibilityValue = item.ownTheme?.title ?? String(localized: "Default")
+        return .init(customView: button, placement: .trailing(displayed: .whenEditing), reservedLayoutWidth: .actual)
     }
 
     /// A drag stays in its group: networks among networks, spaces among spaces.

@@ -19,6 +19,7 @@ extension ChatListViewController {
     func updatePlaces() {
         title = model.places.first { $0.id == model.place }?.title ?? String(localized: "Chats")
         updateShortcuts()
+        updateTheme()
     }
 
     /// All chats, or one kind of them, and their order; the current choices are ticked.

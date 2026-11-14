@@ -122,13 +122,14 @@ final class RailButton: NSView {
 
     override func updateLayer() {
         let tint: NSColor = switch item?.icon {
-        case .symbol?: isSelected ? .controlAccentColor : .quaternaryLabelColor
+        case .symbol?: isSelected ? item?.theme.color ?? .controlAccentColor : .quaternaryLabelColor
         case .picture?: pictureShown ? .clear : Monogram.color(item?.title ?? "")
         default: .clear
         }
         tile.layer?.backgroundColor = tint.cgColor
         symbol.contentTintColor = isSelected ? .white : .secondaryLabelColor
-        indicator.layer?.backgroundColor = NSColor.labelColor.cgColor
+        // a place with its own colour shows it in its pill too.
+        indicator.layer?.backgroundColor = (item?.theme.color ?? .labelColor).cgColor
     }
 
     private func updateIndicator() {

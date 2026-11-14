@@ -24,6 +24,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     private let results: SearchResultsController
     private let search = NSSearchField()
     private let content = NSView()
+    /// The shown place's colour over the top of the list.
+    private let band = ThemeBand()
 
     init(session: Session) {
         self.session = session
@@ -48,11 +50,15 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         search.sendsSearchStringImmediately = true
         search.target = self
         search.action = #selector(searchChanged)
-        for view in [rail.view, search, content] {
+        for view in [band, rail.view, search, content] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
         NSLayoutConstraint.activate([
+            band.leadingAnchor.constraint(equalTo: rail.view.trailingAnchor),
+            band.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            band.topAnchor.constraint(equalTo: container.topAnchor),
+            band.heightAnchor.constraint(equalToConstant: ThemeBand.height),
             rail.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             rail.view.topAnchor.constraint(equalTo: container.topAnchor),
             rail.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -72,6 +78,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             listModel.place = place
             rail.select(place)
             onPlaceTitle?(placeTitle)
+            updateTheme()
         }
         list.onActivity = { [weak self] action in
             guard let self else { return }
@@ -88,11 +95,14 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             guard let self else { return }
             if let place { listModel.setHidden(place, hidden) } else { listModel.showAllPlaces() }
         }
+        rail.onTheme = { [weak self] place, theme in self?.listModel.setTheme(place, theme) }
         listModel.onPlaces = { [weak self] places in
             guard let self else { return }
             if let inbox = places.first(where: { $0.id == .inbox }) { onBadge?(inbox.unread) }
+            rail.defaultTheme = listModel.defaultTheme
             rail.show(places, selected: listModel.place)
             onPlaceTitle?(placeTitle)
+            updateTheme()
         }
         list.onSelect = { [weak self] row, focusEvent in self?.onOpen?(row, focusEvent) }
         results.onOpen = { [weak self] row, focusEvent in self?.onOpen?(row, focusEvent) }
@@ -105,6 +115,14 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             await settings.load()
             rail.showAccount(settings.profile)
         }
+    }
+
+    /// The shown place's colour: the band over the list, and the list's accent. Neutral keeps the
+    /// system's accent.
+    private func updateTheme() {
+        let theme = listModel.theme
+        band.theme = theme
+        list.accent = theme.color ?? .controlAccentColor
     }
 
     /// Cmd-F: the search field.

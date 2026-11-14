@@ -142,7 +142,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showSettings(_ sender: Any?) {
         guard session.isSignedIn else { return }
         if settings == nil {
-            settings = SettingsWindowController(session: session, model: SettingsModel(session: session)) { [weak self] in self?.signOut(nil) }
+            let list = (window.contentViewController as? MainSplitViewController)?.listModel
+            settings = SettingsWindowController(session: session, model: SettingsModel(session: session), list: list) { [weak self] in
+                self?.signOut(nil)
+            }
             settings?.window?.center()
         }
         settings?.showWindow(nil)

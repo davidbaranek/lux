@@ -4,13 +4,16 @@ import LuxCore
 /// The Settings window (Lux > Settings…, Cmd-,): a tab per area, in the window's toolbar, as Mac
 /// apps' settings are. One window, reused.
 final class SettingsWindowController: NSWindowController {
-    convenience init(session: Session, model: SettingsModel, signOut: @escaping () -> Void) {
+    convenience init(session: Session, model: SettingsModel, list: ChatListModel?, signOut: @escaping () -> Void) {
         let images = session.images
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         var panes: [(NSViewController, String, String)] = [
             (AccountSettingsController(model: model, images: images, signOut: signOut), String(localized: "Account"), "person.crop.circle"),
         ]
+        if let list {
+            panes.append((AppearanceSettingsController(list: list), String(localized: "Appearance"), "paintpalette"))
+        }
         if let networks = session.networks {
             panes.append((NetworksController(model: networks, mode: .settings), String(localized: "Networks"), "point.3.connected.trianglepath.dotted"))
         }

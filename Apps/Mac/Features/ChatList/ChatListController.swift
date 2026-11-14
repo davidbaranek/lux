@@ -16,6 +16,18 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
     private var scrollTop: NSLayoutConstraint!
     private var dataSource: NSTableViewDiffableDataSource<String, String>!
 
+    /// The shown place's accent: the selection and the unread times.
+    var accent = NSColor.controlAccentColor {
+        didSet {
+            guard accent != oldValue, isViewLoaded else { return }
+            table.enumerateAvailableRowViews { rowView, row in
+                (rowView as? ChatRowView)?.accent = accent
+                (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? ChatCellView)?.accent = accent
+                (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? PinnedGridView)?.accent = accent
+            }
+        }
+    }
+
     init(session: Session, model: ChatListModel) {
         self.session = session
         self.model = model
@@ -74,18 +86,22 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
                     ?? { let view = PinnedGridView(); view.identifier = PinnedGridView.reuse; return view }()
                 grid.onOpen = { [weak self] row in self?.choose(row) }
                 grid.menuProvider = { [weak self] row in self?.menu(for: row) }
+                grid.accent = self?.accent ?? .controlAccentColor
                 grid.show(self?.pinned ?? [], images: images)
                 return grid
             }
             let cell = table.makeView(withIdentifier: ChatCellView.reuse, owner: nil) as? ChatCellView ?? ChatCellView()
+            cell.accent = self?.accent ?? .controlAccentColor
             if let row = self?.rows[id] { cell.show(row, images: images) }
             cell.onHover = { [weak self] id in self?.model.prefetch(id) }
             return cell
         }
         // the rows keep their selection in the accent colour (ChatRowView).
-        dataSource.rowViewProvider = { table, _, _ in
-            table.makeView(withIdentifier: ChatRowView.reuse, owner: nil) as? ChatRowView
+        dataSource.rowViewProvider = { [weak self] table, _, _ in
+            let rowView = table.makeView(withIdentifier: ChatRowView.reuse, owner: nil) as? ChatRowView
                 ?? { let view = ChatRowView(); view.identifier = ChatRowView.reuse; return view }()
+            rowView.accent = self?.accent ?? .controlAccentColor
+            return rowView
         }
         // a space's own spaces head their chats, as a Discord server's categories do.
         dataSource.sectionHeaderViewProvider = { [weak self] table, _, section in

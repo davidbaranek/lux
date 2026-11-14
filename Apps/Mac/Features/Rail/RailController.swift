@@ -10,6 +10,10 @@ final class RailController: NSViewController {
     var onSelect: ((Place) -> Void)?
     /// A place hidden from the rail (true) or shown again; nil shows every hidden place.
     var onHide: ((Place?, Bool) -> Void)?
+    /// A place's own colour chosen, or (nil) the one for every place.
+    var onTheme: ((Place, PlaceTheme?) -> Void)?
+    /// The colour of the places without their own: the menu's Default names it.
+    var defaultTheme = PlaceTheme.neutral
     var onAccount: (() -> Void)?
 
     private let images: ImagePipeline?
@@ -110,9 +114,21 @@ final class RailController: NSViewController {
 
     // MARK: Hiding places
 
-    /// A place's menu: hide it (all but the inbox), and the hidden ones to show again.
+    /// A place's menu: its colour, hide it (all but the inbox), and the hidden ones to show again.
     private func menu(for place: Place) -> NSMenu? {
         let menu = NSMenu()
+        if let item = items.first(where: { $0.id == place }) {
+            let colour = NSMenuItem(title: String(localized: "Colour"), action: nil, keyEquivalent: "")
+            colour.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: nil)
+            let submenu = NSMenu()
+            for entry in ThemeMenu.items(current: item.ownTheme, defaultTheme: defaultTheme, target: self,
+                                         action: #selector(choseTheme(_:)), place: place) {
+                submenu.addItem(entry)
+            }
+            colour.submenu = submenu
+            menu.addItem(colour)
+            menu.addItem(.separator())
+        }
         if place != .inbox, let item = items.first(where: { $0.id == place }) {
             let hide = NSMenuItem(title: String(localized: "Hide \(item.title)"), action: #selector(hidePlace(_:)), keyEquivalent: "")
             hide.target = self
@@ -150,6 +166,11 @@ final class RailController: NSViewController {
         header.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)
         menu.addItem(header)
         return menu
+    }
+
+    @objc private func choseTheme(_ item: NSMenuItem) {
+        guard let choice = item.representedObject as? ThemeMenu.Choice, let place = choice.place else { return }
+        onTheme?(place, choice.theme)
     }
 
     @objc private func hidePlace(_ item: NSMenuItem) {
