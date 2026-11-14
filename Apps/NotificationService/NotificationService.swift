@@ -92,7 +92,7 @@ private final class Delivery: @unchecked Sendable {
             content.sound = message.isNoisy ? .default : nil
             // a merged chat's rooms in one group, as the chat list shows them.
             content.threadIdentifier = message.chatId
-            deliver(Self.communication(content, message) ?? content)
+            deliver(await Self.communication(content, message) ?? content)
         } catch {
             Log.app.error("notification: \(String(describing: error), privacy: .public)")
             deliverNeutral()
@@ -106,8 +106,9 @@ private final class Delivery: @unchecked Sendable {
 
     /// The notification as a message from a person (their picture and name over it, a group's
     /// picture and name for a group, Focus letting the people it allows through), when the system
-    /// takes it.
-    private static func communication(_ content: UNNotificationContent, _ message: PushedMessage) -> UNNotificationContent? {
+    /// takes it. The interaction is donated first, as the system asks: content updated from an
+    /// intent it has not been told of shows as the app's.
+    private static func communication(_ content: UNNotificationContent, _ message: PushedMessage) async -> UNNotificationContent? {
         let sender = INPerson(personHandle: INPersonHandle(value: message.senderName, type: .unknown), nameComponents: nil,
                               displayName: message.senderName, image: message.senderImage.map { INImage(imageData: $0) },
                               contactIdentifier: nil, customIdentifier: nil)
@@ -121,8 +122,13 @@ private final class Delivery: @unchecked Sendable {
         }
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
-        interaction.donate(completion: nil)
-        return try? content.updating(from: intent)
+        do {
+            try await interaction.donate()
+            return try content.updating(from: intent)
+        } catch {
+            Log.app.error("notification: not from a person: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// The account's user, as a group's other recipient.
