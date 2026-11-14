@@ -74,6 +74,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             }
             window.rootViewController = UINavigationController(rootViewController: list)
             notifications.openChat = { [weak list] room in list?.openChat(roomId: room) }
+            // another of the account's devices asks to verify: over whatever shows.
+            session.security?.onRequest = { [weak window] verification in
+                guard var top = window?.rootViewController else { return }
+                while let presented = top.presentedViewController { top = presented }
+                let sheet = UINavigationController(rootViewController: VerificationViewController(model: verification))
+                sheet.isModalInPresentation = true
+                top.present(sheet, animated: true)
+            }
             // signed in, the list up: a moment later is when asking to notify makes sense (the
             // system asks only once). The demo has no server to push.
             if !LaunchOptions.isDemo {
@@ -84,6 +92,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             }
         } else {
             notifications.openChat = nil
+            session.security?.onRequest = nil
             UNUserNotificationCenter.current().setBadgeCount(0)
             window.rootViewController = SignInViewController(session: session) { [weak self] in self?.show(signedIn: true) }
         }

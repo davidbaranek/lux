@@ -1,18 +1,28 @@
 import AppKit
 import LuxCore
 
-/// Encryption: whether this device reads the account's key backup, and the field for the recovery
-/// key that opens it.
+/// Encryption: whether this Mac is verified, the account's devices (verifying one that is not),
+/// the key backup with the field for the recovery key that opens it, and setting recovery up for
+/// an account that has none.
 final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate {
     private let model: SettingsModel
     private let session: Session
     private let verified = NSTextField(labelWithString: "")
+    private lazy var verify = NSButton(title: String(localized: "Verify This Mac…"), target: self, action: #selector(verifyDevice))
     private var observation: AnyObject?
+    private var securityObservation: AnyObject?
+    private let devices = NSStackView()
     private let status = NSTextField(labelWithString: "")
+    private lazy var setUpRecovery = NSButton(title: String(localized: "Set Up Recovery…"), target: self, action: #selector(startRecoverySetup))
+    private let explanation = NSTextField(wrappingLabelWithString: String(localized: """
+        Encrypted messages from before this device signed in are in your account's key backup. \
+        Enter the recovery key you saved when you set it up (in Lux, Element or another app).
+        """))
     private let key = NSTextField()
     private let unlock = NSButton()
     private let progress = NSProgressIndicator()
     private let message = NSTextField(wrappingLabelWithString: "")
+    private var keyRows: [NSGridRow] = []
 
     init(session: Session, model: SettingsModel) {
         self.session = session
@@ -40,25 +50,33 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
         progress.isDisplayedWhenStopped = false
         message.preferredMaxLayoutWidth = 340
         message.textColor = .secondaryLabelColor
-        let explanation = NSTextField(wrappingLabelWithString: String(localized: """
-            Encrypted messages from before this device signed in are in your account's key backup. \
-            Enter the recovery key you saved when you set it up (in Lux, Element or another app).
-            """))
         explanation.preferredMaxLayoutWidth = 340
         explanation.textColor = .secondaryLabelColor
+        devices.orientation = .vertical
+        devices.alignment = .leading
+        devices.spacing = 6
         let actions = NSStackView(views: [unlock, progress])
-        let verify = NSButton(title: String(localized: "Verify This Device…"), target: self, action: #selector(verifyDevice))
         let verifyRow = NSStackView(views: [verified, verify])
-        view = settingsForm([
+        let recoveryRow = NSStackView(views: [status, setUpRecovery])
+        let form = settingsForm([
             [NSTextField(labelWithString: String(localized: "This Mac:")), verifyRow],
-            [NSTextField(labelWithString: String(localized: "Key backup:")), status],
+            [NSTextField(labelWithString: String(localized: "Devices:")), devices],
+            [NSTextField(labelWithString: String(localized: "Key backup:")), recoveryRow],
             [NSGridCell.emptyContentView, explanation],
             [NSTextField(labelWithString: String(localized: "Recovery key:")), key],
             [NSGridCell.emptyContentView, actions],
             [NSGridCell.emptyContentView, message],
         ])
+        if let grid = form.subviews.first as? NSGridView {
+            grid.row(at: 1).yPlacement = .top
+            keyRows = (3...5).map { grid.row(at: $0) }
+        }
+        view = form
         observation = model.changes.observe { [weak self] in self?.update() }
+        securityObservation = session.security?.changes.observe { [weak self] in self?.updateDevices() }
         update()
+        updateDevices()
+        Task { await session.security?.loadDevices() }
     }
 
     private func update() {
@@ -67,11 +85,39 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
         case false?: String(localized: "Not verified")
         case nil: String(localized: "Checking…")
         }
+        verify.isHidden = model.isVerified != false
         status.stringValue = model.recovery.title
+        // an account without recovery sets it up; one with it opens it here with the key.
+        let disabled = model.recovery == .disabled
+        setUpRecovery.isHidden = !disabled || model.isVerified != true
+        for row in keyRows { row.isHidden = disabled }
         let open = model.recovery == .enabled
         key.isEnabled = !open
         if open { key.stringValue = "" }
         unlock.isEnabled = !open && !key.stringValue.isEmpty
+        updateDevices()
+    }
+
+    /// One row per device: its name, whether it is verified, and a button to verify one that is
+    /// not (only from a verified Mac).
+    private func updateDevices() {
+        let canVerify = model.isVerified == true
+        let rows = (session.security?.devices ?? []).map { device -> NSView in
+            let name = NSTextField(labelWithString: device.isThisDevice ? String(localized: "\(device.title) (this Mac)") : device.title)
+            let state = NSImageView(image: NSImage(systemSymbolName: device.isVerified ? "checkmark.shield" : "exclamationmark.shield",
+                                                   accessibilityDescription: device.isVerified ? String(localized: "Verified") : String(localized: "Not verified"))
+                ?? NSImage())
+            state.contentTintColor = device.isVerified ? .systemGreen : .systemOrange
+            let row = NSStackView(views: [state, name])
+            if !device.isVerified, !device.isThisDevice, canVerify {
+                let button = DeviceButton(title: String(localized: "Verify…"), target: self, action: #selector(verifyOther(_:)))
+                button.device = device
+                button.controlSize = .small
+                row.addArrangedSubview(button)
+            }
+            return row
+        }
+        devices.setViews(rows.isEmpty ? [NSTextField(labelWithString: String(localized: "Loading…"))] : rows, in: .top)
     }
 
     func controlTextDidChange(_ notification: Notification) {
@@ -83,6 +129,19 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
             Task { await self?.model.load() }
         }
         presentAsSheet(sheet)
+    }
+
+    @objc private func verifyOther(_ sender: DeviceButton) {
+        guard let device = sender.device else { return }
+        let sheet = VerificationController(model: VerificationModel(session: session, kind: .device(device))) { [weak self] in
+            Task { await self?.session.security?.loadDevices() }
+        }
+        presentAsSheet(sheet)
+    }
+
+    @objc private func startRecoverySetup() {
+        guard let security = session.security else { return }
+        presentAsSheet(RecoverySetupController(security: security))
     }
 
     @objc private func recover() {
@@ -105,4 +164,9 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
             }
         }
     }
+}
+
+/// A row's Verify button, with the device it verifies.
+private final class DeviceButton: NSButton {
+    var device: OwnDevice?
 }

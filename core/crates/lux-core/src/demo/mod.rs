@@ -11,9 +11,11 @@
 
 mod bridges;
 mod data;
+mod security;
 mod seeded;
 mod timeline;
 
+pub use security::{DEMO_RECOVERY_KEY, DemoEncryption, DemoVerification};
 pub use timeline::DemoTimelines;
 
 use std::collections::{HashMap, HashSet};
@@ -32,8 +34,8 @@ use crate::merge::{self, Merge};
 use crate::organizer::{LabelError, Organized, checked_name};
 use crate::places::Arrangement;
 use crate::ports::{
-    BackendError, ChatAccount, ChatActions, ChatChange, DiffStream, Organizing, SavedMessages, Scheduling, Spaces,
-    ThreadBackend, ValueStream,
+    BackendError, ChatAccount, ChatActions, ChatChange, DiffStream, EncryptionSetup, Organizing, OwnDevice,
+    RecoveryState, SavedMessages, Scheduling, Security, Spaces, ThreadBackend, ValueStream,
 };
 use crate::preview::{Preview, PreviewSource, Sender};
 
@@ -46,6 +48,10 @@ pub struct DemoConfig {
     pub start: SystemTime,
     /// How many messages each chat's timeline holds.
     pub messages_per_room: usize,
+    /// Where its encryption starts.
+    pub encryption: DemoEncryption,
+    /// A request to verify from another device arrives this long after the app listens.
+    pub verification_request_after: Option<Duration>,
 }
 
 impl DemoConfig {
@@ -60,6 +66,8 @@ impl DemoConfig {
             rooms,
             start: SystemTime::UNIX_EPOCH + Duration::from_secs(seconds - seconds % 60),
             messages_per_room: 200,
+            encryption: DemoEncryption::default(),
+            verification_request_after: None,
         }
     }
 }
@@ -77,6 +85,7 @@ pub struct DemoAccount {
     device: DeviceId,
     inner: Arc<Mutex<Inner>>,
     timelines: DemoTimelines,
+    security: security::DemoSecurity,
 }
 
 /// The account's state: what the user changed, and the lists as last sent. Each change runs
@@ -116,6 +125,7 @@ impl DemoAccount {
             .collect();
         let spaces: Arc<[Space]> = data::spaces(config.rooms).into();
         let messages_per_room = config.messages_per_room;
+        let security = security::DemoSecurity::new(config.encryption, config.verification_request_after);
         let mut inner = Inner {
             made,
             states: HashMap::new(),
@@ -146,6 +156,7 @@ impl DemoAccount {
             device: DeviceId::from("DEMODEVICE"),
             inner,
             timelines,
+            security,
         }
     }
 
@@ -544,6 +555,46 @@ impl SavedMessages for DemoAccount {
 impl Spaces for DemoAccount {
     fn spaces(&self) -> ValueStream<Arc<[Space]>> {
         watched(self.lock().spaces.subscribe())
+    }
+}
+
+impl Security for DemoAccount {
+    type Verification = DemoVerification;
+
+    async fn is_device_verified(&self) -> bool {
+        self.security.is_device_verified().await
+    }
+
+    fn encryption_setup(&self) -> ValueStream<EncryptionSetup> {
+        self.security.encryption_setup()
+    }
+
+    async fn verify_this_device(&self) -> Result<DemoVerification, BackendError> {
+        self.security.verify_this_device().await
+    }
+
+    async fn own_devices(&self) -> Result<Vec<OwnDevice>, BackendError> {
+        self.security.own_devices().await
+    }
+
+    async fn verify_device(&self, device: &str) -> Result<DemoVerification, BackendError> {
+        self.security.verify_device(device).await
+    }
+
+    fn verification_requests(&self) -> ValueStream<Arc<DemoVerification>> {
+        self.security.verification_requests()
+    }
+
+    fn recovery_state(&self) -> RecoveryState {
+        self.security.recovery_state()
+    }
+
+    async fn recover(&self, key: &str) -> Result<(), BackendError> {
+        self.security.recover(key).await
+    }
+
+    async fn set_up_recovery(&self) -> Result<String, BackendError> {
+        self.security.set_up_recovery().await
     }
 }
 

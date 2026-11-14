@@ -94,6 +94,9 @@ public final class Session {
     /// The networks the server bridges, the account's logins on them and the history they bring
     /// (made with the account).
     public private(set) var networks: NetworksModel?
+    /// What this device needs for encryption, and the verifications other devices ask for (made
+    /// with the account).
+    public private(set) var security: SecurityModel?
     /// A message was scheduled from a chat: the list reads the waiting ones again.
     public let scheduledChanges = Broadcast()
 
@@ -117,11 +120,25 @@ public final class Session {
             .appendingPathComponent("lux-media", isDirectory: true)
     }
 
+    /// Where the demo's encryption starts.
+    public enum DemoEncryption: Sendable {
+        case ready, unverified, noRecovery
+
+        /// As the launch arguments ask (`-LuxDemoUnverified`, `-LuxDemoNoRecovery`).
+        public static var launched: DemoEncryption {
+            LaunchOptions.demoUnverified ? .unverified : LaunchOptions.demoNoRecovery ? .noRecovery : .ready
+        }
+    }
+
     /// Demo data, for measurements and screenshots with no account (`-LuxDemo`): the Rust core's
-    /// made-up account with `rooms` chats of `messagesPerRoom` messages.
-    public static func demo(rooms: Int = 2_000, messagesPerRoom: Int = 3_000) -> Session {
+    /// made-up account with `rooms` chats of `messagesPerRoom` messages, its encryption starting at
+    /// `encryption`; with `verificationRequestAfter`, another of its devices asks to verify that
+    /// many seconds after the app listens.
+    public static func demo(rooms: Int = 2_000, messagesPerRoom: Int = 3_000, encryption: DemoEncryption = .launched,
+                            verificationRequestAfter: Int? = LaunchOptions.demoVerificationRequest ? 4 : nil) -> Session {
         let session = Session()
-        session.open(RustAccount.demo(rooms: rooms, messagesPerRoom: messagesPerRoom))
+        session.open(RustAccount.demo(rooms: rooms, messagesPerRoom: messagesPerRoom, encryption: encryption,
+                                      verificationRequestAfter: verificationRequestAfter))
         // a fresh index of the most recent made-up chats each run.
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-demo-search/index.sqlite")
         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
@@ -189,6 +206,7 @@ public final class Session {
         images = nil
         uploads = nil
         networks = nil
+        security = nil
         search = nil
         store = nil
         onAccountLost?()
@@ -328,7 +346,9 @@ public final class Session {
         images = nil
         uploads = nil
         networks = nil
+        security = nil
         Preferences.shared.networksWelcomed = false
+        Preferences.shared.recoverySetupOffered = false
     }
 
     /// An account signed in, or the demo's: open at once.
@@ -352,6 +372,7 @@ public final class Session {
         images = ImagePipeline(account: account, directory: mediaDirectory)
         uploads = Uploads(account: account, directory: outgoingDirectory)
         networks = NetworksModel(account: account, server: homeserver)
+        security = SecurityModel(account: account)
     }
 
     /// The account's encrypted store (its folder's `lux-search/index.sqlite`).

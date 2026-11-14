@@ -20,6 +20,7 @@ use crate::lifecycle::Lifecycle;
 use crate::live::LiveFeed;
 use crate::organizer::Organizer;
 use crate::room_list::{ChatList, Organizing, RequestList};
+use crate::security::IncomingVerifications;
 use crate::send_queue::QueueKeeper;
 use crate::session::SessionEnd;
 use crate::spaces::SpaceList;
@@ -46,6 +47,8 @@ pub struct MatrixAccount {
     _sending: QueueKeeper,
     /// The server's bridges, and the history they bring.
     pub(crate) bridges: BridgeLink,
+    /// The verifications the account's other devices ask for.
+    pub(crate) verification_requests: IncomingVerifications,
 }
 
 impl MatrixAccount {
@@ -78,6 +81,7 @@ impl MatrixAccount {
         let sending = QueueKeeper::start(client.clone(), sync.state());
         let session_end = SessionEnd::follow(&client);
         let bridges = BridgeLink::start(&client);
+        let verification_requests = IncomingVerifications::start(&client);
         sync.start().await;
         // the requests a failure, or the last launch, left unsent go out now.
         client.send_queue().set_enabled(true).await;
@@ -98,6 +102,7 @@ impl MatrixAccount {
             session_end,
             _sending: sending,
             bridges,
+            verification_requests,
         })
     }
 

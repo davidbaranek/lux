@@ -32,7 +32,9 @@ pub use organizing::{ChatActions, ChatChange, Organizing, SavedMessages, Schedul
 pub use people::{Contact, ContactAccount, ContactListing, ContactProblem, People, Profile};
 pub use push::{NotificationStream, Push};
 pub use secrets::{SecretStore, SecretStoreError, SessionSecrets, StoreKey};
-pub use security::{RecoveryState, Security, Verification, VerificationEmoji, VerificationStep};
+pub use security::{
+    DeviceTrust, EncryptionSetup, OwnDevice, RecoveryState, Security, Verification, VerificationEmoji, VerificationStep,
+};
 pub use sign_in::{LoginMethods, OAuthClient, OAuthSignIn, SignIn};
 pub use thread::ThreadBackend;
 pub use timeline::{ChatMedia, ChatSending, ChatTimelines, RoomChanges, TimelineHold, TypingStream};

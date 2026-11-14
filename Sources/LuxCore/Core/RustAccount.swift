@@ -46,11 +46,20 @@ final class RustAccount: Sendable {
         })
     }
 
-    /// The demo's made-up account (`-LuxDemo`): `rooms` chats of `messagesPerRoom` messages.
-    static func demo(rooms: Int, messagesPerRoom: Int) -> RustAccount {
+    /// The demo's made-up account (`-LuxDemo`): `rooms` chats of `messagesPerRoom` messages, its
+    /// encryption starting at `encryption`.
+    static func demo(rooms: Int, messagesPerRoom: Int, encryption: Session.DemoEncryption = .ready,
+                     verificationRequestAfter: Int? = nil) -> RustAccount {
         // the demo opens before any session: the core's runtime first.
         CoreRuntime.start()
-        return RustAccount(openDemo(rooms: UInt32(clamping: rooms), messagesPerRoom: UInt32(clamping: messagesPerRoom)),
+        let start: CoreDemoEncryption = switch encryption {
+        case .ready: .ready
+        case .unverified: .unverified
+        case .noRecovery: .noRecovery
+        }
+        return RustAccount(openDemo(rooms: UInt32(clamping: rooms), messagesPerRoom: UInt32(clamping: messagesPerRoom),
+                                    encryption: start,
+                                    verificationRequestAfterSeconds: verificationRequestAfter.map { UInt32(clamping: $0) }),
                            demo: DemoMedia())
     }
 

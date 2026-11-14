@@ -5,14 +5,17 @@ import UIKit
 /// from before it signed in.
 final class RecoveryKeyViewController: UIViewController, UITextViewDelegate {
     private let model: SettingsModel
+    /// The key opened the backup (and verified this device).
+    private let recovered: () -> Void
     private var observation: AnyObject?
     private let status = UILabel()
     private let key = UITextView()
     private let message = UILabel()
     private lazy var unlock = UIButton(configuration: .prominentGlass(), primaryAction: UIAction { [weak self] _ in self?.recover() })
 
-    init(model: SettingsModel) {
+    init(model: SettingsModel, recovered: @escaping () -> Void = {}) {
         self.model = model
+        self.recovered = recovered
         super.init(nibName: nil, bundle: nil)
         title = String(localized: "Key Backup")
     }
@@ -61,6 +64,7 @@ final class RecoveryKeyViewController: UIViewController, UITextViewDelegate {
         ])
         observation = model.changes.observe { [weak self] in self?.update() }
         update()
+        Task { await model.load() }
     }
 
     private func update() {
@@ -87,6 +91,7 @@ final class RecoveryKeyViewController: UIViewController, UITextViewDelegate {
                 key.text = ""
                 message.textColor = .secondaryLabel
                 message.text = String(localized: "Unlocked. Encrypted messages appear as their chats load.")
+                recovered()
             } catch {
                 message.textColor = .systemRed
                 message.text = error.localizedDescription

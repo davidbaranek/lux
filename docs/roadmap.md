@@ -11,6 +11,8 @@ What is done, and what comes next in order. How things work lives in
 - [x] The session and the stores' keys in the Keychain; every store encrypted at rest
 - [x] A session the server ends signs the app out
 - [x] Device verification (emoji), recovery key, key backup
+- [x] After sign-in: verify with another device or the recovery key; answer other devices' requests;
+      verify the account's other devices; set up recovery for a new account
 - [x] Messages from before the backup opened decrypted from it, in the list too
 
 ### Chat list
@@ -71,7 +73,7 @@ What is done, and what comes next in order. How things work lives in
 - [ ] Disappearing messages
 - [ ] Shared media
 - [ ] Spaces: create one, add chats
-- [ ] Settings: appearance, notifications, devices, recovery setup, sign out other sessions
+- [ ] Settings: appearance, notifications, sign out other sessions
 
 ### 3. Bridges in the app
 

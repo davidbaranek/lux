@@ -174,7 +174,11 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         model.onError = { [weak self] error in self?.report(error, of: "chat list") }
         networksObservation = session.networks?.changes.observe { [weak self] in self?.updateActivity() }
         Task { await model.reload() }
-        welcomeToNetworks()
+        Task {
+            // encryption first: the networks' welcome waits until this device can read.
+            await offerEncryptionSetup()
+            welcomeToNetworks()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -219,6 +223,28 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         case .signIn(let offer):
             guard let networks = session.networks else { return }
             present(NetworkSignInViewController(signIn: networks.signIn(to: offer)) {}, animated: true)
+        }
+    }
+
+    /// After signing in: what this device needs to read encrypted messages. An unverified device
+    /// is asked to verify at each launch; an account without recovery is offered it once. Returns
+    /// when the sheet is gone (or none was needed).
+    private func offerEncryptionSetup() async {
+        guard let security = session.security else { return }
+        let setup = await security.knownSetup()
+        guard presentedViewController == nil else { return }
+        let sheet: UIViewController
+        switch setup {
+        case .verifyThisDevice(let withRecoveryKey):
+            sheet = ConfirmIdentityViewController(session: session, withRecoveryKey: withRecoveryKey)
+        case .setUpRecovery where !Preferences.shared.recoverySetupOffered || LaunchOptions.demoNoRecovery:
+            if !LaunchOptions.isDemo { Preferences.shared.recoverySetupOffered = true }
+            sheet = RecoverySetupViewController(security: security)
+        case .setUpRecovery, .ready, .unknown:
+            return
+        }
+        await withCheckedContinuation { (finished: CheckedContinuation<Void, Never>) in
+            present(SheetNavigationController(root: sheet) { finished.resume() }, animated: true)
         }
     }
 
@@ -540,5 +566,24 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             }
         })
         present(alert, animated: true)
+    }
+}
+
+/// A sheet's navigation that tells when it is gone, closed by its own button or swiped away.
+private final class SheetNavigationController: UINavigationController {
+    private var gone: (() -> Void)?
+
+    init(root: UIViewController, gone: @escaping () -> Void) {
+        self.gone = gone
+        super.init(rootViewController: root)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard isBeingDismissed else { return }
+        gone?()
+        gone = nil
     }
 }

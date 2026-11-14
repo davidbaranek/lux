@@ -1,0 +1,515 @@
+//! Verification and recovery between two devices of one account, both Lux, against a mock
+//! homeserver that keeps what a real one keeps for them: keys, account data, the key backup, and
+//! the to-device messages one device sends the other.
+
+// the sdk's futures nest deeply.
+#![recursion_limit = "256"]
+// a test crate: a failed step is the test failing.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use lux_core::ports::{
+    EncryptionSetup, SecretStore, SecretStoreError, Security, SessionSecrets, SignIn, StoreKey, ValueStream,
+    Verification, VerificationEmoji, VerificationStep,
+};
+use lux_matrix::{MatrixAccount, MatrixSignIn, StoreFolder};
+use matrix_sdk::ruma::user_id;
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use serde_json::{Value, json};
+use wiremock::matchers::{method, path, path_regex};
+use wiremock::{Mock, Request, ResponseTemplate};
+
+const USER: &str = "@ada:example.org";
+
+/// The platform's Keychain, in memory.
+#[derive(Default)]
+struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
+
+impl SecretStore for MemorySecrets {
+    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
+        *self.0.lock().unwrap() = Some(secrets.clone());
+        Ok(())
+    }
+
+    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
+        Ok(self.1.lock().unwrap().clone())
+    }
+
+    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
+        *self.1.lock().unwrap() = Some(key.clone());
+        Ok(())
+    }
+
+    fn delete(&self) -> Result<(), SecretStoreError> {
+        *self.0.lock().unwrap() = None;
+        *self.1.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+/// What the homeserver keeps between requests.
+#[derive(Default)]
+struct Kept {
+    /// Each signed-in device, by its access token.
+    devices: HashMap<String, String>,
+    /// The devices still to sign in: their tokens and ids, in order.
+    logins: Vec<(String, String)>,
+    /// The to-device messages waiting for each device.
+    to_device: HashMap<String, Vec<Value>>,
+    /// The account's global account data, in the order it was written.
+    account_data: Vec<(String, Value)>,
+    /// How much of it each device has had.
+    account_data_seen: HashMap<String, usize>,
+    /// The key backup's version, once made.
+    backup: Option<Value>,
+    /// Each sliding sync connection's position.
+    positions: BTreeMap<String, u64>,
+}
+
+/// A homeserver for one account and its devices.
+struct Homeserver {
+    mock: MatrixMockServer,
+    kept: Arc<Mutex<Kept>>,
+    /// The devices' folders, kept until the end of the test.
+    folders: Vec<tempfile::TempDir>,
+}
+
+impl Homeserver {
+    async fn start() -> Self {
+        let mock = MatrixMockServer::new().await;
+        mock.mock_versions().with_simplified_sliding_sync().ok().mount().await;
+        // keys, cross-signing, signatures and one-time keys, kept per device.
+        mock.mock_crypto_endpoints_preset().await;
+        let kept = Arc::new(Mutex::new(Kept::default()));
+        let server = Self {
+            mock,
+            kept,
+            folders: Vec::new(),
+        };
+        server.mount().await;
+        server
+    }
+
+    fn kept(&self) -> std::sync::MutexGuard<'_, Kept> {
+        self.kept.lock().unwrap()
+    }
+
+    async fn mount(&self) {
+        let server = self.mock.server();
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/login"))
+            .respond_with(move |_: &Request| {
+                let mut kept = kept.lock().unwrap();
+                let (token, device) = kept.logins.remove(0);
+                kept.devices.insert(format!("Bearer {token}"), device.clone());
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "access_token": token, "device_id": device, "user_id": USER,
+                }))
+            })
+            .mount(server)
+            .await;
+
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/sendToDevice/([^/]+)/[^/]+$"))
+            .respond_with(move |request: &Request| {
+                let event_type = request.url.path().split('/').nth(5).unwrap().to_owned();
+                let event_type = urlencoding_decode(&event_type);
+                let body: Value = serde_json::from_slice(&request.body).unwrap();
+                let mut kept = kept.lock().unwrap();
+                let sender = device_of(&kept, request);
+                let all: Vec<String> = kept.devices.values().cloned().collect();
+                for (target, content) in body["messages"][USER].as_object().into_iter().flatten() {
+                    let targets: Vec<String> = if target == "*" {
+                        all.iter().filter(|device| **device != sender).cloned().collect()
+                    } else {
+                        vec![target.clone()]
+                    };
+                    for device in targets {
+                        kept.to_device.entry(device).or_default().push(json!({
+                            "sender": USER, "type": event_type, "content": content,
+                        }));
+                    }
+                }
+                ResponseTemplate::new(200).set_body_json(json!({}))
+            })
+            .mount(server)
+            .await;
+
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/user/[^/]+/account_data/[^/]+$"))
+            .respond_with(move |request: &Request| {
+                let event_type = urlencoding_decode(request.url.path().rsplit('/').next().unwrap());
+                let content: Value = serde_json::from_slice(&request.body).unwrap();
+                let mut kept = kept.lock().unwrap();
+                kept.account_data.retain(|(kind, _)| *kind != event_type);
+                kept.account_data.push((event_type, content));
+                // each device gets all of it again: what it had may have changed.
+                kept.account_data_seen.clear();
+                ResponseTemplate::new(200).set_body_json(json!({}))
+            })
+            .mount(server)
+            .await;
+
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/v3/user/[^/]+/account_data/[^/]+$"))
+            .respond_with(move |request: &Request| {
+                let event_type = urlencoding_decode(request.url.path().rsplit('/').next().unwrap());
+                let kept = kept.lock().unwrap();
+                match kept.account_data.iter().find(|(kind, _)| *kind == event_type) {
+                    Some((_, content)) => ResponseTemplate::new(200).set_body_json(content),
+                    None => not_found(),
+                }
+            })
+            .mount(server)
+            .await;
+
+        self.mount_backup().await;
+
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
+            .respond_with(move |request: &Request| sliding_sync(&kept, request))
+            .mount(server)
+            .await;
+    }
+
+    /// The key backup: none until a device makes one.
+    async fn mount_backup(&self) {
+        let server = self.mock.server();
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/v3/room_keys/version$"))
+            .respond_with(move |_: &Request| match &kept.lock().unwrap().backup {
+                Some(backup) => ResponseTemplate::new(200).set_body_json(backup),
+                None => not_found(),
+            })
+            .mount(server)
+            .await;
+
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/room_keys/version$"))
+            .respond_with(move |request: &Request| {
+                let mut body: Value = serde_json::from_slice(&request.body).unwrap();
+                body["version"] = json!("1");
+                body["count"] = json!(0);
+                body["etag"] = json!("0");
+                kept.lock().unwrap().backup = Some(body);
+                ResponseTemplate::new(200).set_body_json(json!({ "version": "1" }))
+            })
+            .mount(server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/v3/room_keys/keys"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "count": 0, "etag": "0" })))
+            .mount(server)
+            .await;
+    }
+
+    /// Signs a new device in, in its own folder.
+    async fn sign_in(&mut self, device: &str) -> MatrixAccount {
+        // the crypto endpoints know a device by its token: one they made.
+        let index = {
+            let kept = self.kept();
+            kept.devices.len() + kept.logins.len()
+        };
+        drop(
+            self.mock
+                .client_builder_for_crypto_end_to_end(user_id!("@ada:example.org"), device.into()),
+        );
+        self.kept().logins.push((format!("TOKEN_{index}"), device.to_owned()));
+        let folder = tempfile::tempdir().unwrap();
+        let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
+        self.folders.push(folder);
+        let uri = self.mock.uri();
+        let signing_in = sign_in.sign_in_with_password(&uri, "ada", "secret", device);
+        within("the sign-in", Box::pin(signing_in)).await.unwrap()
+    }
+}
+
+fn not_found() -> ResponseTemplate {
+    ResponseTemplate::new(404).set_body_json(json!({ "errcode": "M_NOT_FOUND", "error": "not found" }))
+}
+
+fn urlencoding_decode(text: &str) -> String {
+    url::form_urlencoded::parse(format!("x={text}").as_bytes())
+        .next()
+        .map(|(_, value)| value.into_owned())
+        .unwrap()
+}
+
+fn device_of(kept: &Kept, request: &Request) -> String {
+    let token = request.headers.get("authorization").unwrap().to_str().unwrap();
+    kept.devices.get(token).cloned().unwrap()
+}
+
+/// A sliding sync answer: the device's to-device messages and the account's keys changed on the
+/// encryption connection, the account data it has not had on the others; no rooms.
+fn sliding_sync(kept: &Mutex<Kept>, request: &Request) -> ResponseTemplate {
+    let body: Value = serde_json::from_slice(&request.body).unwrap_or_default();
+    let connection = body["conn_id"].as_str().unwrap_or_default().to_owned();
+    let mut kept = kept.lock().unwrap();
+    let device = device_of(&kept, request);
+    let position = {
+        let position = kept.positions.entry(format!("{device}/{connection}")).or_default();
+        *position += 1;
+        *position
+    };
+    let mut answer = json!({ "pos": position.to_string(), "lists": {}, "rooms": {} });
+    let mut news = false;
+    if connection == "encryption" {
+        let events = kept.to_device.remove(&device).unwrap_or_default();
+        news = !events.is_empty();
+        answer["extensions"] = json!({
+            "to_device": { "next_batch": position.to_string(), "events": events },
+            // the account's devices may have changed: each device asks again.
+            "e2ee": { "device_lists": { "changed": [USER], "left": [] } },
+        });
+    } else {
+        answer["lists"] = json!({ "all_rooms": { "count": 0 } });
+        let seen = kept.account_data_seen.get(&device).copied().unwrap_or_default();
+        let events: Vec<Value> = kept.account_data[seen..]
+            .iter()
+            .map(|(kind, content)| json!({ "type": kind, "content": content }))
+            .collect();
+        news = news || !events.is_empty();
+        let all = kept.account_data.len();
+        kept.account_data_seen.insert(device, all);
+        answer["extensions"] = json!({ "account_data": { "global": events } });
+    }
+    let template = ResponseTemplate::new(200).set_body_json(answer);
+    // nothing new: the server holds the request a moment, as a long poll does.
+    if news {
+        template
+    } else {
+        template.set_delay(Duration::from_millis(150))
+    }
+}
+
+async fn within<T>(what: &str, future: impl Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(30), future)
+        .await
+        .unwrap_or_else(|_| panic!("{what} did not happen in time"))
+}
+
+/// Waits for `setup` to say `wanted`.
+async fn setup_becomes(setup: &mut ValueStream<EncryptionSetup>, wanted: EncryptionSetup) {
+    within(&format!("{wanted:?}"), async {
+        while let Some(now) = setup.next().await {
+            if now == wanted {
+                return;
+            }
+        }
+        panic!("the setups ended before {wanted:?}");
+    })
+    .await;
+}
+
+/// Waits for the emojis to compare.
+async fn emojis(steps: &mut ValueStream<VerificationStep>) -> Vec<VerificationEmoji> {
+    within("the emojis", async {
+        while let Some(step) = steps.next().await {
+            match step {
+                VerificationStep::Compare(emojis) => return emojis,
+                VerificationStep::Done | VerificationStep::Cancelled | VerificationStep::Failed => {
+                    panic!("the verification ended at {step:?}")
+                }
+                _ => {}
+            }
+        }
+        panic!("the steps ended");
+    })
+    .await
+}
+
+async fn done(steps: &mut ValueStream<VerificationStep>) {
+    within("the end of the verification", async {
+        while let Some(step) = steps.next().await {
+            match step {
+                VerificationStep::Done => return,
+                VerificationStep::Cancelled | VerificationStep::Failed => panic!("the verification ended at {step:?}"),
+                _ => {}
+            }
+        }
+    })
+    .await;
+}
+
+/// A new account, set up with recovery on its first device: the key, and the device.
+async fn account_with_recovery(server: &mut Homeserver) -> (MatrixAccount, String) {
+    let first = server.sign_in("FIRSTDEVICE").await;
+    let mut setup = first.encryption_setup();
+    setup_becomes(&mut setup, EncryptionSetup::SetUpRecovery).await;
+    let key = within("the recovery's setup", first.set_up_recovery()).await.unwrap();
+    setup_becomes(&mut setup, EncryptionSetup::Ready).await;
+    (first, key)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_account_sets_up_recovery_and_its_key_verifies_the_next_device() {
+    let mut server = Homeserver::start().await;
+    let (first, key) = account_with_recovery(&mut server).await;
+    assert!(first.is_device_verified().await);
+    assert!(server.kept().backup.is_some(), "a key backup was made");
+    // once set up, it is not set up again.
+    assert!(first.set_up_recovery().await.is_err());
+
+    let second = server.sign_in("SECONDDEVICE").await;
+    let mut setup = second.encryption_setup();
+    setup_becomes(
+        &mut setup,
+        EncryptionSetup::VerifyThisDevice {
+            with_recovery_key: true,
+        },
+    )
+    .await;
+    assert!(second.recover("EsTx not the key").await.is_err());
+    within("the recovery", second.recover(&key)).await.unwrap();
+    setup_becomes(&mut setup, EncryptionSetup::Ready).await;
+    assert!(second.is_device_verified().await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_device_is_verified_by_accepting_its_request_on_another() {
+    let mut server = Homeserver::start().await;
+    let (first, _) = account_with_recovery(&mut server).await;
+    let mut requests = first.verification_requests();
+
+    let second = server.sign_in("SECONDDEVICE").await;
+    let mut setup = second.encryption_setup();
+    setup_becomes(
+        &mut setup,
+        EncryptionSetup::VerifyThisDevice {
+            with_recovery_key: true,
+        },
+    )
+    .await;
+    let asking = second.verify_this_device().await.unwrap();
+    let mut asking_steps = asking.steps();
+
+    let asked = within("the request", requests.next()).await.unwrap();
+    assert_eq!(
+        asked.other_device().map(|device| device.id),
+        Some("SECONDDEVICE".to_owned())
+    );
+    let mut asked_steps = asked.steps();
+    assert_eq!(asked_steps.next().await, Some(VerificationStep::Requested));
+    asked.accept().await.unwrap();
+
+    let (here, there) = tokio::join!(emojis(&mut asked_steps), emojis(&mut asking_steps));
+    assert_eq!(here, there, "both devices show the same emojis");
+    assert_eq!(here.len(), 7);
+    asked.confirm().await.unwrap();
+    asking.confirm().await.unwrap();
+    tokio::join!(done(&mut asked_steps), done(&mut asking_steps));
+
+    setup_becomes(&mut setup, EncryptionSetup::Ready).await;
+    assert!(second.is_device_verified().await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_verified_device_verifies_another_of_the_account() {
+    let mut server = Homeserver::start().await;
+    let (first, _) = account_with_recovery(&mut server).await;
+    let second = server.sign_in("SECONDDEVICE").await;
+    let mut requests = second.verification_requests();
+    let mut setup = second.encryption_setup();
+    setup_becomes(
+        &mut setup,
+        EncryptionSetup::VerifyThisDevice {
+            with_recovery_key: true,
+        },
+    )
+    .await;
+
+    let devices = within("the devices", async {
+        loop {
+            let devices = first.own_devices().await.unwrap();
+            if devices.len() == 2 {
+                return devices;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    assert!(devices[0].is_this_device && devices[0].is_verified, "this device first");
+    assert_eq!(devices[1].id, "SECONDDEVICE");
+    assert!(!devices[1].is_verified);
+    assert!(first.verify_device("FIRSTDEVICE").await.is_err(), "not this device");
+
+    let asking = first.verify_device("SECONDDEVICE").await.unwrap();
+    assert_eq!(
+        asking.other_device().map(|device| device.id),
+        Some("SECONDDEVICE".to_owned())
+    );
+    let mut asking_steps = asking.steps();
+    assert_eq!(asking_steps.next().await, Some(VerificationStep::Waiting));
+    let asked = within("the request", requests.next()).await.unwrap();
+    assert_eq!(
+        asked.other_device().map(|device| device.id),
+        Some("FIRSTDEVICE".to_owned())
+    );
+    let mut asked_steps = asked.steps();
+    asked.accept().await.unwrap();
+    let (here, there) = tokio::join!(emojis(&mut asking_steps), emojis(&mut asked_steps));
+    assert_eq!(here, there);
+    asking.confirm().await.unwrap();
+    asked.confirm().await.unwrap();
+    tokio::join!(done(&mut asking_steps), done(&mut asked_steps));
+
+    setup_becomes(&mut setup, EncryptionSetup::Ready).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn emojis_that_do_not_match_fail_on_both_devices() {
+    let mut server = Homeserver::start().await;
+    let (first, _) = account_with_recovery(&mut server).await;
+    let mut requests = first.verification_requests();
+    let second = server.sign_in("SECONDDEVICE").await;
+    let mut setup = second.encryption_setup();
+    setup_becomes(
+        &mut setup,
+        EncryptionSetup::VerifyThisDevice {
+            with_recovery_key: true,
+        },
+    )
+    .await;
+    let asking = second.verify_this_device().await.unwrap();
+    let mut asking_steps = asking.steps();
+    let asked = within("the request", requests.next()).await.unwrap();
+    let mut asked_steps = asked.steps();
+    asked.accept().await.unwrap();
+    tokio::join!(emojis(&mut asked_steps), emojis(&mut asking_steps));
+    asked.deny().await.unwrap();
+
+    for steps in [&mut asked_steps, &mut asking_steps] {
+        let last = within("the failure", async {
+            loop {
+                match steps.next().await {
+                    Some(step @ (VerificationStep::Failed | VerificationStep::Cancelled | VerificationStep::Done)) => {
+                        return step;
+                    }
+                    Some(_) => {}
+                    None => panic!("the steps ended"),
+                }
+            }
+        })
+        .await;
+        assert_eq!(last, VerificationStep::Failed);
+    }
+    assert!(!second.is_device_verified().await);
+}
