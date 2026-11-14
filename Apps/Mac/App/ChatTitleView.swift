@@ -40,9 +40,13 @@ final class ChatTitleView: NSStackView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    /// Space before the picture, so it lines up with the chat's messages below.
-    func lead(by inset: CGFloat) {
-        let inset = inset.rounded()
+    /// Starts the picture at `x` in the window, where the chat's messages start below: the space
+    /// before it grows or shrinks by the picture's distance from there, measured where the picture
+    /// is now (wherever the toolbar put the view), so lining up again moves nothing.
+    func lineUp(at x: CGFloat) {
+        layoutSubtreeIfNeeded()
+        let start = picture.convert(NSPoint.zero, to: nil).x
+        let inset = max(0, edgeInsets.left + x - start).rounded()
         guard abs(edgeInsets.left - inset) >= 1 else { return }
         edgeInsets.left = inset
     }
