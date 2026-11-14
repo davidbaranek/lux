@@ -4,7 +4,7 @@ import UIKit
 /// Settings: the account, encryption (the key backup), and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, encryption, privacy, session }
-    private enum Item: Hashable { case profile, networks, verify, recovery, readReceipts, searchIndex, signOut }
+    private enum Item: Hashable { case profile, networks, verify, devices, recovery, readReceipts, searchIndex, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -60,8 +60,12 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 }
                 content.image = UIImage(systemName: model.isVerified == true ? "checkmark.shield" : "exclamationmark.shield")
                 cell.accessories = [.disclosureIndicator()]
+            case .devices:
+                content.text = String(localized: "Devices")
+                content.image = UIImage(systemName: "laptopcomputer.and.iphone")
+                cell.accessories = [.disclosureIndicator()]
             case .recovery:
-                content.text = String(localized: "Key Backup")
+                content.text = model.recovery == .disabled ? String(localized: "Set Up Recovery") : String(localized: "Key Backup")
                 content.secondaryText = model.recovery.title
                 content.image = UIImage(systemName: "key")
                 cell.accessories = [.disclosureIndicator()]
@@ -94,7 +98,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendSections(Section.allCases)
         snapshot.appendItems([.profile], toSection: .account)
         snapshot.appendItems([.networks], toSection: .networks)
-        snapshot.appendItems([.verify, .recovery], toSection: .encryption)
+        snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -126,6 +130,12 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 Task { await self?.model.load() }
             }
             navigationController?.pushViewController(verification, animated: true)
+        case .devices?:
+            guard let security = session.security else { return }
+            navigationController?.pushViewController(DevicesViewController(session: session, security: security), animated: true)
+        case .recovery? where model.recovery == .disabled:
+            guard let security = session.security else { return }
+            navigationController?.pushViewController(RecoverySetupViewController(security: security), animated: true)
         case .recovery?:
             navigationController?.pushViewController(RecoveryKeyViewController(model: model), animated: true)
         case .signOut?:
