@@ -13,7 +13,7 @@ import UserNotifications
 /// need the session's Keychain item and the store shared with an extension (see
 /// `docs/architecture.md`).
 @MainActor
-final class MacNotifications: NSObject, UNUserNotificationCenterDelegate {
+final class MacNotifications: NSObject, @MainActor UNUserNotificationCenterDelegate {
     private let session: Session
     /// Opens a chat by one of its rooms.
     var openChat: ((String) -> Void)?
@@ -71,17 +71,15 @@ final class MacNotifications: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: UNUserNotificationCenterDelegate
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
         async -> UNNotificationPresentationOptions {
         let room = PushNotifications.room(of: notification.request.content.userInfo)
-        return await MainActor.run {
-            // the chat in front shows the message itself.
-            if let room, NSApp.isActive, isShowing(room) { return [] }
-            return [.banner, .list, .sound]
-        }
+        // the chat in front shows the message itself.
+        if let room, NSApp.isActive, isShowing(room) { return [] }
+        return [.banner, .list, .sound]
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         guard let action = NotificationAction(response) else { return }
         await handle(action)
     }
