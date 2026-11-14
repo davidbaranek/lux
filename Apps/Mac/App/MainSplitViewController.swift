@@ -38,6 +38,21 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        alignTitle()
+    }
+
+    /// The chat's picture in the toolbar starts where the chat's messages do (the row's side
+    /// margin, where a group's pictures are), whatever the toolbar's own spacing, sidebar width
+    /// and window.
+    private func alignTitle() {
+        guard !chatTitle.isHidden, chatTitle.window != nil, detail.view.window != nil else { return }
+        let messages = detail.view.convert(NSPoint(x: BubbleMetrics().sideMargin, y: 0), to: nil).x
+        let title = chatTitle.convert(NSPoint.zero, to: nil).x
+        chatTitle.lead(by: max(0, messages - (title - chatTitle.edgeInsets.left)))
+    }
+
     private func open(_ row: ChatRow?, focusEvent: String? = nil) {
         if let row {
             let thread = ThreadController(session: session, row: row, focusEvent: focusEvent)
@@ -46,6 +61,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             detail.show(thread)
             view.window?.title = row.name
             chatTitle.show(row, images: session.images)
+            alignTitle()
         } else {
             openThread = nil
             detail.show(Self.emptyState())
