@@ -48,9 +48,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     /// and window.
     private func alignTitle() {
         guard !chatTitle.isHidden, chatTitle.window != nil, detail.view.window != nil else { return }
-        let messages = detail.view.convert(NSPoint(x: BubbleMetrics().sideMargin, y: 0), to: nil).x
-        let title = chatTitle.convert(NSPoint.zero, to: nil).x
-        chatTitle.lead(by: max(0, messages - (title - chatTitle.edgeInsets.left)))
+        chatTitle.lineUp(at: detail.view.convert(NSPoint(x: BubbleMetrics().sideMargin, y: 0), to: nil).x)
     }
 
     private func open(_ row: ChatRow?, focusEvent: String? = nil) {
