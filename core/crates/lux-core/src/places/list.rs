@@ -12,6 +12,7 @@ use super::{Arrangement, ChatFilter, PlaceId, arranged_order};
 use crate::chat::{Chat, Folder, Snapshot, Space};
 use crate::ids::{ChatId, MediaId, RoomId};
 use crate::network::Network;
+use crate::preview::PreviewKind;
 
 /// A place in the list of places, arranged.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -265,8 +266,18 @@ impl ChatOrder {
 fn newest_message_first(chats: &[Arc<Chat>]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..chats.len()).collect();
     // `None` sorts first, so reversed it goes last; a stable sort keeps the server's order.
-    order.sort_by_key(|&index| Reverse(chats[index].date));
+    order.sort_by_key(|&index| Reverse(message_date(&chats[index])));
     order
+}
+
+/// When `chat`'s newest message was sent; none when its row tells of no message (the user let
+/// into a chat with none yet: "You joined").
+fn message_date(chat: &Chat) -> Option<SystemTime> {
+    let membership = chat
+        .preview
+        .as_ref()
+        .is_some_and(|preview| matches!(preview.kind, PreviewKind::Membership(_)));
+    chat.date.filter(|_| !membership)
 }
 
 /// The chats a place shows, in `ordering`, in sections: one untitled section for a
@@ -404,6 +415,7 @@ pub(super) mod tests {
 
     use super::*;
     use crate::chat::{Label, Request, SavedKind, SavedMessage};
+    use crate::preview::{Membership, Preview, PreviewSource, Sender};
 
     pub(in crate::places) fn chat(id: &str, network: &str) -> Chat {
         Chat {
@@ -582,6 +594,35 @@ pub(super) mod tests {
                 &sections(&snapshot, &PlaceId::INBOX, ChatOrder::NewestMessage)
             ),
             [["fresh", "middle", "joined", "empty"]]
+        );
+    }
+
+    #[test]
+    fn a_chat_with_no_message_but_the_users_arrival_goes_with_the_empty_ones() {
+        let snapshot = Snapshot {
+            chats: shared(vec![
+                Chat {
+                    date: Some(at(0)),
+                    preview: Some(Preview::new(
+                        PreviewSource::Membership(Membership::Joined),
+                        Sender::Own,
+                        false,
+                    )),
+                    ..chat("arrived", "matrix")
+                },
+                Chat {
+                    date: Some(at(0) - Duration::from_hours(24)),
+                    ..chat("written", "matrix")
+                },
+            ]),
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            chat_ids(
+                &snapshot,
+                &sections(&snapshot, &PlaceId::INBOX, ChatOrder::NewestMessage)
+            ),
+            [["written", "arrived"]]
         );
     }
 
