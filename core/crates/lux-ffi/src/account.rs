@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use eyeball_im::Vector;
 use futures_util::{FutureExt, StreamExt};
 use lux_core::chat::{Chat, Request};
-use lux_core::demo::{DemoAccount, DemoConfig};
+use lux_core::demo::{DemoAccount, DemoConfig, DemoEncryption};
 use lux_core::ids::RoomId;
 use lux_core::organizer::LabelError;
 use lux_core::ports::{
@@ -742,12 +742,37 @@ impl Drop for CoreAccount {
     }
 }
 
-/// The demo's made-up account with `rooms` rooms, `messages_per_room` messages in each chat.
+/// Where the demo's encryption starts.
+#[derive(Clone, Copy, uniffi::Enum)]
+pub enum CoreDemoEncryption {
+    /// Verified, with recovery.
+    Ready,
+    /// A new device that must verify (`-LuxDemoUnverified`).
+    Unverified,
+    /// A new account without recovery (`-LuxDemoNoRecovery`).
+    NoRecovery,
+}
+
+/// The demo's made-up account with `rooms` rooms, `messages_per_room` messages in each chat; its
+/// encryption starting at `encryption`, and, with `verification_request_after_seconds`, another
+/// device asking to verify that long after the app listens.
 #[uniffi::export]
 #[must_use]
-pub fn open_demo(rooms: u32, messages_per_room: u32) -> Arc<CoreAccount> {
+pub fn open_demo(
+    rooms: u32,
+    messages_per_room: u32,
+    encryption: CoreDemoEncryption,
+    verification_request_after_seconds: Option<u32>,
+) -> Arc<CoreAccount> {
     let config = DemoConfig {
         messages_per_room: usize::try_from(messages_per_room).unwrap_or(usize::MAX),
+        encryption: match encryption {
+            CoreDemoEncryption::Ready => DemoEncryption::Ready,
+            CoreDemoEncryption::Unverified => DemoEncryption::Unverified,
+            CoreDemoEncryption::NoRecovery => DemoEncryption::NoRecovery,
+        },
+        verification_request_after: verification_request_after_seconds
+            .map(|seconds| std::time::Duration::from_secs(seconds.into())),
         ..DemoConfig::new(usize::try_from(rooms).unwrap_or(usize::MAX))
     };
     Arc::new(CoreAccount {

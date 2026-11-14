@@ -20,6 +20,7 @@ mod people;
 mod places;
 mod push;
 mod runtime;
+mod security;
 mod share;
 mod store;
 mod thread;
