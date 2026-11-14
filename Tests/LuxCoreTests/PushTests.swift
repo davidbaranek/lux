@@ -45,6 +45,6 @@ struct PushTests {
 
     private func notification(room: String, chat: String, isGroup: Bool, kind: CorePreviewKind) -> CoreNotification {
         CoreNotification(roomId: room, eventId: "$e", chatId: room, chatName: chat, senderId: "@anna:example.org", senderName: "Anna", isGroup: isGroup, kind: kind,
-                         isNoisy: true, senderImage: nil, chatImage: nil)
+                         isNoisy: true, isLate: false, senderImage: nil, chatImage: nil)
     }
 }

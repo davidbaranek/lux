@@ -32,8 +32,11 @@ public struct PushedMessage: Sendable, Equatable {
     public var senderName: String
     public var chatName: String
     public var isGroup: Bool
-    /// The push rules give it a sound.
+    /// The push rules give it a sound (never when it came late).
     public var isNoisy: Bool
+    /// It came long after it was sent: history a bridge brings in, or a push held back while the
+    /// device was away. It shows quietly, without lighting the screen.
+    public var isLate: Bool
     /// Small pictures' image data (thumbnails): the sender's, and a group's. Nil when there is
     /// none, or it could not be had in time.
     public var senderImage: Data?
@@ -81,6 +84,7 @@ extension PushedMessage {
         chatName = notification.chatName
         isGroup = notification.isGroup
         isNoisy = notification.isNoisy
+        isLate = notification.isLate
         title = notification.isGroup ? notification.chatName : notification.senderName
         subtitle = notification.isGroup ? notification.senderName : ""
         // what happened, worded as the chat list words it, without a name: the title has it.

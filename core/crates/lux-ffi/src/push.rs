@@ -156,6 +156,8 @@ pub struct CoreNotification {
     pub kind: CorePreviewKind,
     /// It makes a sound.
     pub is_noisy: bool,
+    /// It came long after it was sent (history a bridge brings in): it shows quietly.
+    pub is_late: bool,
     /// The sender's picture, a small image file's bytes; none when it has none or could not be
     /// had in time.
     pub sender_image: Option<Vec<u8>>,
@@ -175,6 +177,7 @@ impl CoreNotification {
             is_group: notification.is_group,
             kind: notification.kind.into(),
             is_noisy: notification.is_noisy,
+            is_late: notification.is_late,
             sender_image: pictures.sender,
             chat_image: pictures.chat,
         }

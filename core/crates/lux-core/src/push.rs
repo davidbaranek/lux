@@ -127,12 +127,32 @@ pub struct Notification {
     pub is_group: bool,
     /// What the message is; a text on one line.
     pub kind: PreviewKind,
-    /// It makes a sound (the push rules say so).
+    /// It makes a sound (the push rules say so, and it did not come late).
     pub is_noisy: bool,
+    /// It was sent long before it arrived ([`Notification::arrived`]): history a bridge brings in
+    /// (keeping each message's own time), or a push held back while the device was away. It shows
+    /// without a sound and without lighting the screen.
+    pub is_late: bool,
     /// The sender's picture: theirs, else, in a chat of two, the chat's (the other person's).
     pub sender_picture: Option<MediaId>,
     /// A group's own picture; none in a chat of two (the sender's stands for it).
     pub chat_picture: Option<MediaId>,
+}
+
+impl Notification {
+    /// How much older than its arrival a message may be and still notify as new.
+    pub const LATE: Duration = Duration::from_mins(15);
+
+    /// The notification of a message sent at `sent` that arrived `now`: one that came
+    /// [late](Self::LATE) is quiet.
+    #[must_use]
+    pub fn arrived(mut self, sent: SystemTime, now: SystemTime) -> Self {
+        self.is_late = now.duration_since(sent).is_ok_and(|age| age > Self::LATE);
+        if self.is_late {
+            self.is_noisy = false;
+        }
+        self
+    }
 }
 
 /// What [`Notification::new`] needs of a chat and the event's sender.
@@ -203,6 +223,7 @@ impl Notification {
             is_group: chat.is_group,
             kind,
             is_noisy,
+            is_late: false,
             sender_picture: sender_picture.map(MediaId::from),
             chat_picture: chat.picture.filter(|_| chat.is_group).map(MediaId::from),
         }
@@ -449,5 +470,20 @@ mod tests {
         // the first was forgotten, the last is still known.
         assert!(live.admits(&synced(&events[0], start)));
         assert!(!live.admits(&synced(&events[LiveNotifications::REMEMBERED], start)));
+    }
+
+    #[test]
+    fn a_message_that_arrives_long_after_it_was_sent_is_quiet() {
+        let room = RoomId::from("!r:server");
+        let sent = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let new = |now: SystemTime| {
+            Notification::new(chat(&room, "Trip", true), event(), ANNA, PreviewKind::Image, true).arrived(sent, now)
+        };
+        let fresh = new(sent + Duration::from_secs(30));
+        assert!(fresh.is_noisy && !fresh.is_late);
+        let late = new(sent + Duration::from_hours(1));
+        assert!(!late.is_noisy && late.is_late);
+        // a server clock ahead of the device's is not late.
+        assert!(!new(sent - Duration::from_secs(30)).is_late);
     }
 }
