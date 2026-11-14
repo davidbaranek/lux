@@ -79,6 +79,9 @@ targets:
         UIBackgroundModes: [fetch]
         # the chats the user writes in, donated as conversations: the share sheet suggests them.
         NSUserActivityTypes: [INSendMessageIntent]
+        # export compliance: only standard encryption (Matrix's Olm and Megolm, TLS) in a
+        # mass-market messenger, exempt; App Store Connect asks nothing for each build (as Element X).
+        ITSAppUsesNonExemptEncryption: false
   # sends what another app shares to one chat, from the account's store shared with the app.
   Lux-iOS-Share:
     type: app-extension
@@ -195,6 +198,9 @@ targets:
         LuxBundleID: $(LUX_BUNDLE_ID)
         LuxPushGateway: $(LUX_PUSH_GATEWAY)
         LuxOAuthClientURI: $(LUX_OAUTH_CLIENT_URI)
+        # export compliance: only standard encryption (Matrix's Olm and Megolm, TLS) in a
+        # mass-market messenger, exempt; App Store Connect asks nothing for each build (as Element X).
+        ITSAppUsesNonExemptEncryption: false
     dependencies:
       - package: LuxKit
         product: LuxCore
