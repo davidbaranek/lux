@@ -8,7 +8,7 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use super::{Arrangement, ChatFilter, PlaceId, arranged_order};
+use super::{Arrangement, ChatFilter, PlaceId, Theme, arranged_order};
 use crate::chat::{Chat, Folder, Snapshot, Space};
 use crate::ids::{ChatId, MediaId, RoomId};
 use crate::network::Network;
@@ -27,6 +27,10 @@ pub struct ListedPlace {
     pub name: Option<String>,
     /// A space's picture.
     pub avatar: Option<MediaId>,
+    /// The colour it shows in: its own, else the one for every place.
+    pub theme: Theme,
+    /// The colour the user gave it, if any; `None` takes the one for every place.
+    pub own_theme: Option<Theme>,
 }
 
 /// What a section is.
@@ -202,7 +206,9 @@ pub(crate) fn places(snapshot: &Snapshot, arrangement: &Arrangement, now: System
         .into_iter()
         .filter_map(|index| {
             let (id, unread) = places[index].take()?;
-            let is_hidden = arrangement.hides(&keys[index].0);
+            let key = &keys[index].0;
+            let is_hidden = arrangement.hides(key);
+            let own_theme = arrangement.themes.get(key).copied();
             let (name, avatar) = match &id {
                 PlaceId::Space(room) => snapshot
                     .spaces
@@ -225,6 +231,8 @@ pub(crate) fn places(snapshot: &Snapshot, arrangement: &Arrangement, now: System
                 is_hidden,
                 name,
                 avatar,
+                theme: arrangement.theme_of(key),
+                own_theme,
             })
         })
         .collect()
@@ -554,6 +562,7 @@ pub(super) mod tests {
         let arrangement = Arrangement {
             order: vec!["network:signal".into()],
             hidden: ["network:whatsapp".into(), "folder:inbox".into()].into(),
+            ..Arrangement::default()
         };
         let places = places(&snapshot(), &arrangement, at(0));
         let networks: Vec<_> = places
@@ -566,6 +575,23 @@ pub(super) mod tests {
         );
         let hidden: Vec<_> = places.iter().filter(|place| place.is_hidden).cloned().collect();
         assert_eq!(ids(&hidden), ["network:whatsapp"]);
+    }
+
+    #[test]
+    fn each_place_lists_its_colour_and_whether_it_is_its_own() {
+        let arrangement = Arrangement {
+            theme: Theme::Green,
+            ..Arrangement::default()
+        }
+        .with_theme(PlaceId::Space("s".into()).key(), Some(Theme::Pink));
+        let places = places(&snapshot(), &arrangement, at(0));
+        let space = places
+            .iter()
+            .find(|place| place.id == PlaceId::Space("s".into()))
+            .unwrap();
+        assert_eq!((space.theme, space.own_theme), (Theme::Pink, Some(Theme::Pink)));
+        let inbox = places.iter().find(|place| place.id == PlaceId::INBOX).unwrap();
+        assert_eq!((inbox.theme, inbox.own_theme), (Theme::Green, None));
     }
 
     #[test]
