@@ -129,10 +129,10 @@ public final class NetworksModel {
     }
 
     /// A sign-in to `offer`'s network, the bridge's preferred way unless `flow` names another.
-    public func signIn(to offer: NetworkOffer, flow: NetworkAccount.Flow? = nil) -> NetworkSignIn {
-        var flow = flow
-        if flow == nil, case .account(let account)? = statuses[offer] { flow = account.flows.first }
-        return NetworkSignIn(account: account, offer: offer, flow: flow?.id ?? "") { [weak self] in
+    public func signIn(to offer: NetworkOffer) -> NetworkSignIn {
+        var flows: [NetworkAccount.Flow] = []
+        if case .account(let account)? = statuses[offer] { flows = account.flows }
+        return NetworkSignIn(account: account, offer: offer, flows: flows) { [weak self] in
             await self?.refresh(offer)
         }
     }
@@ -165,21 +165,34 @@ public final class NetworksModel {
 @MainActor
 public final class NetworkSignIn {
     public let offer: NetworkOffer
+    /// The ways the bridge signs in, the network's own first (`lux_core::bridges::LoginFlow`).
+    public let flows: [NetworkAccount.Flow]
+    /// The way under way.
+    public private(set) var flow: NetworkAccount.Flow?
     private let account: Task<RustAccount, any Error>
-    private let flow: String
     private let finished: () async -> Void
     /// The step under way, to cancel at the bridge if the user gives up.
     private var current: NetworkLoginStep.ID?
 
-    init(account: Task<RustAccount, any Error>, offer: NetworkOffer, flow: String, finished: @escaping () async -> Void) {
+    init(account: Task<RustAccount, any Error>, offer: NetworkOffer, flows: [NetworkAccount.Flow], finished: @escaping () async -> Void) {
         self.account = account
         self.offer = offer
-        self.flow = flow
+        self.flows = flows
+        flow = flows.first
         self.finished = finished
     }
 
-    public func start() async throws -> NetworkLoginStep {
-        try await went(account.value.startNetworkLogin(offer, flow: flow))
+    /// The other ways to sign in than the one under way.
+    public var otherFlows: [NetworkAccount.Flow] { flows.filter { $0 != flow } }
+
+    /// Starts the sign-in, the way `flow` names, else the one under way (the network's own first);
+    /// one under way at the bridge is cancelled.
+    public func start(with flow: NetworkAccount.Flow? = nil) async throws -> NetworkLoginStep {
+        if let flow, flow != self.flow {
+            cancel()
+            self.flow = flow
+        }
+        return try await went(account.value.startNetworkLogin(offer, flow: self.flow?.id ?? ""))
     }
 
     /// Answers a form's or a website's step.

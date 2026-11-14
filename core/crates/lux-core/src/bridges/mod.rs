@@ -148,6 +148,26 @@ pub struct LoginFlow {
     pub description: String,
 }
 
+impl LoginFlow {
+    /// Whether the user signs in where the network itself asks (its website, its app's QR code):
+    /// the network sees its own sign-in, with its own checks, where a password sent through a
+    /// bridge's copy of the network's app API is often refused.
+    #[must_use]
+    pub fn is_networks_own(&self) -> bool {
+        let words = format!("{} {}", self.name, self.description).to_lowercase();
+        ["cookie", "qr", "website", "browser"]
+            .iter()
+            .any(|word| words.contains(word))
+    }
+
+    /// The flows the apps offer, the networks' own sign-ins first, each kind in the bridge's order.
+    #[must_use]
+    pub fn ordered(mut flows: Vec<Self>) -> Vec<Self> {
+        flows.sort_by_key(|flow| !flow.is_networks_own());
+        flows
+    }
+}
+
 /// A step of a sign-in, as the bridge asks for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoginStep {
@@ -360,6 +380,24 @@ mod tests {
                     provisioning: "https://example.org/ig".to_owned()
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn a_networks_own_sign_in_comes_before_a_password_through_the_bridge() {
+        let flow = |id: &str, description: &str| LoginFlow {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            description: description.to_owned(),
+        };
+        let ordered = LoginFlow::ordered(vec![
+            flow("instagram-native", "Log in with your username and password"),
+            flow("instagram", "Login using cookies from instagram.com"),
+            flow("qr", "Scan a QR code"),
+        ]);
+        assert_eq!(
+            ordered.iter().map(|flow| flow.id.as_str()).collect::<Vec<_>>(),
+            ["instagram", "qr", "instagram-native"]
         );
     }
 

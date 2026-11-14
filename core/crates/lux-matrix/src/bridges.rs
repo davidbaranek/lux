@@ -340,14 +340,16 @@ fn account(offer: &BridgeOffer, whoami: &Value) -> BridgeAccount {
             }
         })
         .collect();
-    let flows = list("login_flows")
-        .iter()
-        .map(|flow| LoginFlow {
-            id: text(flow, "id"),
-            name: text(flow, "name"),
-            description: text(flow, "description"),
-        })
-        .collect();
+    let flows = LoginFlow::ordered(
+        list("login_flows")
+            .iter()
+            .map(|flow| LoginFlow {
+                id: text(flow, "id"),
+                name: text(flow, "name"),
+                description: text(flow, "description"),
+            })
+            .collect(),
+    );
     BridgeAccount {
         network: offer.network.clone(),
         logins,
