@@ -161,8 +161,6 @@ pub struct CoreNotification {
     /// The sender's picture, a small image file's bytes; none when it has none or could not be
     /// had in time.
     pub sender_image: Option<Vec<u8>>,
-    /// A group's picture, the same way.
-    pub chat_image: Option<Vec<u8>>,
 }
 
 impl CoreNotification {
@@ -179,7 +177,6 @@ impl CoreNotification {
             is_noisy: notification.is_noisy,
             is_late: notification.is_late,
             sender_image: pictures.sender,
-            chat_image: pictures.chat,
         }
     }
 }

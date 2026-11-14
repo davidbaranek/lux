@@ -439,8 +439,6 @@ async fn the_extension_names_the_merged_chat_and_brings_the_pictures() {
     assert_eq!(notification.event.as_str(), "$hello");
     let pictures = notifications.pictures(&notification).await;
     assert_eq!(pictures.sender.as_deref(), Some(&b"anna's face"[..]));
-    // a chat of two has no group picture.
-    assert_eq!(pictures.chat, None);
 }
 
 #[tokio::test(flavor = "multi_thread")]

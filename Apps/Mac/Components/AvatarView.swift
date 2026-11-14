@@ -54,7 +54,7 @@ final class AvatarView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: side, height: side))
         wantsLayer = true
         layer?.cornerRadius = side / 2
-        initials.font = .systemFont(ofSize: side * 0.38, weight: .semibold)
+        initials.font = .systemFont(ofSize: Monogram.fontSize(side), weight: .semibold)
         initials.textColor = .white
         initials.alignment = .center
         image.onImage = { [weak self] shown in self?.placeholder(hidden: shown) }
@@ -123,9 +123,8 @@ final class AvatarView: NSView {
     }
 
     func show(_ ref: ImageRef?, name: String, images: ImagePipeline?) {
-        let words = name.split(whereSeparator: { $0 == " " || $0 == "-" }).filter { $0.first?.isLetter == true }
-        initials.stringValue = String(words.prefix(2).compactMap(\.first)).uppercased()
-        color = Self.color(name)
+        initials.stringValue = Monogram.initials(name)
+        color = Monogram.color(name)
         image.show(ref, pixels: Int(side * (window?.backingScaleFactor ?? 2)), shape: .circle, images: images)
         placeholder(hidden: image.hasImage)
     }
@@ -137,11 +136,5 @@ final class AvatarView: NSView {
     private func placeholder(hidden: Bool) {
         initials.isHidden = hidden
         layer?.backgroundColor = (hidden ? NSColor.clear : color).cgColor
-    }
-
-    private static let palette: [NSColor] = [.systemBlue, .systemGreen, .systemOrange, .systemPink, .systemPurple, .systemTeal, .systemIndigo, .systemRed]
-
-    static func color(_ name: String) -> NSColor {
-        palette[Int(name.unicodeScalars.reduce(0) { ($0 &* 31 &+ $1.value) % 9_973 }) % palette.count]
     }
 }

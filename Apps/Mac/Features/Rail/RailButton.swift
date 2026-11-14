@@ -123,7 +123,7 @@ final class RailButton: NSView {
     override func updateLayer() {
         let tint: NSColor = switch item?.icon {
         case .symbol?: isSelected ? .controlAccentColor : .quaternaryLabelColor
-        case .picture?: pictureShown ? .clear : AvatarView.color(item?.title ?? "")
+        case .picture?: pictureShown ? .clear : Monogram.color(item?.title ?? "")
         default: .clear
         }
         tile.layer?.backgroundColor = tint.cgColor

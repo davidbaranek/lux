@@ -57,7 +57,7 @@ final class AvatarView: UIView {
         super.layoutSubviews()
         layer.cornerRadius = bounds.width / 2
         // the initials scale with the circle (a list's 52 pt, a chat's 28 pt).
-        initials.font = .systemFont(ofSize: max(bounds.width * 0.38, 10), weight: .semibold)
+        initials.font = .systemFont(ofSize: max(Monogram.fontSize(bounds.width), 10), weight: .semibold)
     }
 
     /// A group with no picture: two members' pictures, one up left and one down right over it
@@ -109,16 +109,16 @@ final class AvatarView: UIView {
     }
 
     func show(_ ref: ImageRef?, name: String, images: ImagePipeline?) {
-        initials.text = Self.initials(name)
-        color = Self.color(name)
+        initials.text = Monogram.initials(name)
+        color = Monogram.color(name)
         imageView.show(ref, pixels: Self.pixels(side, traitCollection), shape: .circle, images: images)
         placeholder(hidden: imageView.image != nil)
     }
 
     /// A picture had without the pipeline (the share extension's), over the name's initials.
     func show(_ image: UIImage?, name: String) {
-        initials.text = Self.initials(name)
-        color = Self.color(name)
+        initials.text = Monogram.initials(name)
+        color = Monogram.color(name)
         imageView.image = image
         placeholder(hidden: image != nil)
     }
@@ -133,15 +133,4 @@ final class AvatarView: UIView {
     }
 
     static func pixels(_ side: CGFloat, _ traits: UITraitCollection) -> Int { Int(side * traits.displayScale) }
-
-    static func initials(_ name: String) -> String {
-        let words = name.split(whereSeparator: { $0 == " " || $0 == "-" }).filter { $0.first?.isLetter == true }
-        return String(words.prefix(2).compactMap(\.first)).uppercased()
-    }
-
-    private static let palette: [UIColor] = [.systemBlue, .systemGreen, .systemOrange, .systemPink, .systemPurple, .systemTeal, .systemIndigo, .systemRed]
-
-    static func color(_ name: String) -> UIColor {
-        palette[Int(name.unicodeScalars.reduce(0) { ($0 &* 31 &+ $1.value) % 9_973 }) % palette.count]
-    }
 }

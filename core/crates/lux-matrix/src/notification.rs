@@ -44,8 +44,6 @@ const PICTURE_TIME: Duration = Duration::from_secs(3);
 pub struct NotificationPictures {
     /// The sender's.
     pub sender: Option<Vec<u8>>,
-    /// The group's.
-    pub chat: Option<Vec<u8>>,
 }
 
 /// The account's pushed events, read one at a time.
@@ -114,14 +112,12 @@ impl MatrixNotifications {
         Ok(PushedEvent::Shown(notification(room, event, &item, &chat, merge)))
     }
 
-    /// The pictures `notification` names: from the media cache, else fetched, both at once; one
-    /// that cannot be had in [`PICTURE_TIME`] is none.
+    /// The picture `notification` names: from the media cache, else fetched; none when it cannot
+    /// be had in [`PICTURE_TIME`].
     pub async fn pictures(&self, notification: &Notification) -> NotificationPictures {
-        let (sender, chat) = futures_util::join!(
-            self.picture(notification.sender_picture.as_ref()),
-            self.picture(notification.chat_picture.as_ref())
-        );
-        NotificationPictures { sender, chat }
+        NotificationPictures {
+            sender: self.picture(notification.sender_picture.as_ref()).await,
+        }
     }
 
     async fn picture(&self, media: Option<&MediaId>) -> Option<Vec<u8>> {
@@ -300,8 +296,7 @@ mod tests {
         let notification = read(&item, None);
         assert_eq!(notification.kind, PreviewKind::Image);
         assert!(notification.is_group);
-        // the group has no picture of its own: none, and the sender's for the sender.
-        assert_eq!(notification.chat_picture, None);
+        // the sender's picture, in a group too.
         assert_eq!(
             notification.sender_picture.as_ref().map(MediaId::as_str),
             Some("mxc://example.org/anna")
