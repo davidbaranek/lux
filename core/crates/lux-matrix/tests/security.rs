@@ -73,6 +73,8 @@ struct Kept {
     backup: Option<Value>,
     /// Each sliding sync connection's position.
     positions: BTreeMap<String, u64>,
+    /// A device whose keys do not reach the server yet: it refuses their upload.
+    held_uploads: Option<String>,
 }
 
 /// A homeserver for one account and its devices.
@@ -105,6 +107,19 @@ impl Homeserver {
 
     async fn mount(&self) {
         let server = self.mock.server();
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/keys/upload"))
+            .and(move |request: &Request| {
+                let kept = kept.lock().unwrap();
+                kept.held_uploads.as_ref() == Some(&device_of(&kept, request))
+            })
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "errcode": "M_UNKNOWN" })))
+            // before the preset's, which keeps them.
+            .with_priority(1)
+            .mount(server)
+            .await;
+
         let kept = Arc::clone(&self.kept);
         Mock::given(method("POST"))
             .and(path("/_matrix/client/v3/login"))
@@ -381,6 +396,31 @@ async fn a_new_account_sets_up_recovery_and_its_key_verifies_the_next_device() {
     within("the recovery", second.recover(&key)).await.unwrap();
     setup_becomes(&mut setup, EncryptionSetup::Ready).await;
     assert!(second.is_device_verified().await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_recovery_key_waits_for_the_device_keys_to_reach_the_server() {
+    let mut server = Homeserver::start().await;
+    let (_first, key) = account_with_recovery(&mut server).await;
+    server.kept().held_uploads = Some("SECONDDEVICE".to_owned());
+    let second = server.sign_in("SECONDDEVICE").await;
+    let mut setup = second.encryption_setup();
+    setup_becomes(
+        &mut setup,
+        EncryptionSetup::VerifyThisDevice {
+            with_recovery_key: true,
+        },
+    )
+    .await;
+    // the key, entered while the device's keys are still on their way.
+    let kept = Arc::clone(&server.kept);
+    let arrive = async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        kept.lock().unwrap().held_uploads = None;
+    };
+    let (recovered, ()) = tokio::join!(within("the recovery", second.recover(&key)), arrive);
+    recovered.unwrap();
+    setup_becomes(&mut setup, EncryptionSetup::Ready).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
