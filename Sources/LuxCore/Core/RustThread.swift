@@ -83,7 +83,7 @@ public final class ThreadCore: Sendable {
     func delete(_ messageId: String) { view.delete(messageId: messageId) }
     func retry(_ messageId: String) { view.retry(messageId: messageId) }
     func discard(_ messageId: String) { view.discard(messageId: messageId) }
-    func forward(_ messageId: String, to roomId: String) { view.forward(messageId: messageId, targetRoomId: roomId) }
+    func forward(_ messageId: String, to chatId: String) { view.forward(messageId: messageId, targetChatId: chatId) }
     func save(_ messageId: String) { view.save(messageId: messageId) }
     func unsave(_ messageId: String) { view.unsave(messageId: messageId) }
     func didReadLatest() { view.didReadLatest() }

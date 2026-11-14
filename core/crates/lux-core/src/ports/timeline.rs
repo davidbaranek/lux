@@ -11,7 +11,7 @@ use std::time::SystemTime;
 
 use futures_core::Stream;
 
-use crate::ids::{EventId, MessageId, MessageRef, RoomId};
+use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId};
 use crate::message::SendState;
 use crate::timeline::{Draft, ImageSource, OutgoingAttachment, Receipt, TextHistory, TimelineMessage, Typist};
 
@@ -164,12 +164,13 @@ pub trait ChatSending: Send + Sync {
         message: &MessageId,
     ) -> impl Future<Output = Result<Option<SendState>, BackendError>> + Send;
 
-    /// Sends a copy of a message (its media too, without uploading it again) to `target`.
+    /// Sends a copy of a message (its media too, without uploading it again) to the chat
+    /// `target`: a merged chat's default room.
     fn forward(
         &self,
         room: &RoomId,
         message: &MessageId,
-        target: &RoomId,
+        target: &ChatId,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// The draft kept for the room.

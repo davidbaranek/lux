@@ -176,6 +176,11 @@ fn lock(inner: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
 pub(crate) struct SentMessages(Arc<Mutex<Inner>>);
 
 impl SentMessages {
+    /// The room a message to `chat` goes to (a merged chat's default room).
+    pub(crate) fn send_room(&self, chat: &ChatId) -> Option<RoomId> {
+        chat.send_room(&lock(&self.0).merges)
+    }
+
     /// The user sent `body` in `room` at `at`.
     pub(crate) fn sent(&self, room: &RoomId, body: &str, at: SystemTime) {
         let mut inner = lock(&self.0);
@@ -648,6 +653,27 @@ mod tests {
         assert_eq!(preview.kind, PreviewKind::Text("on my way".to_owned()));
         assert_eq!(preview.author, Some(Author::Own));
         assert!(first.date > rows[1].date);
+    }
+
+    #[tokio::test]
+    async fn a_message_forwarded_to_a_merged_chat_goes_to_its_default_room() {
+        // made-up messages up to now: the forwarded one, sent now, is the newest.
+        let demo = DemoAccount::new(DemoConfig::new(30));
+        let jana = ChatId::from("merge:demo-jana");
+        demo.timelines()
+            .forward(&RoomId::from("!room20:demo"), &"!room20:demo/5".into(), &jana)
+            .await
+            .unwrap();
+        // the default room (`!room4:demo`) took it: the merged chat is the newest.
+        let snapshot = demo.snapshot();
+        let newest = snapshot.chats.iter().max_by_key(|chat| chat.date).unwrap();
+        assert_eq!(newest.id, jana);
+        let gone = ChatId::from("merge:gone");
+        let refused = demo
+            .timelines()
+            .forward(&RoomId::from("!room20:demo"), &"!room20:demo/5".into(), &gone)
+            .await;
+        assert!(refused.is_err());
     }
 
     #[tokio::test]
