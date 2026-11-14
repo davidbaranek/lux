@@ -231,6 +231,9 @@ device the server knows.
 | An ended session signs out | a token the server refuses and none can refresh ends the session; the app asks to sign in | `session.rs`, `Session.swift` |
 | The background closes the stores | iOS ends an app holding a file lock in the App Group at suspension; the sync stops and the stores close | `lifecycle.rs` |
 | Muted chats push nothing | muting writes push rules without actions; mentions-only still pushes mentions | `actions.rs`, `tests/push.rs` |
+| What a device needs, decided once | trust and recovery map to one `EncryptionSetup` in `lux-core`; the apps only show it. The SDK cannot tell "no identity" from "not asked yet", so the server is asked | `ports/security.rs`, `lux-matrix/src/security.rs` |
+| One emoji comparison per verification | the device that asked starts it; if the other starts one too, the spec keeps the smaller device id's and the SDK swaps it into the request, so the follower switches to the request's current SAS | `lux-matrix/src/security.rs` |
+| Recovery never replaces | setting it up makes an identity only when the server has none, and refuses when a backup exists | `security.rs`, `tests/security.rs` |
 | The build's identity in one file | bundle id, App Group, push gateway and OAuth client come from one xcconfig | `Config/Lux.xcconfig` |
 
 Known SDK issue (matrix-rust-sdk 14a0ada): a `SyncService::stop` sent right after `start`, before
