@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // the demo has no server: nothing to notify.
             if !LaunchOptions.isDemo { notifications?.start() }
+            welcomeToNetworks()
         } else {
             notifications?.stop()
             notifications?.openChat = nil
@@ -71,6 +72,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.titleVisibility = .visible
             window.title = "Lux"
             window.contentViewController = SignInController(session: session) { [weak self] in self?.show(signedIn: true) }
+        }
+    }
+
+    /// After signing in, once: the server's networks, to pick the ones to bring. Their states load
+    /// either way, for the list's bubble.
+    private func welcomeToNetworks() {
+        guard let networks = session.networks else { return }
+        Task {
+            await networks.load()
+            let welcomed = Preferences.shared.networksWelcomed && !LaunchOptions.showsNetworksWelcome
+            guard !welcomed, !LaunchOptions.isDemo || LaunchOptions.showsNetworksWelcome, window.attachedSheet == nil else { return }
+            // the demo never marks the account's welcome as shown.
+            if !LaunchOptions.isDemo { Preferences.shared.networksWelcomed = true }
+            guard !networks.offered.isEmpty, networks.hasNoLogins else { return }
+            let welcome = NetworksController(model: networks, mode: .welcome)
+            let sheet = NSWindow(contentViewController: welcome)
+            sheet.styleMask = [.titled]
+            welcome.onDone = { [weak self, weak sheet] in
+                if let sheet { self?.window.endSheet(sheet) }
+            }
+            window.beginSheet(sheet, completionHandler: nil)
         }
     }
 

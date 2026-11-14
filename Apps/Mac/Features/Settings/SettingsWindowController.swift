@@ -8,10 +8,14 @@ final class SettingsWindowController: NSWindowController {
         let images = session.images
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
-        for (controller, title, symbol) in [
-            (AccountSettingsController(model: model, images: images, signOut: signOut) as NSViewController, String(localized: "Account"), "person.crop.circle"),
-            (EncryptionSettingsController(session: session, model: model), String(localized: "Encryption"), "lock"),
-        ] {
+        var panes: [(NSViewController, String, String)] = [
+            (AccountSettingsController(model: model, images: images, signOut: signOut), String(localized: "Account"), "person.crop.circle"),
+        ]
+        if let networks = session.networks {
+            panes.append((NetworksController(model: networks, mode: .settings), String(localized: "Networks"), "point.3.connected.trianglepath.dotted"))
+        }
+        panes.append((EncryptionSettingsController(session: session, model: model), String(localized: "Encryption"), "lock"))
+        for (controller, title, symbol) in panes {
             let item = NSTabViewItem(viewController: controller)
             item.label = title
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
