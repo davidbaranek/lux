@@ -23,6 +23,12 @@ public final class Preferences {
     /// As many places as the toolbar fits beside the filter, the button for all places and search.
     public static let toolbarPlaces = 3
 
+    /// The welcome to the server's networks was shown after signing in (once per sign-in).
+    public var networksWelcomed: Bool {
+        get { defaults.bool(forKey: "networksWelcomed") }
+        set { defaults.set(newValue, forKey: "networksWelcomed") }
+    }
+
     /// The server last signed in to; nil for Lux's own.
     public var homeserver: String? {
         get { defaults.string(forKey: "homeserver") }
