@@ -7,7 +7,7 @@ import UserNotifications
 /// read), the app opening the account for it if it was not running. The only delegate of the
 /// notification center: the reminders' notifications come here too.
 @MainActor
-final class Notifications: NSObject, UNUserNotificationCenterDelegate {
+final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate {
     private let session: Session
     /// Opens a chat by one of its rooms; set once the chat list shows.
     var openChat: ((String) -> Void)? {
@@ -48,17 +48,15 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: UNUserNotificationCenterDelegate
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
         async -> UNNotificationPresentationOptions {
         let room = PushNotifications.room(of: notification.request.content.userInfo)
-        return await MainActor.run {
-            // the chat on screen shows the message itself.
-            if let room, session.roomsOnScreen.contains(room) { return [] }
-            return [.banner, .list, .sound, .badge]
-        }
+        // the chat on screen shows the message itself.
+        if let room, session.roomsOnScreen.contains(room) { return [] }
+        return [.banner, .list, .sound, .badge]
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         guard let action = NotificationAction(response) else { return }
         await handle(action)
     }
