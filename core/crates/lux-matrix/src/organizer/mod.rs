@@ -86,11 +86,12 @@ impl Documents {
 
     /// Everything organized, read from the documents.
     pub(crate) fn organized(&self) -> Organized {
+        let merges = formats::merges(self.content(formats::MERGES));
         Organized {
             marks: formats::chat_marks(self.content(formats::CHATS)),
             reminders: formats::reminders(self.content(formats::REMINDERS)),
-            merges: formats::merges(self.content(formats::MERGES)),
-            labels: self.labels.labels(),
+            labels: lux_core::merge::label_merges(self.labels.labels(), &merges),
+            merges,
             saved: formats::bookmarks(self.content(formats::BOOKMARKS), &self.own),
             arrangement: formats::arrangement(self.content(formats::PLACE_ORDER)),
         }

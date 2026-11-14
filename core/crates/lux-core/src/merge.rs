@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::chat::{Chat, ChatRoom};
+use crate::chat::{Chat, ChatRoom, Label};
 use crate::ids::{ChatId, MergeId, RoomId};
 
 /// One person's chats on several networks, to show as one, as the user merged them.
@@ -42,6 +42,38 @@ impl ChatId {
                 .unwrap_or_default(),
         }
     }
+
+    /// The room a message to the chat goes to: a merged chat's default room (none when `merges`
+    /// has it no more), else its own.
+    #[must_use]
+    pub fn send_room(&self, merges: &[Merge]) -> Option<RoomId> {
+        match self {
+            Self::Room(room) => Some(room.clone()),
+            Self::Merge(id) => merges
+                .iter()
+                .find(|merge| merge.id == *id)
+                .map(|merge| merge.default_room.clone()),
+        }
+    }
+}
+
+/// The labels with each merged chat in those that hold any of its rooms (a label keeps rooms):
+/// the list shows the merged chat, and its menu ticks the label. The rooms stay in too, for a
+/// merge the list does not fold (fewer than two of its rooms there).
+#[must_use]
+pub fn label_merges(mut labels: Vec<Label>, merges: &[Merge]) -> Vec<Label> {
+    for label in &mut labels {
+        for merge in merges {
+            if merge
+                .rooms
+                .iter()
+                .any(|room| label.chats.contains(&ChatId::Room(room.clone())))
+            {
+                label.chats.insert(merge.chat_id());
+            }
+        }
+    }
+    labels
 }
 
 /// The chats with each merge's rooms (two or more of them there) folded into one, where the
@@ -229,5 +261,25 @@ mod tests {
         assert_eq!(send_room(Some(&shown), rooms.into_iter(), &default), &shown);
         assert_eq!(send_room(None, rooms.into_iter(), &default), &b);
         assert_eq!(send_room(None, [None].into_iter(), &default), &default);
+    }
+
+    #[test]
+    fn a_label_holding_a_merged_chats_room_holds_the_merged_chat() {
+        let jana = merge(&["!wa", "!sig"]);
+        let label = |rooms: &[&str]| Label {
+            id: "work".into(),
+            name: "Work".to_owned(),
+            chats: rooms.iter().map(|&room| ChatId::from(room)).collect(),
+        };
+        let labels = label_merges(
+            vec![label(&["!sig", "!other"]), label(&["!other"])],
+            std::slice::from_ref(&jana),
+        );
+        assert!(labels[0].chats.contains(&jana.chat_id()));
+        assert!(
+            labels[0].chats.contains(&ChatId::from("!sig")),
+            "the room stays for an unfolded merge"
+        );
+        assert!(!labels[1].chats.contains(&jana.chat_id()));
     }
 }

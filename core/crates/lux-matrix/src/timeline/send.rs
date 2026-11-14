@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use lux_core::ids::{MessageId, MessageRef, RoomId};
+use lux_core::ids::{ChatId, MessageId, MessageRef, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{BackendError, ChatSending};
 use lux_core::timeline::{Draft, OutgoingAttachment, OutgoingKind, Quote, Receipt};
@@ -131,7 +131,10 @@ impl ChatSending for MatrixTimelines {
         Ok(timeline.item(message).await.map(|item| send_state(&item)))
     }
 
-    async fn forward(&self, room: &RoomId, message: &MessageId, target: &RoomId) -> Result<(), BackendError> {
+    async fn forward(&self, room: &RoomId, message: &MessageId, target: &ChatId) -> Result<(), BackendError> {
+        let target = target
+            .send_room(&self.cuts.borrow().merges)
+            .ok_or_else(|| BackendError::UnknownChat(target.clone()))?;
         let timeline = self.open(room).await?;
         let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
         // the message alone: no reply, no edit, no thread; its media keep their uploads.
@@ -140,7 +143,7 @@ impl ChatSending for MatrixTimelines {
             .as_message()
             .map(|message| RoomMessageEventContent::new(message.msgtype().clone()))
             .ok_or(BackendError::NotAllowed)?;
-        self.room(target)?
+        self.room(&target)?
             .send_queue()
             .send(content.into())
             .await

@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use eyeball_im::VectorDiff;
 use lux_core::chat::ChatRoom;
-use lux_core::ids::{EventId, RoomId};
+use lux_core::ids::{ChatId, EventId, RoomId};
 use lux_core::message::Separator;
 use lux_core::network::Network;
 use lux_core::ports::BackendError;
@@ -433,9 +433,9 @@ impl CoreThread {
         self.model.discard(message_id.into());
     }
 
-    /// Sends a copy of a message to another chat.
-    pub fn forward(&self, message_id: String, target_room_id: String) {
-        self.model.forward(message_id.into(), target_room_id.into());
+    /// Sends a copy of a message to another chat (a room's, or a merged chat's).
+    pub fn forward(&self, message_id: String, target_chat_id: String) {
+        self.model.forward(message_id.into(), ChatId::from(target_chat_id));
     }
 
     /// Saves a message.

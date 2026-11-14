@@ -153,7 +153,7 @@ enum MessageAction {
     Delete(MessageId),
     Retry(MessageId),
     Discard(MessageId),
-    Forward(MessageId, RoomId),
+    Forward(MessageId, ChatId),
     Save(MessageId),
     Unsave(MessageId),
 }
@@ -293,8 +293,8 @@ impl ThreadViewModel {
         self.send(Intent::Message(MessageAction::Discard(message)));
     }
 
-    /// Sends a copy of a message to `target`.
-    pub fn forward(&self, message: MessageId, target: RoomId) {
+    /// Sends a copy of a message to the chat `target`.
+    pub fn forward(&self, message: MessageId, target: ChatId) {
         self.send(Intent::Message(MessageAction::Forward(message, target)));
     }
 

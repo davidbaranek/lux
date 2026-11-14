@@ -340,8 +340,9 @@ public final class ThreadModel {
         withCore { $0.delete(messageId) }
     }
 
-    public func forward(_ messageId: String, to roomId: String) {
-        withCore { $0.forward(messageId, to: roomId) }
+    /// Sends a copy of a message to another chat (a merged chat's default room).
+    public func forward(_ messageId: String, to chatId: String) {
+        withCore { $0.forward(messageId, to: chatId) }
     }
 
     public func retry(_ messageId: String) {

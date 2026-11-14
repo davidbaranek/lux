@@ -21,7 +21,7 @@ use tokio::sync::broadcast;
 use super::SentMessages;
 use super::data::stable;
 use super::seeded::text;
-use crate::ids::{EventId, MediaId, MessageId, MessageRef, RoomId, UserId};
+use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, UserId};
 use crate::message::{self, Attachment, Message, SendState};
 use crate::ports::{BackendError, ChatSending, ChatTimelines, DiffStream, RoomChanges, TimelineHold, TypingStream};
 use crate::preview::{PreviewKind, PreviewSource as Kind};
@@ -467,11 +467,16 @@ impl ChatSending for DemoTimelines {
         }))
     }
 
-    async fn forward(&self, room: &RoomId, message: &MessageId, target: &RoomId) -> Result<(), BackendError> {
+    async fn forward(&self, room: &RoomId, message: &MessageId, target: &ChatId) -> Result<(), BackendError> {
         #[cfg(test)]
         tokio::time::sleep(Duration::from_millis(self.forward_millis.load(Ordering::Relaxed))).await;
         let (_, message) = self.find(room, message)?;
-        self.send_text(target, &message.message.body, None).await
+        let target = match &self.sent {
+            Some(account) => account.send_room(target),
+            None => target.room().cloned(),
+        }
+        .ok_or_else(|| BackendError::UnknownChat(target.clone()))?;
+        self.send_text(&target, &message.message.body, None).await
     }
 
     async fn draft(&self, room: &RoomId) -> Result<Option<Draft>, BackendError> {
