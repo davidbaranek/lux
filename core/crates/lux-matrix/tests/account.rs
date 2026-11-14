@@ -428,6 +428,70 @@ async fn every_latest_event_reads_as_what_happened_and_a_direct_chat_shows_its_p
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_room_with_messages_from_before_the_account_arrived_tells_of_the_newest() {
+    let server = server().await;
+    let own = "@cheeky_monkey:matrix.org";
+    let bob = "@whatsapp_1:matrix.org";
+    // a bridge filled the room with its history before the account was let in.
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "pos": "1",
+                    "lists": { "all_rooms": { "count": 1 } },
+                    "rooms": {
+                        "!history:matrix.org": {
+                            "name": "History",
+                            "initial": true,
+                            "joined_count": 5,
+                            "timeline": [{
+                                "type": "m.room.message",
+                                "event_id": "$before",
+                                "sender": bob,
+                                "origin_server_ts": 1_600_000_000_000_u64,
+                                "content": { "msgtype": "m.text", "body": "from before" }
+                            }, {
+                                "type": "m.room.member",
+                                "event_id": "$arrived",
+                                "sender": own,
+                                "state_key": own,
+                                "origin_server_ts": 1_700_000_000_000_u64,
+                                "content": { "membership": "join" }
+                            }]
+                        }
+                    }
+                }))
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(server.server())
+        .await;
+    let folder = tempfile::tempdir().unwrap();
+    let account = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()))
+        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
+        .await
+        .unwrap();
+    let mut chats = account.chats();
+    let mut rows = eyeball_im::Vector::new();
+    until(&mut chats, &mut rows, |rows| {
+        rows.iter().any(|chat| chat.preview.is_some())
+    })
+    .await;
+    let history = rows
+        .iter()
+        .find(|chat| chat.id == ChatId::from("!history:matrix.org"))
+        .unwrap();
+    let preview = history.preview.as_ref().unwrap();
+    assert_eq!(preview.kind, PreviewKind::Text("from before".to_owned()));
+    assert!(!preview.is_own());
+    // dated by that message, not by the arrival.
+    assert_eq!(
+        history.date,
+        Some(std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_on_the_server_page_keeps_its_oauth_session() {
     let server = MatrixMockServer::new().await;
     server.mock_versions().with_simplified_sliding_sync().ok().mount().await;
