@@ -23,7 +23,7 @@ use crate::actions::Actions;
 use crate::chat::{Chat, Request, ScheduledMessage, Space};
 use crate::ids::{ChatId, EventId, LabelId, RoomId, ScheduledId};
 use crate::organizer::Organized;
-use crate::places::{Arrangement, ChatFilter, PlaceId};
+use crate::places::{Arrangement, ChatFilter, ChatOrder, PlaceId};
 use crate::ports::{
     BackendError, ChatAccount, ChatActions, ChatChange, Diffs, Organizing, SavedMessages, Scheduling, Spaces,
 };
@@ -54,6 +54,8 @@ pub struct ListSetup {
     pub place: PlaceId,
     /// Which of its chats show.
     pub filter: Option<ChatFilter>,
+    /// In which order.
+    pub order: ChatOrder,
     /// The chats with a draft on this device (for [`ChatFilter::Drafts`]).
     pub drafts: HashSet<ChatId>,
 }
@@ -63,6 +65,7 @@ impl Default for ListSetup {
         Self {
             place: PlaceId::INBOX,
             filter: None,
+            order: ChatOrder::default(),
             drafts: HashSet::new(),
         }
     }
@@ -72,6 +75,7 @@ impl Default for ListSetup {
 enum Intent {
     Place(PlaceId),
     Filter(Option<ChatFilter>),
+    Order(ChatOrder),
     Drafts(HashSet<ChatId>),
     Refresh,
     Reorder(Vec<PlaceId>),
@@ -151,6 +155,11 @@ impl ChatListViewModel {
     /// Shows only the chats `filter` admits; `None` shows them all.
     pub fn set_filter(&self, filter: Option<ChatFilter>) {
         self.send(Intent::Filter(filter));
+    }
+
+    /// Puts the place's chats in `order`.
+    pub fn set_order(&self, order: ChatOrder) {
+        self.send(Intent::Order(order));
     }
 
     /// The chats with a draft on this device changed.
@@ -402,6 +411,7 @@ fn handle<B: ChatListBackend>(intent: Intent, state: &mut ListState, actor: &mut
             }
         }
         Intent::Filter(filter) => state.set_filter(filter),
+        Intent::Order(order) => state.set_order(order),
         Intent::Drafts(drafts) => state.set_drafts(drafts),
         Intent::Refresh => actor.act(Action::ReadScheduled),
         Intent::Reorder(places) => {
@@ -459,8 +469,13 @@ async fn run<B, K, F>(
     K: Future<Output = Vec<Chat>> + Send,
     F: Future<Output = Option<Arc<B>>> + Send,
 {
-    let ListSetup { place, filter, drafts } = setup;
-    let mut state = ListState::new(place, filter, drafts, kept.await);
+    let ListSetup {
+        place,
+        filter,
+        order,
+        drafts,
+    } = setup;
+    let mut state = ListState::new(place, filter, order, drafts, kept.await);
     let mut tracker = LoadTracker::new();
     let mut actor = Actor {
         account: None,

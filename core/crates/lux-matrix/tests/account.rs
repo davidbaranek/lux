@@ -516,7 +516,7 @@ async fn a_room_with_messages_from_before_the_account_arrived_tells_of_the_newes
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_edit_of_an_old_message_keeps_its_chat_where_the_message_was() {
+async fn an_edit_of_an_old_message_keeps_the_date_of_the_message() {
     let server = server().await;
     let bob = "@whatsapp_1:matrix.org";
     // a bridge filled in an old photo later (an edit), after another chat's newer message.
@@ -581,9 +581,8 @@ async fn an_edit_of_an_old_message_keeps_its_chat_where_the_message_was() {
         rows.len() == 2 && rows.iter().all(|chat| chat.preview.is_some())
     })
     .await;
-    let order: Vec<String> = rows.iter().map(|chat| chat.id.to_string()).collect();
-    assert_eq!(order, ["!text:matrix.org", "!photo:matrix.org"]);
-    // dated by the photo's message, not by the edit.
+    // dated by the photo's message, not by the edit: the newest message order puts it after the
+    // other chat (the order is the list's, `lux_core::places`).
     let photo = rows
         .iter()
         .find(|chat| chat.id == ChatId::from("!photo:matrix.org"))

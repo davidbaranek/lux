@@ -22,12 +22,13 @@ final class RustChatList: Sendable {
     /// The list's batches and failed intents as they come.
     let events: AsyncStream<Event>
 
-    /// Opens a list at `place` with `filter`. It takes intents at once: before its account
+    /// Opens a list at `place` with `filter`, in `order`. It takes intents at once: before its account
     /// opens, they wait in the core, in order.
-    init(_ source: ChatListSource, place: Place, filter: ChatFilter?, drafts: Set<String>) {
+    init(_ source: ChatListSource, place: Place, filter: ChatFilter?, order: ChatOrder, drafts: Set<String>) {
         let (events, continuation) = AsyncStream<Event>.makeStream()
         self.events = events
-        let setup = CoreListSetup(place: CorePlace(place), filter: filter.map(CoreChatFilter.init), drafts: Array(drafts))
+        let setup = CoreListSetup(place: CorePlace(place), filter: filter.map(CoreChatFilter.init), order: CoreChatOrder(order),
+                                  drafts: Array(drafts))
         let relay = Relay(continuation)
         switch source {
         case .open(let account):
@@ -44,6 +45,7 @@ final class RustChatList: Sendable {
 
     func select(_ place: Place) { list.selectPlace(place: CorePlace(place)) }
     func setFilter(_ filter: ChatFilter?) { list.setFilter(filter: filter.map(CoreChatFilter.init)) }
+    func setOrder(_ order: ChatOrder) { list.setOrder(order: CoreChatOrder(order)) }
     func setDrafts(_ drafts: Set<String>) { list.setDrafts(drafts: Array(drafts)) }
     /// Reads the waiting messages again.
     func refresh() { list.refresh() }
