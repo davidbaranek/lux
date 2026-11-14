@@ -16,6 +16,7 @@ use lux_core::ids::RoomId;
 use lux_core::network::Network;
 use lux_core::ports::{BackendError, Bridges, NetworkFailure, StepAnswer, ValueStream};
 use matrix_sdk::reqwest::{self, Method, StatusCode, Url};
+use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::api::client::account::request_openid_token;
 use matrix_sdk::ruma::events::AnySyncTimelineEvent;
 use matrix_sdk::{Client, Room};
@@ -25,9 +26,9 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::bridge_state::bridge_states;
 use crate::convert::system_time;
 use crate::errors::from_http;
+use crate::mapping::{bridged_network, network_of_members};
 use crate::streams::watched;
 
 /// How long a sign-in's waiting step may wait for the phone before the request is sent again.
@@ -46,7 +47,12 @@ impl BridgeLink {
     pub(crate) fn start(client: &Client) -> Self {
         let (arrived, arrivals) = mpsc::unbounded_channel();
         client.add_event_handler(move |event: AnySyncTimelineEvent, room: Room| {
-            let _ = arrived.send((room, system_time(event.origin_server_ts()), SystemTime::now()));
+            let _ = arrived.send(Arrival {
+                room,
+                sender: event.sender().to_owned(),
+                sent: system_time(event.origin_server_ts()),
+                at: SystemTime::now(),
+            });
             async {}
         });
         let (sender, catching_up) = watch::channel(Vec::new());
@@ -132,6 +138,14 @@ impl BridgeLink {
     }
 }
 
+/// An event the sync brought: its room, its sender, when it was sent and when it came.
+struct Arrival {
+    room: Room,
+    sender: OwnedUserId,
+    sent: SystemTime,
+    at: SystemTime,
+}
+
 /// The task that turns the sync's events into the networks catching up.
 struct Arrivals(JoinHandle<()>);
 
@@ -143,10 +157,7 @@ impl Drop for Arrivals {
 
 /// Follows the events the sync brings: each old one is history of its room's network, and the
 /// networks catching up go out as they change, also when one goes quiet.
-async fn follow_arrivals(
-    mut arrived: mpsc::UnboundedReceiver<(Room, SystemTime, SystemTime)>,
-    catching_up: watch::Sender<Vec<CatchUp>>,
-) {
+async fn follow_arrivals(mut arrived: mpsc::UnboundedReceiver<Arrival>, catching_up: watch::Sender<Vec<CatchUp>>) {
     let mut history = HistoryArrivals::default();
     let mut networks: HashMap<RoomId, Network> = HashMap::new();
     loop {
@@ -165,18 +176,27 @@ async fn follow_arrivals(
             return;
         }
         // none: a network went quiet.
-        if let Some(Some((room, sent, now))) = arrival {
+        if let Some(Some(Arrival {
+            room,
+            sender,
+            sent,
+            at: now,
+        })) = arrival
+        {
             if now.duration_since(sent).unwrap_or_default() < HistoryArrivals::OLD {
                 continue;
             }
             let id = RoomId::from(room.room_id().as_str());
+            // the room's network as the chat list names it: a new room's bridge state is not in
+            // the store yet (the room list asks for none), its sender is a bridge's user.
             let network = if let Some(network) = networks.get(&id) {
                 network.clone()
-            } else {
-                let states = bridge_states(&room).await;
-                let network = Network::detect(states.iter().filter_map(|state| state.protocol.as_deref()), []);
+            } else if let Some(network) = bridged_network(&room).await {
                 networks.insert(id.clone(), network.clone());
                 network
+            } else {
+                let own = room.client().user_id().map(ToOwned::to_owned);
+                own.map_or(Network::Matrix, |own| network_of_members(&room, &own, &[sender]))
             };
             history.arrived(network, id, sent, now);
         }
