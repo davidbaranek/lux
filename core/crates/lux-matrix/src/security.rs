@@ -13,10 +13,11 @@ use std::time::Duration;
 
 use futures_util::{StreamExt, future, stream};
 use lux_core::ports::{
-    BackendError, DeviceTrust, EncryptionSetup, OwnDevice, RecoveryState, Security, ValueStream, Verification,
-    VerificationEmoji, VerificationStep,
+    BackendError, DeviceSignOut, DeviceTrust, EncryptionSetup, OwnDevice, RecoveryState, Security, ValueStream,
+    Verification, VerificationEmoji, VerificationStep,
 };
 use matrix_sdk::Client;
+use matrix_sdk::authentication::oauth::error::OAuthDiscoveryError;
 use matrix_sdk::encryption::VerificationState;
 use matrix_sdk::encryption::identities::{Device, ManualVerifyError, RequestVerificationError};
 use matrix_sdk::encryption::recovery::{RecoveryError, RecoveryState as SdkRecoveryState};
@@ -24,7 +25,12 @@ use matrix_sdk::encryption::secret_storage::SecretStorageError;
 use matrix_sdk::encryption::verification::{SasState, SasVerification, VerificationRequest, VerificationRequestState};
 use matrix_sdk::event_handler::EventHandlerHandle;
 use matrix_sdk::ruma::OwnedDeviceId;
+use matrix_sdk::ruma::api::client::discovery::get_authorization_server_metadata::v1::{
+    AccountManagementActionData, DeviceDeleteData,
+};
 use matrix_sdk::ruma::api::client::keys::get_keys;
+use matrix_sdk::ruma::api::client::uiaa::{AuthData, MatrixUserIdentifier, Password, UserIdentifier};
+use matrix_sdk::ruma::api::error::ErrorKind;
 use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::ruma::events::key::verification::cancel::CancelCode;
 use matrix_sdk::ruma::events::key::verification::request::ToDeviceKeyVerificationRequestEvent;
@@ -99,6 +105,11 @@ impl Security for MatrixAccount {
 
     async fn own_devices(&self) -> Result<Vec<OwnDevice>, BackendError> {
         let own = self.client.user_id().ok_or(BackendError::SignedOut)?.to_owned();
+        // the server's list: a device signed out elsewhere is gone from it now, not at the
+        // sync's next look. Offline, the store's.
+        if let Err(error) = self.client.encryption().request_user_identity(&own).await {
+            warn!(%error, "the account's devices could not be asked for");
+        }
         let devices = self
             .client
             .encryption()
@@ -141,6 +152,63 @@ impl Security for MatrixAccount {
             request,
             Some(own_device(&device, self.client.device_id())),
         ))
+    }
+
+    async fn device_sign_out(&self, device: &str) -> Result<DeviceSignOut, BackendError> {
+        let device = other_device_id(&self.client, device)?;
+        match self.client.oauth().cached_server_metadata().await {
+            // the server signs in with its own account service (OAuth): devices end there, as
+            // the client API's deletion asks for a password the service does not take.
+            Ok(metadata) => metadata
+                .account_management_url_with_action(AccountManagementActionData::DeviceDelete(DeviceDeleteData::new(
+                    &device,
+                )))
+                .map(|url| DeviceSignOut::InBrowser(url.to_string()))
+                // an account service with no page for it: no way from here.
+                .ok_or(BackendError::NotAllowed),
+            Err(OAuthDiscoveryError::NotSupported) => Ok(DeviceSignOut::WithPassword),
+            Err(OAuthDiscoveryError::Http(error)) => Err(from_http(error)),
+            Err(error) => Err(BackendError::refused(error)),
+        }
+    }
+
+    async fn sign_out_device(&self, device: &str, password: &str) -> Result<(), BackendError> {
+        let devices = [other_device_id(&self.client, device)?];
+        let own = self.client.user_id().ok_or(BackendError::SignedOut)?.to_string();
+        // the server answers the first ask with the session the password then completes.
+        let session = match self.client.delete_devices(&devices, None).await {
+            Ok(_) => return Ok(()),
+            Err(error) => match error.as_uiaa_response() {
+                Some(info) => info.session.clone(),
+                None => return Err(from_http(error)),
+            },
+        };
+        let mut auth = Password::new(
+            UserIdentifier::Matrix(MatrixUserIdentifier::new(own)),
+            password.to_owned(),
+        );
+        auth.session = session;
+        match self
+            .client
+            .delete_devices(&devices, Some(AuthData::Password(auth)))
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(error) => match error.as_uiaa_response() {
+                // asked again, because of the password.
+                Some(info)
+                    if info
+                        .auth_error
+                        .as_ref()
+                        .is_some_and(|error| matches!(error.kind, ErrorKind::Forbidden)) =>
+                {
+                    Err(BackendError::WrongCredentials)
+                }
+                // a step the password does not cover (an email, a captcha).
+                Some(_) => Err(BackendError::NotAllowed),
+                None => Err(from_http(error)),
+            },
+        }
     }
 
     fn verification_requests(&self) -> ValueStream<Arc<MatrixVerification>> {
@@ -224,6 +292,14 @@ fn recovery_state(client: &Client) -> RecoveryState {
         SdkRecoveryState::Disabled => RecoveryState::Disabled,
         SdkRecoveryState::Unknown => RecoveryState::Unknown,
     }
+}
+
+/// The id of the account's device `device`, if it is not this one: this one signs out on its own.
+fn other_device_id(client: &Client, device: &str) -> Result<OwnedDeviceId, BackendError> {
+    if client.device_id().is_some_and(|this| this.as_str() == device) {
+        return Err(BackendError::NotAllowed);
+    }
+    Ok(device.into())
 }
 
 /// How long a device waits for its keys to reach the server.

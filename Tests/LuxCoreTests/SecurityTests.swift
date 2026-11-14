@@ -33,6 +33,21 @@ struct SecurityTests {
         #expect(settings.recovery == .enabled)
     }
 
+    @Test func anotherDeviceSignsOutWithThePassword() async throws {
+        let session = Session.demo(rooms: 3, messagesPerRoom: 2)
+        let security = try #require(session.security)
+        await security.loadDevices()
+        let web = try #require(security.devices.first { $0.id == "WEBLAPTOP2" })
+        #expect(try await security.signOutMethod(for: web) == .withPassword)
+        let this = try #require(security.devices.first)
+        #expect(this.isThisDevice)
+        #expect(await failure { _ = try await security.signOutMethod(for: this) } == .notAllowed)
+        #expect(await failure { try await security.signOut(web, password: "") } == .wrongCredentials)
+        try await security.signOut(web, password: "secret")
+        #expect(!security.devices.contains(web))
+        #expect(security.devices.first?.isThisDevice == true)
+    }
+
     @Test func anotherDevicesRequestIsShownAndAnswered() async throws {
         let session = Session.demo(rooms: 3, messagesPerRoom: 2, verificationRequestAfter: 1)
         let security = try #require(session.security)
@@ -94,7 +109,7 @@ struct SecurityTests {
         verification.confirm()
         await steps.until { verification.step == .done }
         await security.loadDevices()
-        #expect(security.devices.allSatisfy { $0.isVerified })
+        #expect(security.devices.first { $0.id == unverified.id }?.isVerified == true)
     }
 
     /// How `action` failed; nil when it did not.

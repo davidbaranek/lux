@@ -13,8 +13,8 @@ use tokio::sync::watch;
 
 use super::watched;
 use crate::ports::{
-    BackendError, DeviceTrust, EncryptionSetup, OwnDevice, RecoveryState, Security, ValueStream, Verification,
-    VerificationEmoji, VerificationStep,
+    BackendError, DeviceSignOut, DeviceTrust, EncryptionSetup, OwnDevice, RecoveryState, Security, ValueStream,
+    Verification, VerificationEmoji, VerificationStep,
 };
 
 /// The only recovery key that opens the demo's backup.
@@ -74,6 +74,14 @@ impl DemoSecurity {
                 is_this_device: false,
             },
         ];
+        // an account used for years: more devices than fit on a screen.
+        let old = (1..=12).map(|number| OwnDevice {
+            id: format!("OLDSESSION{number:02}"),
+            name: Some(format!("Old web session {number}")),
+            is_verified: number % 3 == 0,
+            is_this_device: false,
+        });
+        let devices = devices.into_iter().chain(old).collect();
         Self {
             state: Arc::new(watch::Sender::new(state)),
             devices: Arc::new(Mutex::new(devices)),
@@ -125,6 +133,25 @@ impl Security for DemoSecurity {
         let verification = self.verification(VerificationStep::Waiting, Some(other));
         verification.after_other_device(VerificationStep::Waiting);
         Ok(verification)
+    }
+
+    async fn device_sign_out(&self, device: &str) -> Result<DeviceSignOut, BackendError> {
+        self.device(device)
+            .filter(|other| !other.is_this_device)
+            .ok_or(BackendError::NotAllowed)?;
+        // no account page to open: the password signs it out.
+        Ok(DeviceSignOut::WithPassword)
+    }
+
+    async fn sign_out_device(&self, device: &str, password: &str) -> Result<(), BackendError> {
+        self.device(device)
+            .filter(|other| !other.is_this_device)
+            .ok_or(BackendError::NotAllowed)?;
+        if password.is_empty() {
+            return Err(BackendError::WrongCredentials);
+        }
+        lock(&self.devices).retain(|other| other.id != device);
+        Ok(())
     }
 
     fn verification_requests(&self) -> ValueStream<Arc<DemoVerification>> {
@@ -331,6 +358,27 @@ mod tests {
         assert!(security.own_devices().await.unwrap()[0].is_verified);
     }
 
+    #[tokio::test]
+    async fn another_device_signs_out_with_the_password() {
+        let security = DemoSecurity::new(DemoEncryption::Ready, None);
+        assert_eq!(
+            security.device_sign_out("WEBLAPTOP2").await.unwrap(),
+            DeviceSignOut::WithPassword
+        );
+        assert!(matches!(
+            security.device_sign_out("DEMODEVICE").await,
+            Err(BackendError::NotAllowed)
+        ));
+        assert!(matches!(
+            security.sign_out_device("WEBLAPTOP2", "").await,
+            Err(BackendError::WrongCredentials)
+        ));
+        security.sign_out_device("WEBLAPTOP2", "secret").await.unwrap();
+        let devices = security.own_devices().await.unwrap();
+        assert!(devices.iter().all(|device| device.id != "WEBLAPTOP2"));
+        assert!(devices[0].is_this_device);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn only_the_saved_recovery_key_verifies_this_device() {
         let security = DemoSecurity::new(DemoEncryption::Unverified, None);
@@ -369,7 +417,11 @@ mod tests {
         step_after(&mut steps, |step| matches!(step, VerificationStep::Compare(_))).await;
         verification.confirm().await.unwrap();
         let devices = security.own_devices().await.unwrap();
-        assert!(devices.iter().all(|device| device.is_verified));
+        assert!(
+            devices
+                .iter()
+                .any(|device| device.id == "WEBLAPTOP2" && device.is_verified)
+        );
         assert!(matches!(
             security.verify_device("DEMODEVICE").await,
             Err(BackendError::NotAllowed)

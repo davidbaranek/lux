@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use lux_core::ports::{
-    EncryptionSetup, SecretStore, SecretStoreError, Security, SessionSecrets, SignIn, StoreKey, ValueStream,
-    Verification, VerificationEmoji, VerificationStep,
+    BackendError, DeviceSignOut, EncryptionSetup, SecretStore, SecretStoreError, Security, SessionSecrets, SignIn,
+    StoreKey, ValueStream, Verification, VerificationEmoji, VerificationStep,
 };
 use lux_matrix::{MatrixAccount, MatrixSignIn, StoreFolder};
 use matrix_sdk::ruma::user_id;
@@ -552,4 +552,89 @@ async fn emojis_that_do_not_match_fail_on_both_devices() {
         assert_eq!(last, VerificationStep::Failed);
     }
     assert!(!second.is_device_verified().await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn on_a_server_with_an_account_service_another_device_signs_out_on_its_page() {
+    let mut server = Homeserver::start().await;
+    let first = server.sign_in("FIRSTDEVICE").await;
+    server.mock.oauth().mock_server_metadata().ok().mount().await;
+
+    let sign_out = first.device_sign_out("SECONDDEVICE").await.unwrap();
+    let DeviceSignOut::InBrowser(address) = sign_out else {
+        panic!("signed out with {sign_out:?}");
+    };
+    let address = url::Url::parse(&address).unwrap();
+    assert!(address.path().ends_with("/account"), "{address}");
+    let query: Vec<(String, String)> = address.query_pairs().into_owned().collect();
+    assert!(
+        query.contains(&("action".to_owned(), "org.matrix.session_end".to_owned())),
+        "{query:?}"
+    );
+    assert!(
+        query.contains(&("device_id".to_owned(), "SECONDDEVICE".to_owned())),
+        "{query:?}"
+    );
+    // this device signs out on its own.
+    assert!(matches!(
+        first.device_sign_out("FIRSTDEVICE").await,
+        Err(BackendError::NotAllowed)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn on_a_server_without_one_another_device_signs_out_with_the_password() {
+    let mut server = Homeserver::start().await;
+    let first = server.sign_in("FIRSTDEVICE").await;
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({ "errcode": "M_UNRECOGNIZED", "error": "Unrecognized request" })),
+        )
+        .mount(server.mock.server())
+        .await;
+    // the server's deletion, behind the account's password.
+    let deleted = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let kept = Arc::clone(&deleted);
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/v3/delete_devices"))
+        .respond_with(move |request: &Request| {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            let asked = json!({ "flows": [{ "stages": ["m.login.password"] }], "params": {}, "session": "UIA" });
+            let auth = &body["auth"];
+            if auth.is_null() {
+                return ResponseTemplate::new(401).set_body_json(asked);
+            }
+            let right = auth["type"] == "m.login.password"
+                && auth["session"] == "UIA"
+                && auth["identifier"]["user"] == USER
+                && auth["password"] == "secret";
+            if !right {
+                let mut refused = asked;
+                refused["errcode"] = json!("M_FORBIDDEN");
+                refused["error"] = json!("Invalid password");
+                return ResponseTemplate::new(401).set_body_json(refused);
+            }
+            kept.lock().unwrap().push(body["devices"].clone());
+            ResponseTemplate::new(200).set_body_json(json!({}))
+        })
+        .mount(server.mock.server())
+        .await;
+
+    assert_eq!(
+        first.device_sign_out("SECONDDEVICE").await.unwrap(),
+        DeviceSignOut::WithPassword
+    );
+    assert!(matches!(
+        first.sign_out_device("SECONDDEVICE", "not it").await,
+        Err(BackendError::WrongCredentials)
+    ));
+    assert!(deleted.lock().unwrap().is_empty());
+    first.sign_out_device("SECONDDEVICE", "secret").await.unwrap();
+    assert_eq!(*deleted.lock().unwrap(), vec![json!(["SECONDDEVICE"])]);
+    assert!(matches!(
+        first.sign_out_device("FIRSTDEVICE", "secret").await,
+        Err(BackendError::NotAllowed)
+    ));
 }

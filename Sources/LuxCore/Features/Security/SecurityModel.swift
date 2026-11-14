@@ -7,7 +7,7 @@ import Foundation
 public final class SecurityModel {
     /// What this device needs; `.unknown` until the core knows.
     public private(set) var setup: EncryptionSetup = .unknown
-    /// The account's devices that can verify, this one first; empty until loaded.
+    /// The account's devices, this one first; empty until loaded.
     public private(set) var devices: [OwnDevice] = []
     public let changes = Broadcast()
     /// Another device asks to verify: the app shows the request (set by whoever presents it).
@@ -63,6 +63,20 @@ public final class SecurityModel {
         guard let account = try? await account.value, let devices = try? await account.ownDevices() else { return }
         self.devices = devices
         changes.send()
+    }
+
+    /// How `device` is signed out: on the server's account page, or here with the password.
+    public func signOutMethod(for device: OwnDevice) async throws -> DeviceSignOut {
+        try await account.value.deviceSignOut(device: device.id)
+    }
+
+    /// Signs `device` out with the account's password; the list no longer shows it.
+    /// Throws `AccountFailure.wrongCredentials` for a wrong password.
+    public func signOut(_ device: OwnDevice, password: String) async throws {
+        try await account.value.signOut(device: device.id, password: password)
+        devices.removeAll { $0.id == device.id }
+        changes.send()
+        await loadDevices()
     }
 
     /// Sets up recovery for an account that has none: the recovery key, for the user to save.

@@ -13,6 +13,7 @@ What is done, and what comes next in order. How things work lives in
 - [x] Device verification (emoji), recovery key, key backup
 - [x] After sign-in: verify with another device or the recovery key; answer other devices' requests;
       verify the account's other devices; set up recovery for a new account
+- [x] Sign another device out: on the server's account page (OAuth), else with the password
 - [x] Messages from before the backup opened decrypted from it, in the list too
 
 ### Chat list
