@@ -2,6 +2,9 @@
 //! a room that already holds messages (a chat a bridge filled with its history before the
 //! account was in it, a group joined late): the newest of those messages says more than
 //! "joined", and dates the chat. The arrival stays the row's event in a room without any.
+//!
+//! A chat is dated by its newest message's sending ([`row_time`]): an edit shows its new text,
+//! but keeps the place of the message it edits (a bridge filling in an old photo moves no chat).
 
 use std::collections::HashMap;
 
@@ -12,7 +15,8 @@ use matrix_sdk::latest_events::LatestEventValue;
 use matrix_sdk::ruma::events::room::member::MembershipChange;
 use matrix_sdk::ruma::events::room::message::{MessageType, Relation, RoomMessageEventContent};
 use matrix_sdk::ruma::events::{AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent};
-use matrix_sdk::ruma::{OwnedEventId, UserId};
+use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, UserId};
+use serde::Deserialize;
 use tracing::{debug, warn};
 
 /// The event `room`'s row tells of, for the account `own`.
@@ -28,6 +32,46 @@ pub(crate) async fn row_event(room: &Room, own: &UserId) -> LatestEventValue {
         Some(message) => LatestEventValue::Remote(message),
         None => latest,
     }
+}
+
+/// When the message `latest` tells of was sent: an edit's own sending for none but the message
+/// it edits, found in the room's events (the edit's, when they no longer hold it).
+pub(crate) async fn row_time(room: &Room, latest: &LatestEventValue) -> Option<MilliSecondsSinceUnixEpoch> {
+    let edited = match latest {
+        LatestEventValue::Remote(event) => edited_message(event),
+        _ => None,
+    };
+    let Some(edited) = edited else {
+        return latest.timestamp();
+    };
+    let client = room.client();
+    let original = match client.event_cache()?.room(room.room_id()).await {
+        Ok((events, _handles)) => events.find_event(&edited).await.ok().flatten(),
+        Err(error) => {
+            warn!(%error, "a room's events cannot be read");
+            None
+        }
+    };
+    original
+        .and_then(|original| original.timestamp())
+        .or_else(|| latest.timestamp())
+}
+
+/// The message `event` edits, when it is an edit (`m.replace`); read from the relation only,
+/// which an encrypted edit keeps in the clear too.
+fn edited_message(event: &TimelineEvent) -> Option<OwnedEventId> {
+    #[derive(Deserialize)]
+    struct Content {
+        #[serde(rename = "m.relates_to")]
+        relates_to: Option<Relates>,
+    }
+    #[derive(Deserialize)]
+    struct Relates {
+        rel_type: Option<String>,
+        event_id: Option<OwnedEventId>,
+    }
+    let relates = event.raw().get_field::<Content>("content").ok()??.relates_to?;
+    (relates.rel_type.as_deref() == Some("m.replace")).then_some(relates.event_id?)
 }
 
 /// Whether `event` is the account joining (or being let in): the SDK's latest event for a room

@@ -45,7 +45,9 @@ impl Mapper {
             members,
         } = Looks::of(room, &heroes).await;
         let latest = crate::latest::row_event(room, own).await;
-        let date = latest.timestamp().map(crate::convert::system_time);
+        let date = crate::latest::row_time(room, &latest)
+            .await
+            .map(crate::convert::system_time);
         let preview = self.preview_line(room, &latest, own, is_group).await;
         let network = self.network(room, own, &members).await;
         let avatar = picture.map(|url| MediaId::from(url.as_str()));

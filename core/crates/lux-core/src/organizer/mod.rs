@@ -18,6 +18,18 @@ use crate::ids::{ChatId, MergeId, RoomId};
 use crate::merge::{self, Merge};
 use crate::places::Arrangement;
 
+/// Puts `chats` in the list's order: the newest message first (a chat's date is its newest
+/// message's sending, which an edit does not change), a chat without any last. Chats of the same
+/// date keep their order (the SDK's: a message being sent first, then by name). Sorted in place
+/// and stable; a list already in order is checked once and left as it is.
+pub fn in_list_order(chats: &mut [Arc<Chat>]) {
+    let newer_first = |a: &Arc<Chat>, b: &Arc<Chat>| b.date.cmp(&a.date);
+    if chats.is_sorted_by(|a, b| newer_first(a, b).is_le()) {
+        return;
+    }
+    chats.sort_by(newer_first);
+}
+
 /// Everything the account keeps of how its chats are organized, read together.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Organized {
@@ -36,9 +48,10 @@ pub struct Organized {
 }
 
 impl Organized {
-    /// The chat list from the rooms' chats (in the server's order): deleted chats left out,
+    /// The chat list from the rooms' chats (in the SDK's order): deleted chats left out,
     /// archived ones in the archive, each with its reminder until answered, and each merge's
-    /// rooms folded into one chat. A chat none of it changes is the room's own, shared.
+    /// rooms folded into one chat, then in the list's order ([`in_list_order`]). A chat none of
+    /// it changes is the room's own, shared.
     #[must_use]
     pub fn compose<'a>(&self, rooms: impl IntoIterator<Item = &'a Arc<Chat>>) -> Vec<Arc<Chat>> {
         let chats = rooms
@@ -66,7 +79,9 @@ impl Organized {
                 })
             })
             .collect();
-        merge::fold(chats, &self.merges)
+        let mut chats = merge::fold(chats, &self.merges);
+        in_list_order(&mut chats);
+        chats
     }
 
     /// The merges with `rooms` merged as one chat named `name`, writing to `default_room`
@@ -203,14 +218,52 @@ mod tests {
         .map(Arc::new);
         let list = organized.compose(&rooms);
         let ids: Vec<_> = list.iter().map(|chat| chat.id.to_string()).collect();
-        assert_eq!(ids, ["!archived", "!answered", "merge:jana"]);
-        assert_eq!(list[0].folder, Folder::Archive);
-        assert_eq!(list[1].reminder, None);
-        assert_eq!(list[2].reminder, Some(at(100)));
-        assert_eq!(list[2].unread_count, 2);
+        // the merge's newest message (!b's) puts it first.
+        assert_eq!(ids, ["merge:jana", "!archived", "!answered"]);
+        assert_eq!(list[1].folder, Folder::Archive);
+        assert_eq!(list[2].reminder, None);
+        assert_eq!(list[0].reminder, Some(at(100)));
+        assert_eq!(list[0].unread_count, 2);
         // a chat none of it changes is the room's own.
         let plain = Organized::default().compose(&rooms);
-        assert!(Arc::ptr_eq(&plain[0], &rooms[0]));
+        let archived = plain.iter().find(|chat| chat.id == ChatId::from("!archived")).unwrap();
+        assert!(Arc::ptr_eq(archived, &rooms[0]));
+    }
+
+    #[test]
+    fn the_list_has_the_newest_message_first_whatever_order_the_rooms_came_in() {
+        let undated = Chat {
+            date: None,
+            ..chat("!quiet", 0, false)
+        };
+        let rooms = [
+            chat("!old", 1, false),
+            undated,
+            chat("!new", 30, false),
+            chat("!same-a", 10, false),
+            chat("!same-b", 10, false),
+        ]
+        .map(Arc::new);
+        let list = Organized::default().compose(&rooms);
+        let ids: Vec<_> = list.iter().map(|chat| chat.id.to_string()).collect();
+        // chats of the same date keep the rooms' order; a chat without a message goes last.
+        assert_eq!(ids, ["!new", "!same-a", "!same-b", "!old", "!quiet"]);
+    }
+
+    #[test]
+    fn a_list_in_order_is_left_as_it_is() {
+        let mut chats = vec![chat("!b", 2, false), chat("!a", 1, false)]
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        let before = chats.clone();
+        super::in_list_order(&mut chats);
+        assert!(
+            chats
+                .iter()
+                .zip(&before)
+                .all(|(after, before)| Arc::ptr_eq(after, before))
+        );
     }
 
     #[test]
