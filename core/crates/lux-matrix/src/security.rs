@@ -7,7 +7,9 @@
 //! Requests from the account's other devices arrive as to-device events; a handler passes each
 //! one on to whoever listens.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::{StreamExt, future, stream};
 use lux_core::ports::{
@@ -16,21 +18,23 @@ use lux_core::ports::{
 };
 use matrix_sdk::Client;
 use matrix_sdk::encryption::VerificationState;
-use matrix_sdk::encryption::identities::{Device, RequestVerificationError};
+use matrix_sdk::encryption::identities::{Device, ManualVerifyError, RequestVerificationError};
 use matrix_sdk::encryption::recovery::{RecoveryError, RecoveryState as SdkRecoveryState};
 use matrix_sdk::encryption::secret_storage::SecretStorageError;
 use matrix_sdk::encryption::verification::{SasState, SasVerification, VerificationRequest, VerificationRequestState};
 use matrix_sdk::event_handler::EventHandlerHandle;
 use matrix_sdk::ruma::OwnedDeviceId;
+use matrix_sdk::ruma::api::client::keys::get_keys;
 use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::ruma::events::key::verification::cancel::CancelCode;
 use matrix_sdk::ruma::events::key::verification::request::ToDeviceKeyVerificationRequestEvent;
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
+use tokio::time::{Instant, sleep};
 use tracing::warn;
 
 use crate::account::MatrixAccount;
-use crate::errors::from_sdk;
+use crate::errors::{from_http, from_sdk};
 use crate::streams::watched;
 
 /// Emojis only: Lux shows no QR code.
@@ -73,6 +77,8 @@ impl Security for MatrixAccount {
 
     async fn verify_this_device(&self) -> Result<MatrixVerification, BackendError> {
         let own = self.client.user_id().ok_or(BackendError::SignedOut)?.to_owned();
+        // the other device verifies the keys the server gives it for this one.
+        keys_on_server(&self.client).await?;
         let identity = self
             .client
             .encryption()
@@ -164,11 +170,17 @@ impl Security for MatrixAccount {
     }
 
     async fn recover(&self, key: &str) -> Result<(), BackendError> {
+        // the key signs this device: the server must know it first.
+        keys_on_server(&self.client).await?;
         match self.client.encryption().recovery().recover(key.trim()).await {
             Ok(()) => Ok(()),
-            Err(RecoveryError::SecretStorage(
-                SecretStorageError::SecretStorageKey(_) | SecretStorageError::Verification(_),
-            )) => Err(BackendError::WrongRecoveryKey),
+            Err(RecoveryError::SecretStorage(SecretStorageError::SecretStorageKey(_))) => {
+                Err(BackendError::WrongRecoveryKey)
+            }
+            // the key opened the store, the device's signature did not reach the server.
+            Err(RecoveryError::SecretStorage(SecretStorageError::Verification(ManualVerifyError::Http(error)))) => {
+                Err(from_http(error))
+            }
             Err(RecoveryError::Sdk(error)) => Err(from_sdk(error)),
             Err(error) => Err(BackendError::refused(error)),
         }
@@ -211,6 +223,38 @@ fn recovery_state(client: &Client) -> RecoveryState {
         SdkRecoveryState::Incomplete => RecoveryState::Incomplete,
         SdkRecoveryState::Disabled => RecoveryState::Disabled,
         SdkRecoveryState::Unknown => RecoveryState::Unknown,
+    }
+}
+
+/// How long a device waits for its keys to reach the server.
+const KEYS_UPLOAD_WAIT: Duration = Duration::from_secs(10);
+
+/// Waits until the server holds this device's keys. The sync uploads them in the background, a
+/// moment after the sign-in; a signature made before (the recovery key's, or another device's at
+/// the end of a verification) is for a device the server does not know, and is lost.
+///
+/// # Errors
+/// `NotAllowed` when they are not there in time; others when the server cannot be asked.
+async fn keys_on_server(client: &Client) -> Result<(), BackendError> {
+    let own = client.user_id().ok_or(BackendError::SignedOut)?.to_owned();
+    let device = client.device_id().ok_or(BackendError::SignedOut)?.to_owned();
+    let deadline = Instant::now() + KEYS_UPLOAD_WAIT;
+    loop {
+        let mut request = get_keys::v3::Request::new();
+        request.device_keys = BTreeMap::from([(own.clone(), vec![device.clone()])]);
+        let response = client.send(request).await.map_err(from_http)?;
+        if response
+            .device_keys
+            .get(&own)
+            .is_some_and(|keys| keys.contains_key(&device))
+        {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(BackendError::NotAllowed);
+        }
+        // the sync's next round uploads them.
+        sleep(Duration::from_millis(250)).await;
     }
 }
 

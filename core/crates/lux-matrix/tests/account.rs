@@ -1467,9 +1467,30 @@ async fn mock_key_backup(server: &MatrixMockServer) {
     )
     .mount(server.server())
     .await;
+    // the device's keys, kept as it uploads them and given back when asked for.
+    let device_keys = Arc::new(Mutex::new(serde_json::Value::Null));
+    let uploaded = Arc::clone(&device_keys);
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/v3/keys/upload"))
+        .respond_with(move |request: &wiremock::Request| {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            if let Some(keys) = body.get("device_keys") {
+                *uploaded.lock().unwrap() = keys.clone();
+            }
+            ResponseTemplate::new(200).set_body_json(json!({ "one_time_key_counts": {} }))
+        })
+        .mount(server.server())
+        .await;
     Mock::given(method("POST"))
         .and(path("/_matrix/client/v3/keys/query"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "device_keys": {} })))
+        .respond_with(move |_: &wiremock::Request| {
+            let keys = device_keys.lock().unwrap().clone();
+            let devices = match keys["device_id"].as_str() {
+                Some(device) => json!({ "@cheeky_monkey:matrix.org": { device: keys } }),
+                None => json!({}),
+            };
+            ResponseTemplate::new(200).set_body_json(json!({ "device_keys": devices }))
+        })
         .mount(server.server())
         .await;
     // no cross-signing keys in it.
