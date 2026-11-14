@@ -106,22 +106,13 @@ impl Mapper {
         let bridged = if let Some(network) = self.bridges.get(room.room_id()) {
             Some(network.clone())
         } else {
-            // a room's bridge events come with its full state (the room list asks for none):
-            // one that names no bridge yet is read again next time.
-            let states = bridge_states(room).await;
-            let bridged = states
-                .iter()
-                .find_map(|state| state.protocol.as_deref())
-                .map(Network::from_protocol);
+            let bridged = bridged_network(room).await;
             if let Some(network) = &bridged {
                 self.bridges.insert(room.room_id().to_owned(), network.clone());
             }
             bridged
         };
-        bridged.unwrap_or_else(|| {
-            let members = members_to_look_at(room, own, known);
-            Network::detect([], members.iter().map(|id| id.as_str()))
-        })
+        bridged.unwrap_or_else(|| network_of_members(room, own, known))
     }
 
     /// The latest event's one-line preview; `None` for a chat with none, or whose latest event
@@ -161,6 +152,23 @@ impl Mapper {
             },
         }
     }
+}
+
+/// The network a room's bridge state event names; none while the store holds none (a room's
+/// bridge events come with its full state: the room list asks for none).
+pub(crate) async fn bridged_network(room: &Room) -> Option<Network> {
+    bridge_states(room)
+        .await
+        .iter()
+        .find_map(|state| state.protocol.as_deref())
+        .map(Network::from_protocol)
+}
+
+/// The network of a room's bridge users (`known`, the people and bots this device knows of in
+/// it, first), Matrix when none is a bridge's.
+pub(crate) fn network_of_members(room: &Room, own: &UserId, known: &[OwnedUserId]) -> Network {
+    let members = members_to_look_at(room, own, known);
+    Network::detect([], members.iter().map(|id| id.as_str()))
 }
 
 /// Whether the sender of the room's latest message (not the account) is a member the store does

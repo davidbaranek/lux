@@ -16,8 +16,8 @@ use lux_core::ids::MediaId;
 use lux_core::ids::{ChatId, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{
-    BackendError, ChatAccount, ChatSending, ChatTimelines, SecretStore, SecretStoreError, Security, SessionSecrets,
-    SignIn, StoreKey,
+    BackendError, Bridges, ChatAccount, ChatSending, ChatTimelines, SecretStore, SecretStoreError, Security,
+    SessionSecrets, SignIn, StoreKey,
 };
 use lux_core::preview::{Membership, PreviewKind};
 use lux_matrix::{KeptList, MatrixAccount, MatrixSignIn, StoreFolder};
@@ -323,6 +323,30 @@ async fn the_chat_list_shows_a_synced_bridged_chat() {
     account.pause_sync().await;
     let kept = KeptList::new(store).read().await;
     assert!(kept.iter().any(|chat| says(chat, "hello there")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_old_message_from_a_bridges_user_in_a_room_without_its_bridge_state_is_that_networks_history() {
+    let server = server().await;
+    // a new room a bridge made: its first sync brings no `m.bridge` (the room list asks for no
+    // such state), only the bridge's user and a message sent long ago.
+    sync_anna(&server).await;
+    let (account, _folder) = signed_in(&server).await;
+
+    let mut catching_up = account.catching_up();
+    let networks = tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(networks) = catching_up.next().await {
+            if !networks.is_empty() {
+                return networks;
+            }
+        }
+        Vec::new()
+    })
+    .await
+    .expect("no network caught up in time");
+    assert_eq!(networks.len(), 1);
+    assert_eq!(networks[0].network.as_str(), "whatsapp");
+    assert_eq!(networks[0].messages, 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
