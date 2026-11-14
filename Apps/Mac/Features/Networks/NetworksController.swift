@@ -213,7 +213,7 @@ final class NetworksController: NSViewController {
         guard let window = view.window else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "Sign out of \(offer.name)?")
-        alert.informativeText = String(localized: "Its chats stop updating on every device. Their history stays.")
+        alert.informativeText = String(localized: "Its chats stop updating on every device. Your server's bridge may also remove them, with their history, from your chat list and merged chats; signing in again brings them back as new chats.")
         alert.addButton(withTitle: String(localized: "Sign Out"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.buttons.first?.hasDestructiveAction = true

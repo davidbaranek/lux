@@ -235,7 +235,7 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
     private func confirmLogOut(_ offer: NetworkOffer, login: NetworkAccount.Login, from cell: UIView?) {
         let sheet = UIAlertController(
             title: String(localized: "Sign out of \(offer.name)?"),
-            message: String(localized: "Its chats stop updating on every device. Their history stays."),
+            message: String(localized: "Its chats stop updating on every device. Your server's bridge may also remove them, with their history, from your chat list and merged chats; signing in again brings them back as new chats."),
             preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: String(localized: "Sign Out"), style: .destructive) { [weak self] _ in
             guard let self else { return }
