@@ -39,7 +39,7 @@ final class DevicesViewController: UIViewController, UICollectionViewDelegate {
             cell.accessories = device.isThisDevice || device.isVerified ? [] : [.disclosureIndicator()]
         }
         let footer = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionFooter) { view, _, _ in
-            var content = UIListContentConfiguration.groupedFooter()
+            var content = UIListContentConfiguration.footer()
             content.text = String(localized: "A verified device can read your encrypted messages. Verify a device only if it is yours: you compare emojis on both.")
             view.contentConfiguration = content
         }
