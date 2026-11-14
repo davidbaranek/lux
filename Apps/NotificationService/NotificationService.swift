@@ -113,20 +113,23 @@ private final class Delivery: @unchecked Sendable {
         handler?(content)
     }
 
-    /// The notification as a message from a person (their picture and name over it, a group's
-    /// picture and name for a group, Focus letting the people it allows through), when the system
-    /// takes it. The interaction is donated first, as the system asks: content updated from an
-    /// intent it has not been told of shows as the app's.
+    /// The notification as a message from a person (their picture and name over it, the group's
+    /// name for a group, Focus letting the people it allows through), when the system takes it.
+    /// The picture is the sender's in a group too (who wrote), else their initials as the chat
+    /// list shows them: never the app's icon. The interaction is donated first, as the system
+    /// asks: content updated from an intent it has not been told of shows as the app's.
     private static func communication(_ content: UNNotificationContent, _ message: PushedMessage) async -> UNNotificationContent? {
+        let picture = message.senderImage ?? Monogram.image(message.senderName, side: 120).pngData()
         let sender = INPerson(personHandle: INPersonHandle(value: message.senderName, type: .unknown), nameComponents: nil,
-                              displayName: message.senderName, image: message.senderImage.map { INImage(imageData: $0) },
+                              displayName: message.senderName, image: picture.map { INImage(imageData: $0) },
                               contactIdentifier: nil, customIdentifier: nil)
         let group = message.isGroup ? INSpeakableString(spokenPhrase: message.chatName) : nil
         // a group needs a second person among the recipients to show as a group.
         let intent = INSendMessageIntent(recipients: message.isGroup ? [sender, Self.me] : nil, outgoingMessageType: .outgoingMessageText,
                                          content: message.body, speakableGroupName: group,
                                          conversationIdentifier: message.chatId, serviceName: nil, sender: sender, attachments: nil)
-        if message.isGroup, let picture = message.chatImage {
+        // a group shows its sender's picture, as a chat of two does.
+        if message.isGroup, let picture {
             intent.setImage(INImage(imageData: picture), forParameterNamed: \.speakableGroupName)
         }
         let interaction = INInteraction(intent: intent, response: nil)

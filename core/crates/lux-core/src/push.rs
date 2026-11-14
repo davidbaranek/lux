@@ -134,9 +134,8 @@ pub struct Notification {
     /// without a sound and without lighting the screen.
     pub is_late: bool,
     /// The sender's picture: theirs, else, in a chat of two, the chat's (the other person's).
+    /// The notification shows it, in a group too: who wrote, not the group.
     pub sender_picture: Option<MediaId>,
-    /// A group's own picture; none in a chat of two (the sender's stands for it).
-    pub chat_picture: Option<MediaId>,
 }
 
 impl Notification {
@@ -225,7 +224,6 @@ impl Notification {
             is_noisy,
             is_late: false,
             sender_picture: sender_picture.map(MediaId::from),
-            chat_picture: chat.picture.filter(|_| chat.is_group).map(MediaId::from),
         }
     }
 }
@@ -367,18 +365,25 @@ mod tests {
         assert_eq!(notification.event, event());
         assert_eq!(notification.kind, PreviewKind::Text("hi there".to_owned()));
         assert_eq!(notification.sender_picture, Some(MediaId::from("mxc://server/anna")));
-        assert_eq!(notification.chat_picture, None);
         assert!(notification.is_noisy);
     }
 
     #[test]
-    fn a_group_shows_its_own_picture_and_the_senders() {
+    fn a_group_shows_the_senders_picture_not_its_own() {
         let room = RoomId::from("!a:server");
         let notification = Notification::new(chat(&room, "Trip", true), event(), ANNA, PreviewKind::Image, false);
         assert_eq!(notification.chat_name, "Trip");
         assert_eq!(notification.kind, PreviewKind::Image);
-        assert_eq!(notification.chat_picture, Some(MediaId::from("mxc://server/room")));
         assert_eq!(notification.sender_picture, Some(MediaId::from("mxc://server/anna")));
+        let pictureless = NotifiedSender { picture: None, ..ANNA };
+        let notification = Notification::new(
+            chat(&room, "Trip", true),
+            event(),
+            pictureless,
+            PreviewKind::Image,
+            false,
+        );
+        assert_eq!(notification.sender_picture, None);
     }
 
     #[test]

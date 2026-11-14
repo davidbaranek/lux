@@ -195,14 +195,6 @@ final class NewConversationViewController: UIViewController, UICollectionViewDel
             }
         }
         // the initials on their colour, drawn here (a view drawn off screen may not have laid out).
-        let initials = AvatarView.initials(name) as NSString
-        let font = UIFont.systemFont(ofSize: side * 0.38, weight: .semibold)
-        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
-            AvatarView.color(name).setFill()
-            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: side, height: side)).fill()
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white]
-            let size = initials.size(withAttributes: attributes)
-            initials.draw(at: CGPoint(x: (side - size.width) / 2, y: (side - size.height) / 2), withAttributes: attributes)
-        }
+        return Monogram.image(name, side: side)
     }
 }
