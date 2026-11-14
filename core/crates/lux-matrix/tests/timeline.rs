@@ -1,0 +1,691 @@
+//! The chats' timelines against the SDK's mock server: reading a room (formatting, replies,
+//! reactions, receipts), paging back, sending (text, reply, edit, reaction, attachment), and the
+//! account's own read receipt.
+
+// the sdk's futures nest deeply.
+#![recursion_limit = "256"]
+// a test crate: a failed step is the test failing.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use lux_core::ids::{MessageId, MessageRef, RoomId};
+use lux_core::message::SendState;
+use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines};
+use lux_core::preview::PreviewKind;
+use lux_core::timeline::{Media, OutgoingAttachment, OutgoingKind, Receipt, StyleKind, TimelineMessage};
+use lux_matrix::MatrixTimelines;
+use matrix_sdk::Client;
+use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType as EventReceiptType};
+use matrix_sdk::ruma::events::room::message::{
+    RedactedRoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+};
+use matrix_sdk::ruma::{event_id, mxc_uri, room_id, user_id};
+use matrix_sdk::test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate};
+use matrix_sdk_test::JoinedRoomBuilder;
+use matrix_sdk_test::event_factory::EventFactory;
+
+const ROOM: &str = "!chat:example.org";
+
+/// A signed-in client of the mock server, in a plain (unencrypted) room.
+async fn client(server: &MatrixMockServer) -> Client {
+    let client = server.client_builder().build().await;
+    server.mock_room_state_encryption().plain().mount().await;
+    client
+}
+
+fn room() -> RoomId {
+    RoomId::from(ROOM)
+}
+
+/// The room's messages now: the first batch of its live list is all of them.
+async fn snapshot(timelines: &MatrixTimelines) -> Vec<Arc<TimelineMessage>> {
+    let mut batches = timelines.messages(&room()).await.unwrap();
+    let mut messages = eyeball_im::Vector::new();
+    for diff in futures_util::StreamExt::next(&mut batches).await.unwrap_or_default() {
+        diff.apply(&mut messages);
+    }
+    messages.into_iter().collect()
+}
+
+/// Waits until the room's messages satisfy `done`; the messages then.
+async fn page_until(
+    timelines: &MatrixTimelines,
+    done: impl Fn(&[Arc<TimelineMessage>]) -> bool,
+) -> Vec<Arc<TimelineMessage>> {
+    let mut changes = timelines.changes();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let page = snapshot(timelines).await;
+            if done(&page) {
+                return page;
+            }
+            futures_util::StreamExt::next(&mut changes).await;
+        }
+    })
+    .await
+    .expect("the page did not get there in time")
+}
+
+fn body_is(body: &'static str) -> impl Fn(&[Arc<TimelineMessage>]) -> bool {
+    move |page| page.iter().any(|message| message.message.body == body)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_room_reads_with_its_formatting_replies_reactions_and_readers() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    let bob = user_id!("@bob:example.org");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(factory.text_msg("hello").sender(alice).event_id(event_id!("$hello")))
+                .add_timeline_event(
+                    factory
+                        .text_html("**bold** move", "<b>bold</b> move")
+                        .sender(alice)
+                        .event_id(event_id!("$bold")),
+                )
+                .add_timeline_event(
+                    factory
+                        .text_msg("hi back")
+                        .sender(user_id!("@example:localhost"))
+                        .reply_to(event_id!("$hello"))
+                        .event_id(event_id!("$reply")),
+                )
+                .add_timeline_event(factory.reaction(event_id!("$bold"), "👍").sender(bob))
+                .add_receipt(
+                    factory
+                        .read_receipts()
+                        .add(
+                            event_id!("$reply"),
+                            bob,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                ),
+        )
+        .await;
+    let timelines = MatrixTimelines::new(client);
+
+    let page = page_until(&timelines, |page| {
+        page.len() == 3 && page[2].reply.as_ref().is_some_and(|quote| quote.kind.is_some())
+    })
+    .await;
+    assert_eq!(page[0].message.body, "hello");
+    assert_eq!(page[0].sender_name, "alice");
+    assert!(!page[0].is_own);
+
+    let bold = &page[1];
+    assert_eq!(bold.message.body, "bold move");
+    assert_eq!(bold.styles[0].kind, StyleKind::Bold);
+    assert_eq!(bold.reactions.len(), 1);
+    assert_eq!(bold.reactions[0].key, "👍");
+    assert!(!bold.reactions[0].is_mine);
+    assert!(bold.message.has_reactions);
+
+    let reply = &page[2];
+    assert!(reply.is_own);
+    assert!(reply.message.is_reply);
+    let quote = reply.reply.as_ref().unwrap();
+    assert_eq!(quote.event_id.as_str(), "$hello");
+    assert_eq!(quote.kind, Some(PreviewKind::Text("hello".to_owned())));
+    assert_eq!(reply.readers.len(), 1);
+    assert_eq!(reply.readers[0].user.as_str(), "@bob:example.org");
+
+    // the presentation runs over the page as it is.
+    let rows = lux_core::message::present(&page, &jiff::tz::TimeZone::UTC);
+    assert_eq!(rows.len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn paging_back_shows_older_messages_and_reaches_the_start() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(factory.text_msg("newest").sender(alice).event_id(event_id!("$new")))
+                .set_timeline_limited()
+                .set_timeline_prev_batch("back"),
+        )
+        .await;
+    // the room's older messages: one page, then its start.
+    server
+        .mock_room_messages()
+        .match_from("back")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            factory.text_msg("older").sender(alice).event_id(event_id!("$older")),
+            factory.text_msg("oldest").sender(alice).event_id(event_id!("$oldest")),
+        ]))
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+
+    // the opening fills its first screen from the server, back to the start.
+    timelines.prefetch(&room()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room()))
+        .await
+        .unwrap();
+    let page = page_until(&timelines, |page| page.len() == 3).await;
+    assert_eq!(
+        page.iter()
+            .map(|message| message.message.body.as_str())
+            .collect::<Vec<_>>(),
+        ["oldest", "older", "newest"]
+    );
+    timelines.load_older(&room(), 20).await.unwrap();
+    assert!(timelines.is_at_start(&room()).await.unwrap());
+
+    // a saved message is found in the timeline by its event id.
+    let found = timelines
+        .show_event(&room(), &lux_core::ids::EventId::from("$oldest"))
+        .await
+        .unwrap();
+    assert_eq!(found.as_ref(), Some(&page[0].message.id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sent_text_shows_at_once_then_as_sent() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org")).add_timeline_event(
+                factory
+                    .text_msg("question")
+                    .sender(user_id!("@alice:example.org"))
+                    .event_id(event_id!("$question")),
+            ),
+        )
+        .await;
+    server
+        .mock_room_send()
+        .ok(event_id!("$answer"))
+        .mock_once()
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+    let page = page_until(&timelines, body_is("question")).await;
+    let question = MessageRef::Local(page[0].message.id.clone());
+
+    timelines.send_text(&room(), "**sure**", Some(&question)).await.unwrap();
+    let page = page_until(&timelines, |page| {
+        page.iter()
+            .any(|message| message.message.body == "sure" && message.message.state == SendState::Sent)
+    })
+    .await;
+    let answer = page.iter().find(|message| message.message.body == "sure").unwrap();
+    assert!(answer.is_own);
+    assert_eq!(
+        answer.event_id.as_ref().map(lux_core::ids::EventId::as_str),
+        Some("$answer")
+    );
+    assert_eq!(
+        answer.reply.as_ref().map(|quote| quote.event_id.as_str()),
+        Some("$question")
+    );
+    // Markdown went as formatting.
+    assert_eq!(answer.styles[0].kind, StyleKind::Bold);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_that_failed_for_a_moment_goes_on_retry_with_those_queued_after_it() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id!("!chat:example.org")))
+        .await;
+    // the server fails for a moment (the queue's own three tries), then takes everything.
+    server.mock_room_send().error500().up_to_n_times(3).mount().await;
+    server.mock_room_send().ok(event_id!("$sent")).mount().await;
+    let timelines = MatrixTimelines::new(client);
+    snapshot(&timelines).await;
+
+    timelines.send_text(&room(), "first", None).await.unwrap();
+    let page = page_until(&timelines, |page| {
+        page.iter()
+            .any(|message| message.message.body == "first" && message.message.state == SendState::Failed)
+    })
+    .await;
+    let first = page.iter().find(|message| message.message.body == "first").unwrap();
+    // the failure turned the room's queue off: what comes next waits.
+    timelines.send_text(&room(), "second", None).await.unwrap();
+
+    timelines.retry(&room(), &first.message.id).await.unwrap();
+    page_until(&timelines, |page| {
+        ["first", "second"].iter().all(|body| {
+            page.iter()
+                .any(|message| message.message.body == *body && message.message.state == SendState::Sent)
+        })
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_own_message_is_edited_and_reacted_to() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org")).add_timeline_event(
+                factory
+                    .text_msg("tpyo")
+                    .sender(user_id!("@example:localhost"))
+                    .event_id(event_id!("$mine")),
+            ),
+        )
+        .await;
+    server.mock_room_send().ok(event_id!("$change")).mount().await;
+    let timelines = MatrixTimelines::new(client);
+    let page = page_until(&timelines, body_is("tpyo")).await;
+    let mine = page[0].message.id.clone();
+    assert!(page[0].is_editable);
+
+    timelines.edit(&room(), &mine, "typo").await.unwrap();
+    let page = page_until(&timelines, body_is("typo")).await;
+    assert!(page[0].message.is_edited);
+
+    timelines.toggle_reaction(&room(), &mine, "❤️").await.unwrap();
+    let page = page_until(&timelines, |page| !page[0].reactions.is_empty()).await;
+    assert!(page[0].reactions[0].is_mine);
+    assert_eq!(page[0].reactions[0].key, "❤️");
+
+    // another's message is not the account's to edit.
+    assert!(timelines.edit(&room(), &MessageId::from("$nope"), "x").await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server.mock_authenticated_media_config().ok_default().mount().await;
+    server.sync_joined_room(&client, room_id!("!chat:example.org")).await;
+    server
+        .mock_upload()
+        .ok(mxc_uri!("mxc://example.org/photo"))
+        .mount()
+        .await;
+    server.mock_room_send().ok(event_id!("$photo")).mount().await;
+    let timelines = MatrixTimelines::new(client);
+    timelines.prefetch(&room()).await.unwrap();
+
+    let folder = tempfile::tempdir().unwrap();
+    let file = folder.path().join("trip.jpg");
+    std::fs::write(&file, b"not really a jpeg").unwrap();
+    let attachment = OutgoingAttachment {
+        file,
+        name: "trip.jpg".to_owned(),
+        mimetype: "image/jpeg".to_owned(),
+        size: 17,
+        kind: OutgoingKind::Photo { width: 4, height: 3 },
+        thumbnail: None,
+    };
+    let id = timelines
+        .send_attachment(&room(), &attachment, Some("Trip"), None)
+        .await
+        .unwrap()
+        .expect("the local echo showed");
+
+    let page = page_until(&timelines, |page| {
+        page.iter()
+            .any(|message| message.message.id == id && message.message.state == SendState::Sent)
+    })
+    .await;
+    let photo = page.iter().find(|message| message.message.id == id).unwrap();
+    assert_eq!(photo.message.body, "Trip");
+    let Some(Media::Photo { picture, .. }) = &photo.media else {
+        panic!("not a photo");
+    };
+    assert_eq!((picture.width, picture.height), (4, 3));
+    assert_eq!(timelines.send_state(&room(), &id).await.unwrap(), Some(SendState::Sent));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reading_sends_a_private_receipt_unless_asked_for_a_public_one() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org")).add_timeline_event(
+                factory
+                    .text_msg("unread")
+                    .sender(user_id!("@alice:example.org"))
+                    .event_id(event_id!("$unread")),
+            ),
+        )
+        .await;
+    server
+        .mock_send_receipt(ReceiptType::ReadPrivate)
+        .ok()
+        .expect(1)
+        .named("private receipt")
+        .mount()
+        .await;
+    server
+        .mock_send_receipt(ReceiptType::Read)
+        .ok()
+        .expect(0)
+        .named("public receipt")
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+    page_until(&timelines, body_is("unread")).await;
+    timelines.mark_read(&room(), Receipt::Private).await.unwrap();
+    server.server().verify().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_unread_message_is_paged_back_to() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    let own = user_id!("@example:localhost");
+    // a first screen of unread messages; the receipt is on an older one the timeline lacks.
+    let mut joined = JoinedRoomBuilder::new(room_id!("!chat:example.org"));
+    for number in 0..60 {
+        joined = joined.add_timeline_event(factory.text_msg(format!("new {number}")).sender(alice));
+    }
+    let joined = joined
+        .add_receipt(
+            factory
+                .read_receipts()
+                .add(
+                    event_id!("$read"),
+                    own,
+                    EventReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                )
+                .into_event(),
+        )
+        .set_timeline_limited()
+        .set_timeline_prev_batch("back");
+    server.sync_room(&client, joined).await;
+    server
+        .mock_room_messages()
+        .match_from("back")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![
+                factory
+                    .text_msg("first unread")
+                    .sender(alice)
+                    .event_id(event_id!("$unread")),
+                factory.text_msg("read").sender(alice).event_id(event_id!("$read")),
+            ])
+            .end_token("older"))
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room()))
+        .await
+        .unwrap();
+
+    let first = timelines
+        .first_unread(&room())
+        .await
+        .unwrap()
+        .expect("an unread message");
+    let page = snapshot(&timelines).await;
+    let shown = page
+        .iter()
+        .find(|message| message.message.id == first)
+        .expect("in the timeline");
+    assert_eq!(shown.message.body, "first unread");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_text_history_holds_each_messages_newest_text_and_the_deleted_ones() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id!("!chat:example.org")))
+        .await;
+    let factory = EventFactory::new()
+        .room(room_id!("!chat:example.org"))
+        .sender(user_id!("@alice:example.org"));
+    let at = |second: u64| 1_700_000_000_000 + second * 1_000;
+    // newest first, as the server pages back; then the room's start.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            factory
+                .redaction(event_id!("$gone"))
+                .event_id(event_id!("$redaction"))
+                .server_ts(at(5))
+                .into_raw_timeline(),
+            factory
+                .text_msg("* hi everyone")
+                .edit(
+                    event_id!("$hi"),
+                    RoomMessageEventContentWithoutRelation::text_plain("hi everyone"),
+                )
+                .event_id(event_id!("$edit2"))
+                .server_ts(at(4))
+                .into_raw_timeline(),
+            factory
+                .text_msg("* hi there")
+                .edit(
+                    event_id!("$hi"),
+                    RoomMessageEventContentWithoutRelation::text_plain("hi there"),
+                )
+                .event_id(event_id!("$edit1"))
+                .server_ts(at(3))
+                .into_raw_timeline(),
+            factory
+                .redacted(user_id!("@alice:example.org"), RedactedRoomMessageEventContent::new())
+                .event_id(event_id!("$gone"))
+                .server_ts(at(2))
+                .into_raw_timeline(),
+            factory
+                .text_msg("hi")
+                .event_id(event_id!("$hi"))
+                .server_ts(at(1))
+                .into_raw_timeline(),
+        ]))
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+
+    let history = timelines
+        .text_history(&room(), std::time::SystemTime::UNIX_EPOCH, 3)
+        .await
+        .unwrap();
+    assert!(history.reached_start);
+    let [message] = history.messages.as_slice() else {
+        panic!("not one message: {:?}", history.messages);
+    };
+    assert_eq!(message.event_id.as_str(), "$hi");
+    assert_eq!(message.body, "hi everyone");
+    // dated as the message, not as its edit.
+    assert_eq!(
+        message.date,
+        std::time::SystemTime::UNIX_EPOCH + Duration::from_millis(at(1))
+    );
+    assert!(history.removed.iter().all(|event| event.as_str() == "$gone"));
+    assert!(!history.removed.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_photo_loads_once_into_one_file_even_when_asked_twice_at_once() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org")).add_timeline_event(
+                factory
+                    .image("beach.jpg".to_owned(), mxc_uri!("mxc://example.org/beach").to_owned())
+                    .sender(user_id!("@alice:example.org"))
+                    .event_id(event_id!("$beach")),
+            ),
+        )
+        .await;
+    server.mock_media_download().ok_image().mount().await;
+    server.mock_authed_media_download().ok_image().mount().await;
+    let timelines = MatrixTimelines::new(client);
+    let page = page_until(&timelines, |page| !page.is_empty()).await;
+    let photo = page[0].message.id.clone();
+    let folder = tempfile::tempdir().unwrap();
+
+    let room = room();
+    let (one, other) = tokio::join!(
+        timelines.media_file(&room, &photo, folder.path()),
+        timelines.media_file(&room, &photo, folder.path()),
+    );
+    let (one, other) = (one.unwrap(), other.unwrap());
+    assert_eq!(one, other);
+    assert_eq!(one.file_name().unwrap(), "beach.jpg");
+    assert_eq!(std::fs::read(&one).unwrap(), b"binaryjpegfullimagedata");
+    // nothing half-written is left beside it.
+    assert_eq!(std::fs::read_dir(one.parent().unwrap()).unwrap().count(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pictures_load_once_per_url_and_size_and_without_a_thumbnail_as_they_are() {
+    use lux_core::ids::MediaId;
+    use lux_core::timeline::ImageSource;
+    use wiremock::matchers::{method, path_regex, query_param};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org")).add_timeline_event(
+                factory
+                    .image("beach.jpg".to_owned(), mxc_uri!("mxc://example.org/beach").to_owned())
+                    .sender(user_id!("@alice:example.org"))
+                    .event_id(event_id!("$beach")),
+            ),
+        )
+        .await;
+    // the beach's thumbnails at each size, once each; the bridge's picture has none.
+    for (side, body) in [("160", "small beach"), ("800", "large beach")] {
+        Mock::given(method("GET"))
+            .and(path_regex("/media/thumbnail/example.org/beach$"))
+            .and(query_param("width", side))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(body)
+                    .insert_header("content-type", "image/jpeg"),
+            )
+            .expect(1)
+            .mount(server.server())
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path_regex("/media/thumbnail/example.org/bridged$"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "errcode": "M_NOT_FOUND", "error": "no thumbnail"
+        })))
+        .mount(server.server())
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex("/media/download/example.org/bridged"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes("whole picture")
+                .insert_header("content-type", "image/png"),
+        )
+        .expect(1)
+        .mount(server.server())
+        .await;
+    let timelines = MatrixTimelines::new(client);
+    let page = page_until(&timelines, |page| !page.is_empty()).await;
+    let folder = tempfile::tempdir().unwrap();
+    let photo = ImageSource::Photo {
+        room: room(),
+        message: page[0].message.id.clone(),
+    };
+    let person = ImageSource::Person(MediaId::from("mxc://example.org/beach"));
+    let bridged = ImageSource::Person(MediaId::from("mxc://example.org/bridged"));
+
+    for _ in 0..2 {
+        let large = timelines.image_file(&photo, folder.path()).await.unwrap().unwrap();
+        let small = timelines.image_file(&person, folder.path()).await.unwrap().unwrap();
+        let whole = timelines.image_file(&bridged, folder.path()).await.unwrap().unwrap();
+        // one url, two sizes: two files.
+        assert_ne!(large, small);
+        assert_eq!(std::fs::read(&large).unwrap(), b"large beach");
+        assert_eq!(std::fs::read(&small).unwrap(), b"small beach");
+        assert_eq!(std::fs::read(&whole).unwrap(), b"whole picture");
+        assert!(small.file_name().unwrap().to_str().unwrap().ends_with("-160x160"));
+    }
+    // the files, and nothing half-written beside them.
+    assert_eq!(std::fs::read_dir(folder.path()).unwrap().count(), 3);
+}
+
+/// The messages of `room` once it holds `count` of them.
+async fn messages_of(timelines: &MatrixTimelines, room: &RoomId, count: usize) -> Vec<Arc<TimelineMessage>> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut batches = timelines.messages(room).await.unwrap();
+        let mut messages = eyeball_im::Vector::new();
+        while let Some(batch) = futures_util::StreamExt::next(&mut batches).await {
+            for diff in batch {
+                diff.apply(&mut messages);
+            }
+            if messages.len() == count {
+                return messages.into_iter().collect();
+            }
+        }
+        panic!("the room's messages ended");
+    })
+    .await
+    .expect("the room's messages did not come in time")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn messages_of_different_rooms_never_share_an_id() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let alice = user_id!("@alice:example.org");
+    let other = room_id!("!other:example.org");
+    // two rooms alike, as a merged chat shows them side by side.
+    for (room, prefix) in [(room_id!("!chat:example.org"), "chat"), (other, "other")] {
+        let factory = EventFactory::new().room(room);
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room)
+                    .add_timeline_event(
+                        factory
+                            .text_msg("one")
+                            .sender(alice)
+                            .event_id(&matrix_sdk::ruma::OwnedEventId::try_from(format!("${prefix}-one")).unwrap()),
+                    )
+                    .add_timeline_event(
+                        factory
+                            .text_msg("two")
+                            .sender(alice)
+                            .event_id(&matrix_sdk::ruma::OwnedEventId::try_from(format!("${prefix}-two")).unwrap()),
+                    ),
+            )
+            .await;
+    }
+    let timelines = MatrixTimelines::new(client);
+
+    let first = messages_of(&timelines, &room(), 2).await;
+    let second = messages_of(&timelines, &RoomId::from(other.as_str()), 2).await;
+    let ids: std::collections::HashSet<&MessageId> =
+        first.iter().chain(&second).map(|message| &message.message.id).collect();
+    assert_eq!(ids.len(), 4, "the rooms' messages share ids: {ids:?}");
+}

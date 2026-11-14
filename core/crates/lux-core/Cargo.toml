@@ -1,0 +1,31 @@
+[package]
+name = "lux-core"
+description = "Lux's chat app logic: everything the apps share but their UI."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+eyeball-im.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
+jiff.workspace = true
+linkify.workspace = true
+# the composer's Markdown, read as sending reads it (ruma's `text_markdown`).
+pulldown-cmark = { version = "0.13.0", default-features = false }
+thiserror.workspace = true
+# chats found by name without their accents.
+unicode-normalization = "0.1.26"
+# the store key, wiped when dropped.
+zeroize = { workspace = true, features = ["zeroize_derive"] }
+# the view models' tasks: their timers, channels and the runtime they run on.
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
+
+[dev-dependencies]
+proptest = { version = "1.11", default-features = false, features = ["std"] }
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros", "test-util"] }
+
+[lints]
+workspace = true

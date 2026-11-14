@@ -1,0 +1,19 @@
+// This build's identity: every target reads it (project.yml), and the apps read it at run time
+// from their Info.plist (`AppIdentity`). A fork changes these lines, or overrides them in
+// Local.xcconfig, never the code.
+
+// The app's bundle id; the extension, the UI tests, the Keychain services, the background tasks
+// and the log subsystem are named after it.
+LUX_BUNDLE_ID = com.bardav.lux.native
+// The App Group the iPhone app shares with its notification extension.
+LUX_APP_GROUP = group.$(LUX_BUNDLE_ID)
+// The push gateway (Sygnal) that knows `$(LUX_BUNDLE_ID).ios`; empty: no push notifications.
+// (`/$()/` keeps `//` from starting a comment.)
+LUX_PUSH_GATEWAY = https:/$()/push.bardav.com/_matrix/push/v1/notify
+// The app's page, as the server's sign-in page names it (OAuth `client_uri`). The sign-in returns
+// to `$(LUX_BUNDLE_ID):/callback`, so the bundle id reversed must be this host or a subdomain of
+// it. Empty: sign-in with a password only.
+LUX_OAUTH_CLIENT_URI = https:/$()/bardav.com
+
+// Your team id and any overrides: copy Local.xcconfig.example to Local.xcconfig (not in git).
+#include? "Local.xcconfig"

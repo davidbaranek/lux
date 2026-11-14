@@ -1,0 +1,63 @@
+//! One frame's batch of changes to the chat list.
+
+use std::time::SystemTime;
+
+use eyeball_im::VectorDiff;
+
+use super::{ListRow, Loading, SectionHeader};
+use crate::chat::Label;
+use crate::ids::ChatId;
+use crate::places::{ListedPlace, PlaceId, SectionId};
+
+/// The rows of one section that changed, as diffs to apply in order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SectionRows {
+    /// Which section.
+    pub section: SectionId,
+    /// Its changes; a section new in this batch starts from no rows.
+    pub diffs: Vec<VectorDiff<ListRow>>,
+}
+
+/// A chat with a reminder: the apps schedule a notification for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DueReminder {
+    /// The chat.
+    pub chat: ChatId,
+    /// Its name, for the notification.
+    pub name: String,
+    /// When to answer it.
+    pub at: SystemTime,
+}
+
+/// What changed in the chat list since the last batch; what did not change is `None` or empty.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListUpdate {
+    /// The place shown: the one asked for, or the inbox when that place went away.
+    pub place: PlaceId,
+    /// The places, arranged, when any changed.
+    pub places: Option<Vec<ListedPlace>>,
+    /// The shown place's sections in order, when they changed (one came or went, or a heading
+    /// changed). A section that stays keeps its rows.
+    pub sections: Option<Vec<SectionHeader>>,
+    /// The sections whose rows changed.
+    pub rows: Vec<SectionRows>,
+    /// The user's labels, when they changed.
+    pub labels: Option<Vec<Label>>,
+    /// The chats with a reminder, when they changed.
+    pub reminders: Option<Vec<DueReminder>>,
+    /// How far the list is loaded, when that changed.
+    pub loading: Option<Loading>,
+}
+
+impl ListUpdate {
+    /// Nothing changed: the batch is not sent.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.places.is_none()
+            && self.sections.is_none()
+            && self.rows.is_empty()
+            && self.labels.is_none()
+            && self.reminders.is_none()
+            && self.loading.is_none()
+    }
+}

@@ -1,0 +1,9 @@
+// Copy to Config/Local.xcconfig (gitignored) and fill in: what differs on your machine.
+
+// Your Apple developer team (Xcode > Settings > Accounts), for signing.
+DEVELOPMENT_TEAM =
+
+// A fork's own identity (see Lux.xcconfig), for example:
+// LUX_BUNDLE_ID = com.example.lux
+// LUX_PUSH_GATEWAY =
+// LUX_OAUTH_CLIENT_URI = https:/$()/example.com

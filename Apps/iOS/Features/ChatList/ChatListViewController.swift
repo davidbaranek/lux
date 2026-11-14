@@ -1,0 +1,508 @@
+import LuxCore
+import UIKit
+
+/// The chats of one place, newest message first: a list layout over a diffable data source keyed
+/// by room id. A row renders again only when what it shows changed (`reconfigureItems`). The search
+/// field searches as Messages does. The bottom toolbar holds the filter (unread, drafts, groups…),
+/// the places (the Mac's rail: the inbox, the archive and the current place, every place behind the
+/// chevron) and the search.
+final class ChatListViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
+    UISearchResultsUpdating {
+    let session: Session
+    let model: ChatListModel
+    private let signOut: () -> Void
+    private lazy var searchModel = SearchModel(session: session)
+    private var rows: [String: ChatRow] = [:]
+    private var shownFirst = false
+    /// The first sync's progress, over the top of the list.
+    private let loading = LoadingBubble(text: String(localized: "Loading chats…"))
+    /// The place the list showed last: another place replaces the list at once, with no animation.
+    private var shownPlace: Place?
+    private var indexProgress: AnyObject?
+    private var searchOpened: AnyObject?
+    private var collectionView: UICollectionView!
+    private var titles: [String: String] = [:]
+    /// What a grid item's id starts with (the chat's id follows).
+    private static let gridPrefix = "grid:"
+    /// The sections drawn as a grid (the inbox's pinned chats).
+    private var gridSections: Set<String> = []
+    private var dataSource: UICollectionViewDiffableDataSource<String, String>!
+
+    /// The app's badge: the inbox's unread chats.
+    private let badge: (Int) -> Void
+
+    init(session: Session, badge: @escaping (Int) -> Void = { _ in }, signOut: @escaping () -> Void) {
+        self.session = session
+        self.badge = badge
+        self.signOut = signOut
+        model = ChatListModel(session: session)
+        super.init(nibName: nil, bundle: nil)
+        title = String(localized: "Chats")
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationItem.largeTitleDisplayMode = .always
+        navigationController?.navigationBar.prefersLargeTitles = true
+        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .compose, primaryAction: UIAction { [weak self] _ in self?.newConversation() })
+        navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "gearshape"), primaryAction: UIAction { [weak self] _ in
+            self?.openSettings()
+        })
+        navigationItem.leftBarButtonItem?.accessibilityLabel = String(localized: "Settings")
+
+        let results = SearchResultsViewController(images: session.images) { [weak self] row in self?.open(row) }
+        let search = UISearchController(searchResultsController: results)
+        search.searchResultsUpdater = self
+        search.searchBar.placeholder = String(localized: "Search")
+        navigationItem.searchController = search
+        // the search sits in the bottom toolbar, beside the places (`updatePlaces`).
+        navigationItem.preferredSearchBarPlacement = .integratedButton
+        searchModel.onUpdate = { hits in results.show(hits) }
+        results.showProgress(session.search?.progress)
+        // the index opens a moment after the account: follow its progress once it has.
+        searchOpened = session.searchChanges.observe { [weak self, weak results] in
+            guard let self, let search = session.search else { return }
+            results?.showProgress(search.progress)
+            indexProgress = search.progressChanges.observe { [weak self, weak results, weak search] in
+                results?.showProgress(search?.progress)
+                self?.updateActivity()
+            }
+        }
+        if let search = session.search {
+            indexProgress = search.progressChanges.observe { [weak self, weak results, weak search] in
+                results?.showProgress(search?.progress)
+                self?.updateActivity()
+            }
+        }
+
+        // a space's own spaces head their chats (Discord's categories); other sections have no header.
+        let layout = UICollectionViewCompositionalLayout { [weak self] index, environment in
+            if let id = self?.dataSource.sectionIdentifier(for: index), self?.gridSections.contains(id) == true {
+                return Self.pinnedGrid(environment)
+            }
+            var list = UICollectionLayoutListConfiguration(appearance: .plain)
+            list.backgroundColor = .systemBackground
+            // no line above a section's first chat: lines only between chats.
+            list.itemSeparatorHandler = { indexPath, configuration in
+                var configuration = configuration
+                if indexPath.item == 0 { configuration.topSeparatorVisibility = .hidden }
+                return configuration
+            }
+            // swipe right: read / unread, as Mail and Messages do.
+            list.leadingSwipeActionsConfigurationProvider = { [weak self] indexPath in
+                guard let self, let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] else { return nil }
+                let action = UIContextualAction(style: .normal, title: nil) { [weak self] _, _, done in
+                    self?.model.setUnread(row.id, !row.isUnread)
+                    done(true)
+                }
+                action.image = UIImage(systemName: row.isUnread ? "envelope.open.fill" : "envelope.badge.fill")
+                action.backgroundColor = .systemBlue
+                return UISwipeActionsConfiguration(actions: [action])
+            }
+            // swipe left: Low Priority (or back to the inbox), as Mail moves a message.
+            list.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
+                guard let self, let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] else { return nil }
+                let low = row.folder == .lowPriority
+                let action = UIContextualAction(style: .normal, title: low ? String(localized: "Inbox") : String(localized: "Low Priority")) {
+                    [weak self] _, _, done in
+                    self?.model.change(row.id, low ? .inbox : .lowPriority)
+                    done(true)
+                }
+                action.image = UIImage(systemName: low ? "tray.and.arrow.up.fill" : "arrow.down.circle.fill")
+                action.backgroundColor = .systemIndigo
+                return UISwipeActionsConfiguration(actions: [action])
+            }
+            let section = self?.dataSource.sectionIdentifier(for: index)
+            list.headerMode = section.flatMap { self?.titles[$0] } == nil ? .none : .supplementary
+            return .list(using: list, layoutEnvironment: environment)
+        }
+        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
+        collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collectionView.delegate = self
+        collectionView.prefetchDataSource = self
+        collectionView.accessibilityIdentifier = "chats"
+        // the action's sender is not the control here: end the control the list owns.
+        collectionView.refreshControl = UIRefreshControl(frame: .zero, primaryAction: UIAction { [weak self] _ in
+            Task {
+                await self?.model.reload()
+                self?.collectionView.refreshControl?.endRefreshing()
+            }
+        })
+        view.addSubview(collectionView)
+        // what scrolls under the bar blurs out gradually, not at a hard edge (the system's default).
+        collectionView.topEdgeEffect.style = .soft
+
+        let images = session.images
+        let cell = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, id in
+            guard let row = self?.rows[id] else { return }
+            cell.contentConfiguration = ChatRowConfiguration(row: row, images: images)
+            cell.accessories = []
+        }
+        let pinned = UICollectionView.CellRegistration<PinnedChatCell, String> { [weak self] cell, _, id in
+            guard let row = self?.rows[id] else { return }
+            cell.show(row, images: images)
+        }
+        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] collectionView, indexPath, id in
+            let grid = self?.dataSource.sectionIdentifier(for: indexPath.section).map { self?.gridSections.contains($0) == true } ?? false
+            return grid ? collectionView.dequeueConfiguredReusableCell(using: pinned, for: indexPath, item: id)
+                        : collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: id)
+        }
+        let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionHeader) {
+            [weak self] header, _, indexPath in
+            var content = UIListContentConfiguration.header()
+            content.text = self?.dataSource.sectionIdentifier(for: indexPath.section).flatMap { self?.titles[$0] }
+            header.contentConfiguration = content
+        }
+        dataSource.supplementaryViewProvider = { collectionView, _, indexPath in
+            collectionView.dequeueConfiguredReusableSupplementary(using: header, for: indexPath)
+        }
+
+        // the bubble sits in the top bar, between Settings and New Message: nothing in the list moves.
+        navigationItem.titleView = loading
+        loading.set(visible: true)
+        model.onLoadState = { [weak self] _ in self?.updateActivity() }
+        model.onUpdate = { [weak self] sections, changed in self?.show(sections, changed: changed) }
+        model.onPlaces = { [weak self] places in
+            if let inbox = places.first(where: { $0.id == .inbox }) { self?.badge(inbox.unread) }
+            self?.updatePlaces()
+            self?.placesSheet?.show(places)
+        }
+        model.onError = { [weak self] error in self?.report(error, of: "chat list") }
+        Task { await model.reload() }
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setToolbarHidden(false, animated: animated)
+        // a draft may have been written or sent in the chat just left.
+        if model.filter == .drafts { model.refresh() }
+        guard let selected = collectionView.indexPathsForSelectedItems?.first else { return }
+        if let coordinator = transitionCoordinator {
+            coordinator.animate { _ in self.collectionView.deselectItem(at: selected, animated: true) } completion: { context in
+                if context.isCancelled { self.collectionView.selectItem(at: selected, animated: false, scrollPosition: []) }
+            }
+        } else {
+            collectionView.deselectItem(at: selected, animated: animated)
+        }
+    }
+
+    /// The bubble says what the app is doing (connecting, updating chats, preparing search) and how
+    /// far it is.
+    private func updateActivity() {
+        let activity = ListActivity.describe(model.loadState, search: session.search?.progress)
+        if let activity {
+            loading.text = activity.title
+            loading.detail = activity.detail
+        }
+        guard (activity != nil) != bubbleShown else { return }
+        bubbleShown = activity != nil
+        loading.set(visible: bubbleShown)
+    }
+
+    private var bubbleShown = true
+
+    private func show(_ sections: [ChatSection], changed: [String]) {
+        let first = !shownFirst
+        shownFirst = true
+        let samePlace = shownPlace == model.place
+        shownPlace = model.place
+        let new = sections.flatMap(\.rows)
+        // a grid item has its own id: a chat moving into the grid or out of it is a new item with
+        // the other kind of cell, not the old cell configured again.
+        func itemId(_ row: ChatRow, in section: ChatSection) -> String { section.style == .grid ? Self.gridPrefix + row.id : row.id }
+        rows = Dictionary(sections.flatMap { section in section.rows.map { (itemId($0, in: section), $0) } },
+                          uniquingKeysWith: { first, _ in first })
+        titles = Dictionary(sections.compactMap { section in section.title.map { (section.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        gridSections = Set(sections.filter { $0.style == .grid }.map(\.id))
+        var snapshot = NSDiffableDataSourceSnapshot<String, String>()
+        for section in sections {
+            snapshot.appendSections([section.id])
+            snapshot.appendItems(section.rows.map { itemId($0, in: section) }, toSection: section.id)
+        }
+        let changed = changed.flatMap { [$0, Self.gridPrefix + $0] }.filter { snapshot.indexOfItem($0) != nil }
+        let state = Signposts.list.beginInterval("apply")
+        if first {
+            dataSource.applySnapshotUsingReloadData(snapshot)
+            Signposts.firstChatsShown(count: new.count)
+            if LaunchOptions.isBenchmark { benchmark(new) }
+        } else {
+            snapshot.reconfigureItems(changed)
+            dataSource.apply(snapshot, animatingDifferences: samePlace && view.window != nil)
+        }
+        Signposts.list.endInterval("apply", state, "\(changed.count) changed")
+    }
+
+    /// `-LuxBenchmark`: scroll the list down and back, then open a chat (which scrolls itself).
+    private func benchmark(_ rows: [ChatRow]) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let collectionView = self?.collectionView else { return }
+            ScrollBenchmark(collectionView, name: "chat list", direction: 1).run { [weak self] in
+                guard let self, let row = rows.first(where: \.isGroup) else { return }
+                navigationController?.pushViewController(ThreadViewController(session: session, row: row), animated: false)
+            }
+        }
+    }
+
+    /// Avatars a few rows ahead start loading before their rows appear.
+    func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        let refs = indexPaths.compactMap { dataSource.itemIdentifier(for: $0).flatMap { rows[$0]?.avatar } }
+        session.images?.prefetch(refs, pixels: AvatarView.pixels(52, traitCollection), shape: .circle)
+    }
+
+    /// Long press on a chat: mark it read or unread.
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
+                        point: CGPoint) -> UIContextMenuConfiguration? {
+        guard let id = indexPaths.first.flatMap({ dataSource.itemIdentifier(for: $0) }), let row = rows[id] else { return nil }
+        switch model.destination(of: row) {
+        case .chat:
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in self?.menu(for: row) }
+        case .message:
+            guard let saved = model.saved(of: row) else { return nil }
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+                UIMenu(children: [UIAction(title: MessageAction.unsave.title, image: UIImage(systemName: MessageAction.unsave.symbol),
+                                           attributes: .destructive) { _ in self?.model.unsave(saved) }])
+            }
+        case .scheduled(let waiting):
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+                UIMenu(children: [UIAction(title: String(localized: "Don't Send"), image: UIImage(systemName: "xmark.circle"),
+                                           attributes: .destructive) { _ in self?.model.cancel(waiting) }])
+            }
+        case .request:
+            return nil
+        }
+    }
+
+    /// What `ChatChange` offers for the chat, with its labels in a submenu.
+    private func menu(for row: ChatRow) -> UIMenu {
+        let changes = ChatChange.available(for: row)
+        func action(_ change: ChatChange) -> UIAction {
+            UIAction(title: change.title, image: UIImage(systemName: change.symbol), attributes: change.isDestructive ? .destructive : []) {
+                [weak self] _ in self?.perform(change, on: row)
+            }
+        }
+        let main = changes.filter { !$0.isDestructive }.map(action)
+        return UIMenu(children: [UIMenu(options: .displayInline, children: main), remindMenu(for: row), labelsMenu(for: row), mergeMenu(for: row),
+                                 UIMenu(options: .displayInline, children: changes.filter(\.isDestructive).map(action))])
+    }
+
+    /// One person's chats on several networks as one: merge with another chat, or take a merged
+    /// chat apart. Not for groups.
+    private func mergeMenu(for row: ChatRow) -> UIMenu {
+        guard !row.isGroup else { return UIMenu(options: .displayInline, children: []) }
+        var items: [UIMenuElement] = [
+            UIAction(title: String(localized: "Merge With…"), image: UIImage(systemName: "arrow.triangle.merge")) { [weak self] _ in
+                guard let self else { return }
+                let picker = ChatPickerViewController(session: session, title: String(localized: "Merge With")) { [weak self] other in
+                    self?.model.merge(row, with: other)
+                }
+                present(UINavigationController(rootViewController: picker), animated: true)
+            },
+        ]
+        if row.isMerged {
+            items.append(UIAction(title: String(localized: "Separate Chats"), image: UIImage(systemName: "arrow.triangle.branch")) {
+                [weak self] _ in self?.model.unmerge(row)
+            })
+        }
+        return UIMenu(options: .displayInline, children: items)
+    }
+
+    /// Remind me to answer: soon, this evening, tomorrow, next week; or stop.
+    private func remindMenu(for row: ChatRow) -> UIMenu {
+        var items: [UIMenuElement] = LaterTime.offered().map { time in
+            let date = time.date()
+            return UIAction(title: time.title, subtitle: TimeText.upcoming(date), image: UIImage(systemName: time.symbol)) { [weak self] _ in
+                self?.model.setReminder(row.id, at: date)
+            }
+        }
+        if row.reminder != nil {
+            items.append(UIMenu(options: .displayInline, children: [
+                UIAction(title: String(localized: "Remove Reminder"), image: UIImage(systemName: "bell.slash"), attributes: .destructive) {
+                    [weak self] _ in self?.model.setReminder(row.id, at: nil)
+                },
+            ]))
+        }
+        let title = row.reminder.map { String(localized: "Remind Me · \(TimeText.upcoming($0))") } ?? String(localized: "Remind Me")
+        return UIMenu(title: title, image: UIImage(systemName: "bell"), children: items)
+    }
+
+    /// The labels, the chat's ticked; a tap puts it in or takes it out. New Label makes one.
+    private func labelsMenu(for row: ChatRow) -> UIMenu {
+        let labels = model.labels.map { label in
+            UIAction(title: label.name, image: UIImage(systemName: "tag"), state: label.rooms.contains(row.id) ? .on : .off) { [weak self] _ in
+                self?.model.setChat(row.id, inLabel: label.id, !label.rooms.contains(row.id))
+            }
+        }
+        let new = UIAction(title: String(localized: "New Label…"), image: UIImage(systemName: "plus")) { [weak self] _ in
+            self?.askForLabel(for: row)
+        }
+        return UIMenu(title: String(localized: "Labels"), image: UIImage(systemName: "tag"), children: labels + [new])
+    }
+
+    private func askForLabel(for row: ChatRow) {
+        let alert = UIAlertController(title: String(localized: "New Label"), message: nil, preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = String(localized: "Name") }
+        alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Create"), style: .default) { [weak self, weak alert] _ in
+            guard let name = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return }
+            self?.model.makeLabel(named: name, with: row.id)
+        })
+        present(alert, animated: true)
+    }
+
+    /// Does a menu's change; deleting asks first.
+    private func perform(_ change: ChatChange, on row: ChatRow) {
+        guard change.needsConfirmation else { return model.change(row.id, change) }
+        let alert = UIAlertController(title: String(localized: "Delete \(row.name)?"), message: ChatChange.deleteWarning, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Delete"), style: .destructive) { [weak self] _ in
+            self?.model.change(row.id, change)
+        })
+        present(alert, animated: true)
+    }
+
+    /// A waiting message: it can be cancelled.
+    private func cancel(_ waiting: ScheduledMessage, from cell: UIView?) {
+        let sheet = UIAlertController(title: String(localized: "Sends \(TimeText.upcoming(waiting.sendAt))"), message: waiting.body,
+                                      preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: String(localized: "Don't Send"), style: .destructive) { [weak self] _ in self?.model.cancel(waiting) })
+        sheet.addAction(UIAlertAction(title: String(localized: "Keep"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = cell
+        present(sheet, animated: true)
+    }
+
+    /// A request: accept (and open the chat) or decline.
+    private func answer(_ row: ChatRow, from cell: UIView?) {
+        let sheet = UIAlertController(title: row.name, message: row.preview, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: String(localized: "Accept"), style: .default) { [weak self] _ in
+            self?.model.answer(request: row.id, accept: true)
+        })
+        sheet.addAction(UIAlertAction(title: String(localized: "Decline"), style: .destructive) { [weak self] _ in
+            self?.model.answer(request: row.id, accept: false)
+        })
+        sheet.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = cell
+        present(sheet, animated: true)
+    }
+
+    /// Four pictures to a row, as Messages lays out its pinned conversations.
+    private static func pinnedGrid(_ environment: any NSCollectionLayoutEnvironment) -> NSCollectionLayoutSection {
+        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(0.25), heightDimension: .estimated(100)))
+        let group = NSCollectionLayoutGroup.horizontal(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(100)),
+                                                       repeatingSubitem: item, count: 4)
+        let section = NSCollectionLayoutSection(group: group)
+        section.interGroupSpacing = 8
+        section.contentInsetsReference = .layoutMargins
+        section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 0, bottom: 12, trailing: 0)
+        return section
+    }
+
+    /// A finger is down on a chat: start opening it before the tap ends.
+    func collectionView(_ collectionView: UICollectionView, didHighlightItemAt indexPath: IndexPath) {
+        if let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] { model.prefetch(row.id) }
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] else { return }
+        let cell = collectionView.cellForItem(at: indexPath)
+        switch model.destination(of: row) {
+        case .chat(let chat): open(chat)
+        case .message(let chat, let eventId):
+            navigationController?.pushViewController(ThreadViewController(session: session, row: chat, focusEvent: eventId), animated: true)
+        case .scheduled(let waiting):
+            collectionView.deselectItem(at: indexPath, animated: true)
+            cancel(waiting, from: cell)
+        case .request(let request):
+            collectionView.deselectItem(at: indexPath, animated: true)
+            answer(request, from: cell)
+        }
+    }
+
+    private func open(_ row: ChatRow) {
+        navigationController?.pushViewController(ThreadViewController(session: session, row: row), animated: true)
+    }
+
+    /// Opens the chat of a notification the user tapped: the merged chat its room is part of,
+    /// else the room's own, over whatever was on screen. Right after launch the account's chats
+    /// may not have come yet: it waits for them a few seconds.
+    func openChat(roomId: String) {
+        Task { [weak self] in
+            for _ in 0..<20 {
+                guard let self, session.isSignedIn else { return }
+                if let row = await session.chat(ofRoom: roomId) {
+                    presentedViewController?.dismiss(animated: false)
+                    navigationController?.popToRootViewController(animated: false)
+                    open(row)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        searchModel.search(searchController.searchBar.text ?? "")
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setToolbarHidden(true, animated: animated)
+    }
+
+    private func openSettings() {
+        navigationController?.pushViewController(SettingsViewController(session: session, model: SettingsModel(session: session), signOut: signOut), animated: true)
+    }
+
+    // MARK: Places
+
+    /// Every place, in a sheet from the bottom, at the end of the places.
+    lazy var allPlacesButton: UIBarButtonItem = {
+        let item = UIBarButtonItem(image: UIImage(systemName: "chevron.up.chevron.down"), primaryAction: UIAction { [weak self] _ in
+            self?.showAllPlaces()
+        })
+        item.accessibilityLabel = String(localized: "All Places")
+        return item
+    }()
+    weak var placesSheet: PlacesSheetViewController?
+
+    /// Which of the place's chats show: the button at the bottom left.
+    lazy var filterButton: UIBarButtonItem = {
+        let menu = UIMenu(title: String(localized: "Filter"), children: [
+            UIDeferredMenuElement.uncached { [weak self] completion in completion(self?.filterMenuElements() ?? []) },
+        ])
+        let item = UIBarButtonItem(image: UIImage(systemName: "line.3.horizontal.decrease"), menu: menu)
+        item.accessibilityLabel = String(localized: "Filter")
+        return item
+    }()
+
+    /// The shortcut buttons, by place, kept so an update changes a button rather than the toolbar.
+    var shortcutItems: [Place: UIBarButtonItem] = [:]
+    var shortcutOrder: [Place] = []
+
+    /// A new conversation, as a full card over the list (as Messages composes one).
+    private func newConversation() {
+        let picker = NewConversationViewController(session: session, open: { [weak self] row in self?.open(row) },
+                                                   newRoom: { [weak self] in self?.newChat() })
+        let navigation = UINavigationController(rootViewController: picker)
+        navigation.sheetPresentationController?.detents = [.large()]
+        present(navigation, animated: true)
+    }
+
+    private func newChat() {
+        let alert = UIAlertController(title: String(localized: "New Chat"), message: String(localized: "An encrypted room with only you in it."),
+                                      preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = String(localized: "Name") }
+        alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Create"), style: .default) { [weak self, weak alert] _ in
+            guard let self, let name = alert?.textFields?.first?.text, !name.isEmpty else { return }
+            Task {
+                guard let id = try? await self.model.createRoom(name: name) else { return }
+                let row = ChatRow(id: id, name: name, preview: "", date: nil)
+                self.navigationController?.pushViewController(ThreadViewController(session: self.session, row: row), animated: true)
+            }
+        })
+        present(alert, animated: true)
+    }
+}

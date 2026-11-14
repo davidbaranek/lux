@@ -1,0 +1,70 @@
+//! The schema, as numbered migrations: the file's `user_version` says how many it has.
+
+use rusqlite::Connection;
+
+use crate::{Error, Result};
+
+/// The migrations, in order; the file's version is how many ran. Never edit one that shipped: add
+/// the next.
+const MIGRATIONS: &[&str] = &[
+    // 1: the index and the kept values.
+    "
+    CREATE TABLE messages(
+        id INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, room_id TEXT NOT NULL,
+        sender TEXT NOT NULL, body TEXT NOT NULL, ts INTEGER NOT NULL, own INTEGER NOT NULL);
+    CREATE INDEX messages_by_room ON messages(room_id, ts);
+    CREATE VIRTUAL TABLE messages_fts USING fts5(
+        body, sender, content='messages', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2', prefix='2 3');
+    CREATE TRIGGER messages_added AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, body, sender) VALUES (new.id, new.body, new.sender);
+    END;
+    CREATE TRIGGER messages_removed AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, body, sender) VALUES ('delete', old.id, old.body, old.sender);
+    END;
+    CREATE TRIGGER messages_changed AFTER UPDATE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, body, sender) VALUES ('delete', old.id, old.body, old.sender);
+        INSERT INTO messages_fts(rowid, body, sender) VALUES (new.id, new.body, new.sender);
+    END;
+    CREATE TABLE chats(room_id TEXT PRIMARY KEY, newest INTEGER NOT NULL, complete INTEGER NOT NULL);
+    CREATE TABLE kept(key TEXT PRIMARY KEY, value BLOB NOT NULL);
+    ",
+];
+
+/// Brings the file's schema up to this version's, each migration in its own transaction.
+pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
+    let supported = u32::try_from(MIGRATIONS.len()).unwrap_or(u32::MAX);
+    let found: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if found > supported {
+        return Err(Error::NewerSchema { found, supported });
+    }
+    for (version, migration) in (found + 1..).zip(&MIGRATIONS[found as usize..]) {
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(migration)?;
+        transaction.pragma_update(None, "user_version", version)?;
+        transaction.commit()?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_once_and_refuses_a_newer_file() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&mut connection).unwrap();
+        migrate(&mut connection).unwrap();
+        let version: u32 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version as usize, MIGRATIONS.len());
+
+        connection.pragma_update(None, "user_version", 99).unwrap();
+        assert!(matches!(
+            migrate(&mut connection),
+            Err(Error::NewerSchema { found: 99, .. })
+        ));
+    }
+}

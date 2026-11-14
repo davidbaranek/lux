@@ -1,0 +1,66 @@
+import Foundation
+import Testing
+@testable import LuxCore
+
+/// What a model announced, for a test to await: each announcement wakes the waiting test, which
+/// checks its condition again. Nothing polls.
+@MainActor
+final class Changes {
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func send() {
+        let woken = waiting
+        waiting = []
+        for continuation in woken { continuation.resume() }
+    }
+
+    /// Returns once `done` holds, checked at each announcement, or once `limit` passed.
+    func until(_ done: () -> Bool, within limit: Duration = .seconds(10),
+               sourceLocation: SourceLocation = #_sourceLocation) async {
+        let deadline = ContinuousClock.now + limit
+        let timeout = Task { [weak self] in
+            guard (try? await Task.sleep(until: deadline)) != nil else { return }
+            self?.send()
+        }
+        defer { timeout.cancel() }
+        while !done(), ContinuousClock.now < deadline {
+            await withCheckedContinuation { waiting.append($0) }
+        }
+        #expect(done(), sourceLocation: sourceLocation)
+    }
+}
+
+extension ChatListModel {
+    /// The list's announcements (rows, places, load state, failures), after the handlers it has.
+    func changes() -> Changes {
+        let changes = Changes()
+        let (update, places, loadState, error) = (onUpdate, onPlaces, onLoadState, onError)
+        onUpdate = { update?($0, $1); changes.send() }
+        onPlaces = { places?($0); changes.send() }
+        onLoadState = { loadState?($0); changes.send() }
+        onError = { error?($0); changes.send() }
+        return changes
+    }
+}
+
+extension ThreadModel {
+    /// The chat's announcements (messages, the composer's mode, the room shown, failures), after
+    /// the handlers it has.
+    func changes() -> Changes {
+        let changes = Changes()
+        let (update, mode, shownRoom, error) = (onUpdate, onMode, onShownRoom, onError)
+        onUpdate = { update?($0); changes.send() }
+        onMode = { mode?($0); changes.send() }
+        onShownRoom = { shownRoom?($0); changes.send() }
+        onError = { error?($0); changes.send() }
+        return changes
+    }
+}
+
+extension MessageSearch {
+    /// The index's announcements: how far it is.
+    func changes() -> (Changes, AnyObject) {
+        let changes = Changes()
+        return (changes, progressChanges.observe { changes.send() })
+    }
+}

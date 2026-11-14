@@ -1,0 +1,47 @@
+[package]
+name = "lux-matrix"
+description = "lux-core's ports over matrix-sdk and matrix-sdk-ui: the account, its sync, its room list and its chats' timelines."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+eyeball.workspace = true
+eyeball-im.workspace = true
+futures-util.workspace = true
+lux-core.workspace = true
+lux-store.workspace = true
+# markdown: a text message is sent from Markdown.
+matrix-sdk = { workspace = true, features = ["markdown"] }
+matrix-sdk-base.workspace = true
+matrix-sdk-ui.workspace = true
+# a store its key does not open: the sdk's error opening it.
+matrix-sdk-sqlite.workspace = true
+# whether a crypto store is encrypted, and whether a key opens it, read from its file.
+matrix-sdk-store-encryption.workspace = true
+rusqlite.workspace = true
+getrandom.workspace = true
+mime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+# time: waiting a moment for a sent attachment's local echo.
+tokio = { workspace = true, features = ["time"] }
+tracing.workspace = true
+reqwest.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+jiff.workspace = true
+matrix-sdk = { workspace = true, features = ["testing"] }
+matrix-sdk-test.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+url = "2"
+wiremock = "0.6"
+
+[lints]
+workspace = true

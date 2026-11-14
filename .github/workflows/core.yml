@@ -1,0 +1,41 @@
+# The Rust core: formatting, lints and tests. The toolchain comes from core/rust-toolchain.toml.
+#
+# The apps are not built here: they need the core's XCFramework (a full build of the Matrix SDK
+# for three Apple targets, about 20 minutes) and the Xcode the project is developed with, which
+# hosted macOS runners do not reliably provide yet.
+name: core
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: core
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked

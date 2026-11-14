@@ -1,0 +1,7 @@
+# The toolchain the core is built and checked with; rustup installs it on first use.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+# the apps' slices (cargo xtask apple): iPhone, its simulator on Apple silicon, the Mac.
+targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin"]

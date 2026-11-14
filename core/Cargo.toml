@@ -1,0 +1,102 @@
+[workspace]
+resolver = "3"
+members = ["crates/lux-core", "crates/lux-ffi", "crates/lux-matrix", "crates/lux-store", "xtask"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.96"
+license = "GPL-3.0-only"
+publish = false
+
+[workspace.dependencies]
+lux-core = { path = "crates/lux-core" }
+lux-store = { path = "crates/lux-store" }
+lux-matrix = { path = "crates/lux-matrix" }
+uniffi = { version = "0.32.1", default-features = false, features = ["cargo-metadata", "tokio"] }
+uniffi_bindgen = { version = "0.32.1", default-features = false, features = ["cargo-metadata"] }
+thiserror = "2"
+# the version the sdk uses: one libsqlite3-sys in the graph (see lux-store).
+rusqlite = { version = "0.40.2", default-features = false }
+# for lux-store's tests: the sdk's own stores, opened by the SQLCipher the library links.
+matrix-sdk-sqlite = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d", default-features = false }
+jiff = "0.2"
+linkify = "0.10"
+# the account (lux-matrix): the sdk, at the commit of the release the apps used before (26.10.27),
+# so it opens the stores the apps' accounts already have.
+matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d", default-features = false, features = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "bundled-sqlite", "rustls-aws-lc-rs"] }
+# the sdk's store cipher: whether a key opens a store, before the sdk opens it (lux-matrix).
+matrix-sdk-store-encryption = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d" }
+matrix-sdk-base = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d", default-features = false }
+matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d", default-features = false, features = ["rustls-aws-lc-rs"] }
+matrix-sdk-test = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d" }
+# the sdk's observables (the sync's state).
+eyeball = "0.8.8"
+eyeball-im = "0.9.1"
+futures-core = "0.3"
+# an attachment's type, as the sdk takes it.
+mime = { version = "0.3.17", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+# the bridges' provisioning api (lux-matrix): the sdk's own http client and its version.
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+sha2 = "0.11"
+uuid = { version = "1", default-features = false, features = ["v4"] }
+tokio = { version = "1.54", default-features = false, features = ["sync", "rt", "macros"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tempfile = "3"
+zeroize = "1.9"
+# the stores' key (lux-matrix).
+getrandom = "0.3"
+
+# the sdk's own patches: a git dependency does not bring its workspace's.
+[patch.crates-io]
+async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
+const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+
+[profile.dev]
+debug = 0
+
+# while working (`cargo xtask apple --dev`): the dependencies (the sdk) fully optimized and
+# built once, the workspace's own crates lightly optimized and incremental, no LTO, so a change
+# in the core relinks in seconds. Not lower than 1: the sdk at opt-level 0 crashes on device.
+[profile.dev-apple]
+inherits = "dev"
+opt-level = 1
+debug = "line-tables-only"
+incremental = true
+
+[profile.dev-apple.package."*"]
+opt-level = 3
+
+# quick optimized builds while working: thin LTO keeps relinking the sdk short.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = "line-tables-only"
+strip = "debuginfo"
+
+# what the apps ship (`cargo xtask apple`): as the sdk's own distributed libraries, small code
+# (`s` measured about a third smaller than `release`) and whole-program LTO.
+[profile.distribution]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+
+# stripped proc-macro dylibs fail to load on macOS 27 (the sdk notes it too).
+[profile.distribution.build-override]
+strip = "none"

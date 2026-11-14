@@ -1,0 +1,130 @@
+import LuxCore
+import UIKit
+
+/// Settings: the account, encryption (the key backup), and signing out, as an inset-grouped list.
+final class SettingsViewController: UIViewController, UICollectionViewDelegate {
+    private enum Section: Int, CaseIterable { case account, encryption, privacy, session }
+    private enum Item: Hashable { case profile, verify, recovery, readReceipts, searchIndex, signOut }
+
+    private let model: SettingsModel
+    private let session: Session
+    private let signOut: () -> Void
+    private var observation: AnyObject?
+    private var collectionView: UICollectionView!
+    private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
+
+    init(session: Session, model: SettingsModel, signOut: @escaping () -> Void) {
+        self.session = session
+        self.model = model
+        self.signOut = signOut
+        super.init(nibName: nil, bundle: nil)
+        title = String(localized: "Settings")
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationItem.largeTitleDisplayMode = .never
+        collectionView = UICollectionView(frame: view.bounds,
+                                          collectionViewLayout: UICollectionViewCompositionalLayout.list(using: .init(appearance: .insetGrouped)))
+        collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collectionView.delegate = self
+        view.addSubview(collectionView)
+        // what scrolls under the bar blurs out gradually, not at a hard edge (the system's default).
+        collectionView.topEdgeEffect.style = .soft
+
+        let cell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { [weak self] cell, _, item in
+            guard let self else { return }
+            var content = UIListContentConfiguration.valueCell()
+            cell.accessories = []
+            switch item {
+            case .profile:
+                content = .subtitleCell()
+                content.text = model.profile?.name
+                content.secondaryText = model.profile?.userId
+                content.image = UIImage(systemName: "person.crop.circle.fill")
+                content.imageProperties.preferredSymbolConfiguration = .init(pointSize: 40)
+            case .verify:
+                content.text = String(localized: "Verify This Device")
+                content.secondaryText = switch model.isVerified {
+                case true?: String(localized: "Verified")
+                case false?: String(localized: "Not verified")
+                case nil: String(localized: "Checking…")
+                }
+                content.image = UIImage(systemName: model.isVerified == true ? "checkmark.shield" : "exclamationmark.shield")
+                cell.accessories = [.disclosureIndicator()]
+            case .recovery:
+                content.text = String(localized: "Key Backup")
+                content.secondaryText = model.recovery.title
+                content.image = UIImage(systemName: "key")
+                cell.accessories = [.disclosureIndicator()]
+            case .readReceipts:
+                content = .cell()
+                content.text = String(localized: "Send Read Receipts")
+                content.secondaryText = String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too.")
+                content.secondaryTextProperties.color = .secondaryLabel
+                let toggle = UISwitch()
+                toggle.isOn = model.sendsReadReceipts
+                toggle.addAction(UIAction { [weak self, weak toggle] _ in
+                    self?.model.sendsReadReceipts = toggle?.isOn ?? false
+                }, for: .valueChanged)
+                cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
+            case .searchIndex:
+                content.text = String(localized: "Search Index")
+                content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
+                content.image = UIImage(systemName: "magnifyingglass")
+            case .signOut:
+                content = .cell()
+                content.text = String(localized: "Sign Out")
+                content.textProperties.color = .systemRed
+            }
+            cell.contentConfiguration = content
+        }
+        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
+            collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
+        }
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
+        snapshot.appendSections(Section.allCases)
+        snapshot.appendItems([.profile], toSection: .account)
+        snapshot.appendItems([.verify, .recovery], toSection: .encryption)
+        snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
+        snapshot.appendItems([.signOut], toSection: .session)
+        dataSource.apply(snapshot, animatingDifferences: false)
+
+        observation = model.changes.observe { [weak self] in
+            guard let self else { return }
+            var snapshot = dataSource.snapshot()
+            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex])
+            dataSource.apply(snapshot)
+        }
+        Task { await model.load() }
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: true)
+        switch dataSource.itemIdentifier(for: indexPath) {
+        case .verify?:
+            let verification = VerificationViewController(model: VerificationModel(session: session)) { [weak self] in
+                Task { await self?.model.load() }
+            }
+            navigationController?.pushViewController(verification, animated: true)
+        case .recovery?:
+            navigationController?.pushViewController(RecoveryKeyViewController(model: model), animated: true)
+        case .signOut?:
+            confirmSignOut(from: collectionView.cellForItem(at: indexPath))
+        default:
+            break
+        }
+    }
+
+    private func confirmSignOut(from cell: UIView?) {
+        let sheet = UIAlertController(title: String(localized: "Sign out of this iPhone?"),
+                                      message: String(localized: "Without a recovery key, this device cannot read encrypted messages again."),
+                                      preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: String(localized: "Sign Out"), style: .destructive) { [weak self] _ in self?.signOut() })
+        sheet.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceItem = cell
+        present(sheet, animated: true)
+    }
+}

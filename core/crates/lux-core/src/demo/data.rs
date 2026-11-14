@@ -1,0 +1,259 @@
+//! The demo's made-up account: its chats, spaces, invitations, labels and merges, as the Swift
+//! demo made them (the same names, networks and patterns), from the room's number.
+
+use std::collections::HashSet;
+use std::time::{Duration, SystemTime};
+
+use super::seeded::text;
+use crate::chat::{Chat, Folder, Label, Request, Space};
+use crate::ids::{ChatId, MediaId, RoomId};
+use crate::merge::Merge;
+use crate::network::Network;
+use crate::preview::{Preview, PreviewSource, Sender};
+
+const NAMES: [&str; 12] = [
+    "Anna Nováková",
+    "Petr Svoboda",
+    "Family",
+    "Climbing crew",
+    "Jana Dvořáková",
+    "Tomáš Černý",
+    "Work",
+    "Lucie Veselá",
+    "Martin Horák",
+    "Book club",
+    "Eva Marková",
+    "Ondřej Pokorný",
+];
+
+const NETWORKS: [Network; 6] = [
+    Network::WhatsApp,
+    Network::Signal,
+    Network::Instagram,
+    Network::Messenger,
+    Network::Telegram,
+    Network::Matrix,
+];
+
+/// The pictures' version: the demo draws each room's picture from its id.
+const PICTURE: &str = "1";
+
+/// The demo's room `index`.
+pub(crate) fn room_id(index: usize) -> RoomId {
+    RoomId::from(format!("!room{index}:demo"))
+}
+
+/// The number of a demo room (`!room12:demo` is 12).
+pub(crate) fn room_index(room: &str) -> Option<usize> {
+    room.strip_prefix("!room")?.strip_suffix(":demo")?.parse().ok()
+}
+
+/// What the user changed of a chat from its menu.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ChatState {
+    pub(crate) low_priority: Option<bool>,
+    pub(crate) archived: Option<bool>,
+    pub(crate) muted: Option<bool>,
+    pub(crate) unread: Option<bool>,
+    pub(crate) pinned: Option<f64>,
+    pub(crate) deleted: bool,
+}
+
+/// Room `index`'s chat as made up, with what the user changed (`state`, `None` when nothing):
+/// `None` once deleted. Its newest message came `index` half hours before `start`.
+pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -> Option<Chat> {
+    let default = ChatState::default();
+    let changed = state.unwrap_or(&default);
+    if changed.deleted {
+        return None;
+    }
+    let name = if index < NAMES.len() {
+        NAMES[index].to_owned()
+    } else {
+        format!("{} {index}", NAMES[index % NAMES.len()])
+    };
+    let is_group = [2, 3, 6, 9].contains(&(index % NAMES.len()));
+    let avatar = (index % 4 != 3).then(|| MediaId::from(PICTURE));
+    let folder_by_default = if index % 11 == 10 {
+        Folder::Archive
+    } else if index % 13 == 12 {
+        Folder::LowPriority
+    } else {
+        Folder::Inbox
+    };
+    let folder = match (changed.archived, changed.low_priority) {
+        (Some(true), _) => Folder::Archive,
+        (None, Some(true)) => Folder::LowPriority,
+        (Some(false), _) | (None, Some(false)) => Folder::Inbox,
+        (None, None) => folder_by_default,
+    };
+    let mut unread_count = if index.is_multiple_of(7) {
+        u32::try_from(index % 5).unwrap_or(0) + 1
+    } else {
+        0
+    };
+    let mut is_marked_unread = false;
+    if let Some(unread) = changed.unread {
+        is_marked_unread = unread;
+        if !unread {
+            unread_count = 0;
+        }
+    }
+    // the first three are pinned until the user changes them.
+    let pinned = match state {
+        Some(changed) => changed.pinned,
+        None => (index < 3).then(|| f64::from(u32::try_from(index).unwrap_or(0))),
+    };
+    let ago = Duration::from_secs(u64::try_from(index).unwrap_or(0) * 1_800);
+    let preview_text = text(u64::try_from(index).unwrap_or(0));
+    Some(Chat {
+        id: ChatId::Room(room_id(index)),
+        name,
+        preview: Some(Preview::new(
+            PreviewSource::Text(&preview_text),
+            Sender::Other(""),
+            false,
+        )),
+        date: Some(start.checked_sub(ago).unwrap_or(start)),
+        unread_count,
+        is_marked_unread,
+        is_muted: changed.muted.unwrap_or(index % 17 == 16),
+        network: NETWORKS[index % NETWORKS.len()].clone(),
+        // a group with no picture shows two members' pictures.
+        member_avatars: if is_group && avatar.is_none() {
+            vec![MediaId::from("demo-@friend0:demo"), MediaId::from("demo-@friend1:demo")]
+        } else {
+            Vec::new()
+        },
+        avatar,
+        reminder: None,
+        is_group,
+        folder,
+        pinned,
+        rooms: Vec::new(),
+        default_room: None,
+    })
+}
+
+/// Jana's chats on two networks, merged.
+pub(crate) fn merges() -> Vec<Merge> {
+    vec![Merge {
+        id: "demo-jana".into(),
+        name: "Jana Dvořáková".to_owned(),
+        rooms: vec![room_id(4), room_id(18)],
+        default_room: room_id(4),
+    }]
+}
+
+/// The spaces: a family's, and work with a space for design inside.
+pub(crate) fn spaces(rooms: usize) -> Vec<Space> {
+    let chats = |admits: &dyn Fn(usize) -> bool| -> HashSet<ChatId> {
+        (0..rooms)
+            .filter(|&index| admits(index))
+            .map(|index| ChatId::Room(room_id(index)))
+            .collect()
+    };
+    vec![
+        Space {
+            id: RoomId::from("!space-family:demo"),
+            name: "Family".to_owned(),
+            avatar: Some(MediaId::from(PICTURE)),
+            chats: chats(&|index| index.is_multiple_of(5)),
+            parents: Vec::new(),
+        },
+        Space {
+            id: RoomId::from("!space-work:demo"),
+            name: "Work".to_owned(),
+            avatar: None,
+            chats: chats(&|index| index % 7 == 1 || index % 9 == 2),
+            parents: Vec::new(),
+        },
+        Space {
+            id: RoomId::from("!space-work-design:demo"),
+            name: "design".to_owned(),
+            avatar: None,
+            chats: chats(&|index| index % 9 == 2),
+            parents: vec![RoomId::from("!space-work:demo")],
+        },
+    ]
+}
+
+/// The invitations, until answered.
+pub(crate) fn requests() -> Vec<Request> {
+    vec![
+        Request {
+            id: RoomId::from("!invite-1:demo"),
+            name: "Lucie Veselá".to_owned(),
+            avatar: None,
+            inviter_name: "Lucie Veselá".to_owned(),
+            is_direct: true,
+        },
+        Request {
+            id: RoomId::from("!invite-2:demo"),
+            name: "Board games".to_owned(),
+            avatar: None,
+            inviter_name: "Petr Svoboda".to_owned(),
+            is_direct: false,
+        },
+    ]
+}
+
+/// The user's label for work.
+pub(crate) fn labels() -> Vec<Label> {
+    vec![Label {
+        id: "demo-work".into(),
+        name: "Work".to_owned(),
+        chats: [1, 6, 9]
+            .into_iter()
+            .map(|index| ChatId::Room(room_id(index)))
+            .collect(),
+    }]
+}
+
+/// A made-up message's text and sender, from its id (`<room>/<number>`, as the demo's threads
+/// number them): what a saved message keeps.
+pub(crate) fn message(event: &str) -> Option<(String, bool, &'static str)> {
+    const PEOPLE: [&str; 3] = ["Anna Nováková", "Petr Svoboda", "Jana Dvořáková"];
+    let (room, number) = event.rsplit_once('/')?;
+    let number: u64 = number.parse().ok()?;
+    let is_own = (number / 3).is_multiple_of(2);
+    let seed = stable(room) % 97;
+    let index = usize::try_from(number % 3).unwrap_or(0);
+    Some((text(number * 31 + 7 + seed), is_own, PEOPLE[index]))
+}
+
+/// A hash that is the same in every run (FNV-1a), as the Swift demo seeded each chat's words.
+pub(crate) fn stable(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
+    }) >> 1
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use super::{ChatState, chat, room_index};
+    use crate::chat::Folder;
+
+    #[test]
+    fn rooms_are_made_up_by_their_number() {
+        let start = SystemTime::UNIX_EPOCH + std::time::Duration::from_hours(500_000);
+        let first = chat(0, start, None).unwrap();
+        assert_eq!(first.name, "Anna Nováková");
+        assert_eq!(first.pinned, Some(0.0));
+        assert_eq!(first.unread_count, 1);
+        let later = chat(22, start, None).unwrap();
+        assert_eq!(later.name, "Eva Marková 22");
+        assert_eq!(later.folder, Folder::Inbox);
+        assert_eq!(chat(10, start, None).unwrap().folder, Folder::Archive);
+        assert_eq!(chat(3, start, None).unwrap().member_avatars.len(), 2);
+        let deleted = ChatState {
+            deleted: true,
+            ..ChatState::default()
+        };
+        assert!(chat(5, start, Some(&deleted)).is_none());
+        assert_eq!(room_index("!room42:demo"), Some(42));
+        assert_eq!(room_index("!invite-1:demo"), None);
+    }
+}

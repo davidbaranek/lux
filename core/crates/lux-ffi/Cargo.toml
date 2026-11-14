@@ -1,0 +1,27 @@
+[package]
+name = "lux-ffi"
+description = "The apps' boundary: the Rust core through UniFFI, one library."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["staticlib", "lib"]
+
+[dependencies]
+# UniFFI runs the exported futures in its runtime; the core sets how that runtime is built.
+async-compat = "0.2.5"
+eyeball-im.workspace = true
+futures-util.workspace = true
+jiff.workspace = true
+lux-core.workspace = true
+lux-matrix.workspace = true
+lux-store.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["time", "rt-multi-thread"] }
+uniffi.workspace = true
+
+[lints]
+workspace = true

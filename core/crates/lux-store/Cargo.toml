@@ -1,0 +1,26 @@
+[package]
+name = "lux-store"
+description = "The account's encrypted store on the device: the message search index and kept values (SQLCipher)."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+lux-core.workspace = true
+# SQLCipher, bundled: features unify, so the sdk's own stores (rusqlite with `bundled`) link the
+# same SQLCipher and open their unkeyed files as plain SQLite. On Apple platforms it encrypts with
+# CommonCrypto (no OpenSSL).
+rusqlite = { workspace = true, features = ["bundled-sqlcipher", "cache"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+matrix-sdk-base.workspace = true
+matrix-sdk-sqlite = { workspace = true, features = ["state-store"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
