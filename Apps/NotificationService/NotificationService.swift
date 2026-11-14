@@ -92,11 +92,20 @@ private final class Delivery: @unchecked Sendable {
             content.sound = message.isNoisy ? .default : nil
             // a merged chat's rooms in one group, as the chat list shows them.
             content.threadIdentifier = message.chatId
-            deliver(await Self.communication(content, message) ?? content)
+            deliver(Self.quietIfLate(await Self.communication(content, message) ?? content, message))
         } catch {
             Log.app.error("notification: \(String(describing: error), privacy: .public)")
             deliverNeutral()
         }
+    }
+
+    /// History a bridge brings in (a message that came late): in the notification centre, without
+    /// a sound and without lighting the screen. Set last: the intent's update makes new content.
+    private static func quietIfLate(_ content: UNNotificationContent, _ message: PushedMessage) -> UNNotificationContent {
+        guard message.isLate, let quiet = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+        quiet.interruptionLevel = .passive
+        quiet.sound = nil
+        return quiet.copy() as? UNNotificationContent ?? quiet
     }
 
     private func deliver(_ content: UNNotificationContent) {
