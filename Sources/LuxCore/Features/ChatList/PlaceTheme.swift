@@ -34,8 +34,29 @@ public enum PlaceTheme: String, CaseIterable, Hashable, Sendable {
     public typealias Color = NSColor
     #endif
 
-    /// The system colour; nil for neutral, which keeps the app's accent.
+    /// The colour: the system's, deepened (darker and a little less saturated) so it reads as a
+    /// calm accent rather than a bright one; nil for neutral, which keeps the app's accent.
     public var color: Color? {
+        guard let base = systemColor else { return nil }
+        #if canImport(UIKit)
+        return UIColor { traits in Self.deepened(base.resolvedColor(with: traits), dark: traits.userInterfaceStyle == .dark) }
+        #else
+        return NSColor(name: nil) { appearance in
+            var resolved = base
+            appearance.performAsCurrentDrawingAppearance { resolved = base.usingColorSpace(.sRGB) ?? base }
+            return Self.deepened(resolved, dark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        }
+        #endif
+    }
+
+    /// The same hue, darker and less saturated; in the dark a little less so, to stay readable.
+    private static func deepened(_ color: Color, dark: Bool) -> Color {
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        return Color(hue: hue, saturation: saturation * 0.8, brightness: brightness * (dark ? 0.8 : 0.68), alpha: alpha)
+    }
+
+    private var systemColor: Color? {
         switch self {
         case .neutral: nil
         case .red: .systemRed

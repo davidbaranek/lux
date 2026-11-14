@@ -16,8 +16,17 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
     private var scrollTop: NSLayoutConstraint!
     private var dataSource: NSTableViewDiffableDataSource<String, String>!
 
+    /// The shown place's colour: the band at the top of the list, and the accent.
+    var theme = PlaceTheme.neutral {
+        didSet {
+            band.theme = theme
+            accent = theme.color ?? .controlAccentColor
+        }
+    }
+    private let band = ThemeBand()
+
     /// The shown place's accent: the selection and the unread times.
-    var accent = NSColor.controlAccentColor {
+    private var accent = NSColor.controlAccentColor {
         didSet {
             guard accent != oldValue, isViewLoaded else { return }
             table.enumerateAvailableRowViews { rowView, row in
@@ -40,6 +49,7 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         super.viewDidLayout()
         // the bubble stays within the list, however long its line.
         loading.maxWidth = view.bounds.width - 20
+        band.frame = CGRect(x: 0, y: -ThemeBand.overscroll, width: view.bounds.width, height: ThemeBand.overscroll + ThemeBand.height)
     }
 
     override func loadView() {
@@ -73,6 +83,8 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         ])
         view = container
         self.scroll = scroll
+        // in the clip view, under the rows: it scrolls with them.
+        scroll.contentView.addSubview(band, positioned: .below, relativeTo: table)
         loading.set(visible: true)
         makeRoom(forLoading: true)
         model.onLoadState = { [weak self] _ in self?.updateActivity() }

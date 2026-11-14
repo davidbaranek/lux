@@ -87,7 +87,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
                 return Self.pinnedGrid(environment)
             }
             var list = UICollectionLayoutListConfiguration(appearance: .plain)
-            // the list's backdrop shows through: the place's colour at the top (`ThemeBand`).
+            // clear: the place's colour shows through at the top (`ThemeBand`).
             list.backgroundColor = .clear
             // no line above a section's first chat: lines only between chats.
             list.itemSeparatorHandler = { indexPath, configuration in
@@ -135,7 +135,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
                 self?.collectionView.refreshControl?.endRefreshing()
             }
         })
-        collectionView.backgroundView = band
+        collectionView.backgroundColor = .systemBackground
+        collectionView.addSubview(band)
         view.addSubview(collectionView)
         // what scrolls under the bar blurs out gradually, not at a hard edge (the system's default).
         collectionView.topEdgeEffect.style = .soft
@@ -145,6 +146,13 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             guard let row = self?.rows[id] else { return }
             cell.contentConfiguration = ChatRowConfiguration(row: row, images: images)
             cell.accessories = []
+            // at rest the row is clear, so the place's colour shows behind it (`ThemeBand`); a
+            // touch or a selection fills it as the system's list does.
+            cell.configurationUpdateHandler = { cell, state in
+                var background = UIBackgroundConfiguration.listCell().updated(for: state)
+                if !state.isHighlighted && !state.isSelected { background.backgroundColor = .clear }
+                cell.backgroundConfiguration = background
+            }
         }
         let pinned = UICollectionView.CellRegistration<PinnedChatCell, String> { [weak self] cell, _, id in
             guard let row = self?.rows[id] else { return }
@@ -534,6 +542,15 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         return item
     }()
     weak var placesSheet: PlacesSheetViewController?
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        band.place(in: collectionView)
+    }
+
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        band.place(in: scrollView)
+    }
 
     /// The shown place's colour: the accent of the list and of what opens from it, and the band at
     /// the top. Neutral keeps the app's own.

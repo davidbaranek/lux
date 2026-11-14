@@ -24,8 +24,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     private let results: SearchResultsController
     private let search = NSSearchField()
     private let content = NSView()
-    /// The shown place's colour over the top of the list.
-    private let band = ThemeBand()
 
     init(session: Session) {
         self.session = session
@@ -50,15 +48,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         search.sendsSearchStringImmediately = true
         search.target = self
         search.action = #selector(searchChanged)
-        for view in [band, rail.view, search, content] {
+        for view in [rail.view, search, content] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            band.leadingAnchor.constraint(equalTo: rail.view.trailingAnchor),
-            band.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            band.topAnchor.constraint(equalTo: container.topAnchor),
-            band.heightAnchor.constraint(equalToConstant: ThemeBand.height),
             rail.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             rail.view.topAnchor.constraint(equalTo: container.topAnchor),
             rail.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -117,12 +111,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         }
     }
 
-    /// The shown place's colour: the band over the list, and the list's accent. Neutral keeps the
-    /// system's accent.
+    /// The shown place's colour on the list. Neutral keeps the system's accent.
     private func updateTheme() {
-        let theme = listModel.theme
-        band.theme = theme
-        list.accent = theme.color ?? .controlAccentColor
+        list.theme = listModel.theme
     }
 
     /// Cmd-F: the search field.
