@@ -6,7 +6,8 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
     enum Section: Int { case chats, messages }
 
     private let images: ImagePipeline?
-    private let open: (ChatRow) -> Void
+    /// Opens a chat; at the message found, for a found message.
+    private let open: (ChatRow, _ focusEvent: String?) -> Void
     private var rows: [String: ChatRow] = [:]
     private var chats: [String: ChatRow] = [:]
     private var highlights: [String: [NSRange]] = [:]
@@ -17,7 +18,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, String>!
 
-    init(images: ImagePipeline?, open: @escaping (ChatRow) -> Void) {
+    init(images: ImagePipeline?, open: @escaping (ChatRow, _ focusEvent: String?) -> Void) {
         self.images = images
         self.open = open
         super.init(nibName: nil, bundle: nil)
@@ -104,7 +105,12 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
-        guard let id = dataSource.itemIdentifier(for: indexPath), let chat = chats[id] ?? rows[id] else { return }
-        open(chat)
+        guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
+        // a found message's id is its event's: its chat opens there.
+        if let chat = chats[id] {
+            open(chat, id)
+        } else if let chat = rows[id] {
+            open(chat, nil)
+        }
     }
 }

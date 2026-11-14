@@ -95,7 +95,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             onPlaceTitle?(placeTitle)
         }
         list.onSelect = { [weak self] row, focusEvent in self?.onOpen?(row, focusEvent) }
-        results.onOpen = { [weak self] row in self?.onOpen?(row, nil) }
+        results.onOpen = { [weak self] row, focusEvent in self?.onOpen?(row, focusEvent) }
         searchModel.onUpdate = { [weak self] hits in self?.results.show(hits) }
         // the index's progress under the results; the index opens a moment after the account.
         searchOpened = session.searchChanges.observe { [weak self] in self?.followIndex() }

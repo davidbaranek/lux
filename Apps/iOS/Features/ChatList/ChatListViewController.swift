@@ -52,7 +52,9 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         })
         navigationItem.leftBarButtonItem?.accessibilityLabel = String(localized: "Settings")
 
-        let results = SearchResultsViewController(images: session.images) { [weak self] row in self?.open(row) }
+        let results = SearchResultsViewController(images: session.images) { [weak self] row, focusEvent in
+            self?.open(row, focusEvent: focusEvent)
+        }
         let search = UISearchController(searchResultsController: results)
         search.searchResultsUpdater = self
         search.searchBar.placeholder = String(localized: "Search")
@@ -444,8 +446,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         let cell = collectionView.cellForItem(at: indexPath)
         switch model.destination(of: row) {
         case .chat(let chat): open(chat)
-        case .message(let chat, let eventId):
-            navigationController?.pushViewController(ThreadViewController(session: session, row: chat, focusEvent: eventId), animated: true)
+        case .message(let chat, let eventId): open(chat, focusEvent: eventId)
         case .scheduled(let waiting):
             collectionView.deselectItem(at: indexPath, animated: true)
             cancel(waiting, from: cell)
@@ -455,8 +456,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         }
     }
 
-    private func open(_ row: ChatRow) {
-        navigationController?.pushViewController(ThreadViewController(session: session, row: row), animated: true)
+    private func open(_ row: ChatRow, focusEvent: String? = nil) {
+        navigationController?.pushViewController(ThreadViewController(session: session, row: row, focusEvent: focusEvent), animated: true)
     }
 
     /// Opens the chat of a notification the user tapped: the merged chat its room is part of,
