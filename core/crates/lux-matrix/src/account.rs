@@ -13,6 +13,7 @@ use matrix_sdk_ui::room_list_service::{RoomListService, State as ListState};
 use matrix_sdk_ui::sync_service::SyncService;
 use tracing::warn;
 
+use crate::bridges::BridgeLink;
 use crate::errors::from_sdk;
 use crate::kept::KeptList;
 use crate::lifecycle::Lifecycle;
@@ -43,6 +44,8 @@ pub struct MatrixAccount {
     /// Whether the server has ended the session.
     session_end: SessionEnd,
     _sending: QueueKeeper,
+    /// The server's bridges, and the history they bring.
+    pub(crate) bridges: BridgeLink,
 }
 
 impl MatrixAccount {
@@ -74,6 +77,7 @@ impl MatrixAccount {
         let live = LiveFeed::start(&client, own, organizer.subscribe()).await;
         let sending = QueueKeeper::start(client.clone(), sync.state());
         let session_end = SessionEnd::follow(&client);
+        let bridges = BridgeLink::start(&client);
         sync.start().await;
         // the requests a failure, or the last launch, left unsent go out now.
         client.send_queue().set_enabled(true).await;
@@ -93,6 +97,7 @@ impl MatrixAccount {
             lifecycle,
             session_end,
             _sending: sending,
+            bridges,
         })
     }
 

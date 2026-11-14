@@ -96,20 +96,58 @@ extension ChatRow {
     }
 }
 
-/// What the chat list's loading bubble says while the app works: connecting, the chats as they
-/// arrive, then the search index reading each chat's newest messages. Nil once there is nothing
-/// to wait for (the index's long read of older messages goes on without a bubble).
-public enum ListActivity {
-    public static func describe(_ state: ChatListModel.LoadState, search: SearchIndexer.Progress?) -> (title: String, detail: String?)? {
+/// What the chat list's bubble says while the app works: connecting, the chats as they arrive, a
+/// network bringing its history or signed out, then the search index reading each chat's newest
+/// messages. Nil once there is nothing to wait for (the index's long read of older messages goes
+/// on without a bubble).
+public struct ListActivity: Equatable {
+    /// What tapping the bubble does.
+    public enum Action: Equatable {
+        /// Show the network's chats (the place of that network).
+        case show(Place)
+        /// Sign in to the network again.
+        case signIn(NetworkOffer)
+    }
+
+    public var title: String
+    public var detail: String?
+    /// Something for the user to do, not progress: the bubble shows a sign instead of a spinner.
+    public var isWarning = false
+    public var action: Action?
+
+    public static func describe(_ state: ChatListModel.LoadState, search: SearchIndexer.Progress?,
+                                networks: [NetworksModel.Attention] = []) -> ListActivity? {
         switch state {
         case .loading:
-            return (String(localized: "Connecting…"), String(localized: "Opening your account"))
+            return ListActivity(title: String(localized: "Connecting…"), detail: String(localized: "Opening your account"))
         case .syncing(let newChats):
             // the server's first answer after launch; on a first sign-in, the chats as they come.
-            return (String(localized: "Updating chats"), newChats > 0 ? String(localized: "\(newChats) new") : String(localized: "From the server"))
+            return ListActivity(title: String(localized: "Updating chats"),
+                                detail: newChats > 0 ? String(localized: "\(newChats) new") : String(localized: "From the server"))
         case .done:
+            if let network = describe(networks) { return network }
             guard let search, search.isIndexing, search.isFirstFill, !search.deep, search.total > 0 else { return nil }
-            return (String(localized: "Preparing search"), String(localized: "\(search.chats) of \(search.total) chats"))
+            return ListActivity(title: String(localized: "Preparing search"), detail: String(localized: "\(search.chats) of \(search.total) chats"))
         }
+    }
+
+    /// The networks' part: a login to renew first (the user has to act), else the history arriving,
+    /// one network by name or several together.
+    private static func describe(_ networks: [NetworksModel.Attention]) -> ListActivity? {
+        for case .signedOut(let offer, let name) in networks {
+            return ListActivity(title: String(localized: "\(offer.name): signed out"),
+                                detail: String(localized: "Sign in again as \(name)"), isWarning: true, action: .signIn(offer))
+        }
+        let catchingUp = networks.compactMap { attention -> CatchUp? in
+            if case .catchingUp(let catchUp) = attention { catchUp } else { nil }
+        }
+        guard let first = catchingUp.first else { return nil }
+        if catchingUp.count == 1 {
+            return ListActivity(title: first.title, detail: first.detail, action: .show(.network(first.network)))
+        }
+        let names = catchingUp.map { Networks.name($0.network) }.formatted(.list(type: .and))
+        let messages = catchingUp.reduce(0) { $0 + $1.messages }
+        return ListActivity(title: String(localized: "\(names): loading history"),
+                            detail: String(localized: "\(messages) messages so far"))
     }
 }

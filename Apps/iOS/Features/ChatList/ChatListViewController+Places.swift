@@ -44,7 +44,7 @@ extension ChatListViewController {
         filterButton.accessibilityValue = filter?.title
     }
 
-    private func go(to place: Place) {
+    func go(to place: Place) {
         model.place = place
         updatePlaces()
     }

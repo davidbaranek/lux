@@ -91,6 +91,9 @@ public final class Session {
     public let searchChanges = Broadcast()
     /// Photos and files on their way, from every chat (made with the account).
     public private(set) var uploads: Uploads?
+    /// The networks the server bridges, the account's logins on them and the history they bring
+    /// (made with the account).
+    public private(set) var networks: NetworksModel?
     /// A message was scheduled from a chat: the list reads the waiting ones again.
     public let scheduledChanges = Broadcast()
 
@@ -185,6 +188,7 @@ public final class Session {
         chatListSource = nil
         images = nil
         uploads = nil
+        networks = nil
         search = nil
         store = nil
         onAccountLost?()
@@ -323,6 +327,8 @@ public final class Session {
         chatListSource = nil
         images = nil
         uploads = nil
+        networks = nil
+        Preferences.shared.networksWelcomed = false
     }
 
     /// An account signed in, or the demo's: open at once.
@@ -345,6 +351,7 @@ public final class Session {
         }
         images = ImagePipeline(account: account, directory: mediaDirectory)
         uploads = Uploads(account: account, directory: outgoingDirectory)
+        networks = NetworksModel(account: account, server: homeserver)
     }
 
     /// The account's encrypted store (its folder's `lux-search/index.sqlite`).

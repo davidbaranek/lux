@@ -21,6 +21,7 @@
 mod account;
 mod actions;
 mod bridge_state;
+mod bridges;
 mod convert;
 mod errors;
 mod kept;

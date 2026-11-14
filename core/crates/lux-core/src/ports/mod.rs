@@ -14,6 +14,7 @@
 //! A thread's view model takes what it needs of them as one [`ThreadBackend`].
 
 mod account;
+mod bridges;
 mod error;
 mod organizing;
 mod people;
@@ -25,6 +26,7 @@ mod thread;
 mod timeline;
 
 pub use account::{ChatAccount, DiffStream, Diffs};
+pub use bridges::{Bridges, StepAnswer};
 pub use error::{BackendError, Cause, NetworkFailure, UnusableStore};
 pub use organizing::{ChatActions, ChatChange, Organizing, SavedMessages, Scheduling, Spaces, ValueStream};
 pub use people::{Contact, ContactAccount, ContactListing, ContactProblem, People, Profile};

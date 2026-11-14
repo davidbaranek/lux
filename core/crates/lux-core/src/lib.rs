@@ -7,6 +7,7 @@
 
 mod actions;
 pub mod bridged_space;
+pub mod bridges;
 pub mod chat;
 pub mod demo;
 pub mod diff;

@@ -73,6 +73,16 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             rail.select(place)
             onPlaceTitle?(placeTitle)
         }
+        list.onActivity = { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .show(let place):
+                rail.onSelect?(place)
+            case .signIn(let offer):
+                guard let networks = session.networks, let window = view.window else { return }
+                NetworkSignInController.present(networks.signIn(to: offer), over: window) {}
+            }
+        }
         rail.onAccount = { [weak self] in self?.onAccount?() }
         rail.onHide = { [weak self] place, hidden in
             guard let self else { return }

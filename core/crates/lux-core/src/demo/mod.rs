@@ -9,6 +9,7 @@
 // the demo answers at once: it has no server to wait for.
 #![allow(clippy::unused_async_trait_impl)]
 
+mod bridges;
 mod data;
 mod seeded;
 mod timeline;
@@ -102,6 +103,8 @@ struct Inner {
     requests: ObservableVector<Request>,
     organized: watch::Sender<Arc<Organized>>,
     spaces: watch::Sender<Arc<[Space]>>,
+    /// The networks signed in to.
+    networks: HashSet<crate::network::Network>,
 }
 
 impl DemoAccount {
@@ -130,6 +133,7 @@ impl DemoAccount {
             requests: ObservableVector::new(),
             organized: watch::Sender::new(Arc::default()),
             spaces: watch::Sender::new(spaces),
+            networks: HashSet::from([crate::network::Network::Messenger]),
             config,
         };
         inner.publish_chats();

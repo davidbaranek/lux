@@ -24,6 +24,12 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // the bubble stays within the list, however long its line.
+        loading.maxWidth = view.bounds.width - 20
+    }
+
     override func loadView() {
         table.addTableColumn(NSTableColumn(identifier: .init("chat")))
         table.headerView = nil
@@ -183,7 +189,13 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
     private var indexProgress: AnyObject?
     private var bubbleShown = true
 
+    /// The bubble was clicked: a network's chats while its history arrives, a sign-in for one
+    /// signed out.
+    var onActivity: ((ListActivity.Action) -> Void)?
+    private var networksObservation: AnyObject?
+
     private func followSearch() {
+        networksObservation = session.networks?.changes.observe { [weak self] in self?.updateActivity() }
         indexProgress = session.search?.progressChanges.observe { [weak self] in self?.updateActivity() }
         updateActivity()
     }
@@ -191,8 +203,13 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
     /// The bubble says what the app is doing (connecting, loading chats, preparing search) and
     /// how far it is; the list makes room for it while it shows.
     private func updateActivity() {
-        let activity = ListActivity.describe(model.loadState, search: session.search?.progress)
-        if let activity { loading.text = [activity.title, activity.detail].compactMap { $0 }.joined(separator: " · ") }
+        let activity = ListActivity.describe(model.loadState, search: session.search?.progress,
+                                             networks: session.networks?.attention ?? [])
+        if let activity {
+            loading.text = [activity.title, activity.detail].compactMap { $0 }.joined(separator: " · ")
+            loading.isWarning = activity.isWarning
+            loading.onClick = activity.action.map { action in { [weak self] in self?.onActivity?(action) } }
+        }
         guard (activity != nil) != bubbleShown else { return }
         bubbleShown = activity != nil
         loading.set(visible: bubbleShown)

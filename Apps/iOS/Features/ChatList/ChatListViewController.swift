@@ -170,7 +170,9 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             self?.placesSheet?.show(places)
         }
         model.onError = { [weak self] error in self?.report(error, of: "chat list") }
+        networksObservation = session.networks?.changes.observe { [weak self] in self?.updateActivity() }
         Task { await model.reload() }
+        welcomeToNetworks()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -191,10 +193,13 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     /// The bubble says what the app is doing (connecting, updating chats, preparing search) and how
     /// far it is.
     private func updateActivity() {
-        let activity = ListActivity.describe(model.loadState, search: session.search?.progress)
+        let activity = ListActivity.describe(model.loadState, search: session.search?.progress,
+                                             networks: session.networks?.attention ?? [])
         if let activity {
             loading.text = activity.title
             loading.detail = activity.detail
+            loading.isWarning = activity.isWarning
+            loading.onTap = activity.action.map { action in { [weak self] in self?.perform(action) } }
         }
         guard (activity != nil) != bubbleShown else { return }
         bubbleShown = activity != nil
@@ -202,6 +207,36 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     private var bubbleShown = true
+    private var networksObservation: AnyObject?
+
+    /// The bubble's tap: a network's chats while its history arrives, a sign-in for one signed out.
+    private func perform(_ action: ListActivity.Action) {
+        switch action {
+        case .show(let place):
+            go(to: place)
+        case .signIn(let offer):
+            guard let networks = session.networks else { return }
+            present(NetworkSignInViewController(signIn: networks.signIn(to: offer)) {}, animated: true)
+        }
+    }
+
+    /// After signing in, once: the server's networks, to pick the ones to bring.
+    private func welcomeToNetworks() {
+        guard let networks = session.networks else { return }
+        Task {
+            // the bubble tells of a network signed out, too.
+            await networks.load()
+            let welcomed = Preferences.shared.networksWelcomed && !LaunchOptions.showsNetworksWelcome
+            guard !welcomed, !LaunchOptions.isDemo || LaunchOptions.showsNetworksWelcome, presentedViewController == nil else { return }
+            // the demo never marks the account's welcome as shown.
+            if !LaunchOptions.isDemo { Preferences.shared.networksWelcomed = true }
+            // a server with networks the account already has, or none at all after a restore: nothing to welcome to.
+            guard !networks.offered.isEmpty, networks.hasNoLogins else { return }
+            let welcome = UINavigationController(rootViewController: NetworksViewController(model: networks, mode: .welcome))
+            welcome.navigationBar.prefersLargeTitles = true
+            present(welcome, animated: true)
+        }
+    }
 
     private func show(_ sections: [ChatSection], changed: [String]) {
         let first = !shownFirst
