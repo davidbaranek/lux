@@ -6,7 +6,8 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     enum Section: Int { case chats, messages }
 
     /// A chat to open (a found message opens its chat).
-    var onOpen: ((ChatRow) -> Void)?
+    /// Opens a chat; at the message found, for a found message.
+    var onOpen: ((ChatRow, _ focusEvent: String?) -> Void)?
 
     private let images: ImagePipeline?
     private let table = NSTableView()
@@ -115,6 +116,11 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard table.selectedRow >= 0, let id = dataSource.itemIdentifier(forRow: table.selectedRow) else { return }
-        if let chat = chats[id] ?? rows[id] { onOpen?(chat) }
+        // a found message's id is its event's: its chat opens there.
+        if let chat = chats[id] {
+            onOpen?(chat, id)
+        } else if let chat = rows[id] {
+            onOpen?(chat, nil)
+        }
     }
 }
