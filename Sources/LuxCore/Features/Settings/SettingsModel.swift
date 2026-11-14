@@ -16,6 +16,7 @@ public final class SettingsModel {
     private let account: Task<RustAccount, any Error>
     private let session: Session
     private var indexProgress: AnyObject?
+    private var securityChanges: AnyObject?
 
     public init(session: Session) {
         self.session = session
@@ -34,16 +35,24 @@ public final class SettingsModel {
     public func load() async {
         guard let account = try? await account.value else { return }
         async let profile = try? account.profile()
-        async let verified = account.isDeviceVerified()
         self.profile = await profile
-        recovery = account.recoveryState()
-        isVerified = await verified
-        changes.send()
+        await loadSecurity()
+        // verified on another device, recovery set up: the rows say so as it happens.
+        securityChanges = session.security?.changes.observe { [weak self] in
+            Task { await self?.loadSecurity() }
+        }
         // the index's count follows it while Settings shows.
         indexProgress = session.search?.progressChanges.observe { [weak self] in
             Task { await self?.loadSearchIndex() }
         }
         await loadSearchIndex()
+    }
+
+    private func loadSecurity() async {
+        guard let account = try? await account.value else { return }
+        isVerified = await account.isDeviceVerified()
+        recovery = account.recoveryState()
+        changes.send()
     }
 
     private func loadSearchIndex() async {
@@ -56,8 +65,8 @@ public final class SettingsModel {
     public func recover(key: String) async throws {
         let account = try await account.value
         try await account.recover(key: key)
-        recovery = account.recoveryState()
-        changes.send()
+        // the key verifies this device too.
+        await loadSecurity()
     }
 }
 

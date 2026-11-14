@@ -23,6 +23,12 @@ public final class Preferences {
     /// As many places as the toolbar fits beside the filter, the button for all places and search.
     public static let toolbarPlaces = 3
 
+    /// Recovery setup was offered after signing in (once per sign-in; Settings keeps it after).
+    public var recoverySetupOffered: Bool {
+        get { defaults.bool(forKey: "recoverySetupOffered") }
+        set { defaults.set(newValue, forKey: "recoverySetupOffered") }
+    }
+
     /// The welcome to the server's networks was shown after signing in (once per sign-in).
     public var networksWelcomed: Bool {
         get { defaults.bool(forKey: "networksWelcomed") }

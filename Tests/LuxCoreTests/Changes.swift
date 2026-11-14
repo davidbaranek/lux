@@ -64,3 +64,27 @@ extension MessageSearch {
         return (changes, progressChanges.observe { changes.send() })
     }
 }
+
+extension SecurityModel {
+    /// The model's announcements (what the device needs, the devices).
+    func announcements() -> (Changes, AnyObject) {
+        let changes = Changes()
+        return (changes, self.changes.observe { changes.send() })
+    }
+}
+
+extension VerificationModel {
+    /// The verification's steps and failures, after the handlers it has.
+    func changes() -> Changes {
+        let changes = Changes()
+        let (step, error) = (onStep, onError)
+        onStep = { step?($0); changes.send() }
+        onError = { error?($0); changes.send() }
+        return changes
+    }
+
+    /// Whether it is comparing emojis.
+    var isComparing: Bool {
+        if case .compare = step { true } else { false }
+    }
+}
