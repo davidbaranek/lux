@@ -13,7 +13,7 @@
 //! SDK's media cache, where the chat list put them, else from the server within a short time.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use lux_core::ids::{ChatId, EventId, MediaId, RoomId};
 use lux_core::merge::{self, Merge};
@@ -184,6 +184,11 @@ fn notification(
         NotificationEvent::Invite(_) => PreviewKind::Membership(Membership::Invited),
     };
     let sender = item.event.sender();
+    // an invite is now; a message, when its server took it.
+    let sent = match &item.event {
+        NotificationEvent::Timeline(event) => crate::convert::system_time(event.origin_server_ts()),
+        NotificationEvent::Invite(_) => SystemTime::now(),
+    };
     Notification::new(
         NotifiedChat {
             room,
@@ -203,6 +208,7 @@ fn notification(
         // the server pushed it, so a rule notifies: without its actions, it sounds.
         item.is_noisy.unwrap_or(true),
     )
+    .arrived(sent, SystemTime::now())
 }
 
 /// A notification's error, but a room the client does not know (which its caller names).
