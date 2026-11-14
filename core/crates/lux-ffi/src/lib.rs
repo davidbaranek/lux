@@ -10,6 +10,7 @@
 #![allow(unsafe_code)]
 
 mod account;
+mod bridges;
 mod chat;
 mod list;
 mod markdown;
