@@ -21,7 +21,7 @@ extension ChatListViewController {
         updateShortcuts()
     }
 
-    /// All chats, or one kind of them; the current choice is ticked.
+    /// All chats, or one kind of them, and their order; the current choices are ticked.
     func filterMenuElements() -> [UIMenuElement] {
         let all = UIAction(title: String(localized: "All Chats"), image: UIImage(systemName: "tray.full"),
                            state: model.filter == nil ? .on : .off) { [weak self] _ in self?.setFilter(nil) }
@@ -30,9 +30,15 @@ extension ChatListViewController {
                 [weak self] _ in self?.setFilter(filter)
             }
         }
+        let orders = ChatOrder.allCases.map { order in
+            UIAction(title: order.title, image: UIImage(systemName: order.symbol), state: model.order == order ? .on : .off) {
+                [weak self] _ in self?.model.order = order
+            }
+        }
         return [UIMenu(options: .displayInline, children: [all]),
                 UIMenu(options: .displayInline, children: Array(kinds.prefix(2))),
-                UIMenu(options: .displayInline, children: Array(kinds.dropFirst(2)))]
+                UIMenu(options: .displayInline, children: Array(kinds.dropFirst(2))),
+                UIMenu(title: String(localized: "Sort By"), options: .displayInline, children: orders)]
     }
 
     /// A filter shows as a filled button and under the title.

@@ -114,11 +114,12 @@ pub(crate) fn compose<S: BuildHasher>(
     snapshot: &Snapshot,
     place: &PlaceId,
     filter: Option<ChatFilter>,
+    order: ChatOrder,
     drafts: &HashSet<ChatId, S>,
     arrangement: &Arrangement,
     now: SystemTime,
 ) -> ComposedList {
-    let sections = sections(snapshot, place);
+    let sections = sections(snapshot, place, order);
     ComposedList {
         places: places(snapshot, arrangement, now),
         sections: match filter {
@@ -236,9 +237,31 @@ fn top_level_spaces(spaces: &[Space]) -> impl Iterator<Item = &Space> {
         .filter(move |space| !space.parents.iter().any(|parent| known.contains(parent)))
 }
 
+/// The order of a place's chats, the user's choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ChatOrder {
+    /// By their last activity, as the server's room list orders them: any newest event counts
+    /// (an edit, a bridge filling in a photo, the user let into an old chat).
+    #[default]
+    Activity,
+    /// By their newest message's sending, the newest first ([`newest_message_first`]).
+    NewestMessage,
+}
+
+impl ChatOrder {
+    /// The indexes of `chats` (in the server's order) in this order.
+    fn of(self, chats: &[Arc<Chat>]) -> Vec<usize> {
+        match self {
+            Self::Activity => (0..chats.len()).collect(),
+            Self::NewestMessage => newest_message_first(chats),
+        }
+    }
+}
+
 /// The chats by their newest message, the newest first; chats with no message after those with
 /// one, in the server's order. Not the server's own order: it counts any event, so a bridge
-/// adding the user to an old chat would put it on top.
+/// adding the user to an old chat would put it on top. A chat's date is its newest message's
+/// sending, which an edit does not change.
 fn newest_message_first(chats: &[Arc<Chat>]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..chats.len()).collect();
     // `None` sorts first, so reversed it goes last; a stable sort keeps the server's order.
@@ -246,14 +269,14 @@ fn newest_message_first(chats: &[Arc<Chat>]) -> Vec<usize> {
     order
 }
 
-/// The chats a place shows, newest message first, in sections: one untitled section for a
+/// The chats a place shows, in `ordering`, in sections: one untitled section for a
 /// folder or a network; for a space, its own chats, then a titled section for each space inside
 /// it (their chats include those of deeper spaces). A chat shows once, in the first section
 /// that has it. The inbox's pinned chats come first, as a grid, in their pin order.
 #[must_use]
-pub(crate) fn sections(snapshot: &Snapshot, place: &PlaceId) -> Vec<Section> {
+pub(crate) fn sections(snapshot: &Snapshot, place: &PlaceId, ordering: ChatOrder) -> Vec<Section> {
     let chats = &snapshot.chats;
-    let order = newest_message_first(chats);
+    let order = ordering.of(chats);
     let rows = |admits: &dyn Fn(&Chat) -> bool| -> Vec<Row> {
         order
             .iter()
@@ -271,7 +294,7 @@ pub(crate) fn sections(snapshot: &Snapshot, place: &PlaceId) -> Vec<Section> {
                     chat.pinned.filter(|_| in_inbox(chat)).map(|pin| (index, pin))
                 })
                 .collect();
-            // a stable sort: equal pins keep the newest first.
+            // a stable sort: equal pins keep the list's order.
             pinned.sort_by(|a, b| a.1.total_cmp(&b.1));
             let pinned = pinned.into_iter().map(|(index, _)| Row::Chat(index)).collect();
             let rest = rows(&|chat| in_inbox(chat) && chat.pinned.is_none());
@@ -490,16 +513,20 @@ pub(super) mod tests {
     #[test]
     fn a_place_shows_its_inbox_chats() {
         let snapshot = snapshot();
-        let network = sections(&snapshot, &PlaceId::Network(Network::from_id("signal")));
+        let network = sections(
+            &snapshot,
+            &PlaceId::Network(Network::from_id("signal")),
+            ChatOrder::NewestMessage,
+        );
         assert_eq!(chat_ids(&snapshot, &network), [["d"]]);
-        let archive = sections(&snapshot, &PlaceId::Folder(Folder::Archive));
+        let archive = sections(&snapshot, &PlaceId::Folder(Folder::Archive), ChatOrder::NewestMessage);
         assert_eq!(chat_ids(&snapshot, &archive), [["c"]]);
     }
 
     #[test]
     fn a_space_lists_its_own_chats_then_one_section_per_space_inside() {
         let snapshot = snapshot();
-        let sections = sections(&snapshot, &PlaceId::Space("s".into()));
+        let sections = sections(&snapshot, &PlaceId::Space("s".into()), ChatOrder::NewestMessage);
         assert_eq!(
             sections
                 .iter()
@@ -550,9 +577,42 @@ pub(super) mod tests {
             ..Snapshot::default()
         };
         assert_eq!(
-            chat_ids(&snapshot, &sections(&snapshot, &PlaceId::INBOX)),
+            chat_ids(
+                &snapshot,
+                &sections(&snapshot, &PlaceId::INBOX, ChatOrder::NewestMessage)
+            ),
             [["fresh", "middle", "joined", "empty"]]
         );
+    }
+
+    #[test]
+    fn last_activity_keeps_the_servers_order_and_newest_message_sorts_by_date() {
+        // the server's order: the old chat's photo was filled in just now (an edit).
+        let snapshot = Snapshot {
+            chats: shared(vec![
+                Chat {
+                    date: Some(at(0) - Duration::from_hours(24 * 30)),
+                    ..chat("filled", "whatsapp")
+                },
+                Chat {
+                    date: Some(at(0)),
+                    ..chat("written", "whatsapp")
+                },
+            ]),
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            chat_ids(&snapshot, &sections(&snapshot, &PlaceId::INBOX, ChatOrder::Activity)),
+            [["filled", "written"]]
+        );
+        assert_eq!(
+            chat_ids(
+                &snapshot,
+                &sections(&snapshot, &PlaceId::INBOX, ChatOrder::NewestMessage)
+            ),
+            [["written", "filled"]]
+        );
+        assert_eq!(ChatOrder::default(), ChatOrder::Activity);
     }
 
     #[test]
@@ -576,7 +636,7 @@ pub(super) mod tests {
             ]),
             ..Snapshot::default()
         };
-        let sections = sections(&snapshot, &PlaceId::INBOX);
+        let sections = sections(&snapshot, &PlaceId::INBOX, ChatOrder::NewestMessage);
         assert_eq!(
             sections.iter().map(Section::style).collect::<Vec<_>>(),
             [SectionStyle::Grid, SectionStyle::List]
@@ -622,9 +682,9 @@ pub(super) mod tests {
         assert_eq!(listed.last(), Some(&("label:work".to_owned(), 1)));
         assert_eq!(places.last().and_then(|place| place.name.as_deref()), Some("Work"));
         // the soonest reminder first; a saved message with its chat; the label without the archive.
-        let reminders = sections(&snapshot, &PlaceId::Reminders);
+        let reminders = sections(&snapshot, &PlaceId::Reminders, ChatOrder::NewestMessage);
         assert_eq!(chat_ids(&snapshot, &reminders), [["a", "d"]]);
-        let saved = sections(&snapshot, &PlaceId::Saved);
+        let saved = sections(&snapshot, &PlaceId::Saved, ChatOrder::NewestMessage);
         assert_eq!(
             saved[0].rows,
             [Row::Saved {
@@ -632,8 +692,8 @@ pub(super) mod tests {
                 chat: Some(3)
             }]
         );
-        let label = sections(&snapshot, &PlaceId::Label("work".into()));
+        let label = sections(&snapshot, &PlaceId::Label("work".into()), ChatOrder::NewestMessage);
         assert_eq!(chat_ids(&snapshot, &label), [["a"]]);
-        assert!(sections(&snapshot, &PlaceId::Label("gone".into())).is_empty());
+        assert!(sections(&snapshot, &PlaceId::Label("gone".into()), ChatOrder::NewestMessage).is_empty());
     }
 }

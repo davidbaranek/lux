@@ -218,7 +218,8 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     private let placeLabel = NSTextField(labelWithString: "")
     private weak var filterItem: NSMenuToolbarItem?
 
-    /// All chats, or one kind; the current one ticked, and the icon filled while one applies.
+    /// All chats, or one kind, and their order; the current ones ticked, and the icon filled while a
+    /// filter applies.
     private func updateFilterItem() {
         guard let item = filterItem else { return }
         let current = sidebarController.listModel.filter
@@ -237,10 +238,27 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             if index == 2 { menu.addItem(.separator()) }
             menu.addItem(entry(filter.title, filter.symbol, filter))
         }
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: String(localized: "Sort By")))
+        let currentOrder = sidebarController.listModel.order
+        for order in ChatOrder.allCases {
+            let entry = NSMenuItem(title: order.title, action: #selector(chooseOrder(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.image = NSImage(systemSymbolName: order.symbol, accessibilityDescription: nil)
+            entry.state = currentOrder == order ? .on : .off
+            entry.representedObject = order.rawValue
+            menu.addItem(entry)
+        }
         item.menu = menu
         item.toolTip = current.map { String(localized: "Showing: \($0.title)") } ?? String(localized: "Show only some chats")
         item.image = NSImage(systemSymbolName: current == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill",
                              accessibilityDescription: String(localized: "Filter"))
+    }
+
+    @objc private func chooseOrder(_ sender: NSMenuItem) {
+        guard let order = (sender.representedObject as? String).flatMap(ChatOrder.init(rawValue:)) else { return }
+        sidebarController.listModel.order = order
+        updateFilterItem()
     }
 
     @objc private func chooseFilter(_ sender: NSMenuItem) {

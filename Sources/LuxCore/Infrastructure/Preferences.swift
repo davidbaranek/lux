@@ -35,6 +35,12 @@ public final class Preferences {
         set { defaults.set(newValue, forKey: "networksWelcomed") }
     }
 
+    /// The order of the chat list's chats, on this device.
+    public var chatOrder: ChatOrder {
+        get { defaults.string(forKey: "chatOrder").flatMap(ChatOrder.init(rawValue:)) ?? .activity }
+        set { defaults.set(newValue.rawValue, forKey: "chatOrder") }
+    }
+
     /// The server last signed in to; nil for Lux's own.
     public var homeserver: String? {
         get { defaults.string(forKey: "homeserver") }

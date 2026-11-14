@@ -26,6 +26,15 @@ public final class ChatListModel {
         }
     }
 
+    /// The order of the place's chats; kept on this device.
+    public var order: ChatOrder = Preferences.shared.chatOrder {
+        didSet {
+            guard order != oldValue else { return }
+            Preferences.shared.chatOrder = order
+            list?.setOrder(order)
+        }
+    }
+
     /// Puts the places in this order (the user dragged one); shown at once, kept with the account.
     public func reorder(_ places: [Place]) { list?.reorder(places) }
 
@@ -77,7 +86,7 @@ public final class ChatListModel {
     public init(session: Session) {
         account = session.account
         list = session.chatListSource.map {
-            RustChatList($0, place: .inbox, filter: nil, drafts: Preferences.shared.chatsWithDrafts)
+            RustChatList($0, place: .inbox, filter: nil, order: Preferences.shared.chatOrder, drafts: Preferences.shared.chatsWithDrafts)
         }
         // in order: each batch builds on the one before.
         following = Task { [weak self, events = list?.events] in

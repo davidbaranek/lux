@@ -15,7 +15,7 @@ use tokio::sync::oneshot;
 use crate::account::{Backend, CoreAccount, CoreAccountError, CoreChat, CoreRequest, list_diff, with_account};
 use crate::chat::{CoreLabel, CoreSavedMessage, CoreScheduledMessage};
 use crate::organizing::CoreChatChange;
-use crate::places::{CoreChatFilter, CoreListedPlace, CorePlace, CoreSectionId, CoreSectionStyle};
+use crate::places::{CoreChatFilter, CoreChatOrder, CoreListedPlace, CorePlace, CoreSectionId, CoreSectionStyle};
 use crate::runtime;
 use crate::store::CoreStore;
 
@@ -236,6 +236,8 @@ pub struct CoreListSetup {
     pub place: CorePlace,
     /// Which of its chats show.
     pub filter: Option<CoreChatFilter>,
+    /// In which order.
+    pub order: CoreChatOrder,
     /// The chats with a draft on this device.
     pub drafts: Vec<String>,
 }
@@ -245,6 +247,7 @@ impl From<CoreListSetup> for ListSetup {
         Self {
             place: setup.place.into(),
             filter: setup.filter.map(ChatFilter::from),
+            order: setup.order.into(),
             drafts: setup.drafts.into_iter().map(ChatId::from).collect(),
         }
     }
@@ -345,6 +348,11 @@ impl CoreChatList {
     /// Shows only the chats `filter` admits; none shows them all.
     pub fn set_filter(&self, filter: Option<CoreChatFilter>) {
         self.list.set_filter(filter.map(ChatFilter::from));
+    }
+
+    /// Puts the place's chats in `order`.
+    pub fn set_order(&self, order: CoreChatOrder) {
+        self.list.set_order(order.into());
     }
 
     /// The chats with a draft on this device.

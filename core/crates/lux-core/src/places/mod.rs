@@ -17,7 +17,7 @@ mod list;
 
 pub use filter::ChatFilter;
 pub(crate) use list::compose;
-pub use list::{ListedPlace, Row, Section, SectionId, SectionStyle};
+pub use list::{ChatOrder, ListedPlace, Row, Section, SectionId, SectionStyle};
 
 /// A place's key, stable across launches and devices: `"network:whatsapp"`, `"space:!id"`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

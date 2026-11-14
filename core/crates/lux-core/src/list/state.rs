@@ -12,7 +12,7 @@ use crate::chat::{Chat, Label, Request, ScheduledMessage, Snapshot, Space};
 use crate::diff;
 use crate::ids::ChatId;
 use crate::organizer::Organized;
-use crate::places::{self, Arrangement, ChatFilter, ListedPlace, PlaceId, SectionId};
+use crate::places::{self, Arrangement, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId};
 
 /// What the listener was last sent.
 #[derive(Debug, Default)]
@@ -34,14 +34,21 @@ pub(crate) struct ListState {
     arranging: Option<Arrangement>,
     place: PlaceId,
     filter: Option<ChatFilter>,
+    order: ChatOrder,
     drafts: HashSet<ChatId>,
     shown: Shown,
 }
 
 impl ListState {
-    /// The list at `place` with `filter`, from `kept` (the device's last list) until the account
+    /// The list at `place` with `filter`, in `order`, from `kept` (the device's last list) until the account
     /// sends its own.
-    pub(crate) fn new(place: PlaceId, filter: Option<ChatFilter>, drafts: HashSet<ChatId>, kept: Vec<Chat>) -> Self {
+    pub(crate) fn new(
+        place: PlaceId,
+        filter: Option<ChatFilter>,
+        order: ChatOrder,
+        drafts: HashSet<ChatId>,
+        kept: Vec<Chat>,
+    ) -> Self {
         Self {
             snapshot: Snapshot {
                 chats: kept.into_iter().map(Arc::new).collect(),
@@ -51,6 +58,7 @@ impl ListState {
             arranging: None,
             place,
             filter,
+            order,
             drafts,
             shown: Shown::default(),
         }
@@ -73,6 +81,10 @@ impl ListState {
 
     pub(crate) fn set_filter(&mut self, filter: Option<ChatFilter>) {
         self.filter = filter;
+    }
+
+    pub(crate) fn set_order(&mut self, order: ChatOrder) {
+        self.order = order;
     }
 
     pub(crate) fn set_drafts(&mut self, drafts: HashSet<ChatId>) {
@@ -137,6 +149,7 @@ impl ListState {
             &self.snapshot,
             &self.place,
             self.filter,
+            self.order,
             &self.drafts,
             &arrangement,
             now,
@@ -149,6 +162,7 @@ impl ListState {
                 &self.snapshot,
                 &self.place,
                 self.filter,
+                self.order,
                 &self.drafts,
                 &arrangement,
                 now,

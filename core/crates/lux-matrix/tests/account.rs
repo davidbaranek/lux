@@ -516,6 +516,84 @@ async fn a_room_with_messages_from_before_the_account_arrived_tells_of_the_newes
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_edit_of_an_old_message_keeps_the_date_of_the_message() {
+    let server = server().await;
+    let bob = "@whatsapp_1:matrix.org";
+    // a bridge filled in an old photo later (an edit), after another chat's newer message.
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "pos": "1",
+                    "lists": { "all_rooms": { "count": 2 } },
+                    "rooms": {
+                        "!photo:matrix.org": {
+                            "name": "Photo",
+                            "initial": true,
+                            "joined_count": 2,
+                            "timeline": [{
+                                "type": "m.room.message",
+                                "event_id": "$album",
+                                "sender": bob,
+                                "origin_server_ts": 1_600_000_000_000_u64,
+                                "content": { "msgtype": "m.text", "body": "Sent an album" }
+                            }, {
+                                "type": "m.room.message",
+                                "event_id": "$filled",
+                                "sender": bob,
+                                "origin_server_ts": 1_700_000_200_000_u64,
+                                "content": {
+                                    "msgtype": "m.image",
+                                    "body": "* photo.jpg",
+                                    "url": "mxc://matrix.org/photo",
+                                    "m.new_content": { "msgtype": "m.image", "body": "photo.jpg", "url": "mxc://matrix.org/photo" },
+                                    "m.relates_to": { "rel_type": "m.replace", "event_id": "$album" }
+                                }
+                            }]
+                        },
+                        "!text:matrix.org": {
+                            "name": "Text",
+                            "initial": true,
+                            "joined_count": 2,
+                            "timeline": [{
+                                "type": "m.room.message",
+                                "event_id": "$text",
+                                "sender": bob,
+                                "origin_server_ts": 1_650_000_000_000_u64,
+                                "content": { "msgtype": "m.text", "body": "newer" }
+                            }]
+                        }
+                    }
+                }))
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(server.server())
+        .await;
+    let folder = tempfile::tempdir().unwrap();
+    let account = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()))
+        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
+        .await
+        .unwrap();
+    let mut chats = account.chats();
+    let mut rows = eyeball_im::Vector::new();
+    until(&mut chats, &mut rows, |rows| {
+        rows.len() == 2 && rows.iter().all(|chat| chat.preview.is_some())
+    })
+    .await;
+    // dated by the photo's message, not by the edit: the newest message order puts it after the
+    // other chat (the order is the list's, `lux_core::places`).
+    let photo = rows
+        .iter()
+        .find(|chat| chat.id == ChatId::from("!photo:matrix.org"))
+        .unwrap();
+    assert_eq!(
+        photo.date,
+        Some(std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_on_the_server_page_keeps_its_oauth_session() {
     let server = MatrixMockServer::new().await;
     server.mock_versions().with_simplified_sliding_sync().ok().mount().await;

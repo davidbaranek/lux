@@ -1,7 +1,7 @@
 //! Places, as the apps see them.
 
 use lux_core::network::Network;
-use lux_core::places::{ChatFilter, ListedPlace, PlaceId, SectionId, SectionStyle};
+use lux_core::places::{ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, SectionStyle};
 
 use crate::chat::CoreFolder;
 
@@ -93,6 +93,25 @@ impl From<CoreChatFilter> for ChatFilter {
             CoreChatFilter::Drafts => Self::Drafts,
             CoreChatFilter::Groups => Self::Groups,
             CoreChatFilter::Directs => Self::Directs,
+        }
+    }
+}
+
+/// The order of a place's chats.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, uniffi::Enum)]
+pub enum CoreChatOrder {
+    /// By their last activity, as the server orders them.
+    #[default]
+    Activity,
+    /// By their newest message.
+    NewestMessage,
+}
+
+impl From<CoreChatOrder> for ChatOrder {
+    fn from(order: CoreChatOrder) -> Self {
+        match order {
+            CoreChatOrder::Activity => Self::Activity,
+            CoreChatOrder::NewestMessage => Self::NewestMessage,
         }
     }
 }

@@ -126,6 +126,15 @@ extension Place {
     }
 }
 
+extension CoreChatOrder {
+    init(_ order: ChatOrder) {
+        self = switch order {
+        case .activity: .activity
+        case .newestMessage: .newestMessage
+        }
+    }
+}
+
 extension CoreChatFilter {
     init(_ filter: ChatFilter) {
         self = switch filter {
