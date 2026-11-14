@@ -143,6 +143,13 @@ final class RailButton: NSView {
     override func mouseExited(with event: NSEvent) { hovering = false }
     override func mouseDown(with event: NSEvent) { press(place) }
     override func accessibilityPerformPress() -> Bool { press(place); return true }
+
+    /// VoiceOver's (and Control-click's) menu: the same as a right click.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu = menuProvider?(place) else { return false }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.midX, y: bounds.midY), in: self)
+        return true
+    }
 }
 
 private extension PlaceItem.Icon {

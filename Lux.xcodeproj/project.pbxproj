@@ -25,10 +25,10 @@
 		1C9F5F75836DD643D24F1AA2 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38EB133AC22139BB66D39275 /* main.swift */; };
 		252EDCA93CE5B2A96E8E349D /* BadgeLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */; };
 		27B057F73D3889A613A56B2E /* RailController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4104CEA496E32C0FC3DCF04 /* RailController.swift */; };
+		28CC9919B31369F7B26DB854 /* ThemeTint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26B64CD6E66347DCB8E7F15 /* ThemeTint.swift */; };
 		2C6C61D1739FD5E41B33D6E0 /* PinnedChatCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B8912DEE95A1DF6B9FE55F /* PinnedChatCell.swift */; };
 		3070AFA29798B0CD0AE87E10 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */; };
 		316952910C4EE229C71D7C06 /* EmojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6062145D14EE693AA7E8CED /* EmojiPicker.swift */; };
-		32361FAE0CE22422C947F83C /* ThemeBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D34F57D0DD89F6D6093693C8 /* ThemeBand.swift */; };
 		328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00570185AFDD380CCE7DD74 /* SignInViewController.swift */; };
 		33DA6D51E00662CDDBE4C0B0 /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3137E9AE7652C1F1211E24B9 /* LuxCore */; };
 		33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49761B942919CA84E69B8699 /* SectionHeader.swift */; };
@@ -261,7 +261,6 @@
 		C74036405B2152475BBCC458 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
 		CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
-		D34F57D0DD89F6D6093693C8 /* ThemeBand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeBand.swift; sourceTree = "<group>"; };
 		BB39620C0DF9FF91919295A9 /* lux-native-verify */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-verify"; path = .; sourceTree = SOURCE_ROOT; };
 		D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploads.swift; sourceTree = "<group>"; };
 		D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Composer.swift"; sourceTree = "<group>"; };
@@ -278,6 +277,7 @@
 		EA3776EDAC6CDA5CF7A31983 /* SidebarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarController.swift; sourceTree = "<group>"; };
 		EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStyling.swift; sourceTree = "<group>"; };
 		F0E3E60D668BFA91A83F63D0 /* RecoverySetupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySetupController.swift; sourceTree = "<group>"; };
+		F26B64CD6E66347DCB8E7F15 /* ThemeTint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeTint.swift; sourceTree = "<group>"; };
 		F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+QuickLook.swift"; sourceTree = "<group>"; };
 		F4104CEA496E32C0FC3DCF04 /* RailController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailController.swift; sourceTree = "<group>"; };
 		F6062145D14EE693AA7E8CED /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
@@ -643,8 +643,8 @@
 				977E45B2786136014F3666DB /* NSViewController+Failure.swift */,
 				49761B942919CA84E69B8699 /* SectionHeader.swift */,
 				9644BAAAE059CA06889DB30A /* TextView.swift */,
-				D34F57D0DD89F6D6093693C8 /* ThemeBand.swift */,
 				9AA1C19BCC5C987F9DB15E5D /* ThemeMenu.swift */,
+				F26B64CD6E66347DCB8E7F15 /* ThemeTint.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -1005,8 +1005,8 @@
 				CCED9DD67B5C2015BE31E9D2 /* SidebarController.swift in Sources */,
 				021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */,
 				41F959329248BEFE43FF98F9 /* TextView.swift in Sources */,
-				32361FAE0CE22422C947F83C /* ThemeBand.swift in Sources */,
 				B075CAE896F653EF49C0F8FE /* ThemeMenu.swift in Sources */,
+				28CC9919B31369F7B26DB854 /* ThemeTint.swift in Sources */,
 				43464F7811CCC69D928F220E /* ThreadController+Composer.swift in Sources */,
 				A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */,
 				CB917858113CEA60B6902902 /* ThreadController+QuickLook.swift in Sources */,

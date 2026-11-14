@@ -78,9 +78,13 @@ final class ChatCellView: NSTableCellView {
         setAccessibilityLabel([row.name, row.isUnread ? String(localized: "unread") : nil, row.preview].compactMap { $0 }.joined(separator: ", "))
     }
 
-    /// The shown place's accent, for an unread chat's time.
+    /// The shown place's accent, for an unread chat's time and badge.
     var accent = NSColor.controlAccentColor {
-        didSet { if accent != oldValue { updateTime() } }
+        didSet {
+            guard accent != oldValue else { return }
+            badge.color = accent
+            updateTime()
+        }
     }
 
     private func updateTime() {
