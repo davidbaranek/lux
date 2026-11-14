@@ -23,6 +23,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LuxAppGroup</key>
 	<string>$(LUX_APP_GROUP)</string>
 	<key>LuxBundleID</key>
