@@ -444,6 +444,54 @@ async fn the_extension_names_the_merged_chat_and_brings_the_pictures() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_picture_the_server_will_not_thumbnail_comes_as_it_is() {
+    let server = server().await;
+    mount_sync_with(&server, 1_700_000_000_000, &[]).await;
+    server.mock_room_state_encryption().plain().mount().await;
+    // a server that made no thumbnail ahead and makes none on demand.
+    Mock::given(method("GET"))
+        .and(path_regex(r"/thumbnail/matrix\.org/anna$"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "errcode": "M_UNKNOWN",
+            "error": "Cannot find any thumbnails for the requested media"
+        })))
+        .mount(server.server())
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex(r"/download/matrix\.org/anna$"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(b"anna's face".to_vec(), "image/jpeg"))
+        .mount(server.server())
+        .await;
+    let folder = tempfile::tempdir().unwrap();
+    let secrets = Arc::new(MemorySecrets::default());
+    let account = MatrixSignIn::new(StoreFolder::new(folder.path()), secrets.clone())
+        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
+        .await
+        .unwrap();
+    account.wait_for_first_sync().await;
+    wait_for_room(&account).await;
+    account.pause_sync().await;
+    drop(account);
+
+    let notifications = MatrixNotifications::open(&StoreFolder::new(folder.path()), secrets)
+        .await
+        .unwrap()
+        .expect("the kept session");
+    let pushed = tokio::time::timeout(
+        Duration::from_secs(20),
+        notifications.read(&"!anna:matrix.org".into(), &"$hello".into()),
+    )
+    .await
+    .expect("the event in time")
+    .unwrap();
+    let PushedEvent::Shown(notification) = pushed else {
+        panic!("not shown: {pushed:?}");
+    };
+    let pictures = notifications.pictures(&notification).await;
+    assert_eq!(pictures.sender.as_deref(), Some(&b"anna's face"[..]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_running_app_hears_a_new_message_once() {
     let server = server().await;
     let now = u64::try_from(

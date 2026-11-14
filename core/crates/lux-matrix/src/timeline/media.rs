@@ -41,7 +41,7 @@ pub(crate) async fn avatar_bytes(
         return None;
     }
     let request = avatar(url);
-    match tokio::time::timeout(within, client.media().get_media_content(&request, true)).await {
+    match tokio::time::timeout(within, picture_content(client, &request, true)).await {
         Ok(Ok(bytes)) => Some(bytes),
         Ok(Err(error)) => {
             tracing::warn!(%error, "a picture cannot be had");
@@ -92,20 +92,8 @@ impl ChatMedia for MatrixTimelines {
         if file.is_file() {
             return Ok(Some(file));
         }
-        let media = self.client.media();
-        let data = match media.get_media_content(&request, true).await {
-            Ok(data) => data,
-            // a server may make no thumbnail of a picture (a small one, or one a bridge serves
-            // itself): the picture as it is, which the app scales; the file is its cache.
-            Err(error) if matches!(request.format, MediaFormat::Thumbnail(_)) => {
-                debug!(%error, "no thumbnail: the picture itself");
-                media
-                    .get_media_content(&original(request.source.clone()), false)
-                    .await
-                    .map_err(from_sdk)?
-            }
-            Err(error) => return Err(from_sdk(error)),
-        };
+        // the file is the cache of an original.
+        let data = picture_content(&self.client, &request, false).await.map_err(from_sdk)?;
         write(&file, data).await?;
         Ok(Some(file))
     }
@@ -139,6 +127,27 @@ impl ChatMedia for MatrixTimelines {
             .await
             .map(u64::from)
             .map_err(from_sdk)
+    }
+}
+
+/// The bytes `request` asks for, from the SDK's media cache or the server. A server may make no
+/// thumbnail of a picture (a small one, one a bridge serves itself, one it did not thumbnail
+/// ahead and will not on demand): then the picture as it is, which the apps scale; kept in the
+/// SDK's media cache when `cache_original`.
+async fn picture_content(
+    client: &matrix_sdk::Client,
+    request: &MediaRequestParameters,
+    cache_original: bool,
+) -> matrix_sdk::Result<Vec<u8>> {
+    let media = client.media();
+    match media.get_media_content(request, true).await {
+        Err(error) if matches!(request.format, MediaFormat::Thumbnail(_)) => {
+            debug!(%error, "no thumbnail: the picture itself");
+            media
+                .get_media_content(&original(request.source.clone()), cache_original)
+                .await
+        }
+        content => content,
     }
 }
 
