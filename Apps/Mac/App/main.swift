@@ -62,10 +62,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // the demo has no server: nothing to notify.
             if !LaunchOptions.isDemo { notifications?.start() }
-            welcomeToNetworks()
+            // another of the account's devices asks to verify: a sheet on the window.
+            session.security?.onRequest = { [weak self] verification in
+                self?.window.makeKeyAndOrderFront(nil)
+                self?.presentSheet(VerificationController(model: verification))
+            }
+            Task {
+                // encryption first: the networks' welcome waits until this Mac can read.
+                await offerEncryptionSetup()
+                welcomeToNetworks()
+            }
         } else {
             notifications?.stop()
             notifications?.openChat = nil
+            session.security?.onRequest = nil
             settings?.close()
             settings = nil
             window.toolbar = nil
@@ -75,12 +85,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// A sheet over the window's content; one already up keeps its place, the new one comes
+    /// after it.
+    private func presentSheet(_ sheet: NSViewController) {
+        var top = window.contentViewController
+        while let presented = top?.presentedViewControllers?.last { top = presented }
+        top?.presentAsSheet(sheet)
+    }
+
+    /// After signing in: what this Mac needs to read encrypted messages. An unverified Mac is
+    /// asked to verify at each launch; an account without recovery is offered it once. Returns
+    /// once the sheet is gone (or none was needed).
+    private func offerEncryptionSetup() async {
+        guard let security = session.security else { return }
+        let sheet: NSViewController
+        switch await security.knownSetup() {
+        case .verifyThisDevice(let withRecoveryKey):
+            sheet = ConfirmIdentityController(session: session, withRecoveryKey: withRecoveryKey)
+        case .setUpRecovery where !Preferences.shared.recoverySetupOffered || LaunchOptions.demoNoRecovery:
+            if !LaunchOptions.isDemo { Preferences.shared.recoverySetupOffered = true }
+            sheet = RecoverySetupController(security: security)
+        case .setUpRecovery, .ready, .unknown:
+            return
+        }
+        guard window.attachedSheet == nil else { return }
+        presentSheet(sheet)
+        // the sheet, and whichever took its place, gone.
+        let ends = NotificationCenter.default.notifications(named: NSWindow.didEndSheetNotification, object: window).map { _ in () }
+        for await _ in ends where window.attachedSheet == nil {
+            break
+        }
+    }
+
     /// After signing in, once: the server's networks, to pick the ones to bring. Their states load
     /// either way, for the list's bubble.
     private func welcomeToNetworks() {
         guard let networks = session.networks else { return }
-        Task {
+        Task { [weak self] in
             await networks.load()
+            guard let self else { return }
             let welcomed = Preferences.shared.networksWelcomed && !LaunchOptions.showsNetworksWelcome
             guard !welcomed, !LaunchOptions.isDemo || LaunchOptions.showsNetworksWelcome, window.attachedSheet == nil else { return }
             // the demo never marks the account's welcome as shown.
