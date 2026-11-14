@@ -1,0 +1,1447 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		006D727147C8FC2B8B907C40 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A0879E00055D31BFA4E16B /* ShareViewController.swift */; };
+		021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3129E33F5CAAED4C0B82EB92 /* SignInController.swift */; };
+		02A6600AB83B5B16B1B38D90 /* TypingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC0D1B214F00F8C6A3313FD /* TypingView.swift */; };
+		042345998078B252CFE0863D /* ThreadViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */; };
+		0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0506303EA2A161FB930E67 /* MarkdownStyler.swift */; };
+		0A691855DC38F4118E696C65 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1019436DD5B08FB56BEDB051 /* NotificationService.swift */; };
+		0BCF753EFAFAE2E02791361D /* FileDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B078C1F708797864150311C6 /* FileDropView.swift */; };
+		0EB1E2C25071B08EA917D05A /* MessageText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D204CD16F57C75829F8BF1 /* MessageText.swift */; };
+		13C7E06187CA876F4131B833 /* Networks.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7175CD37D14C455234289062 /* Networks.xcassets */; };
+		155CC3FC8242AA590FAC279E /* EmojiImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */; };
+		16C4E2E4903056B6CAF6CC26 /* EncryptionSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */; };
+		1BCA865F8FF6EF1EE6695A87 /* SearchResultsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */; };
+		1C9F5F75836DD643D24F1AA2 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38EB133AC22139BB66D39275 /* main.swift */; };
+		252EDCA93CE5B2A96E8E349D /* BadgeLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */; };
+		27B057F73D3889A613A56B2E /* RailController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4104CEA496E32C0FC3DCF04 /* RailController.swift */; };
+		2C6C61D1739FD5E41B33D6E0 /* PinnedChatCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B8912DEE95A1DF6B9FE55F /* PinnedChatCell.swift */; };
+		3070AFA29798B0CD0AE87E10 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */; };
+		316952910C4EE229C71D7C06 /* EmojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6062145D14EE693AA7E8CED /* EmojiPicker.swift */; };
+		328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00570185AFDD380CCE7DD74 /* SignInViewController.swift */; };
+		33DA6D51E00662CDDBE4C0B0 /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3137E9AE7652C1F1211E24B9 /* LuxCore */; };
+		33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49761B942919CA84E69B8699 /* SectionHeader.swift */; };
+		3993F4C23B1133F5BE7127E8 /* ChatCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2229367875593093149B0ED6 /* ChatCellView.swift */; };
+		39A051D7618EECD53E44045D /* SwipeToReply.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */; };
+		39E0ADF22084E1A99A293F55 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */; };
+		3A45E99BEAFBE536670D9162 /* AlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF01EEA04AB3C27BFD91EAED /* AlbumView.swift */; };
+		3E9B8D495332F28E9D29D253 /* MessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3A3C976B72208FEFA37889 /* MessageCell.swift */; };
+		41F959329248BEFE43FF98F9 /* TextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9644BAAAE059CA06889DB30A /* TextView.swift */; };
+		43464F7811CCC69D928F220E /* ThreadController+Composer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */; };
+		47074059C06133CD5EDD5D79 /* ThreadViewController+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */; };
+		4A7B4DEEA8CBD32189398BF5 /* ScrollBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88390BD714EFAF0311AD7B28 /* ScrollBenchmark.swift */; };
+		4D6E68B7D4F5F0EF832AA23D /* RailButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B95FD76E2F9E651B3873CF2 /* RailButton.swift */; };
+		4EFA5B4CA1489AFEE7C64002 /* ConversationDonation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */; };
+		5470DEAD78BA1CDEAFDBA5CF /* NSImage+Symbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861B6215E0535216006F41DA /* NSImage+Symbol.swift */; };
+		5F25ADA8CB7A06BAEC4A88A1 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */; };
+		683DD25022320CAE2D32D91F /* ChatListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C63259781CAA212711C097 /* ChatListViewController.swift */; };
+		6948CB74315F9E166913736C /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */; };
+		6B251BC0D10032002FAB5EE0 /* BackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */; };
+		6CED0114453863479F5508B4 /* AccountSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E12BEF6929D3632673C59AF /* AccountSettingsController.swift */; };
+		6D6DE0711C0CCA3EBF31A88B /* MessageTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61650F6A784137B4735B8EA7 /* MessageTableView.swift */; };
+		6E20173C1191E7CBAC802DC0 /* MediaPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504DA172EC25EEE7F426EBF0 /* MediaPresenter.swift */; };
+		6E49D58CB9A0AE5AC04AB22B /* SharedItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADF248706333E9027B678F9 /* SharedItems.swift */; };
+		75808F15A930DB91B1F6F42C /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = DFB93559DA0DA8A754916B22 /* LuxCore */; };
+		780316DD6166F699F95047BE /* UIViewController+Failure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA6FB47F4FED7224573798C /* UIViewController+Failure.swift */; };
+		7848537AB542D826602972C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 70CDAD96292E9567EEE87F30 /* Assets.xcassets */; };
+		83EE1721774FE5F58AD12DE3 /* MessageStyling.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */; };
+		869F52C8F8781C272562C2C4 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */; };
+		86F3B8A8B9B968FE806D03B6 /* MessageCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */; };
+		8D684BEEA4B55C5A372D4EBF /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB1888448FCBA297255D8F4 /* ComposerView.swift */; };
+		8DA6D64EC74046B5C76ADBB2 /* LoadingBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0424D3218B18987B7AEDF49E /* LoadingBubble.swift */; };
+		8E5744CB69A12FAA9AC0B18C /* BackgroundUploads.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */; };
+		94CC02234E6FE450938E7FEC /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = AB82166DFC9FDD92BB44334E /* LuxCore */; };
+		967349FF9CFE2A315B06B48A /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60079532E50D716748C497E7 /* AvatarView.swift */; };
+		99746989F9BF6DCCE165A6AD /* PlacesSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5533F0994A20C1A1D7C4D369 /* PlacesSheetViewController.swift */; };
+		9C07EBB6628BB81A3CE6B539 /* FileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D1A30D2DF3D718DA2A4B81F /* FileRowView.swift */; };
+		9DB35B0612E722C0127644BC /* EmojiImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */; };
+		9F072E62A5C4445EEBB245C0 /* Lux-iOS-Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */; };
+		A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */; };
+		A5A6DC777A0A6BB0CC734E9E /* NetworkImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */; };
+		A7D9CE53AB84878F77465CFB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 70CDAD96292E9567EEE87F30 /* Assets.xcassets */; };
+		AB9DD50F903CEDC7BD2C38FB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CF52CA6CC877D4E596211C /* AppDelegate.swift */; };
+		AC04B40A9B0BD096A2350FF7 /* MessageStyling.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */; };
+		AC381B9C24B9B2C84C704569 /* ChatListViewController+Places.swift in Sources */ = {isa = PBXBuildFile; fileRef = 174D3FC543FE2C85E34E61F6 /* ChatListViewController+Places.swift */; };
+		AC921B6B1767C8E9179FFB7B /* BadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687CC44CAFA193D4DE1B964 /* BadgeView.swift */; };
+		ADF0DBB8BC40F9B8A814EFF8 /* NetworkImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */; };
+		B139BD6E0E50BCBC3DA070DA /* VerificationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3633EB47A1DD6D7C2A8AEDA /* VerificationController.swift */; };
+		B1FA151DF3B7DE373AE4F34F /* MessageText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED44BAF9870039CBBE2D09 /* MessageText.swift */; };
+		B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2180360AB5C0E986ABBBF07D /* ChatListController.swift */; };
+		B653F26A44AE4D274DB849D7 /* UIFont+Bold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */; };
+		B7AEA23C2F785A725402F3AF /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E4FC640AD4BBC4E431346A /* Notifications.swift */; };
+		BC0306C758185E08AECE4715 /* SendLaterMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3044FCBF32576720D8DB5A1 /* SendLaterMenu.swift */; };
+		BC9F0E1D1E882AE86E84B643 /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = 587B21A79B35B390D241914E /* LuxCore */; };
+		BD62BA28B3BEC0CE0DA7413B /* ConversationDonation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */; };
+		BEBADB4F59591F45FB7A35F4 /* Lux-iOS-Notifications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E3280A12939AF3F7D291E91C /* Lux-iOS-Notifications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BED26E2D602865890B92AF7C /* Networks.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7175CD37D14C455234289062 /* Networks.xcassets */; };
+		BF426102B9FBC3A10280E7DA /* PinnedGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2C0133C1B24AE10B6EC954 /* PinnedGridView.swift */; };
+		C49CF522A44DCFC69D5B38C5 /* ChatTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74036405B2152475BBCC458 /* ChatTitleView.swift */; };
+		C575C6902C0594A0AE0F9E1E /* PerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */; };
+		C69D0F00C7AD9CFA40008641 /* NewConversationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC71AE3DBF5977DA99DC7E8 /* NewConversationController.swift */; };
+		CB917858113CEA60B6902902 /* ThreadController+QuickLook.swift in Sources */ = {isa = PBXBuildFile; fileRef = F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */; };
+		CCED9DD67B5C2015BE31E9D2 /* SidebarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3776EDAC6CDA5CF7A31983 /* SidebarController.swift */; };
+		CFA436A69A0242CBEB19E202 /* SearchResultsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */; };
+		CFDD81976E553FAE1C1F0BA1 /* ChatContainerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */; };
+		D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */; };
+		DEC843A195F03049A897DEAC /* NewConversationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */; };
+		DECA8F2F35AC1DF95C3406C0 /* RecoveryKeyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */; };
+		E147D495AC39B7A968B095E8 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60079532E50D716748C497E7 /* AvatarView.swift */; };
+		E78834AAAD1D2FAF1F0DC1D0 /* ChatTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15301CE9D8CDC009F178CF79 /* ChatTitleView.swift */; };
+		E87A984B2C06178BAE83ED09 /* AlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A688E800048B078A52B754C7 /* AlbumView.swift */; };
+		EA5D02631FE7BFF04D17AAFC /* ComposerModeBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7C64CCAFB2B23EBFBBF6A9 /* ComposerModeBar.swift */; };
+		EAA215B7DC7259486BC719F0 /* ChatPickerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EC833400271142BD4015641 /* ChatPickerController.swift */; };
+		EC8EFD4F7CBB2A9C34399C72 /* AppIcon.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B3F9F303512F73FF420E0869 /* AppIcon.xcassets */; };
+		ED1DBD72CF9220FA4A9C1D3D /* LoadingBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55ECACEB4D6B6207F111193F /* LoadingBubble.swift */; };
+		EE44DA391BE58726EB47AAAC /* NSViewController+Failure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 977E45B2786136014F3666DB /* NSViewController+Failure.swift */; };
+		EFF3789D4C55FEC43A53BED0 /* AppIcon.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B3F9F303512F73FF420E0869 /* AppIcon.xcassets */; };
+		F098D0BF74E1B8204F19E52D /* FileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1237884D199F603C323809F /* FileRowView.swift */; };
+		F399A2C7D0F4FE57850A39CF /* ChatPickerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4568CFB0703D28EFF82DF4 /* ChatPickerViewController.swift */; };
+		F5715C81C2E275785AD988B6 /* VerificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC9E7CDBFC3557241A8B83D /* VerificationViewController.swift */; };
+		FA7B9102187DE1BB0B565AF4 /* ScrollBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1797AF77AA495AC53B1A7899 /* ScrollBenchmark.swift */; };
+		FA8C719FA0213F63F8924662 /* ThreadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83A756DC00736E9731ED03F4 /* ThreadController.swift */; };
+		FBFB8C67453A709BC001A3FE /* ChatRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11450DD99B4486ADBCA386C /* ChatRowView.swift */; };
+		FFF3696333526B49D846EA30 /* EmojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A911F525CB872B6D4D247132 /* EmojiPicker.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A02EF0B3350BDDE421A2C7DF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 370751748CB3B7171E790C0D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F8B88B2D117ABD9B7A119580;
+			remoteInfo = "Lux-iOS-Share";
+		};
+		D47C14F09E230CAE16374A72 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 370751748CB3B7171E790C0D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 17836A83160461DC69340554;
+			remoteInfo = "Lux-iOS";
+		};
+		FDA8888FD04F20CA1262484A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 370751748CB3B7171E790C0D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 602C926CF64F7ED80B0A9117;
+			remoteInfo = "Lux-iOS-Notifications";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B57162202E7EB9191F7C009C /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BEBADB4F59591F45FB7A35F4 /* Lux-iOS-Notifications.appex in Embed Foundation Extensions */,
+				9F072E62A5C4445EEBB245C0 /* Lux-iOS-Share.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0424D3218B18987B7AEDF49E /* LoadingBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingBubble.swift; sourceTree = "<group>"; };
+		045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
+		05956B7632D91F0739F96D43 /* Lux-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lux-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		06C63259781CAA212711C097 /* ChatListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListViewController.swift; sourceTree = "<group>"; };
+		0AD2A43CC3D6B685EA440146 /* Lux-iOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lux-iOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0EC71AE3DBF5977DA99DC7E8 /* NewConversationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationController.swift; sourceTree = "<group>"; };
+		1019436DD5B08FB56BEDB051 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptionSettingsController.swift; sourceTree = "<group>"; };
+		15301CE9D8CDC009F178CF79 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
+		174D3FC543FE2C85E34E61F6 /* ChatListViewController+Places.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatListViewController+Places.swift"; sourceTree = "<group>"; };
+		1797AF77AA495AC53B1A7899 /* ScrollBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollBenchmark.swift; sourceTree = "<group>"; };
+		1B95FD76E2F9E651B3873CF2 /* RailButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailButton.swift; sourceTree = "<group>"; };
+		1E4568CFB0703D28EFF82DF4 /* ChatPickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPickerViewController.swift; sourceTree = "<group>"; };
+		1EC833400271142BD4015641 /* ChatPickerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPickerController.swift; sourceTree = "<group>"; };
+		1FF13B6AE3AAD0FE241761F3 /* Lux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lux.entitlements; sourceTree = "<group>"; };
+		2180360AB5C0E986ABBBF07D /* ChatListController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListController.swift; sourceTree = "<group>"; };
+		2229367875593093149B0ED6 /* ChatCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCellView.swift; sourceTree = "<group>"; };
+		23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatContainerController.swift; sourceTree = "<group>"; };
+		29B18657D90041431A80CE7C /* Lux.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Lux.xcconfig; sourceTree = "<group>"; };
+		3129E33F5CAAED4C0B82EB92 /* SignInController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInController.swift; sourceTree = "<group>"; };
+		32CF52CA6CC877D4E596211C /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		33C446B1137E156D69E519EF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		36F81B44F45082A9ECD66BCD /* lux-native */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native"; path = .; sourceTree = SOURCE_ROOT; };
+		38EB133AC22139BB66D39275 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
+		45E4FC640AD4BBC4E431346A /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
+		49761B942919CA84E69B8699 /* SectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionHeader.swift; sourceTree = "<group>"; };
+		4C2C0133C1B24AE10B6EC954 /* PinnedGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedGridView.swift; sourceTree = "<group>"; };
+		4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationViewController.swift; sourceTree = "<group>"; };
+		4D1A30D2DF3D718DA2A4B81F /* FileRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileRowView.swift; sourceTree = "<group>"; };
+		4E12BEF6929D3632673C59AF /* AccountSettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSettingsController.swift; sourceTree = "<group>"; };
+		4F7C64CCAFB2B23EBFBBF6A9 /* ComposerModeBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerModeBar.swift; sourceTree = "<group>"; };
+		504DA172EC25EEE7F426EBF0 /* MediaPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPresenter.swift; sourceTree = "<group>"; };
+		55085553A1E0E666ABD0BE59 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5533F0994A20C1A1D7C4D369 /* PlacesSheetViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacesSheetViewController.swift; sourceTree = "<group>"; };
+		55B8912DEE95A1DF6B9FE55F /* PinnedChatCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedChatCell.swift; sourceTree = "<group>"; };
+		55ECACEB4D6B6207F111193F /* LoadingBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingBubble.swift; sourceTree = "<group>"; };
+		585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeLabel.swift; sourceTree = "<group>"; };
+		5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
+		60079532E50D716748C497E7 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		61650F6A784137B4735B8EA7 /* MessageTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTableView.swift; sourceTree = "<group>"; };
+		62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadViewController+Menu.swift"; sourceTree = "<group>"; };
+		6A3A3C976B72208FEFA37889 /* MessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCell.swift; sourceTree = "<group>"; };
+		6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
+		70CDAD96292E9567EEE87F30 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		7175CD37D14C455234289062 /* Networks.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Networks.xcassets; sourceTree = "<group>"; };
+		72B8426E256052CBA67AB02D /* Lux-Mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Lux-Mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Menu.swift"; sourceTree = "<group>"; };
+		7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
+		802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryKeyViewController.swift; sourceTree = "<group>"; };
+		8037AF71FCD7245CB0695B9A /* Lux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lux.entitlements; sourceTree = "<group>"; };
+		8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTests.swift; sourceTree = "<group>"; };
+		8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIFont+Bold.swift"; sourceTree = "<group>"; };
+		83A756DC00736E9731ED03F4 /* ThreadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadController.swift; sourceTree = "<group>"; };
+		852B16F659B28F03F4478AB8 /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
+		85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsController.swift; sourceTree = "<group>"; };
+		861B6215E0535216006F41DA /* NSImage+Symbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImage+Symbol.swift"; sourceTree = "<group>"; };
+		86A0879E00055D31BFA4E16B /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		88390BD714EFAF0311AD7B28 /* ScrollBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollBenchmark.swift; sourceTree = "<group>"; };
+		8A9FDD904FB58AA355D5B3CC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9644BAAAE059CA06889DB30A /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
+		977E45B2786136014F3666DB /* NSViewController+Failure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSViewController+Failure.swift"; sourceTree = "<group>"; };
+		9AA6FB47F4FED7224573798C /* UIViewController+Failure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIViewController+Failure.swift"; sourceTree = "<group>"; };
+		9AC9E7CDBFC3557241A8B83D /* VerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViewController.swift; sourceTree = "<group>"; };
+		9B0506303EA2A161FB930E67 /* MarkdownStyler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownStyler.swift; sourceTree = "<group>"; };
+		9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
+		9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeToReply.swift; sourceTree = "<group>"; };
+		9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDonation.swift; sourceTree = "<group>"; };
+		A0850A0FA71DC099A8C3DFE2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainSplitViewController.swift; sourceTree = "<group>"; };
+		A687CC44CAFA193D4DE1B964 /* BadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeView.swift; sourceTree = "<group>"; };
+		A688E800048B078A52B754C7 /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
+		A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsViewController.swift; sourceTree = "<group>"; };
+		A911F525CB872B6D4D247132 /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
+		B078C1F708797864150311C6 /* FileDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropView.swift; sourceTree = "<group>"; };
+		B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
+		B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewController.swift; sourceTree = "<group>"; };
+		B3F9F303512F73FF420E0869 /* AppIcon.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = AppIcon.xcassets; sourceTree = "<group>"; };
+		B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
+		BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkImage.swift; sourceTree = "<group>"; };
+		BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		BAB1888448FCBA297255D8F4 /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
+		BAC0D1B214F00F8C6A3313FD /* TypingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingView.swift; sourceTree = "<group>"; };
+		C74036405B2152475BBCC458 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
+		CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploads.swift; sourceTree = "<group>"; };
+		D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Composer.swift"; sourceTree = "<group>"; };
+		E00570185AFDD380CCE7DD74 /* SignInViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInViewController.swift; sourceTree = "<group>"; };
+		E11450DD99B4486ADBCA386C /* ChatRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRowView.swift; sourceTree = "<group>"; };
+		E1237884D199F603C323809F /* FileRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileRowView.swift; sourceTree = "<group>"; };
+		E3044FCBF32576720D8DB5A1 /* SendLaterMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendLaterMenu.swift; sourceTree = "<group>"; };
+		E3280A12939AF3F7D291E91C /* Lux-iOS-Notifications.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Notifications.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E3633EB47A1DD6D7C2A8AEDA /* VerificationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationController.swift; sourceTree = "<group>"; };
+		E3ED44BAF9870039CBBE2D09 /* MessageText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageText.swift; sourceTree = "<group>"; };
+		EA3776EDAC6CDA5CF7A31983 /* SidebarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarController.swift; sourceTree = "<group>"; };
+		EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStyling.swift; sourceTree = "<group>"; };
+		F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+QuickLook.swift"; sourceTree = "<group>"; };
+		F4104CEA496E32C0FC3DCF04 /* RailController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailController.swift; sourceTree = "<group>"; };
+		F6062145D14EE693AA7E8CED /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
+		F6D204CD16F57C75829F8BF1 /* MessageText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageText.swift; sourceTree = "<group>"; };
+		FADF248706333E9027B678F9 /* SharedItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedItems.swift; sourceTree = "<group>"; };
+		FBC0E1EB28C8C6C1DD1F4A0C /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
+		FF01EEA04AB3C27BFD91EAED /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		9CE989A799F12625AB1693B1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				75808F15A930DB91B1F6F42C /* LuxCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A2D0887066DD0DAF0F8B58B0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BC9F0E1D1E882AE86E84B643 /* LuxCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C260B9C6CF3B07C5724BD4E3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				94CC02234E6FE450938E7FEC /* LuxCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D9459E779EE0C48D12D06CE0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33DA6D51E00662CDDBE4C0B0 /* LuxCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1604B5528F8ED70EA85F1A5F /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		207A5E53BD24725EE19811F2 /* NotificationService */ = {
+			isa = PBXGroup;
+			children = (
+				33C446B1137E156D69E519EF /* Info.plist */,
+				852B16F659B28F03F4478AB8 /* NotificationService.entitlements */,
+				1019436DD5B08FB56BEDB051 /* NotificationService.swift */,
+			);
+			path = NotificationService;
+			sourceTree = "<group>";
+		};
+		25A15AD36777B2BDED3FC261 /* Search */ = {
+			isa = PBXGroup;
+			children = (
+				A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */,
+			);
+			path = Search;
+			sourceTree = "<group>";
+		};
+		282B9C83FA9DABADE281B6F5 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */,
+				C74036405B2152475BBCC458 /* ChatTitleView.swift */,
+				38EB133AC22139BB66D39275 /* main.swift */,
+				A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */,
+				9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		29582B4235ACDB6E35204751 /* ChatList */ = {
+			isa = PBXGroup;
+			children = (
+				2229367875593093149B0ED6 /* ChatCellView.swift */,
+				2180360AB5C0E986ABBBF07D /* ChatListController.swift */,
+				4C2C0133C1B24AE10B6EC954 /* PinnedGridView.swift */,
+			);
+			path = ChatList;
+			sourceTree = "<group>";
+		};
+		2BE5C74E1C18D04508C39462 /* Search */ = {
+			isa = PBXGroup;
+			children = (
+				85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */,
+			);
+			path = Search;
+			sourceTree = "<group>";
+		};
+		2D604324D583CF93BB9DDB70 /* SignIn */ = {
+			isa = PBXGroup;
+			children = (
+				E00570185AFDD380CCE7DD74 /* SignInViewController.swift */,
+			);
+			path = SignIn;
+			sourceTree = "<group>";
+		};
+		3306568C6209043019996CAE /* App */ = {
+			isa = PBXGroup;
+			children = (
+				32CF52CA6CC877D4E596211C /* AppDelegate.swift */,
+				4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */,
+				D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */,
+				45E4FC640AD4BBC4E431346A /* Notifications.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		348AF6D218FBD128B329648E /* ChatPicker */ = {
+			isa = PBXGroup;
+			children = (
+				1EC833400271142BD4015641 /* ChatPickerController.swift */,
+			);
+			path = ChatPicker;
+			sourceTree = "<group>";
+		};
+		348C11372380282357F5B2D6 /* Mac */ = {
+			isa = PBXGroup;
+			children = (
+				8A9FDD904FB58AA355D5B3CC /* Info.plist */,
+				8037AF71FCD7245CB0695B9A /* Lux.entitlements */,
+				282B9C83FA9DABADE281B6F5 /* App */,
+				BAD729383B042445DAB5B2A7 /* Components */,
+				38F96918371D1BB282D171C0 /* Diagnostics */,
+				37B4F8157526AD123F445F75 /* Features */,
+			);
+			path = Mac;
+			sourceTree = "<group>";
+		};
+		3528E66E7ED7007E07D7BC43 /* Apps */ = {
+			isa = PBXGroup;
+			children = (
+				AE7B7308E1F19C65FA401565 /* iOS */,
+				348C11372380282357F5B2D6 /* Mac */,
+				207A5E53BD24725EE19811F2 /* NotificationService */,
+				C86B512DD5BBFBCA4B227545 /* Shared */,
+				D2D165B2B0A87E5185EC67E2 /* ShareExtension */,
+				1604B5528F8ED70EA85F1A5F /* UITests */,
+			);
+			path = Apps;
+			sourceTree = "<group>";
+		};
+		37B4F8157526AD123F445F75 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				29582B4235ACDB6E35204751 /* ChatList */,
+				348AF6D218FBD128B329648E /* ChatPicker */,
+				D31B0947B8B0CB7DC8DF0001 /* NewConversation */,
+				96D320F84C30FF594BEDA254 /* Rail */,
+				2BE5C74E1C18D04508C39462 /* Search */,
+				B6422DBFEDB068C7739996FD /* Settings */,
+				3C047B70AF0F305A793BB6A9 /* Sidebar */,
+				F01A62B0A5977DD42F4C18A0 /* SignIn */,
+				9BB717CDD103321D930E066D /* Thread */,
+				3D0D4021EB3421BA02BBA468 /* Verification */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		38F96918371D1BB282D171C0 /* Diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				1797AF77AA495AC53B1A7899 /* ScrollBenchmark.swift */,
+			);
+			path = Diagnostics;
+			sourceTree = "<group>";
+		};
+		39D295002DD06A9A259EEFC4 /* Verification */ = {
+			isa = PBXGroup;
+			children = (
+				9AC9E7CDBFC3557241A8B83D /* VerificationViewController.swift */,
+			);
+			path = Verification;
+			sourceTree = "<group>";
+		};
+		3C047B70AF0F305A793BB6A9 /* Sidebar */ = {
+			isa = PBXGroup;
+			children = (
+				EA3776EDAC6CDA5CF7A31983 /* SidebarController.swift */,
+			);
+			path = Sidebar;
+			sourceTree = "<group>";
+		};
+		3D0D4021EB3421BA02BBA468 /* Verification */ = {
+			isa = PBXGroup;
+			children = (
+				E3633EB47A1DD6D7C2A8AEDA /* VerificationController.swift */,
+			);
+			path = Verification;
+			sourceTree = "<group>";
+		};
+		45D20A8EC4A83A07B53BA6FE /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				60079532E50D716748C497E7 /* AvatarView.swift */,
+				585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */,
+				9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */,
+				B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */,
+				A911F525CB872B6D4D247132 /* EmojiPicker.swift */,
+				0424D3218B18987B7AEDF49E /* LoadingBubble.swift */,
+				8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */,
+				9AA6FB47F4FED7224573798C /* UIViewController+Failure.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		50E4331FBEDAB37D0B10AABB = {
+			isa = PBXGroup;
+			children = (
+				3528E66E7ED7007E07D7BC43 /* Apps */,
+				A28B5879555C230FAC161C5E /* Config */,
+				DC93430DB5458DAF85591C76 /* Packages */,
+				5D1F1245E78BBAE39D11B79A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5D1F1245E78BBAE39D11B79A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E3280A12939AF3F7D291E91C /* Lux-iOS-Notifications.appex */,
+				CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */,
+				0AD2A43CC3D6B685EA440146 /* Lux-iOS-UITests.xctest */,
+				05956B7632D91F0739F96D43 /* Lux-iOS.app */,
+				72B8426E256052CBA67AB02D /* Lux-Mac.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		78EA7C8989F2A568ED88D97E /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */,
+				6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		7967AE4D657820EFADDB8B53 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				DE7635E7D1F598DD9C19DD0D /* ChatList */,
+				E11AB3CCB79C352C097FFB32 /* ChatPicker */,
+				DDDE43920B86214E5223363C /* NewConversation */,
+				25A15AD36777B2BDED3FC261 /* Search */,
+				78EA7C8989F2A568ED88D97E /* Settings */,
+				2D604324D583CF93BB9DDB70 /* SignIn */,
+				E8981803AF3BC5412FDC584A /* Thread */,
+				39D295002DD06A9A259EEFC4 /* Verification */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		96D320F84C30FF594BEDA254 /* Rail */ = {
+			isa = PBXGroup;
+			children = (
+				1B95FD76E2F9E651B3873CF2 /* RailButton.swift */,
+				F4104CEA496E32C0FC3DCF04 /* RailController.swift */,
+			);
+			path = Rail;
+			sourceTree = "<group>";
+		};
+		9BB717CDD103321D930E066D /* Thread */ = {
+			isa = PBXGroup;
+			children = (
+				A688E800048B078A52B754C7 /* AlbumView.swift */,
+				045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */,
+				4F7C64CCAFB2B23EBFBBF6A9 /* ComposerModeBar.swift */,
+				B078C1F708797864150311C6 /* FileDropView.swift */,
+				4D1A30D2DF3D718DA2A4B81F /* FileRowView.swift */,
+				9B0506303EA2A161FB930E67 /* MarkdownStyler.swift */,
+				B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */,
+				61650F6A784137B4735B8EA7 /* MessageTableView.swift */,
+				E3ED44BAF9870039CBBE2D09 /* MessageText.swift */,
+				E3044FCBF32576720D8DB5A1 /* SendLaterMenu.swift */,
+				83A756DC00736E9731ED03F4 /* ThreadController.swift */,
+				D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */,
+				7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */,
+				F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */,
+			);
+			path = Thread;
+			sourceTree = "<group>";
+		};
+		A27AFB90C5E93592FEE72744 /* Text */ = {
+			isa = PBXGroup;
+			children = (
+				EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */,
+			);
+			path = Text;
+			sourceTree = "<group>";
+		};
+		A28B5879555C230FAC161C5E /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				29B18657D90041431A80CE7C /* Lux.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		AE7B7308E1F19C65FA401565 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				55085553A1E0E666ABD0BE59 /* Info.plist */,
+				1FF13B6AE3AAD0FE241761F3 /* Lux.entitlements */,
+				3306568C6209043019996CAE /* App */,
+				45D20A8EC4A83A07B53BA6FE /* Components */,
+				C4A32769CB545C676EE062B9 /* Diagnostics */,
+				7967AE4D657820EFADDB8B53 /* Features */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		B6422DBFEDB068C7739996FD /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				4E12BEF6929D3632673C59AF /* AccountSettingsController.swift */,
+				14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */,
+				BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		BAD729383B042445DAB5B2A7 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */,
+				A687CC44CAFA193D4DE1B964 /* BadgeView.swift */,
+				5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */,
+				F6062145D14EE693AA7E8CED /* EmojiPicker.swift */,
+				55ECACEB4D6B6207F111193F /* LoadingBubble.swift */,
+				861B6215E0535216006F41DA /* NSImage+Symbol.swift */,
+				977E45B2786136014F3666DB /* NSViewController+Failure.swift */,
+				49761B942919CA84E69B8699 /* SectionHeader.swift */,
+				9644BAAAE059CA06889DB30A /* TextView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		C4A32769CB545C676EE062B9 /* Diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				88390BD714EFAF0311AD7B28 /* ScrollBenchmark.swift */,
+			);
+			path = Diagnostics;
+			sourceTree = "<group>";
+		};
+		C86B512DD5BBFBCA4B227545 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B3F9F303512F73FF420E0869 /* AppIcon.xcassets */,
+				70CDAD96292E9567EEE87F30 /* Assets.xcassets */,
+				BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */,
+				7175CD37D14C455234289062 /* Networks.xcassets */,
+				A27AFB90C5E93592FEE72744 /* Text */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		D2D165B2B0A87E5185EC67E2 /* ShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				A0850A0FA71DC099A8C3DFE2 /* Info.plist */,
+				FADF248706333E9027B678F9 /* SharedItems.swift */,
+				FBC0E1EB28C8C6C1DD1F4A0C /* ShareExtension.entitlements */,
+				86A0879E00055D31BFA4E16B /* ShareViewController.swift */,
+			);
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
+		D31B0947B8B0CB7DC8DF0001 /* NewConversation */ = {
+			isa = PBXGroup;
+			children = (
+				0EC71AE3DBF5977DA99DC7E8 /* NewConversationController.swift */,
+			);
+			path = NewConversation;
+			sourceTree = "<group>";
+		};
+		DC93430DB5458DAF85591C76 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				36F81B44F45082A9ECD66BCD /* lux-native */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		DDDE43920B86214E5223363C /* NewConversation */ = {
+			isa = PBXGroup;
+			children = (
+				4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */,
+			);
+			path = NewConversation;
+			sourceTree = "<group>";
+		};
+		DE7635E7D1F598DD9C19DD0D /* ChatList */ = {
+			isa = PBXGroup;
+			children = (
+				06C63259781CAA212711C097 /* ChatListViewController.swift */,
+				174D3FC543FE2C85E34E61F6 /* ChatListViewController+Places.swift */,
+				E11450DD99B4486ADBCA386C /* ChatRowView.swift */,
+				55B8912DEE95A1DF6B9FE55F /* PinnedChatCell.swift */,
+				5533F0994A20C1A1D7C4D369 /* PlacesSheetViewController.swift */,
+			);
+			path = ChatList;
+			sourceTree = "<group>";
+		};
+		E11AB3CCB79C352C097FFB32 /* ChatPicker */ = {
+			isa = PBXGroup;
+			children = (
+				1E4568CFB0703D28EFF82DF4 /* ChatPickerViewController.swift */,
+			);
+			path = ChatPicker;
+			sourceTree = "<group>";
+		};
+		E8981803AF3BC5412FDC584A /* Thread */ = {
+			isa = PBXGroup;
+			children = (
+				FF01EEA04AB3C27BFD91EAED /* AlbumView.swift */,
+				7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */,
+				15301CE9D8CDC009F178CF79 /* ChatTitleView.swift */,
+				BAB1888448FCBA297255D8F4 /* ComposerView.swift */,
+				E1237884D199F603C323809F /* FileRowView.swift */,
+				504DA172EC25EEE7F426EBF0 /* MediaPresenter.swift */,
+				6A3A3C976B72208FEFA37889 /* MessageCell.swift */,
+				F6D204CD16F57C75829F8BF1 /* MessageText.swift */,
+				9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */,
+				B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */,
+				62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */,
+				BAC0D1B214F00F8C6A3313FD /* TypingView.swift */,
+			);
+			path = Thread;
+			sourceTree = "<group>";
+		};
+		F01A62B0A5977DD42F4C18A0 /* SignIn */ = {
+			isa = PBXGroup;
+			children = (
+				3129E33F5CAAED4C0B82EB92 /* SignInController.swift */,
+			);
+			path = SignIn;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		17836A83160461DC69340554 /* Lux-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DF64C3466A64BCA41238BB4B /* Build configuration list for PBXNativeTarget "Lux-iOS" */;
+			buildPhases = (
+				D63691ADF50F8453C3559EF7 /* Sources */,
+				8AC6070070997845EDA8E65B /* Resources */,
+				A2D0887066DD0DAF0F8B58B0 /* Frameworks */,
+				B57162202E7EB9191F7C009C /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D3F264F3B2F03CFC36DA5766 /* PBXTargetDependency */,
+				02928F5CC3CA58A1A7503A26 /* PBXTargetDependency */,
+			);
+			name = "Lux-iOS";
+			packageProductDependencies = (
+				587B21A79B35B390D241914E /* LuxCore */,
+			);
+			productName = "Lux-iOS";
+			productReference = 05956B7632D91F0739F96D43 /* Lux-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		4163EA7ECCA7AA5C58238286 /* Lux-Mac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5D022D5CC1534B4C4ADCA53E /* Build configuration list for PBXNativeTarget "Lux-Mac" */;
+			buildPhases = (
+				3ADA55F06822F86426ED1E84 /* Sources */,
+				0F1F1DE1C100E6822CD2A452 /* Resources */,
+				D9459E779EE0C48D12D06CE0 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Lux-Mac";
+			packageProductDependencies = (
+				3137E9AE7652C1F1211E24B9 /* LuxCore */,
+			);
+			productName = "Lux-Mac";
+			productReference = 72B8426E256052CBA67AB02D /* Lux-Mac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		602C926CF64F7ED80B0A9117 /* Lux-iOS-Notifications */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F8D1CF7630E3EB79F756C752 /* Build configuration list for PBXNativeTarget "Lux-iOS-Notifications" */;
+			buildPhases = (
+				1ECF4F796BDE49BCF4ED0DB8 /* Sources */,
+				9CE989A799F12625AB1693B1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Lux-iOS-Notifications";
+			packageProductDependencies = (
+				DFB93559DA0DA8A754916B22 /* LuxCore */,
+			);
+			productName = "Lux-iOS-Notifications";
+			productReference = E3280A12939AF3F7D291E91C /* Lux-iOS-Notifications.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		B83E1266F6CD69052F497236 /* Lux-iOS-UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E8ABF8C383CCD699CEB23361 /* Build configuration list for PBXNativeTarget "Lux-iOS-UITests" */;
+			buildPhases = (
+				831C1A471EC5688BE1F0A326 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				628DA2EC8A30815CE8BADF97 /* PBXTargetDependency */,
+			);
+			name = "Lux-iOS-UITests";
+			packageProductDependencies = (
+			);
+			productName = "Lux-iOS-UITests";
+			productReference = 0AD2A43CC3D6B685EA440146 /* Lux-iOS-UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		F8B88B2D117ABD9B7A119580 /* Lux-iOS-Share */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1929526EAEAAB69F6F0994E3 /* Build configuration list for PBXNativeTarget "Lux-iOS-Share" */;
+			buildPhases = (
+				0348671DA28F2D0016A82566 /* Sources */,
+				C260B9C6CF3B07C5724BD4E3 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Lux-iOS-Share";
+			packageProductDependencies = (
+				AB82166DFC9FDD92BB44334E /* LuxCore */,
+			);
+			productName = "Lux-iOS-Share";
+			productReference = CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		370751748CB3B7171E790C0D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					17836A83160461DC69340554 = {
+						ProvisioningStyle = Automatic;
+					};
+					4163EA7ECCA7AA5C58238286 = {
+						ProvisioningStyle = Automatic;
+					};
+					602C926CF64F7ED80B0A9117 = {
+						ProvisioningStyle = Automatic;
+					};
+					B83E1266F6CD69052F497236 = {
+						TestTargetID = 17836A83160461DC69340554;
+					};
+					F8B88B2D117ABD9B7A119580 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = ED0B41E6C14E0F0F3EC4637D /* Build configuration list for PBXProject "Lux" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 50E4331FBEDAB37D0B10AABB;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D1BBD805B48B166A6A93D891 /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5D1F1245E78BBAE39D11B79A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				17836A83160461DC69340554 /* Lux-iOS */,
+				F8B88B2D117ABD9B7A119580 /* Lux-iOS-Share */,
+				602C926CF64F7ED80B0A9117 /* Lux-iOS-Notifications */,
+				4163EA7ECCA7AA5C58238286 /* Lux-Mac */,
+				B83E1266F6CD69052F497236 /* Lux-iOS-UITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0F1F1DE1C100E6822CD2A452 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EC8EFD4F7CBB2A9C34399C72 /* AppIcon.xcassets in Resources */,
+				7848537AB542D826602972C3 /* Assets.xcassets in Resources */,
+				13C7E06187CA876F4131B833 /* Networks.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8AC6070070997845EDA8E65B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EFF3789D4C55FEC43A53BED0 /* AppIcon.xcassets in Resources */,
+				A7D9CE53AB84878F77465CFB /* Assets.xcassets in Resources */,
+				BED26E2D602865890B92AF7C /* Networks.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0348671DA28F2D0016A82566 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				967349FF9CFE2A315B06B48A /* AvatarView.swift in Sources */,
+				4EFA5B4CA1489AFEE7C64002 /* ConversationDonation.swift in Sources */,
+				006D727147C8FC2B8B907C40 /* ShareViewController.swift in Sources */,
+				6E49D58CB9A0AE5AC04AB22B /* SharedItems.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1ECF4F796BDE49BCF4ED0DB8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A691855DC38F4118E696C65 /* NotificationService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3ADA55F06822F86426ED1E84 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6CED0114453863479F5508B4 /* AccountSettingsController.swift in Sources */,
+				E87A984B2C06178BAE83ED09 /* AlbumView.swift in Sources */,
+				869F52C8F8781C272562C2C4 /* AttachmentStrip.swift in Sources */,
+				5F25ADA8CB7A06BAEC4A88A1 /* AvatarView.swift in Sources */,
+				AC921B6B1767C8E9179FFB7B /* BadgeView.swift in Sources */,
+				3993F4C23B1133F5BE7127E8 /* ChatCellView.swift in Sources */,
+				CFDD81976E553FAE1C1F0BA1 /* ChatContainerController.swift in Sources */,
+				B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */,
+				EAA215B7DC7259486BC719F0 /* ChatPickerController.swift in Sources */,
+				C49CF522A44DCFC69D5B38C5 /* ChatTitleView.swift in Sources */,
+				EA5D02631FE7BFF04D17AAFC /* ComposerModeBar.swift in Sources */,
+				9DB35B0612E722C0127644BC /* EmojiImage.swift in Sources */,
+				316952910C4EE229C71D7C06 /* EmojiPicker.swift in Sources */,
+				16C4E2E4903056B6CAF6CC26 /* EncryptionSettingsController.swift in Sources */,
+				0BCF753EFAFAE2E02791361D /* FileDropView.swift in Sources */,
+				9C07EBB6628BB81A3CE6B539 /* FileRowView.swift in Sources */,
+				ED1DBD72CF9220FA4A9C1D3D /* LoadingBubble.swift in Sources */,
+				D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */,
+				0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */,
+				86F3B8A8B9B968FE806D03B6 /* MessageCellView.swift in Sources */,
+				AC04B40A9B0BD096A2350FF7 /* MessageStyling.swift in Sources */,
+				6D6DE0711C0CCA3EBF31A88B /* MessageTableView.swift in Sources */,
+				B1FA151DF3B7DE373AE4F34F /* MessageText.swift in Sources */,
+				5470DEAD78BA1CDEAFDBA5CF /* NSImage+Symbol.swift in Sources */,
+				EE44DA391BE58726EB47AAAC /* NSViewController+Failure.swift in Sources */,
+				ADF0DBB8BC40F9B8A814EFF8 /* NetworkImage.swift in Sources */,
+				C69D0F00C7AD9CFA40008641 /* NewConversationController.swift in Sources */,
+				6948CB74315F9E166913736C /* Notifications.swift in Sources */,
+				BF426102B9FBC3A10280E7DA /* PinnedGridView.swift in Sources */,
+				4D6E68B7D4F5F0EF832AA23D /* RailButton.swift in Sources */,
+				27B057F73D3889A613A56B2E /* RailController.swift in Sources */,
+				FA7B9102187DE1BB0B565AF4 /* ScrollBenchmark.swift in Sources */,
+				CFA436A69A0242CBEB19E202 /* SearchResultsController.swift in Sources */,
+				33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */,
+				BC0306C758185E08AECE4715 /* SendLaterMenu.swift in Sources */,
+				39E0ADF22084E1A99A293F55 /* SettingsWindowController.swift in Sources */,
+				CCED9DD67B5C2015BE31E9D2 /* SidebarController.swift in Sources */,
+				021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */,
+				41F959329248BEFE43FF98F9 /* TextView.swift in Sources */,
+				43464F7811CCC69D928F220E /* ThreadController+Composer.swift in Sources */,
+				A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */,
+				CB917858113CEA60B6902902 /* ThreadController+QuickLook.swift in Sources */,
+				FA8C719FA0213F63F8924662 /* ThreadController.swift in Sources */,
+				B139BD6E0E50BCBC3DA070DA /* VerificationController.swift in Sources */,
+				1C9F5F75836DD643D24F1AA2 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		831C1A471EC5688BE1F0A326 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C575C6902C0594A0AE0F9E1E /* PerformanceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D63691ADF50F8453C3559EF7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3A45E99BEAFBE536670D9162 /* AlbumView.swift in Sources */,
+				AB9DD50F903CEDC7BD2C38FB /* AppDelegate.swift in Sources */,
+				3070AFA29798B0CD0AE87E10 /* AttachmentStrip.swift in Sources */,
+				E147D495AC39B7A968B095E8 /* AvatarView.swift in Sources */,
+				6B251BC0D10032002FAB5EE0 /* BackgroundRefresh.swift in Sources */,
+				8E5744CB69A12FAA9AC0B18C /* BackgroundUploads.swift in Sources */,
+				252EDCA93CE5B2A96E8E349D /* BadgeLabel.swift in Sources */,
+				AC381B9C24B9B2C84C704569 /* ChatListViewController+Places.swift in Sources */,
+				683DD25022320CAE2D32D91F /* ChatListViewController.swift in Sources */,
+				F399A2C7D0F4FE57850A39CF /* ChatPickerViewController.swift in Sources */,
+				FBFB8C67453A709BC001A3FE /* ChatRowView.swift in Sources */,
+				E78834AAAD1D2FAF1F0DC1D0 /* ChatTitleView.swift in Sources */,
+				8D684BEEA4B55C5A372D4EBF /* ComposerView.swift in Sources */,
+				BD62BA28B3BEC0CE0DA7413B /* ConversationDonation.swift in Sources */,
+				155CC3FC8242AA590FAC279E /* EmojiImage.swift in Sources */,
+				FFF3696333526B49D846EA30 /* EmojiPicker.swift in Sources */,
+				F098D0BF74E1B8204F19E52D /* FileRowView.swift in Sources */,
+				8DA6D64EC74046B5C76ADBB2 /* LoadingBubble.swift in Sources */,
+				6E20173C1191E7CBAC802DC0 /* MediaPresenter.swift in Sources */,
+				3E9B8D495332F28E9D29D253 /* MessageCell.swift in Sources */,
+				83EE1721774FE5F58AD12DE3 /* MessageStyling.swift in Sources */,
+				0EB1E2C25071B08EA917D05A /* MessageText.swift in Sources */,
+				A5A6DC777A0A6BB0CC734E9E /* NetworkImage.swift in Sources */,
+				DEC843A195F03049A897DEAC /* NewConversationViewController.swift in Sources */,
+				B7AEA23C2F785A725402F3AF /* Notifications.swift in Sources */,
+				2C6C61D1739FD5E41B33D6E0 /* PinnedChatCell.swift in Sources */,
+				99746989F9BF6DCCE165A6AD /* PlacesSheetViewController.swift in Sources */,
+				DECA8F2F35AC1DF95C3406C0 /* RecoveryKeyViewController.swift in Sources */,
+				4A7B4DEEA8CBD32189398BF5 /* ScrollBenchmark.swift in Sources */,
+				1BCA865F8FF6EF1EE6695A87 /* SearchResultsViewController.swift in Sources */,
+				A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */,
+				328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */,
+				39A051D7618EECD53E44045D /* SwipeToReply.swift in Sources */,
+				47074059C06133CD5EDD5D79 /* ThreadViewController+Menu.swift in Sources */,
+				042345998078B252CFE0863D /* ThreadViewController.swift in Sources */,
+				02A6600AB83B5B16B1B38D90 /* TypingView.swift in Sources */,
+				B653F26A44AE4D274DB849D7 /* UIFont+Bold.swift in Sources */,
+				780316DD6166F699F95047BE /* UIViewController+Failure.swift in Sources */,
+				F5715C81C2E275785AD988B6 /* VerificationViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		02928F5CC3CA58A1A7503A26 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F8B88B2D117ABD9B7A119580 /* Lux-iOS-Share */;
+			targetProxy = A02EF0B3350BDDE421A2C7DF /* PBXContainerItemProxy */;
+		};
+		628DA2EC8A30815CE8BADF97 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 17836A83160461DC69340554 /* Lux-iOS */;
+			targetProxy = D47C14F09E230CAE16374A72 /* PBXContainerItemProxy */;
+		};
+		D3F264F3B2F03CFC36DA5766 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 602C926CF64F7ED80B0A9117 /* Lux-iOS-Notifications */;
+			targetProxy = FDA8888FD04F20CA1262484A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2DF6484858AF64E02D6929B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Lux.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Apps/iOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID)";
+				PRODUCT_NAME = Lux;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		3E450F937C7E31AED9FF4CF8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Apps/NotificationService/NotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Apps/NotificationService/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID).notifications";
+				PRODUCT_NAME = LuxNotifications;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		435F57C723DC112C4F963F65 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 29B18657D90041431A80CE7C /* Lux.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Lux;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		45341902D5BF6866ED78DE1F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Apps/iOS/Lux.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Apps/iOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID)";
+				PRODUCT_NAME = Lux;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		51B1C545428089FE835B7FD4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Apps/ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Apps/ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID).share";
+				PRODUCT_NAME = LuxShare;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		5A1BA47E5A71B849CAAE5AFF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID).uitests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Lux-iOS";
+			};
+			name = Debug;
+		};
+		7C5AEE7038AF4DC74E89E2DA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID).uitests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Lux-iOS";
+			};
+			name = Release;
+		};
+		969AE9648337B155F9BA15F1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Apps/ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Apps/ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID).share";
+				PRODUCT_NAME = LuxShare;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		96C6EE228D3AFBEC6DA1A541 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 29B18657D90041431A80CE7C /* Lux.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Lux;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		9F2D0204684FC7D3AB1DFE53 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Apps/Mac/Lux.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Apps/Mac/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID)";
+				PRODUCT_NAME = Lux;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		ADC92FCA9C51BA52647A7BB8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Apps/NotificationService/NotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Apps/NotificationService/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID).notifications";
+				PRODUCT_NAME = LuxNotifications;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		BA231C093F34A34A08639EAE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Apps/Mac/Lux.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Apps/Mac/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LUX_BUNDLE_ID)";
+				PRODUCT_NAME = Lux;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1929526EAEAAB69F6F0994E3 /* Build configuration list for PBXNativeTarget "Lux-iOS-Share" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				51B1C545428089FE835B7FD4 /* Debug */,
+				969AE9648337B155F9BA15F1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5D022D5CC1534B4C4ADCA53E /* Build configuration list for PBXNativeTarget "Lux-Mac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9F2D0204684FC7D3AB1DFE53 /* Debug */,
+				BA231C093F34A34A08639EAE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DF64C3466A64BCA41238BB4B /* Build configuration list for PBXNativeTarget "Lux-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				45341902D5BF6866ED78DE1F /* Debug */,
+				2DF6484858AF64E02D6929B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E8ABF8C383CCD699CEB23361 /* Build configuration list for PBXNativeTarget "Lux-iOS-UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A1BA47E5A71B849CAAE5AFF /* Debug */,
+				7C5AEE7038AF4DC74E89E2DA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		ED0B41E6C14E0F0F3EC4637D /* Build configuration list for PBXProject "Lux" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				435F57C723DC112C4F963F65 /* Debug */,
+				96C6EE228D3AFBEC6DA1A541 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F8D1CF7630E3EB79F756C752 /* Build configuration list for PBXNativeTarget "Lux-iOS-Notifications" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E450F937C7E31AED9FF4CF8 /* Debug */,
+				ADC92FCA9C51BA52647A7BB8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D1BBD805B48B166A6A93D891 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3137E9AE7652C1F1211E24B9 /* LuxCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuxCore;
+		};
+		587B21A79B35B390D241914E /* LuxCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuxCore;
+		};
+		AB82166DFC9FDD92BB44334E /* LuxCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuxCore;
+		};
+		DFB93559DA0DA8A754916B22 /* LuxCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LuxCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 370751748CB3B7171E790C0D /* Project object */;
+}

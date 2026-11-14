@@ -20,7 +20,8 @@ cd .. && swift test
 inner loop. CI runs the three `cargo` checks on every pull request.
 
 `xcodegen generate` writes `Lux.xcodeproj`, the Info.plists and the entitlements from
-`project.yml`. Edit `project.yml`, never the generated files.
+`project.yml`. Edit `project.yml`, never the generated files, and commit the regenerated project
+with it (Xcode Cloud builds from the committed project).
 
 ## Layering
 

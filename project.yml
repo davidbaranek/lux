@@ -1,4 +1,4 @@
-# xcodegen generate  ->  Lux.xcodeproj (not in git)
+# xcodegen generate  ->  Lux.xcodeproj (committed: Xcode Cloud reads it from the repository)
 name: Lux
 # the identifiers (bundle id, app group, push gateway, OAuth client) and the team id.
 configFiles:
