@@ -5,6 +5,7 @@ import UIKit
 final class LoadingBubble: UIView {
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
     private let spinner = UIActivityIndicatorView(style: .medium)
+    private let warning = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     private let label = UILabel()
     private let detailLabel = UILabel()
 
@@ -24,9 +25,12 @@ final class LoadingBubble: UIView {
         detailLabel.textColor = .tertiaryLabel
         detailLabel.isHidden = true
         spinner.startAnimating()
+        warning.tintColor = .systemOrange
+        warning.preferredSymbolConfiguration = .init(textStyle: .body)
+        warning.isHidden = true
         let lines = UIStackView(arrangedSubviews: [label, detailLabel])
         lines.axis = .vertical
-        let stack = UIStackView(arrangedSubviews: [spinner, lines])
+        let stack = UIStackView(arrangedSubviews: [spinner, warning, lines])
         stack.spacing = 8
         stack.alignment = .center
         for view in [glass, stack] as [UIView] { view.translatesAutoresizingMaskIntoConstraints = false }
@@ -65,6 +69,29 @@ final class LoadingBubble: UIView {
             detailLabel.isHidden = newValue == nil
             updateAccessibility()
         }
+    }
+
+    /// Something for the user to do rather than progress: a sign instead of the spinner.
+    var isWarning = false {
+        didSet {
+            warning.isHidden = !isWarning
+            spinner.isHidden = isWarning
+        }
+    }
+
+    /// What a tap does; nil: the bubble only tells.
+    var onTap: (() -> Void)? {
+        didSet {
+            if onTap != nil, gestureRecognizers?.isEmpty ?? true {
+                addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+            }
+            accessibilityTraits = onTap == nil ? .updatesFrequently : [.updatesFrequently, .button]
+        }
+    }
+
+    @objc private func tapped() {
+        guard glass.alpha > 0 else { return }
+        onTap?()
     }
 
     private func updateAccessibility() {

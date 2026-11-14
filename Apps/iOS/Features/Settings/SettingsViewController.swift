@@ -3,13 +3,14 @@ import UIKit
 
 /// Settings: the account, encryption (the key backup), and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
-    private enum Section: Int, CaseIterable { case account, encryption, privacy, session }
-    private enum Item: Hashable { case profile, verify, recovery, readReceipts, searchIndex, signOut }
+    private enum Section: Int, CaseIterable { case account, networks, encryption, privacy, session }
+    private enum Item: Hashable { case profile, networks, verify, recovery, readReceipts, searchIndex, signOut }
 
     private let model: SettingsModel
     private let session: Session
     private let signOut: () -> Void
     private var observation: AnyObject?
+    private var networksObservation: AnyObject?
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
 
@@ -45,6 +46,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.secondaryText = model.profile?.userId
                 content.image = UIImage(systemName: "person.crop.circle.fill")
                 content.imageProperties.preferredSymbolConfiguration = .init(pointSize: 40)
+            case .networks:
+                content.text = String(localized: "Networks")
+                content.secondaryText = networksSummary
+                content.image = UIImage(systemName: "point.3.connected.trianglepath.dotted")
+                cell.accessories = [.disclosureIndicator()]
             case .verify:
                 content.text = String(localized: "Verify This Device")
                 content.secondaryText = switch model.isVerified {
@@ -87,6 +93,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
         snapshot.appendSections(Section.allCases)
         snapshot.appendItems([.profile], toSection: .account)
+        snapshot.appendItems([.networks], toSection: .networks)
         snapshot.appendItems([.verify, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
         snapshot.appendItems([.signOut], toSection: .session)
@@ -98,12 +105,22 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex])
             dataSource.apply(snapshot)
         }
+        networksObservation = session.networks?.changes.observe { [weak self] in
+            guard let self else { return }
+            var snapshot = dataSource.snapshot()
+            snapshot.reconfigureItems([.networks])
+            dataSource.apply(snapshot)
+        }
+        Task { await session.networks?.load() }
         Task { await model.load() }
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         switch dataSource.itemIdentifier(for: indexPath) {
+        case .networks?:
+            guard let networks = session.networks else { return }
+            navigationController?.pushViewController(NetworksViewController(model: networks, mode: .settings), animated: true)
         case .verify?:
             let verification = VerificationViewController(model: VerificationModel(session: session)) { [weak self] in
                 Task { await self?.model.load() }
@@ -115,6 +132,24 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             confirmSignOut(from: collectionView.cellForItem(at: indexPath))
         default:
             break
+        }
+    }
+
+    /// How many networks are connected, or why there are none.
+    private var networksSummary: String? {
+        guard let networks = session.networks else { return nil }
+        switch networks.offers {
+        case .loading: return String(localized: "Checking…")
+        case .notSet: return String(localized: "None offered")
+        case .failed: return String(localized: "Not available")
+        case .offered(let offers):
+            let connected = offers.filter { offer in
+                if case .account(let account)? = networks.statuses[offer] { !account.logins.isEmpty } else { false }
+            }
+            if offers.contains(where: { offer in
+                if case .account(let account)? = networks.statuses[offer] { account.logins.contains { $0.state.needsSignIn } } else { false }
+            }) { return String(localized: "Sign in again") }
+            return String(localized: "\(connected.count) of \(offers.count) connected")
         }
     }
 
