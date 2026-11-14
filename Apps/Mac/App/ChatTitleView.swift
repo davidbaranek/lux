@@ -40,6 +40,13 @@ final class ChatTitleView: NSStackView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    /// Space before the picture, so it lines up with the chat's messages below.
+    func lead(by inset: CGFloat) {
+        let inset = inset.rounded()
+        guard abs(edgeInsets.left - inset) >= 1 else { return }
+        edgeInsets.left = inset
+    }
+
     /// Shows `row`'s picture and name; nil shows nothing.
     func show(_ row: ChatRow?, images: ImagePipeline?) {
         isHidden = row == nil
