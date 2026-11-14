@@ -24,6 +24,7 @@ mod bridge_state;
 mod convert;
 mod errors;
 mod kept;
+mod latest;
 mod lifecycle;
 mod live;
 mod live_list;

@@ -44,7 +44,7 @@ impl Mapper {
             member_pictures,
             members,
         } = Looks::of(room, &heroes).await;
-        let latest = room.latest_event();
+        let latest = crate::latest::row_event(room, own).await;
         let date = latest.timestamp().map(crate::convert::system_time);
         let preview = self.preview_line(room, &latest, own, is_group).await;
         let network = self.network(room, own, &members).await;
@@ -166,7 +166,7 @@ impl Mapper {
 /// Whether the sender of the room's latest message (not the account) is a member the store does
 /// not hold yet: its preview names them by their id until the room's members load.
 pub(crate) async fn latest_sender_unknown(room: &Room, own: &UserId) -> bool {
-    let LatestEventValue::Remote(event) = room.latest_event() else {
+    let LatestEventValue::Remote(event) = crate::latest::row_event(room, own).await else {
         return false;
     };
     let Ok(Some(sender)) = event.raw().get_field::<OwnedUserId>("sender") else {
