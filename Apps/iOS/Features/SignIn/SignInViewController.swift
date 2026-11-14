@@ -7,9 +7,9 @@ import UIKit
 final class SignInViewController: UIViewController, UITextFieldDelegate {
     private let model: SignInModel
     private let signedIn: () -> Void
-    private let server = UITextField()
-    private let user = UITextField()
-    private let password = UITextField()
+    private let server = FilledTextField(placeholder: String(localized: "Server"), look: .text(symbol: "server.rack"))
+    private let user = FilledTextField(placeholder: String(localized: "User name"), look: .text(symbol: "person"))
+    private let password = FilledTextField(placeholder: String(localized: "Password"), look: .text(symbol: "lock"))
     private let credentials = UIStackView()
     private let serverNote = UILabel()
     private let status = UILabel()
@@ -33,17 +33,14 @@ final class SignInViewController: UIViewController, UITextFieldDelegate {
         title.adjustsFontForContentSizeCategory = true
         title.textAlignment = .center
 
-        style(server, placeholder: String(localized: "Server"), symbol: "server.rack")
         server.text = model.homeserver
         server.keyboardType = .URL
         server.textContentType = .URL
         server.clearButtonMode = .whileEditing
         server.returnKeyType = .next
         server.addAction(UIAction { [weak self] _ in self?.model.setHomeserver(self?.server.text ?? "") }, for: .editingChanged)
-        style(user, placeholder: String(localized: "User name"), symbol: "person")
         user.textContentType = .username
         user.returnKeyType = .next
-        style(password, placeholder: String(localized: "Password"), symbol: "lock")
         password.textContentType = .password
         password.isSecureTextEntry = true
         password.returnKeyType = .go
@@ -106,34 +103,6 @@ final class SignInViewController: UIViewController, UITextFieldDelegate {
         model.onChange = { [weak self] in self?.update() }
         model.start()
         update()
-    }
-
-    private func style(_ field: UITextField, placeholder: String, symbol: String) {
-        field.placeholder = placeholder
-        field.font = .preferredFont(forTextStyle: .body)
-        field.adjustsFontForContentSizeCategory = true
-        field.autocapitalizationType = .none
-        field.autocorrectionType = .no
-        field.backgroundColor = .secondarySystemBackground
-        field.layer.cornerRadius = 12
-        field.layer.cornerCurve = .continuous
-        // the symbol in a fixed box: the field sizes its left view, so the box keeps the gaps.
-        let icon = UIImageView(image: UIImage(systemName: symbol))
-        icon.tintColor = .secondaryLabel
-        icon.contentMode = .scaleAspectFit
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        let box = UIView()
-        box.addSubview(icon)
-        NSLayoutConstraint.activate([
-            box.widthAnchor.constraint(equalToConstant: 44),
-            icon.centerXAnchor.constraint(equalTo: box.centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 20),
-            icon.heightAnchor.constraint(equalToConstant: 20),
-        ])
-        field.leftView = box
-        field.leftViewMode = .always
-        field.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
     }
 
     /// What the server allows decides what shows: the password fields, the browser button, both.

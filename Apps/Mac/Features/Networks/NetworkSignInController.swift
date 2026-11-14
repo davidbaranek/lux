@@ -106,6 +106,10 @@ final class NetworkSignInController: NSViewController {
                 let text: NSTextField = field.kind == .password ? NSSecureTextField() : NSTextField()
                 text.placeholderString = field.name
                 text.stringValue = field.defaultValue
+                // a large, rounded field, as the system's own sign-in sheets show them.
+                text.bezelStyle = .roundedBezel
+                text.controlSize = .large
+                text.font = .systemFont(ofSize: NSFont.systemFontSize(for: .large))
                 text.widthAnchor.constraint(equalToConstant: 320).isActive = true
                 fields[field.id] = text
                 views.append(text)
@@ -181,6 +185,7 @@ final class NetworkSignInController: NSViewController {
         let answer: Answer = if failure?.isServerSetup == true { .guide }
             else if case .refused? = failure, form != nil { .tryAgain }
             else { .startOver }
+        let others = signIn.otherFlows
         let alert = NSAlert()
         alert.messageText = String(localized: "Could not sign in to \(signIn.offer.name)")
         alert.informativeText = error.localizedDescription
@@ -194,6 +199,11 @@ final class NetworkSignInController: NSViewController {
         case .startOver:
             alert.addButton(withTitle: String(localized: "Start Over"))
             alert.addButton(withTitle: String(localized: "Close"))
+            // the network may refuse one way (a password through the bridge) and take another
+            // (its website).
+            for flow in others {
+                alert.addButton(withTitle: String(localized: "Try \(flow.name) Instead"))
+            }
         }
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
@@ -207,6 +217,10 @@ final class NetworkSignInController: NSViewController {
             case .startOver where first:
                 show(centered: [spinner()])
                 run { try await self.signIn.start() }
+            case .startOver where response.rawValue >= NSApplication.ModalResponse.alertThirdButtonReturn.rawValue:
+                let flow = others[response.rawValue - NSApplication.ModalResponse.alertThirdButtonReturn.rawValue]
+                show(centered: [spinner()])
+                run { try await self.signIn.start(with: flow) }
             case .startOver:
                 cancel()
             }

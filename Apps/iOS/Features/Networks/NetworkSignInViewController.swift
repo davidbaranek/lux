@@ -86,19 +86,33 @@ final class NetworkSignInViewController: UINavigationController, UIAdaptivePrese
                 }
             })
             alert.addAction(UIAlertAction(title: String(localized: "Close"), style: .cancel) { [weak self] _ in self?.close() })
-        } else if case .refused? = failure, topViewController is FormStepViewController {
+            (topViewController as? FormStepViewController)?.isWorking = false
+            present(alert, animated: true)
+            return
+        }
+        // the network may refuse one way (a password through the bridge) and take another (its
+        // website).
+        for flow in signIn.otherFlows {
+            alert.addAction(UIAlertAction(title: String(localized: "Try \(flow.name) Instead"), style: .default) { [weak self] _ in
+                self?.startOver(with: flow)
+            })
+        }
+        if case .refused? = failure, topViewController is FormStepViewController {
             // a wrong code or PIN: the form stays, to try again.
             alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .cancel))
         } else {
             alert.addAction(UIAlertAction(title: String(localized: "Start Over"), style: .default) { [weak self] _ in
-                guard let self else { return }
-                setViewControllers([StepViewController(network: signIn.offer, content: .waiting)], animated: true)
-                run { try await self.signIn.start() }
+                self?.startOver()
             })
             alert.addAction(UIAlertAction(title: String(localized: "Close"), style: .cancel) { [weak self] _ in self?.close() })
         }
         (topViewController as? FormStepViewController)?.isWorking = false
         present(alert, animated: true)
+    }
+
+    private func startOver(with flow: NetworkAccount.Flow? = nil) {
+        setViewControllers([StepViewController(network: signIn.offer, content: .waiting)], animated: true)
+        run { try await self.signIn.start(with: flow) }
     }
 
     /// Closes the sheet, cancelling the sign-in unless it is done; `then` gets what showed it.
@@ -282,6 +296,7 @@ private final class WebsiteStepViewController: UIViewController {
 
 /// A form the bridge asks for (a phone number, a code, a PIN): one field each, checked as typed.
 private final class FormStepViewController: UIViewController, UITextFieldDelegate {
+    private let network: NetworkOffer
     private let step: NetworkLoginStep.Form
     private let answer: ([String: String]) -> Void
     private var fields: [String: UITextField] = [:]
@@ -296,6 +311,7 @@ private final class FormStepViewController: UIViewController, UITextFieldDelegat
     }
 
     init(network: NetworkOffer, step: NetworkLoginStep.Form, answer: @escaping ([String: String]) -> Void) {
+        self.network = network
         self.step = step
         self.answer = answer
         super.init(nibName: nil, bundle: nil)
@@ -306,14 +322,20 @@ private final class FormStepViewController: UIViewController, UITextFieldDelegat
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = .systemBackground
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = 12
+        // the network's logo over what it asks, as the other steps show it.
+        let logo = UIImageView(image: NetworkImage.image(network.network))
+        logo.contentMode = .scaleAspectFit
+        logo.heightAnchor.constraint(equalToConstant: 56).isActive = true
+        stack.addArrangedSubview(logo)
+        stack.setCustomSpacing(16, after: logo)
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 32),
             stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
         ])
@@ -323,39 +345,31 @@ private final class FormStepViewController: UIViewController, UITextFieldDelegat
             instructions.font = .preferredFont(forTextStyle: .body)
             instructions.adjustsFontForContentSizeCategory = true
             instructions.numberOfLines = 0
+            instructions.textAlignment = .center
             stack.addArrangedSubview(instructions)
+            stack.setCustomSpacing(20, after: instructions)
         }
         for field in step.fields {
-            let text = UITextField()
-            text.placeholder = field.name
+            let text = FilledTextField(placeholder: field.name, look: Self.look(of: field))
             text.text = field.defaultValue
-            text.borderStyle = .roundedRect
-            text.font = .preferredFont(forTextStyle: .body)
-            text.adjustsFontForContentSizeCategory = true
-            text.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
             text.delegate = self
             switch field.kind {
             case .password:
                 text.isSecureTextEntry = true
                 text.textContentType = .password
-                if field.pattern?.contains("[0-9]") == true { text.keyboardType = .numberPad }
             case .phoneNumber:
                 text.keyboardType = .phonePad
                 text.textContentType = .telephoneNumber
             case .email:
                 text.keyboardType = .emailAddress
                 text.textContentType = .emailAddress
-                text.autocapitalizationType = .none
             case .code:
-                text.keyboardType = .numberPad
                 text.textContentType = .oneTimeCode
             case .username:
                 text.textContentType = .username
-                text.autocapitalizationType = .none
             case .text, .choice:
-                text.autocapitalizationType = .none
+                break
             }
-            text.autocorrectionType = .no
             text.addAction(UIAction { [weak self] _ in self?.validate() }, for: .editingChanged)
             fields[field.id] = text
             stack.addArrangedSubview(text)
@@ -380,6 +394,21 @@ private final class FormStepViewController: UIViewController, UITextFieldDelegat
         }
         validate()
         fields[step.fields.first?.id ?? ""]?.becomeFirstResponder()
+    }
+
+    /// A field of digits only (a PIN, a code) shows as a code; any other, as a line with its symbol.
+    private static func look(of field: NetworkLoginStep.Form.Field) -> FilledTextField.Look {
+        let digits = field.pattern.map { $0.contains("[0-9]") || $0.contains("\\d") } ?? false
+        if field.kind == .code || (field.kind == .password && digits) { return .code }
+        let symbol = switch field.kind {
+        case .username: "person"
+        case .password: "lock"
+        case .phoneNumber: "phone"
+        case .email: "envelope"
+        case .code: "number"
+        case .text, .choice: "character.cursor.ibeam"
+        }
+        return .text(symbol: symbol)
     }
 
     private var isValid: Bool {
