@@ -16,7 +16,7 @@ final class ThemeTint: NSView {
     /// disappears.
     static let sidebar = (light: CGFloat(0.14), dark: CGFloat(0.22))
     /// Behind a chat's messages: barely there, so the bubbles keep their contrast.
-    static let chat = (light: CGFloat(0.05), dark: CGFloat(0.08))
+    static let chat = (light: CGFloat(0.02), dark: CGFloat(0.035))
 
     init(strength: (light: CGFloat, dark: CGFloat)) {
         self.strength = strength
