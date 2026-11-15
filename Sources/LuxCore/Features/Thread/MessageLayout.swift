@@ -55,6 +55,8 @@ public struct BubbleMetrics: Sendable, Equatable {
     public var avatarGap: CGFloat = 8
     public var reactionPaddingX: CGFloat = 8
     public var reactionPaddingY: CGFloat = 3
+    /// Between two reaction chips, across and down.
+    public var reactionSpacing: CGFloat = 4
     /// The day separator's and the unread marker's height (each with its own text).
     public var markerHeight: CGFloat = 32
     /// A shared post's caption shows this many lines until the user unfolds it.
@@ -122,7 +124,8 @@ public struct MessageLayout: Sendable, Equatable {
     /// The card's caption shows only its first lines (`BubbleMetrics.postLines`).
     public var postFolded = false
     public var footer: CGRect?
-    public var reactions: CGRect?
+    /// Each reaction's chip, in `MessageItem.reactions`' order, wrapping onto more lines.
+    public var reactions: [CGRect] = []
     /// The sender's picture, level with the bubble's bottom; nil for own messages, outside groups,
     /// and inside a run. A plain group's, beside its name, own messages too.
     public var avatar: CGRect?
@@ -263,12 +266,37 @@ public struct MessageLayout: Sendable, Equatable {
     private mutating func placeUnder(_ message: MessageItem, showsSender: Bool, top start: CGFloat, maxWidth: CGFloat,
                                      metrics m: BubbleMetrics, measure: some TextMeasuring, x: (CGFloat) -> CGFloat) -> CGFloat {
         var top = start
-        if let text = message.reactionsText {
-            let size = measure.size(of: text, role: .reactions, width: maxWidth)
-            let pill = CGSize(width: ceil(size.width + 2 * m.reactionPaddingX), height: ceil(size.height + 2 * m.reactionPaddingY))
+        if !message.reactions.isEmpty {
+            // one chip per reaction (so each can be tapped), in lines no wider than `maxWidth`.
+            let chips = message.reactions.map { reaction in
+                let size = measure.size(of: MessageItem.chipText(reaction), role: .reactions, width: maxWidth)
+                return CGSize(width: min(maxWidth, ceil(size.width + 2 * m.reactionPaddingX)),
+                              height: ceil(size.height + 2 * m.reactionPaddingY))
+            }
+            var lines: [[CGSize]] = [[]]
+            var lineWidth: CGFloat = 0
+            for chip in chips {
+                let needed = lines[lines.count - 1].isEmpty ? chip.width : lineWidth + m.reactionSpacing + chip.width
+                if needed > maxWidth, !lines[lines.count - 1].isEmpty {
+                    lines.append([chip])
+                    lineWidth = chip.width
+                } else {
+                    lines[lines.count - 1].append(chip)
+                    lineWidth = needed
+                }
+            }
             top += m.outerSpacing
-            reactions = CGRect(x: x(pill.width), y: top, width: pill.width, height: pill.height)
-            top += pill.height
+            for (index, line) in lines.enumerated() {
+                if index > 0 { top += m.reactionSpacing }
+                let width = line.map(\.width).reduce(0, +) + m.reactionSpacing * CGFloat(line.count - 1)
+                var left = x(width)
+                let height = line.map(\.height).max() ?? 0
+                for chip in line {
+                    reactions.append(CGRect(x: left, y: top, width: chip.width, height: height))
+                    left += chip.width + m.reactionSpacing
+                }
+                top += height
+            }
         }
         if let text = message.detailText {
             let size = measure.size(of: text, role: .footer, width: maxWidth)
@@ -461,7 +489,12 @@ extension MessageItem {
     public var durationText: String? { video.map { TimeText.duration($0.duration) } }
 
     public var reactionsText: String? {
-        reactions.isEmpty ? nil : reactions.map { $0.count > 1 ? "\($0.key) \($0.count)" : $0.key }.joined(separator: "  ")
+        reactions.isEmpty ? nil : reactions.map(Self.chipText).joined(separator: "  ")
+    }
+
+    /// A reaction's chip: its key, and how many gave it when more than one ("👍 3", "join thread").
+    public static func chipText(_ reaction: Reaction) -> String {
+        reaction.count > 1 ? "\(reaction.key) \(reaction.count)" : reaction.key
     }
 }
 

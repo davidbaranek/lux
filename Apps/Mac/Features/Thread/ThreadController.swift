@@ -299,6 +299,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             }
             cell.onLink = { NSWorkspace.shared.open($0) }
             cell.onBubbleTap = { [weak self] in self?.model.toggleDetail(of: id) }
+            cell.onReactionTap = { [weak self] key in self?.model.toggleReaction(key, on: id) }
             cell.onPostMore = { [weak self] in
                 self?.unfolding = id
                 self?.model.togglePost(of: id)
