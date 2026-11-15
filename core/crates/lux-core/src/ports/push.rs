@@ -6,7 +6,7 @@ use std::pin::Pin;
 
 use futures_core::Stream;
 
-use crate::ids::{EventId, RoomId};
+use crate::ids::{EventId, TimelineId};
 use crate::push::{Notification, Pusher};
 
 use super::BackendError;
@@ -23,12 +23,17 @@ pub trait Push: Send + Sync {
     /// Removes the pusher this device registered, if any (signing out).
     fn remove_pusher(&self) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// Sends `text` to `room` and returns once the server has it: the app may be suspended right
-    /// after (a reply from a notification).
-    fn send_now(&self, room: &RoomId, text: &str) -> impl Future<Output = Result<(), BackendError>> + Send;
+    /// Sends `text` to the timeline (a Matrix thread's reply, for a thread) and returns once the
+    /// server has it: the app may be suspended right after (a reply from a notification).
+    fn send_now(&self, to: &TimelineId, text: &str) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// Marks `room` read up to `event`, the message a notification showed.
-    fn mark_read_up_to(&self, room: &RoomId, event: &EventId) -> impl Future<Output = Result<(), BackendError>> + Send;
+    /// Marks the timeline read up to `event`, the message a notification showed: a thread's own
+    /// receipt for a Matrix thread, which leaves the rest of the room as it was.
+    fn mark_read_up_to(
+        &self,
+        of: &TimelineId,
+        event: &EventId,
+    ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// What the sync brings that notifies, as it comes, while the app runs: where no push wakes
     /// an extension (the Mac), the app shows these itself. Only noisy messages from others, not
