@@ -5,12 +5,12 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use lux_core::ids::{EventId, MediaId, MessageId, MessageRef, RoomId};
+use lux_core::ids::{EventId, MediaId, MessageId, MessageRef, RoomId, TimelineId};
 use lux_core::message::SendState;
 use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines, ThreadBackend};
 use lux_core::timeline::{
     FileKind, ImageSource, IndexHistory, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
-    OutgoingThumbnail, Picture, Quote, StyleKind, TimelineMessage, Typist,
+    OutgoingThumbnail, Participant, Picture, Quote, StyleKind, ThreadReply, ThreadSummary, TimelineMessage, Typist,
 };
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, with_account};
@@ -191,6 +191,74 @@ pub struct CoreMessage {
     pub readers: Vec<CoreReader>,
     /// The post it shares from another network, shown as a card.
     pub shared: Option<CoreSharedPost>,
+    /// The Matrix thread it starts, summed up (in the chat's own timeline).
+    pub thread: Option<CoreThreadSummary>,
+}
+
+/// A Matrix thread under its root message: how many replied, the last reply, who took part.
+#[derive(uniffi::Record)]
+pub struct CoreThreadSummary {
+    /// How many replies it has.
+    pub replies: u32,
+    /// The last reply, once known.
+    pub latest: Option<CoreThreadReply>,
+    /// Who replied, the last to reply first.
+    pub participants: Vec<CoreParticipant>,
+    /// How many replies are unread.
+    pub unread: u32,
+}
+
+/// A Matrix thread's last reply.
+#[derive(uniffi::Record)]
+pub struct CoreThreadReply {
+    /// Its sender.
+    pub sender: CoreParticipant,
+    /// What it is.
+    pub kind: CorePreviewKind,
+    /// When it was sent.
+    pub date: SystemTime,
+}
+
+/// Someone in a Matrix thread.
+#[derive(uniffi::Record)]
+pub struct CoreParticipant {
+    /// Their user id.
+    pub user_id: String,
+    /// Their name in the room.
+    pub name: String,
+    /// Their picture (a media URL).
+    pub avatar: Option<String>,
+}
+
+impl From<Participant> for CoreParticipant {
+    fn from(participant: Participant) -> Self {
+        Self {
+            user_id: participant.user.to_string(),
+            name: participant.name,
+            avatar: participant.avatar.map(|avatar| avatar.to_string()),
+        }
+    }
+}
+
+impl From<ThreadReply> for CoreThreadReply {
+    fn from(reply: ThreadReply) -> Self {
+        Self {
+            sender: reply.sender.into(),
+            kind: reply.kind.into(),
+            date: reply.date,
+        }
+    }
+}
+
+impl From<ThreadSummary> for CoreThreadSummary {
+    fn from(summary: ThreadSummary) -> Self {
+        Self {
+            replies: summary.replies,
+            latest: summary.latest.map(CoreThreadReply::from),
+            participants: summary.participants.into_iter().map(CoreParticipant::from).collect(),
+            unread: summary.unread,
+        }
+    }
 }
 
 /// A post shared from another network: its address (for the menu), title and description.
@@ -473,6 +541,7 @@ impl From<&TimelineMessage> for CoreMessage {
                 title: post.title,
                 description: post.description,
             }),
+            thread: message.thread.clone().map(CoreThreadSummary::from),
         }
     }
 }
@@ -577,15 +646,24 @@ impl From<CoreImageSource> for ImageSource {
 
 // MARK: the account's chats
 
+/// The timeline of `room_id`: the Matrix thread of `thread_root`, if given.
+pub(crate) fn timeline_id(room_id: String, thread_root: Option<String>) -> TimelineId {
+    TimelineId {
+        room: RoomId::from(room_id),
+        thread: thread_root.map(EventId::from),
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl CoreAccount {
-    /// Opens the chat's timeline ahead of time.
+    /// Opens the chat's timeline ahead of time (the Matrix thread of `thread_root` in it, if
+    /// given).
     ///
     /// # Errors
     /// When the chat is not the account's.
-    pub async fn prefetch_thread(&self, room_id: String) -> Result<(), CoreAccountError> {
-        let room = RoomId::from(room_id);
-        Ok(with_account!(self.backend(), account => account.timelines().prefetch(&room).await)?)
+    pub async fn prefetch_thread(&self, room_id: String, thread_root: Option<String>) -> Result<(), CoreAccountError> {
+        let timeline = timeline_id(room_id, thread_root);
+        Ok(with_account!(self.backend(), account => account.timelines().prefetch(&timeline).await)?)
     }
 
     /// The chat's text messages and photos back to `since`, for the search index.
@@ -605,20 +683,26 @@ impl CoreAccount {
         Ok(history.into())
     }
 
-    /// Queues a photo, video or file; its message's id once the chat shows it.
+    /// Queues a photo, video or file (in the Matrix thread of `thread_root`, if given); its
+    /// message's id once the chat shows it.
     ///
     /// # Errors
     /// When the file cannot be read, or the queue refuses it.
     pub async fn send_attachment(
         &self,
         room_id: String,
+        thread_root: Option<String>,
         attachment: CoreOutgoingAttachment,
         caption: Option<String>,
         reply_to: Option<String>,
     ) -> Result<Option<String>, CoreAccountError> {
-        let (room, attachment, reply) = (RoomId::from(room_id), attachment.into(), reply_to.map(MessageRef::from));
+        let (timeline, attachment, reply) = (
+            timeline_id(room_id, thread_root),
+            attachment.into(),
+            reply_to.map(MessageRef::from),
+        );
         let sent = with_account!(self.backend(), account => {
-            account.timelines().send_attachment(&room, &attachment, caption.as_deref(), reply.as_ref()).await
+            account.timelines().send_attachment(&timeline, &attachment, caption.as_deref(), reply.as_ref()).await
         })?;
         Ok(sent.map(|id| id.to_string()))
     }

@@ -161,6 +161,8 @@ pub struct CoreNotification {
     /// The sender's picture, a small image file's bytes; none when it has none or could not be
     /// had in time.
     pub sender_image: Option<Vec<u8>>,
+    /// The Matrix thread it replies in, by its root's event id: opening it opens the thread.
+    pub thread_root: Option<String>,
 }
 
 impl CoreNotification {
@@ -177,6 +179,7 @@ impl CoreNotification {
             is_noisy: notification.is_noisy,
             is_late: notification.is_late,
             sender_image: pictures.sender,
+            thread_root: notification.thread.map(|root| root.to_string()),
         }
     }
 }
