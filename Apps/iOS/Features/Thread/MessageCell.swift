@@ -117,7 +117,7 @@ final class MessageCell: UICollectionViewCell {
                      failed] {
             contentView.addSubview(view)
         }
-        thread.addAction(UIAction { [weak self] _ in self?.onThreadTap?() }, for: .primaryActionTriggered)
+        thread.onTap = { [weak self] in self?.onThreadTap?() }
         bubble.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bubbleTapped)))
         band.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bandTapped)))
         replyArrow.preferredSymbolConfiguration = Self.arrowStyle(armed: false)

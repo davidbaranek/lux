@@ -64,9 +64,9 @@ final class ThreadSummaryView: NSView {
         label.frame = layout.threadText ?? .zero
         let truncated = NSMutableParagraphStyle()
         truncated.lineBreakMode = .byTruncatingTail
-        let bold = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        // in the font it was measured in: the accent sets the count apart.
         let words = NSMutableAttributedString(string: summary.countText,
-                                              attributes: [.font: bold, .foregroundColor: accent, .paragraphStyle: truncated])
+                                              attributes: [.font: font, .foregroundColor: accent, .paragraphStyle: truncated])
         if let latest = summary.latestReplyText {
             words.append(NSAttributedString(string: " · " + latest,
                                             attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: truncated]))

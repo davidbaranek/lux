@@ -4,10 +4,12 @@ import UIKit
 /// Under a Matrix thread's root: who replied, how many, and the last reply, in a rounded box; a
 /// dot in the accent colour while some replies are unread. A tap opens the thread. Its parts go
 /// where the message's layout measured them (`MessageLayout.thread`).
-final class ThreadSummaryView: UIControl {
+final class ThreadSummaryView: UIView {
     private var avatars: [AvatarView] = []
     private let label = UILabel()
     private let dot = UIView()
+    /// Tapped: the thread opens.
+    var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -23,12 +25,17 @@ final class ThreadSummaryView: UIControl {
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityHint = String(localized: "Opens the thread")
+        // as the bubble's other parts take theirs: the list's own gestures leave a tap be.
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    override var isHighlighted: Bool {
-        didSet { backgroundColor = isHighlighted ? .quaternaryLabel : .tertiarySystemFill }
+    @objc private func tapped() { onTap?() }
+
+    override func accessibilityActivate() -> Bool {
+        onTap?()
+        return onTap != nil
     }
 
     func show(_ message: MessageItem, layout: MessageLayout, font: UIFont, images: ImagePipeline?) {
@@ -53,7 +60,8 @@ final class ThreadSummaryView: UIControl {
             bringSubviewToFront(avatars[layout.threadAvatars.count - 1 - index])
         }
         label.frame = layout.threadText ?? .zero
-        let words = NSMutableAttributedString(string: summary.countText, attributes: [.font: font.bold, .foregroundColor: UIColor.tintColor])
+        // in the font it was measured in: the accent sets the count apart.
+        let words = NSMutableAttributedString(string: summary.countText, attributes: [.font: font, .foregroundColor: UIColor.tintColor])
         if let latest = summary.latestReplyText {
             words.append(NSAttributedString(string: " · " + latest, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]))
         }
