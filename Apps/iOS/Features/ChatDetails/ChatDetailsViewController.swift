@@ -3,15 +3,15 @@ import UIKit
 
 /// A chat's details, opened from its title, as Messages' and Contacts' cards are laid out: the
 /// picture, name and topic over an inset-grouped list of its networks (a merged chat's rooms),
-/// its notifications, its encryption, its members, what it shared, and marking it read or
-/// leaving it. Edit (for who may) changes its name, topic and picture.
+/// its notifications, low priority, its encryption, its members, what it shared, and marking it
+/// read or leaving it. Edit (for who may) changes its name, topic and picture.
 final class ChatDetailsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Hashable { case header, networks, settings, people, shared, actions }
 
     private enum Item: Hashable {
         case header
         case room(String)
-        case notifications, messages, encryption, address
+        case notifications, lowPriority, messages, encryption, address
         case members(String)
         case shared(SharedKind)
         case markRead, leave
@@ -26,9 +26,9 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
     /// The chat was renamed or repictured: the thread's title follows.
     var onChange: ((ChatRow) -> Void)?
 
-    init(session: Session, row: ChatRow) {
+    init(session: Session, row: ChatRow, list: ChatListModel?) {
         self.session = session
-        model = session.details(of: row)
+        model = session.details(of: row, in: list)
         super.init(nibName: nil, bundle: nil)
         title = String(localized: "Details")
     }
@@ -90,7 +90,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         if let info = model.info {
             snapshot.appendSections([.networks, .settings])
             snapshot.appendItems(info.rooms.map { .room($0.id) }, toSection: .networks)
-            snapshot.appendItems([.notifications, .messages, .encryption] + (model.mainRoom?.address == nil ? [] : [.address]), toSection: .settings)
+            snapshot.appendItems([.notifications, .lowPriority, .messages, .encryption] + (model.mainRoom?.address == nil ? [] : [.address]), toSection: .settings)
             let groups = info.rooms.filter { !$0.isDirect }
             if !groups.isEmpty {
                 snapshot.appendSections([.people])
@@ -147,6 +147,22 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             content.text = String(localized: "Notifications")
             content.secondaryText = model.info?.notifications?.title ?? String(localized: "Mixed")
             cell.accessories = [.popUpMenu(notificationsMenu(), displayed: .always)]
+        case .lowPriority:
+            // the place whose rule keeps it out of the inbox, under the switch.
+            content = .subtitleCell()
+            content.image = UIImage(systemName: "arrow.down.circle")
+            content.text = String(localized: "Low Priority")
+            content.secondaryText = model.keptOutNote
+            content.secondaryTextProperties.color = .secondaryLabel
+            let toggle = UISwitch()
+            toggle.isOn = model.isLowPriority
+            toggle.isEnabled = !model.isSaving
+            toggle.accessibilityLabel = String(localized: "Low Priority")
+            toggle.addAction(UIAction { [weak self, weak toggle] _ in
+                guard let on = toggle?.isOn else { return }
+                self?.change(of: "low priority") { try await $0.setLowPriority(on) }
+            }, for: .valueChanged)
+            cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
         case .messages:
             content.image = UIImage(systemName: "text.bubble")
             content.text = String(localized: "Messages")
@@ -186,12 +202,9 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
     }
 
     private func notificationsMenu() -> UIMenu {
-        UIMenu(options: .singleSelection, children: NotificationSetting.allCases.map { setting in
-            UIAction(title: setting.title, image: UIImage(systemName: setting.symbol),
-                     state: model.info?.notifications == setting ? .on : .off) { [weak self] _ in
-                self?.change(of: "chat notifications") { try await $0.setNotifications(setting) }
-            }
-        })
+        NotificationMenu.choices(current: model.info?.notifications) { [weak self] setting in
+            self?.change(of: "chat notifications") { try await $0.setNotifications(setting) }
+        }
     }
 
     /// Bubbles, plain rows, or as Settings says; the current choice ticked.

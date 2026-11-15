@@ -90,7 +90,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             details.close()
             return
         }
-        let controller = ChatDetailsController(session: session, row: row)
+        let controller = ChatDetailsController(session: session, row: row, list: listModel)
         controller.onChange = { [weak self] row in
             guard let self, openRow?.id == row.id else { return }
             chatTitle.show(row, images: session.images)

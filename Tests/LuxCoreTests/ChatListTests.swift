@@ -130,7 +130,7 @@ struct ChatListBatchTests {
 
 @Test func aChatsMenuFollowsItsState() {
     var row = ChatRow(id: "!a", name: "A", preview: "", date: nil, unreadCount: 1)
-    #expect(ChatChange.available(for: row) == [.read, .pin, .mute, .lowPriority, .archive, .delete])
+    #expect(ChatChange.available(for: row) == [.read, .pin, .lowPriority, .archive, .delete])
     row.unreadCount = 0; row.isPinned = true; row.isMuted = true; row.folder = .archive
-    #expect(ChatChange.available(for: row) == [.unread, .unpin, .unmute, .unarchive, .delete])
+    #expect(ChatChange.available(for: row) == [.unread, .unpin, .unarchive, .delete])
 }

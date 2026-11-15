@@ -147,6 +147,28 @@ extension CoreTheme {
     }
 }
 
+extension NotificationSetting {
+    init(_ mode: CoreNotificationMode) {
+        self = switch mode {
+        case .default: .default
+        case .all: .all
+        case .mentions: .mentions
+        case .off: .off
+        }
+    }
+}
+
+extension CoreNotificationMode {
+    init(_ setting: NotificationSetting) {
+        self = switch setting {
+        case .default: .default
+        case .all: .all
+        case .mentions: .mentions
+        case .off: .off
+        }
+    }
+}
+
 extension CoreInboxRule {
     init(_ rule: InboxRule) {
         self = switch rule {

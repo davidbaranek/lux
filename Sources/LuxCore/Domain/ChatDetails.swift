@@ -14,8 +14,8 @@ public enum NotificationSetting: Sendable, Hashable, CaseIterable {
         switch self {
         case .default: String(localized: "Default")
         case .all: String(localized: "All Messages")
-        case .mentions: String(localized: "Mentions Only")
-        case .off: String(localized: "Off")
+        case .mentions: String(localized: "Mentions and Keywords")
+        case .off: String(localized: "Mute")
         }
     }
 
@@ -27,6 +27,12 @@ public enum NotificationSetting: Sendable, Hashable, CaseIterable {
         case .off: "bell.slash"
         }
     }
+
+    /// Whether it keeps the chat quiet, its badge grey: off, or mentions only.
+    public var isQuiet: Bool { self == .off || self == .mentions }
+
+    /// The menus' heading.
+    public static let menuTitle = String(localized: "Notifications")
 }
 
 /// One room of a chat (a merged chat has one per network), as its details show it.

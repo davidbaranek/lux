@@ -69,6 +69,9 @@ public struct PlaceItem: Hashable, Sendable, Identifiable {
     public var ownTheme: PlaceTheme?
     /// How much of a network's or a space's chats the inbox shows; nil for the other places.
     public var inbox: InboxRule?
+    /// When a network's or a space's chats notify, when they all do alike; nil when they differ,
+    /// and for the other places.
+    public var notifications: NotificationSetting?
 }
 
 /// The places as the app words and draws them; the core composes the list of them and what

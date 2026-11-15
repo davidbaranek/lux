@@ -63,9 +63,14 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
     }
 
-    init(session: Session, row: ChatRow, theme: PlaceTheme, focusEvent: String? = nil) {
+    /// The list it was opened from: the details tell which of its places keeps the chat out of
+    /// the inbox.
+    private weak var list: ChatListModel?
+
+    init(session: Session, row: ChatRow, theme: PlaceTheme, list: ChatListModel?, focusEvent: String? = nil) {
         self.session = session
         self.row = row
+        self.list = list
         self.theme = theme
         self.focusEvent = focusEvent
         model = ThreadModel(session: session, row: row)
@@ -521,7 +526,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     /// The chat's details, from its title, as Messages opens a conversation's.
     @objc private func openDetails() {
-        let details = ChatDetailsViewController(session: session, row: row)
+        let details = ChatDetailsViewController(session: session, row: row, list: list)
         details.onChange = { [weak self] row in self?.chatTitle.show(row, images: self?.session.images) }
         navigationController?.pushViewController(details, animated: true)
     }

@@ -23,13 +23,7 @@ extension RustAccount {
     }
 
     func setNotifications(chatId: String, _ setting: NotificationSetting) async throws {
-        let mode: CoreNotificationMode = switch setting {
-        case .default: .default
-        case .all: .all
-        case .mentions: .mentions
-        case .off: .off
-        }
-        try await worded { try await account.setChatNotifications(chatId: chatId, mode: mode) }
+        try await worded { try await account.setChatNotifications(chatId: chatId, mode: CoreNotificationMode(setting)) }
     }
 
     func change(chatId: String, _ change: ChatChange) async throws {
@@ -105,17 +99,6 @@ private extension RoomInfo {
                   isEncrypted: room.isEncrypted, isDirect: room.isDirect, joinedMembers: Int(clamping: room.joinedMembers),
                   notifications: NotificationSetting(room.notifications), canRename: room.canRename,
                   canChangeTopic: room.canChangeTopic, canChangeAvatar: room.canChangeAvatar)
-    }
-}
-
-private extension NotificationSetting {
-    init(_ mode: CoreNotificationMode) {
-        self = switch mode {
-        case .default: .default
-        case .all: .all
-        case .mentions: .mentions
-        case .off: .off
-        }
     }
 }
 

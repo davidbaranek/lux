@@ -3,7 +3,7 @@ import LuxCore
 
 /// A chat's details, in a popover from its title in the toolbar, as Messages shows a
 /// conversation's: its picture, name and topic, its networks (a merged chat's rooms), its
-/// notifications and encryption, marking it read and leaving it; under them its members and what
+/// notifications, low priority and encryption, marking it read and leaving it; under them its members and what
 /// it shared, one at a time. Edit… (for who may) changes its name, topic and picture.
 final class ChatDetailsController: NSViewController {
     private let session: Session
@@ -21,6 +21,9 @@ final class ChatDetailsController: NSViewController {
     private lazy var edit = NSButton(title: String(localized: "Edit…"), target: self, action: #selector(openEdit))
     private let networks = NSStackView()
     private let notifications = NSPopUpButton()
+    private let lowPriority = NSSwitch()
+    /// Under the switch: the rule of the place that keeps the chat out of the inbox.
+    private let keptOut = NSTextField(wrappingLabelWithString: "")
     private let chatStyle = NSPopUpButton()
     private let encryption = NSTextField(labelWithString: "")
     private let encryptionIcon = NSImageView()
@@ -41,9 +44,9 @@ final class ChatDetailsController: NSViewController {
 
     private static let width: CGFloat = 360
 
-    init(session: Session, row: ChatRow) {
+    init(session: Session, row: ChatRow, list: ChatListModel?) {
         self.session = session
-        model = session.details(of: row)
+        model = session.details(of: row, in: list)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -79,6 +82,17 @@ final class ChatDetailsController: NSViewController {
             notifications.lastItem?.image = NSImage(systemSymbolName: setting.symbol, accessibilityDescription: nil)
             notifications.lastItem?.representedObject = setting
         }
+        lowPriority.controlSize = .small
+        lowPriority.target = self
+        lowPriority.action = #selector(toggleLowPriority)
+        lowPriority.setAccessibilityLabel(String(localized: "Low Priority"))
+        keptOut.textColor = .secondaryLabelColor
+        keptOut.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        keptOut.preferredMaxLayoutWidth = Self.width - 150
+        let lowPriorityView = NSStackView(views: [lowPriority, keptOut])
+        lowPriorityView.orientation = .vertical
+        lowPriorityView.alignment = .leading
+        lowPriorityView.spacing = 4
         chatStyle.target = self
         chatStyle.action = #selector(chooseChatStyle)
         chatStyle.controlSize = .small
@@ -90,6 +104,7 @@ final class ChatDetailsController: NSViewController {
         let grid = NSGridView(views: [
             [label(String(localized: "Networks:")), networks],
             [label(String(localized: "Notifications:")), notifications],
+            [label(String(localized: "Low Priority:")), lowPriorityView],
             [label(String(localized: "Messages:")), chatStyle],
             [label(String(localized: "Encryption:")), encryptionView],
             [label(String(localized: "Address:")), address],
@@ -98,7 +113,7 @@ final class ChatDetailsController: NSViewController {
         grid.columnSpacing = 8
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
-        addressRow = grid.row(at: 4)
+        addressRow = grid.row(at: 5)
 
         markRead.controlSize = .small
         leave.controlSize = .small
@@ -164,6 +179,10 @@ final class ChatDetailsController: NSViewController {
         notifications.selectItem(at: setting.flatMap { NotificationSetting.allCases.firstIndex(of: $0) } ?? -1)
         notifications.isEnabled = model.info != nil && !model.isSaving
         if setting == nil, model.info != nil { notifications.setTitle(String(localized: "Mixed")) }
+        lowPriority.state = model.isLowPriority ? .on : .off
+        lowPriority.isEnabled = !model.isSaving
+        keptOut.stringValue = model.keptOutNote ?? ""
+        keptOut.isHidden = model.keptOutNote == nil
         chatStyle.removeAllItems()
         for (index, choice) in model.chatStyleChoices.enumerated() {
             chatStyle.addItem(withTitle: choice.title)
@@ -240,6 +259,11 @@ final class ChatDetailsController: NSViewController {
     @objc private func chooseNotifications() {
         guard let setting = notifications.selectedItem?.representedObject as? NotificationSetting else { return }
         change(String(localized: "The notifications could not be changed.")) { try await $0.setNotifications(setting) }
+    }
+
+    @objc private func toggleLowPriority() {
+        let on = lowPriority.state == .on
+        change(String(localized: "The chat could not be moved.")) { try await $0.setLowPriority(on) }
     }
 
     @objc private func chooseChatStyle() {
