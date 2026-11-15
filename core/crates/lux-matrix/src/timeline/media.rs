@@ -5,7 +5,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use lux_core::ids::{MediaId, MessageId, RoomId};
+use lux_core::ids::{EventId, MediaId, MessageId, RoomId};
 use lux_core::ports::{BackendError, ChatMedia};
 use lux_core::timeline::ImageSource;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
@@ -17,7 +17,8 @@ use tracing::debug;
 use uuid::Uuid;
 
 use super::MatrixTimelines;
-use super::items::{media_key, media_of};
+use super::items::{MediaOf, media_key, media_of};
+use super::shared::event_media;
 use crate::errors::from_sdk;
 
 /// The side of a room's or a person's picture, in pixels.
@@ -70,16 +71,24 @@ impl ChatMedia for MatrixTimelines {
                 }
                 avatar(url)
             }
-            ImageSource::Photo { room, message } | ImageSource::Poster { room, message } => {
-                let timeline = self.open(room).await?;
-                let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
-                let Some(media) = media_of(&item) else {
+            ImageSource::Photo { .. } | ImageSource::Poster { .. } | ImageSource::Shared { .. } => {
+                let media = match source {
+                    ImageSource::Photo { room, message } | ImageSource::Poster { room, message } => {
+                        let timeline = self.open(room).await?;
+                        let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
+                        media_of(&item)
+                    }
+                    ImageSource::Shared { room, event } => event_media(&self.room(room)?, event).await?,
+                    ImageSource::Room(_) | ImageSource::Person(_) => None,
+                };
+                let Some(media) = media else {
                     return Ok(None);
                 };
                 match (media.thumbnail, source) {
                     // the sender's thumbnail or poster, as it is.
                     (Some(thumbnail), _) => original(thumbnail),
                     (None, ImageSource::Poster { .. }) => return Ok(None),
+                    (None, ImageSource::Shared { .. }) if is_video(media.mimetype.as_deref()) => return Ok(None),
                     // a photo without one: the server scales it, unless it is encrypted.
                     (None, _) => match media.source {
                         MediaSource::Plain(_) => thumbnail(media.source, THUMBNAIL_SIDE),
@@ -102,6 +111,28 @@ impl ChatMedia for MatrixTimelines {
         let timeline = self.open(room).await?;
         let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
         let media = media_of(&item).ok_or(BackendError::NotAllowed)?;
+        self.original_file(media, folder).await
+    }
+
+    async fn shared_file(&self, room: &RoomId, event: &EventId, folder: &Path) -> Result<PathBuf, BackendError> {
+        let media = event_media(&self.room(room)?, event)
+            .await?
+            .ok_or(BackendError::NotAllowed)?;
+        self.original_file(media, folder).await
+    }
+
+    async fn max_upload_size(&self) -> Result<u64, BackendError> {
+        self.client
+            .load_or_fetch_max_upload_size()
+            .await
+            .map(u64::from)
+            .map_err(from_sdk)
+    }
+}
+
+impl MatrixTimelines {
+    /// The media's original, loaded once into `folder`.
+    async fn original_file(&self, media: MediaOf, folder: &Path) -> Result<PathBuf, BackendError> {
         let request = original(media.source);
         // its own folder, so the file keeps the name it was sent with.
         let file = folder
@@ -120,14 +151,10 @@ impl ChatMedia for MatrixTimelines {
         write(&file, data).await?;
         Ok(file)
     }
+}
 
-    async fn max_upload_size(&self) -> Result<u64, BackendError> {
-        self.client
-            .load_or_fetch_max_upload_size()
-            .await
-            .map(u64::from)
-            .map_err(from_sdk)
-    }
+fn is_video(mimetype: Option<&str>) -> bool {
+    mimetype.is_some_and(|mimetype| mimetype.starts_with("video/"))
 }
 
 /// The bytes `request` asks for, from the SDK's media cache or the server. A server may make no
