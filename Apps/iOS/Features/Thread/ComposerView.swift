@@ -47,6 +47,11 @@ final class ComposerView: UIView, UITextViewDelegate {
     /// In a merged chat, the network a message goes through: a badge on the send button.
     private let network = UIImageView()
     private let placeholder = UILabel()
+    /// What the empty field says: "Message", "Reply in Thread".
+    var placeholderText: String? {
+        get { placeholder.text }
+        set { placeholder.text = newValue }
+    }
     private lazy var send = UIButton(configuration: .prominentGlass(), primaryAction: UIAction { [weak self] _ in self?.primary() })
     private lazy var height = textView.heightAnchor.constraint(equalToConstant: 36)
     private let attach: UIButton = {

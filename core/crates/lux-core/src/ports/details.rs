@@ -5,7 +5,8 @@ use std::future::Future;
 use std::time::{Duration, SystemTime};
 
 use crate::ids::{ChatId, EventId, MediaId, RoomId, UserId};
-use crate::timeline::Picture as SharedPicture;
+use crate::preview::PreviewKind;
+use crate::timeline::{Participant, Picture as SharedPicture, ThreadSummary};
 
 use super::{BackendError, Picture};
 
@@ -172,6 +173,30 @@ pub struct SharedPage {
     pub next: Option<String>,
 }
 
+/// A Matrix thread of a room, as the room's list of threads shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListedThread {
+    /// Its root message's event: the thread opens by it.
+    pub root: EventId,
+    /// Who wrote the root.
+    pub sender: Participant,
+    /// What the root is (its text in one line, a photo), for the apps to word.
+    pub kind: PreviewKind,
+    /// When the root was sent.
+    pub date: SystemTime,
+    /// Its replies, summed up.
+    pub summary: ThreadSummary,
+}
+
+/// One page of a room's threads, the latest active first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ThreadPage {
+    /// The page's threads.
+    pub threads: Vec<ListedThread>,
+    /// Where the next page starts; `None` after the last.
+    pub next: Option<String>,
+}
+
 /// A chat's details, and what its details screen changes.
 pub trait ChatDetails: Send + Sync {
     /// The room's details, as this device knows them.
@@ -187,6 +212,13 @@ pub trait ChatDetails: Send + Sync {
         room: &RoomId,
         from: Option<&str>,
     ) -> impl Future<Output = Result<SharedPage, BackendError>> + Send;
+
+    /// One page of the room's Matrix threads from `from` (the latest active first when `None`).
+    fn threads(
+        &self,
+        room: &RoomId,
+        from: Option<&str>,
+    ) -> impl Future<Output = Result<ThreadPage, BackendError>> + Send;
 
     /// When `chat`'s messages notify (each room's, for a merged one).
     fn set_notifications(

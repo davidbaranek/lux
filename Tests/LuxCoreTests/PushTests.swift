@@ -43,8 +43,20 @@ struct PushTests {
         #expect(message.senderImage == Data([1, 2, 3]))
     }
 
+    @Test func aThreadsReplyCarriesItsThreadToItsNotificationsActions() throws {
+        var core = notification(room: "!r:server", chat: "Crew", isGroup: true, kind: .text(text: "see you"))
+        core.threadRoot = "$root"
+        let message = PushedMessage(core)
+        #expect(message.threadRoot == "$root")
+        let payload = try #require(PushPayload(userInfo: message.userInfo))
+        #expect(payload.roomId == "!r:server" && payload.eventId == "$e" && payload.threadRoot == "$root")
+        // a message in the chat's own timeline names no thread.
+        let plain = PushedMessage(notification(room: "!r:server", chat: "Crew", isGroup: true, kind: .text(text: "hi")))
+        #expect(PushPayload(userInfo: plain.userInfo)?.threadRoot == nil)
+    }
+
     private func notification(room: String, chat: String, isGroup: Bool, kind: CorePreviewKind) -> CoreNotification {
         CoreNotification(roomId: room, eventId: "$e", chatId: room, chatName: chat, senderId: "@anna:example.org", senderName: "Anna", isGroup: isGroup, kind: kind,
-                         isNoisy: true, isLate: false, senderImage: nil)
+                         isNoisy: true, isLate: false, senderImage: nil, threadRoot: nil)
     }
 }

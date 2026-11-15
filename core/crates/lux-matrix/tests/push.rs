@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use lux_core::ids::ChatId;
+use lux_core::ids::{ChatId, RoomId, TimelineId};
 use lux_core::ports::{
     BackendError, ChatAccount, ChatActions, ChatChange, Push, SecretStore, SecretStoreError, SessionSecrets, SignIn,
     StoreKey, UnusableStore,
@@ -313,14 +313,22 @@ async fn a_notifications_reply_and_read_reach_the_server_before_returning() {
         .await
         .unwrap();
     account.wait_for_first_sync().await;
-    let room = "!anna:matrix.org".into();
+    let room = RoomId::from("!anna:matrix.org");
     // the room comes with the first answer's rooms.
     wait_for_room(&account).await;
 
-    account.send_now(&room, "on my **way**").await.unwrap();
-    account.mark_read_up_to(&room, &"$hello".into()).await.unwrap();
+    account
+        .send_now(&TimelineId::from(&room), "on my **way**")
+        .await
+        .unwrap();
+    account
+        .mark_read_up_to(&TimelineId::from(&room), &"$hello".into())
+        .await
+        .unwrap();
     assert!(matches!(
-        account.send_now(&"!gone:matrix.org".into(), "hi").await,
+        account
+            .send_now(&TimelineId::from(RoomId::from("!gone:matrix.org")), "hi")
+            .await,
         Err(BackendError::UnknownChat(_))
     ));
 
@@ -337,6 +345,26 @@ async fn a_notifications_reply_and_read_reach_the_server_before_returning() {
             .iter()
             .any(|request| request.url.path().ends_with("/receipt/m.read/$hello"))
     );
+
+    // a thread's reply answers in the thread, and reads the thread alone.
+    let thread = TimelineId::thread(room.clone(), "$root".into());
+    account.send_now(&thread, "in the thread").await.unwrap();
+    account.mark_read_up_to(&thread, &"$reply".into()).await.unwrap();
+    let requests = server.server().received_requests().await.unwrap();
+    let threaded = requests
+        .iter()
+        .filter(|request| request.url.path().contains("/send/m.room.message/"))
+        .map(|request| serde_json::from_slice::<Value>(&request.body).unwrap())
+        .find(|body| body["body"] == "in the thread")
+        .expect("the thread's reply");
+    assert_eq!(threaded["m.relates_to"]["rel_type"], "m.thread");
+    assert_eq!(threaded["m.relates_to"]["event_id"], "$root");
+    let receipt = requests
+        .iter()
+        .find(|request| request.url.path().ends_with("/receipt/m.read/$reply"))
+        .expect("the thread's receipt");
+    let receipt: Value = serde_json::from_slice(&receipt.body).unwrap();
+    assert_eq!(receipt["thread_id"], "$root");
 }
 
 #[tokio::test(flavor = "multi_thread")]

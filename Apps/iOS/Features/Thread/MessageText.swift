@@ -38,6 +38,7 @@ struct MessageText: TextMeasuring, Sendable {
         case .postTitle: postTitle
         case .postText: postText
         case .postMore: postMore
+        case .thread: quote
         }
     }
 
@@ -51,7 +52,7 @@ struct MessageText: TextMeasuring, Sendable {
         // a post's title, two.
         let height = switch role {
         case .quote, .postTitle: min(rect.height, font.lineHeight * 2)
-        case .fileName, .reply: ceil(font.lineHeight)
+        case .fileName, .reply, .thread: ceil(font.lineHeight)
         default: rect.height
         }
         return CGSize(width: ceil(rect.width), height: ceil(height))

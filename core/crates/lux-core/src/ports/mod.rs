@@ -31,8 +31,8 @@ mod timeline;
 pub use account::{ChatAccount, DiffStream, Diffs};
 pub use bridges::{Bridges, StepAnswer};
 pub use details::{
-    ChatDetails, Member, NotificationMode, Role, RoomDetails, RoomPermissions, SharedContent, SharedItem, SharedKind,
-    SharedPage,
+    ChatDetails, ListedThread, Member, NotificationMode, Role, RoomDetails, RoomPermissions, SharedContent, SharedItem,
+    SharedKind, SharedPage, ThreadPage,
 };
 pub use error::{BackendError, Cause, NetworkFailure, UnusableStore};
 pub use organizing::{ChatActions, ChatChange, Organizing, SavedMessages, Scheduling, Spaces, ValueStream};

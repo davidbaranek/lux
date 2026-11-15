@@ -27,7 +27,7 @@ pub use decide::{ComposerMode, ReadReceipts, ReplyTarget};
 pub use rows::{RowShows, ThreadRow};
 
 use crate::chat::ChatRoom;
-use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId};
+use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::ports::{BackendError, ThreadBackend};
 use crate::timeline::Typist;
 
@@ -47,6 +47,9 @@ pub struct ThreadSpec {
     pub read_receipts: ReadReceipts,
     /// The days of the separators are this zone's.
     pub zone: TimeZone,
+    /// The Matrix thread it shows, by its root message (in the one room of `rooms`), its
+    /// replies and what the composer sends going there; `None`: the chat's own timeline.
+    pub thread: Option<EventId>,
 }
 
 /// What the thread shows besides its rows; sent whole when any of it changes.
@@ -99,6 +102,19 @@ pub struct Upload {
     pub caption: Option<String>,
     /// The message the first one answers.
     pub reply: Option<MessageRef>,
+    /// The Matrix thread they go to, by its root: the thread shown.
+    pub thread: Option<EventId>,
+}
+
+impl Upload {
+    /// The timeline the files go to.
+    #[must_use]
+    pub fn timeline(&self) -> TimelineId {
+        TimelineId {
+            room: self.room.clone(),
+            thread: self.thread.clone(),
+        }
+    }
 }
 
 /// Hears a thread, from the task that owns it.

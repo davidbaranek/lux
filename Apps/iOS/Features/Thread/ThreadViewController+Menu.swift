@@ -41,7 +41,7 @@ extension ThreadViewController {
             }
             children.append(UIMenu(options: [.displayInline, .displayAsPalette], children: reactions + [more]))
         }
-        let actions = MessageAction.available(for: message).map { action in
+        let actions = MessageAction.available(for: message, inThread: model.thread != nil).map { action in
             UIAction(title: action.title, image: UIImage(systemName: action.symbol), attributes: action.isDestructive ? .destructive : []) {
                 [weak self] _ in self?.perform(action, on: message)
             }
@@ -54,6 +54,7 @@ extension ThreadViewController {
     private func perform(_ action: MessageAction, on message: MessageItem) {
         switch action {
         case .reply: model.reply(to: message)
+        case .replyInThread: openThread(of: message)
         case .edit: model.edit(message)
         case .copy: UIPasteboard.general.string = message.body
         case .copyLink: UIPasteboard.general.string = message.shared?.url

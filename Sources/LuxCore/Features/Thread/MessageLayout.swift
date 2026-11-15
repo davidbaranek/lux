@@ -13,6 +13,8 @@ public enum TextRole: Sendable {
     case fileName
     /// A shared post's card: its title (at most two lines), its caption, and "Show more".
     case postTitle, postText, postMore
+    /// Under a Matrix thread's root: "3 replies · Anna: see you there", on one line.
+    case thread
 }
 
 /// Measures text the way the platform will draw it. Called off the main thread.
@@ -78,6 +80,15 @@ public struct BubbleMetrics: Sendable, Equatable {
     /// picture up to it.
     public var replyAvatarSide: CGFloat = 16
     public var replyGap: CGFloat = 4
+    /// Under a Matrix thread's root: who replied (their pictures overlapping, at most
+    /// `threadAvatars`), how many and the last reply, in a rounded box; a dot when some are unread.
+    public var threadAvatarSide: CGFloat = 20
+    public var threadAvatarStep: CGFloat = 14
+    public var threadAvatars = 3
+    public var threadPaddingX: CGFloat = 8
+    public var threadPaddingY: CGFloat = 5
+    public var threadGap: CGFloat = 6
+    public var threadDot: CGFloat = 8
 
     public init() {}
 }
@@ -138,6 +149,12 @@ public struct MessageLayout: Sendable, Equatable {
     public var unreadMarker: CGRect?
     /// "Read by Anna, Petr" under the message the others last read.
     public var readers: CGRect?
+    /// Under a Matrix thread's root, in the row's coordinates: its summary's box (a tap opens the
+    /// thread); inside it, in the box's, the participants' pictures, the text, the unread dot.
+    public var thread: CGRect?
+    public var threadAvatars: [CGRect] = []
+    public var threadText: CGRect?
+    public var threadDot: CGRect?
     /// "WhatsApp · Today 14:32" under a message the user tapped.
     public var detail: CGRect?
 
@@ -298,6 +315,11 @@ public struct MessageLayout: Sendable, Equatable {
                 top += height
             }
         }
+        if let summary = message.thread, let text = message.threadText {
+            top += m.outerSpacing + 2
+            placeThread(summary, text: text, top: top, maxWidth: maxWidth, metrics: m, measure: measure, x: x)
+            top += thread?.height ?? 0
+        }
         if let text = message.detailText {
             let size = measure.size(of: text, role: .footer, width: maxWidth)
             top += m.outerSpacing
@@ -311,6 +333,30 @@ public struct MessageLayout: Sendable, Equatable {
             top += size.height
         }
         return top
+    }
+
+    /// A Matrix thread's summary box at `top`: the last repliers' pictures overlapping, the text on
+    /// one line, the unread dot, each in the box's coordinates.
+    private mutating func placeThread(_ summary: MessageItem.ThreadSummary, text: String, top: CGFloat, maxWidth: CGFloat,
+                                      metrics m: BubbleMetrics, measure: some TextMeasuring, x: (CGFloat) -> CGFloat) {
+        let pictures = min(summary.participants.count, m.threadAvatars)
+        let picturesWidth = pictures == 0 ? 0 : m.threadAvatarSide + CGFloat(pictures - 1) * m.threadAvatarStep + m.threadGap
+        let dotWidth = summary.unread > 0 ? m.threadGap + m.threadDot : 0
+        let maxText = max(maxWidth - 2 * m.threadPaddingX - picturesWidth - dotWidth, 1)
+        let size = measure.size(of: text, role: .thread, width: maxText)
+        let inner = max(m.threadAvatarSide, size.height)
+        let box = CGSize(width: ceil(2 * m.threadPaddingX + picturesWidth + min(size.width, maxText) + dotWidth),
+                         height: ceil(inner + 2 * m.threadPaddingY))
+        thread = CGRect(x: x(box.width), y: top, width: box.width, height: box.height)
+        threadAvatars = (0..<pictures).map { index in
+            CGRect(x: m.threadPaddingX + CGFloat(index) * m.threadAvatarStep, y: (box.height - m.threadAvatarSide) / 2,
+                   width: m.threadAvatarSide, height: m.threadAvatarSide)
+        }
+        let textX = m.threadPaddingX + picturesWidth
+        threadText = CGRect(x: textX, y: (box.height - size.height) / 2, width: min(size.width, maxText), height: size.height)
+        threadDot = summary.unread > 0
+            ? CGRect(x: textX + min(size.width, maxText) + m.threadGap, y: (box.height - m.threadDot) / 2, width: m.threadDot, height: m.threadDot)
+            : nil
     }
 
     /// A bubble, one's own at the trailing side, others' at the leading side under their name.
@@ -488,6 +534,9 @@ extension MessageItem {
     /// A video's length on its picture ("1:05"); nil for a photo.
     public var durationText: String? { video.map { TimeText.duration($0.duration) } }
 
+    /// Under a Matrix thread's root: its summary's words; nil for a message that starts no thread.
+    public var threadText: String? { thread?.text }
+
     public var reactionsText: String? {
         reactions.isEmpty ? nil : reactions.map(Self.chipText).joined(separator: "  ")
     }
@@ -495,6 +544,27 @@ extension MessageItem {
     /// A reaction's chip: its key, and how many gave it when more than one ("👍 3", "join thread").
     public static func chipText(_ reaction: Reaction) -> String {
         reaction.count > 1 ? "\(reaction.key) \(reaction.count)" : reaction.key
+    }
+}
+
+extension MessageItem.ThreadSummary {
+    /// How many replied ("3 replies"), then the last reply ("Anna: see you there").
+    public var text: String { latestReplyText.map { countText + " · " + $0 } ?? countText }
+
+    /// "1 reply", "3 replies"; "Thread" while none is known.
+    public var countText: String {
+        switch replies {
+        case 0: String(localized: "Thread")
+        case 1: String(localized: "1 reply")
+        default: String(localized: "\(replies) replies")
+        }
+    }
+
+    /// The last reply, by its sender's first name: "Anna: see you there".
+    public var latestReplyText: String? {
+        guard let latestSender, let latestText else { return nil }
+        let first = latestSender.split(separator: " ").first.map(String.init) ?? latestSender
+        return first + ": " + latestText
     }
 }
 

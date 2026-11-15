@@ -1,6 +1,7 @@
 //! The chats' timelines over `matrix-sdk-ui`'s [`Timeline`](matrix_sdk_ui::Timeline): one live
-//! timeline per room opened, its items mapped to the core's messages by one task each; those
-//! held and the few used last stay open ([`opened`]).
+//! timeline per room or Matrix thread opened, its items mapped to the core's messages by one task
+//! each; those held and the few used last stay open ([`opened`]). A room's own timeline hides its
+//! threads' replies; each root carries its thread's summary.
 //!
 //! [`MatrixTimelines`] implements the ports [`ChatTimelines`], [`ChatSending`] and
 //! [`ChatMedia`](lux_core::ports::ChatMedia).
@@ -14,20 +15,21 @@ mod previews;
 mod room;
 pub(crate) mod send;
 pub(crate) mod shared;
+pub(crate) mod threads;
 
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use futures_util::stream;
-use lux_core::ids::{EventId, MessageId, RoomId};
+use lux_core::ids::{EventId, MessageId, RoomId, TimelineId};
 use lux_core::organizer::Organized;
 use lux_core::ports::{BackendError, ChatTimelines, DiffStream, RoomChanges, TimelineHold, TypingStream};
 use lux_core::timeline::{IndexHistory, TimelineMessage};
-use matrix_sdk::ruma::OwnedRoomId;
+use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
 use matrix_sdk::{Client, Room};
 use tokio::sync::{broadcast, watch};
 
-use self::opened::Opened;
+use self::opened::{Key, Opened};
 use self::previews::LinkPreviews;
 use self::room::RoomTimeline;
 
@@ -72,10 +74,9 @@ impl MatrixTimelines {
         self
     }
 
-    /// The room's timeline, if it is open.
-    pub(crate) async fn opened(&self, room: &RoomId) -> Option<Arc<RoomTimeline>> {
-        let id = OwnedRoomId::try_from(room.as_str()).ok()?;
-        self.opened.timeline(id).await
+    /// The timeline, if it is open.
+    pub(crate) async fn opened(&self, timeline: &TimelineId) -> Option<Arc<RoomTimeline>> {
+        self.opened.timeline(key(timeline).ok()?).await
     }
 
     /// The joined room `room`.
@@ -83,23 +84,61 @@ impl MatrixTimelines {
         crate::convert::room(&self.client, room)
     }
 
-    /// The room's live timeline, opened the first time.
-    async fn open(&self, room: &RoomId) -> Result<Arc<RoomTimeline>, BackendError> {
-        let sdk_room = self.room(room)?;
-        let cell = self
-            .opened
-            .use_room(sdk_room.room_id().to_owned())
-            .await
-            .ok_or(BackendError::SignedOut)?;
+    /// The live timeline, opened the first time.
+    async fn open(&self, timeline: &TimelineId) -> Result<Arc<RoomTimeline>, BackendError> {
+        let sdk_room = self.room(&timeline.room)?;
+        let key = key(timeline)?;
+        let thread = key.thread.clone();
+        let cell = self.opened.use_room(key).await.ok_or(BackendError::SignedOut)?;
         let (changes, cuts, previews) = (self.changes.clone(), self.cuts.clone(), self.previews.clone());
+        // opening builds the SDK's timeline, a large future: on the heap, not in each caller's.
         cell.get_or_try_init(|| async move {
-            RoomTimeline::open(sdk_room, changes, cuts, previews)
+            Box::pin(RoomTimeline::open(sdk_room, thread, changes, cuts, previews))
                 .await
                 .map(Arc::new)
         })
         .await
         .cloned()
     }
+
+    /// One page of the room's Matrix threads from `from`, the latest active first (the chat's
+    /// details list them).
+    ///
+    /// # Errors
+    /// When the room is not the account's, or the server does not answer.
+    pub async fn threads(
+        &self,
+        room: &RoomId,
+        from: Option<&str>,
+    ) -> Result<lux_core::ports::ThreadPage, BackendError> {
+        threads::page(&self.room(room)?, from).await
+    }
+
+    /// The open timeline of `room` that shows `message` (its own, or a thread's: a message's id is
+    /// unique among all timelines); the room's own, opened, when none does.
+    pub(crate) async fn holding(&self, room: &RoomId, message: &MessageId) -> Result<Arc<RoomTimeline>, BackendError> {
+        let id = OwnedRoomId::try_from(room.as_str())
+            .map_err(|_| BackendError::UnknownChat(lux_core::ids::ChatId::Room(room.clone())))?;
+        for timeline in self.opened.of_room(id).await {
+            if timeline.item(message).await.is_some() {
+                return Ok(timeline);
+            }
+        }
+        self.open(&TimelineId::from(room)).await
+    }
+}
+
+/// The SDK's ids of a timeline.
+fn key(timeline: &TimelineId) -> Result<Key, BackendError> {
+    let room = OwnedRoomId::try_from(timeline.room.as_str())
+        .map_err(|_| BackendError::UnknownChat(lux_core::ids::ChatId::Room(timeline.room.clone())))?;
+    let thread = match &timeline.thread {
+        Some(started_by) => {
+            Some(OwnedEventId::try_from(started_by.as_str()).map_err(|_| BackendError::UnknownMessage)?)
+        }
+        None => None,
+    };
+    Ok(Key { room, thread })
 }
 
 impl ChatTimelines for MatrixTimelines {
@@ -116,46 +155,45 @@ impl ChatTimelines for MatrixTimelines {
         }))
     }
 
-    fn hold(&self, room: &RoomId) -> TimelineHold {
-        match OwnedRoomId::try_from(room.as_str()) {
-            Ok(id) => self.opened.hold(id),
-            // no room has that id: nothing to keep open.
+    fn hold(&self, timeline: &TimelineId) -> TimelineHold {
+        match key(timeline) {
+            Ok(key) => self.opened.hold(key),
+            // no room or event has that id: nothing to keep open.
             Err(_) => TimelineHold::new(|| {}),
         }
     }
 
-    async fn messages(&self, room: &RoomId) -> Result<DiffStream<Arc<TimelineMessage>>, BackendError> {
-        Ok(self.open(room).await?.list().subscribe())
+    async fn messages(&self, timeline: &TimelineId) -> Result<DiffStream<Arc<TimelineMessage>>, BackendError> {
+        Ok(self.open(timeline).await?.list().subscribe())
     }
 
-    async fn prefetch(&self, room: &RoomId) -> Result<(), BackendError> {
-        self.open(room).await.map(drop)
+    async fn prefetch(&self, timeline: &TimelineId) -> Result<(), BackendError> {
+        self.open(timeline).await.map(drop)
     }
 
-    async fn wait_until_filled(&self, room: &RoomId) {
-        if let Ok(timeline) = self.open(room).await {
+    async fn wait_until_filled(&self, timeline: &TimelineId) {
+        if let Ok(timeline) = self.open(timeline).await {
             timeline.wait_until_filled().await;
         }
     }
 
-    async fn load_older(&self, room: &RoomId, count: usize) -> Result<(), BackendError> {
-        self.open(room).await?.load_older(count).await
+    async fn load_older(&self, timeline: &TimelineId, count: usize) -> Result<(), BackendError> {
+        self.open(timeline).await?.load_older(count).await
     }
 
-    async fn is_at_start(&self, room: &RoomId) -> Result<bool, BackendError> {
-        let timeline = self.open(room).await?;
+    async fn is_at_start(&self, timeline: &TimelineId) -> Result<bool, BackendError> {
+        let timeline = self.open(timeline).await?;
         timeline.wait_until_filled().await;
         Ok(timeline.is_at_start())
     }
 
-    async fn show_event(&self, room: &RoomId, event: &EventId) -> Result<Option<MessageId>, BackendError> {
-        let event =
-            matrix_sdk::ruma::OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;
-        self.open(room).await?.show_event(&event).await
+    async fn show_event(&self, timeline: &TimelineId, event: &EventId) -> Result<Option<MessageId>, BackendError> {
+        let event = OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;
+        self.open(timeline).await?.show_event(&event).await
     }
 
-    async fn first_unread(&self, room: &RoomId) -> Result<Option<MessageId>, BackendError> {
-        self.open(room).await?.first_unread().await
+    async fn first_unread(&self, timeline: &TimelineId) -> Result<Option<MessageId>, BackendError> {
+        self.open(timeline).await?.first_unread().await
     }
 
     async fn index_history(

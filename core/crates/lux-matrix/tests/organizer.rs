@@ -288,7 +288,7 @@ async fn a_deleted_chat_leaves_the_list_and_its_thread_is_cut() {
     let folder = tempfile::tempdir().unwrap();
     let account = sign_in(&server, &folder).await;
     list_until(&account, |list| listed(list, ROOM)).await;
-    let mut thread = account.timelines().messages(&RoomId::from(ROOM)).await.unwrap();
+    let mut thread = account.timelines().messages(&RoomId::from(ROOM).into()).await.unwrap();
     let mut messages = eyeball_im::Vector::new();
     let says_hello = |messages: &eyeball_im::Vector<Arc<TimelineMessage>>| {
         messages.iter().any(|message| message.message.body == "hello")

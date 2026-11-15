@@ -168,7 +168,8 @@ async fn candidate(
         },
         mapping::event_kind(&event).unwrap_or(PreviewKind::Other),
         is_noisy,
-    );
+    )
+    .in_thread(mapping::thread_root(&event));
     Some(Candidate {
         notification,
         sent,

@@ -9,8 +9,10 @@ import Foundation
 public final class ThreadModel {
     /// The chat's id in the list (a merged chat's is no room's).
     public let chatId: String
-    /// Every room of the chat: one, or a merged chat's.
+    /// Every room of the chat: one, or a merged chat's (a Matrix thread's: its one room).
     public let rooms: [ChatRoom]
+    /// The Matrix thread shown, its root first; nil: the chat's own timeline.
+    public let thread: MatrixThread?
     /// The one room shown alone, or nil: all the rooms together.
     public private(set) var shownRoom: String?
     public var onShownRoom: ((String?) -> Void)?
@@ -52,17 +54,19 @@ public final class ThreadModel {
     private var olderAsked = false
     private var olderAllowed = false
 
-    public init(session: Session, row: ChatRow) {
+    /// The chat of `row`, or its Matrix thread `thread`.
+    public init(session: Session, row: ChatRow, thread: MatrixThread? = nil) {
         chatId = row.id
-        rooms = row.chatRooms
-        defaultRoom = row.defaultRoom ?? row.chatRooms[0].id
+        self.thread = thread
+        rooms = thread.map { thread in row.chatRooms.filter { $0.id == thread.roomId } } ?? row.chatRooms
+        defaultRoom = thread?.roomId ?? row.defaultRoom ?? row.chatRooms[0].id
         sendRoom = defaultRoom
         self.session = session
         account = session.account
         let receipts = Preferences.shared.readReceipts(in: row.id)
         opening = Task { [weak self, account] in
             do {
-                let core = try await account.value.openThread(row: row, readReceipts: receipts)
+                let core = try await account.value.openThread(row: row, thread: thread, readReceipts: receipts)
                 self?.opened(core)
                 return core
             } catch {
@@ -103,8 +107,8 @@ public final class ThreadModel {
     private func handle(_ event: ThreadCore.Event) {
         switch event {
         case .update(let batch): apply(batch)
-        case .upload(let files, let roomId, let caption, let replyTo):
-            session?.uploads?.send(files, to: roomId, caption: caption, replyTo: replyTo)
+        case .upload(let files, let roomId, let threadRoot, let caption, let replyTo):
+            session?.uploads?.send(files, to: roomId, threadRoot: threadRoot, caption: caption, replyTo: replyTo)
         case .failed(let failure): onError?(failure)
         }
     }
@@ -315,8 +319,8 @@ public final class ThreadModel {
     /// go first, the text as their caption. A new message goes `via` that room, if given (holding
     /// Send), else to `sendRoom`.
     public func send(_ text: String, via room: String? = nil) {
-        // sending clears the chat's kept draft.
-        if canSend(text) { Preferences.shared.setHasDraft(false, in: chatId) }
+        // sending clears the chat's kept draft (a Matrix thread's is its own).
+        if canSend(text), thread == nil { Preferences.shared.setHasDraft(false, in: chatId) }
         withCore { $0.send(text, via: room) }
     }
 
@@ -330,7 +334,10 @@ public final class ThreadModel {
         if case .edit = mode { return }
         var hasReply = false
         if case .reply = mode { hasReply = true }
-        Preferences.shared.setHasDraft(!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasReply, in: chatId)
+        // the chat list says "Draft" of the chat's own composer, not a thread's.
+        if thread == nil {
+            Preferences.shared.setHasDraft(!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasReply, in: chatId)
+        }
         withCore { $0.saveDraft(text) }
     }
 

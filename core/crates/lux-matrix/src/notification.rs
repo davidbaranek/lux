@@ -204,6 +204,7 @@ fn notification(
         // the server pushed it, so a rule notifies: without its actions, it sounds.
         item.is_noisy.unwrap_or(true),
     )
+    .in_thread(item.thread_id.as_ref().map(|root| EventId::from(root.as_str())))
     .arrived(sent, SystemTime::now())
 }
 
@@ -287,6 +288,20 @@ mod tests {
             Some("mxc://example.org/anna")
         );
         assert_eq!(notification.chat, ChatId::from("!room:example.org"));
+    }
+
+    #[test]
+    fn a_threads_reply_opens_its_thread() {
+        let raw = message(&json!({
+            "msgtype": "m.text",
+            "body": "count me in",
+            "m.relates_to": { "rel_type": "m.thread", "event_id": "$root" },
+        }));
+        let mut threaded = item(raw, false, 5);
+        threaded.thread_id = Some(matrix_sdk::ruma::owned_event_id!("$root"));
+        assert_eq!(read(&threaded, None).thread, Some(EventId::from("$root")));
+        let plain = item(message(&json!({ "msgtype": "m.text", "body": "hi" })), false, 5);
+        assert_eq!(read(&plain, None).thread, None);
     }
 
     #[test]

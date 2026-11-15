@@ -241,6 +241,10 @@ mod tests {
             Ok(Vec::new())
         }
 
+        async fn threads(&self, _room: &RoomId, _from: Option<&str>) -> Result<crate::ports::ThreadPage, BackendError> {
+            Ok(crate::ports::ThreadPage::default())
+        }
+
         async fn shared(&self, room: &RoomId, from: Option<&str>) -> Result<SharedPage, BackendError> {
             let all = &self.rooms[room];
             let start: usize = from.map_or(0, |from| from.parse().unwrap());

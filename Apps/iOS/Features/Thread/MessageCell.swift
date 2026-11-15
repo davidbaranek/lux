@@ -32,6 +32,8 @@ final class MessageCell: UICollectionViewCell {
     /// One chip per reaction, made as a message needs them and kept for the next.
     private var reactionChips: [UILabel] = []
     private let readers = UILabel()
+    /// Under a Matrix thread's root: its summary, which opens the thread.
+    private let thread = ThreadSummaryView()
     private let detail = UILabel()
     private let avatar = AvatarView()
     /// A red mark beside a message that did not go out (as Messages shows one).
@@ -63,6 +65,8 @@ final class MessageCell: UICollectionViewCell {
     /// The photo, the video, the file or an album's tile (its index) was tapped: it opens,
     /// growing from this view.
     var onMediaTap: ((UIView, Int) -> Void)?
+    /// The thread's summary under a root was tapped: the thread opens.
+    var onThreadTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -108,9 +112,10 @@ final class MessageCell: UICollectionViewCell {
         replyLine.isUserInteractionEnabled = true
         replyLine.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(quoteTapped)))
         replyAvatar.side = BubbleMetrics().replyAvatarSide
-        for view in [band, day, unreadMarker, avatar, sender, time, replyLink, replyAvatar, replyLine, bubble, readers, detail, failed] {
+        for view in [band, day, unreadMarker, avatar, sender, time, replyLink, replyAvatar, replyLine, bubble, thread, readers, detail, failed] {
             contentView.addSubview(view)
         }
+        thread.onTap = { [weak self] in self?.onThreadTap?() }
         bubble.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bubbleTapped)))
         band.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bandTapped)))
         replyArrow.preferredSymbolConfiguration = Self.arrowStyle(armed: false)
@@ -272,6 +277,11 @@ final class MessageCell: UICollectionViewCell {
         placeReactions(message, layout: layout, text: text)
         place(readers, layout.readers, message.readersText(inGroup: isGroup), text.footer)
         place(detail, layout.detail, message.detailText, text.footer)
+        thread.isHidden = layout.thread == nil
+        if let frame = layout.thread {
+            thread.frame = frame
+            thread.show(message, layout: layout, font: text.quote, images: images)
+        }
 
         avatar.isHidden = layout.avatar == nil
         if let frame = layout.avatar {
@@ -313,7 +323,8 @@ final class MessageCell: UICollectionViewCell {
                               message.album.count > 1 ? String(localized: "\(message.album.count) photos")
                                 : message.video != nil ? String(localized: "Video") : message.photo == nil ? nil : String(localized: "Photo"),
                               message.file.map { "\($0.name), \($0.detailText)" }, message.postCard?.title, message.postCard?.description,
-                              message.body, message.footerText, message.reactionsText, message.readersText(inGroup: isGroup)]
+                              message.body, message.footerText, message.reactionsText, message.threadText,
+                              message.readersText(inGroup: isGroup)]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
     }
 

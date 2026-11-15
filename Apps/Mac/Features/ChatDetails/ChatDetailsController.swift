@@ -1,10 +1,11 @@
 import AppKit
 import LuxCore
 
-/// A chat's details, in a popover from its title in the toolbar, as Messages shows a
-/// conversation's: its picture, name and topic, its networks (a merged chat's rooms), its
+/// A chat's details, in the window's inspector beside the chat (its title in the toolbar, or the
+/// info button, opens and closes it): its picture, name and topic, its networks (a merged chat's rooms), its
 /// notifications and encryption, marking it read and leaving it; under them its members and what
-/// it shared, one at a time. Edit… (for who may) changes its name, topic and picture.
+/// it shared and its Matrix threads, one at a time. Edit… (for who may) changes its name, topic and
+/// picture.
 final class ChatDetailsController: NSViewController {
     private let session: Session
     private let model: ChatDetailsModel
@@ -13,6 +14,8 @@ final class ChatDetailsController: NSViewController {
     var onChange: ((ChatRow) -> Void)?
     /// The chat was left: the window shows no chat.
     var onLeave: (() -> Void)?
+    /// A thread was picked from the chat's threads: it opens beside the chat.
+    var onOpenThread: ((MatrixThread) -> Void)?
 
     private let avatar = AvatarView(side: 72)
     private let name = NSTextField(labelWithString: "")
@@ -36,10 +39,17 @@ final class ChatDetailsController: NSViewController {
     private enum Tab: Equatable {
         /// A group room's, by its id and network.
         case members(String, network: String)
+        case threads
         case shared(SharedKind)
     }
 
-    private static let width: CGFloat = 360
+    /// Between the chat's settings and its members, threads and shared items.
+    private let separatorLine: NSBox = {
+        let line = NSBox()
+        line.boxType = .separator
+        line.translatesAutoresizingMaskIntoConstraints = false
+        return line
+    }()
 
     init(session: Session, row: ChatRow) {
         self.session = session
@@ -56,7 +66,6 @@ final class ChatDetailsController: NSViewController {
         subtitle.textColor = .secondaryLabelColor
         subtitle.alignment = .center
         topic.alignment = .center
-        topic.preferredMaxLayoutWidth = Self.width - 40
         topic.isSelectable = true
         edit.controlSize = .small
         edit.bezelStyle = .push
@@ -110,22 +119,27 @@ final class ChatDetailsController: NSViewController {
         tabs.action = #selector(chooseTab)
         pane.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [header, grid, actions, separator(), tabs, pane])
+        let stack = NSStackView(views: [header, grid, actions, separatorLine, tabs, pane])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 18, left: 16, bottom: 12, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
+        // the members, threads or shared items take what is left of the inspector's height.
+        stack.setHuggingPriority(.defaultLow, for: .vertical)
+        pane.setContentHuggingPriority(.defaultLow, for: .vertical)
         let container = NSView()
         container.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            // under the window's toolbar, which spans the inspector too.
+            stack.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            container.widthAnchor.constraint(equalToConstant: Self.width),
+            topic.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -40),
+            separatorLine.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
             pane.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
-            pane.heightAnchor.constraint(equalToConstant: 240),
+            pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
         ])
         view = container
         observation = model.changes.observe { [weak self] in self?.update() }
@@ -141,13 +155,6 @@ final class ChatDetailsController: NSViewController {
         return label
     }
 
-    private func separator() -> NSView {
-        let line = NSBox()
-        line.boxType = .separator
-        line.translatesAutoresizingMaskIntoConstraints = false
-        line.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
-        return line
-    }
 
     private func update() {
         let row = model.row
@@ -198,7 +205,7 @@ final class ChatDetailsController: NSViewController {
         // once the rooms are known: a group opens on its members.
         guard let info = model.info else { return }
         let groups = info.rooms.filter { !$0.isDirect }
-        let kinds = groups.map { Tab.members($0.id, network: $0.network) } + SharedKind.allCases.map(Tab.shared)
+        let kinds = groups.map { Tab.members($0.id, network: $0.network) } + [.threads] + SharedKind.allCases.map(Tab.shared)
         guard kinds != tabKinds else { return }
         let selected = tabs.selectedSegment >= 0 ? tabKinds[safe: tabs.selectedSegment] : nil
         tabKinds = kinds
@@ -207,6 +214,8 @@ final class ChatDetailsController: NSViewController {
             switch kind {
             case .members(_, let network):
                 tabs.setLabel(groups.count > 1 ? Networks.name(network) : String(localized: "Members"), forSegment: index)
+            case .threads:
+                tabs.setLabel(String(localized: "Threads"), forSegment: index)
             case .shared(let kind):
                 tabs.setLabel(kind.title, forSegment: index)
             }
@@ -221,6 +230,10 @@ final class ChatDetailsController: NSViewController {
         case .members(let id, _):
             guard let room = model.info?.rooms.first(where: { $0.id == id }) else { return }
             controller = MembersPane(model: model.members(of: room), images: session.images)
+        case .threads:
+            let threads = ThreadsPane(model: model.threads(), images: session.images)
+            threads.onOpen = { [weak self] thread in self?.onOpenThread?(thread) }
+            controller = threads
         case .shared(let kind):
             controller = SharedPane(model: model.shared(kind), images: session.images)
         case nil:

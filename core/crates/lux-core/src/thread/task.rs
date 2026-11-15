@@ -23,7 +23,7 @@ use super::{DraftIntent, Intent, MessageAction, ThreadListener, ThreadSpec, Thre
 use crate::FRAME;
 use crate::actions::Actions;
 use crate::diff;
-use crate::ids::{EventId, MessageId, MessageRef, RoomId};
+use crate::ids::{EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::merge;
 use crate::ports::{BackendError, ChatSending, ChatTimelines, Diffs, ThreadBackend, TimelineHold};
 use crate::timeline::{Draft, Receipt, TimelineMessage, Typist};
@@ -117,6 +117,8 @@ struct Thread<B> {
     listener: Arc<dyn ThreadListener>,
     events: mpsc::UnboundedSender<Event>,
     default_room: RoomId,
+    /// The Matrix thread shown, by its root; `None`: the chat's own timelines.
+    root: Option<EventId>,
     listed_unread: bool,
     receipts: ReadReceipts,
     zone: TimeZone,
@@ -171,8 +173,8 @@ enum Target {
     Message(MessageId),
     /// The messages sent to a room, in the order written.
     Sends(RoomId),
-    /// A room's kept draft.
-    Draft(RoomId),
+    /// A timeline's kept draft.
+    Draft(TimelineId),
     /// The typing notices to a room: a stop must not overtake its start.
     Typing(RoomId),
 }
@@ -197,6 +199,7 @@ impl<B: ThreadBackend> Thread<B> {
             events,
             send_room: spec.default_room.clone(),
             default_room: spec.default_room,
+            root: spec.thread,
             listed_unread: spec.listed_unread,
             receipts: spec.read_receipts,
             zone: spec.zone,
@@ -238,17 +241,17 @@ impl<B: ThreadBackend> Thread<B> {
     /// Holds the rooms' timelines, follows their messages, and asks for their first unread
     /// messages and their opening fill.
     fn open(&mut self) {
-        let ids: Vec<RoomId> = self.rooms.iter().map(|room| room.room.id.clone()).collect();
+        let ids: Vec<TimelineId> = self.rooms.iter().map(|room| self.timeline(&room.room.id)).collect();
         for (index, id) in ids.iter().enumerate() {
             self.holds.push(self.backend.timelines().hold(id));
-            let (backend, events, listener, room) = (
+            let (backend, events, listener, timeline) = (
                 Arc::clone(&self.backend),
                 self.events.clone(),
                 Arc::clone(&self.listener),
                 id.clone(),
             );
             self.followers.spawn(async move {
-                match backend.timelines().messages(&room).await {
+                match backend.timelines().messages(&timeline).await {
                     Ok(mut batches) => {
                         while let Some(batch) = batches.next().await {
                             if events.send(Event::Diffs(index, batch)).is_err() {
@@ -578,14 +581,14 @@ impl<B: ThreadBackend> Thread<B> {
     fn draft(&mut self, intent: DraftIntent) {
         match intent {
             DraftIntent::Load(answer) => {
-                let (backend, events, listener, room) = (
+                let (backend, events, listener, timeline) = (
                     Arc::clone(&self.backend),
                     self.events.clone(),
                     Arc::clone(&self.listener),
-                    self.default_room.clone(),
+                    self.timeline(&self.default_room),
                 );
                 self.followers.spawn(async move {
-                    let draft = backend.timelines().draft(&room).await.unwrap_or_else(|error| {
+                    let draft = backend.timelines().draft(&timeline).await.unwrap_or_else(|error| {
                         listener.on_error(error);
                         None
                     });
@@ -597,13 +600,13 @@ impl<B: ThreadBackend> Thread<B> {
                 if matches!(self.mode, ComposerMode::Edit { .. }) {
                     return;
                 }
-                let (reply, room, text) = (
+                let (reply, timeline, text) = (
                     self.mode.reply().cloned(),
-                    self.default_room.clone(),
+                    self.timeline(&self.default_room),
                     text.trim().to_owned(),
                 );
-                self.act(Target::Draft(room.clone()), move |backend| async move {
-                    backend.timelines().save_draft(&room, &text, reply.as_ref()).await
+                self.act(Target::Draft(timeline.clone()), move |backend| async move {
+                    backend.timelines().save_draft(&timeline, &text, reply.as_ref()).await
                 });
             }
         }
@@ -655,6 +658,7 @@ impl<B: ThreadBackend> Thread<B> {
         }
         let shown: Vec<usize> = self.shown_rooms().collect();
         for index in shown {
+            let timeline = self.timeline(&self.rooms[index].room.id);
             let room = &mut self.rooms[index];
             room.older_due = OLDER;
             let missing = OLDER.saturating_sub(room.held_before());
@@ -667,7 +671,7 @@ impl<B: ThreadBackend> Thread<B> {
                 Arc::clone(&self.backend),
                 self.events.clone(),
                 Arc::clone(&self.listener),
-                room.room.id.clone(),
+                timeline,
             );
             self.followers.spawn(async move {
                 let timelines = backend.timelines();
@@ -715,9 +719,9 @@ impl<B: ThreadBackend> Thread<B> {
         }
         self.jumping += 1;
         self.dirty.state = true;
-        let ids: Vec<(usize, RoomId)> = rooms
+        let ids: Vec<(usize, TimelineId)> = rooms
             .into_iter()
-            .map(|index| (index, self.rooms[index].room.id.clone()))
+            .map(|index| (index, self.timeline(&self.rooms[index].room.id)))
             .collect();
         let (backend, events, listener) = (
             Arc::clone(&self.backend),
@@ -783,6 +787,7 @@ impl<B: ThreadBackend> Thread<B> {
                 room,
                 caption: (!text.is_empty()).then(|| text.to_owned()),
                 reply,
+                thread: self.root.clone(),
             };
             self.listener.on_upload(upload);
             return;
@@ -797,14 +802,19 @@ impl<B: ThreadBackend> Thread<B> {
         match mode {
             ComposerMode::Message => {
                 let room = via.unwrap_or_else(|| self.send_room.clone());
-                self.act(Target::Sends(room.clone()), move |backend| async move {
-                    backend.timelines().send_text(&room, &text, None).await
+                let timeline = self.timeline(&room);
+                self.act(Target::Sends(room), move |backend| async move {
+                    backend.timelines().send_text(&timeline, &text, None).await
                 });
             }
             ComposerMode::Reply(target) => {
                 let room = self.reply_room(&target.message);
-                self.act(Target::Sends(room.clone()), move |backend| async move {
-                    backend.timelines().send_text(&room, &text, Some(&target.message)).await
+                let timeline = self.timeline(&room);
+                self.act(Target::Sends(room), move |backend| async move {
+                    backend
+                        .timelines()
+                        .send_text(&timeline, &text, Some(&target.message))
+                        .await
                 });
             }
             ComposerMode::Edit { message, original } => {
@@ -860,8 +870,9 @@ impl<B: ThreadBackend> Thread<B> {
         }
         self.dirty.state = true;
         // a newer receipt covers an older one: none waits for another, or for any action.
-        for room in self.rooms.iter().map(|room| room.room.id.clone()) {
-            self.act_now(move |backend| async move { backend.timelines().mark_read(&room, Receipt::Public).await });
+        let timelines: Vec<TimelineId> = self.rooms.iter().map(|room| self.timeline(&room.room.id)).collect();
+        for timeline in timelines {
+            self.act_now(move |backend| async move { backend.timelines().mark_read(&timeline, Receipt::Public).await });
         }
     }
 
@@ -919,6 +930,14 @@ impl<B: ThreadBackend> Thread<B> {
     }
 
     // MARK: helpers
+
+    /// The timeline of `room` the thread shows: the Matrix thread's, or the room's own.
+    fn timeline(&self, room: &RoomId) -> TimelineId {
+        TimelineId {
+            room: room.clone(),
+            thread: self.root.clone(),
+        }
+    }
 
     fn shown_rooms(&self) -> impl Iterator<Item = usize> + use<B> {
         let shown = self.shown;
@@ -985,6 +1004,10 @@ impl<B: ThreadBackend> Thread<B> {
     }
 
     fn refresh_can_send_later(&mut self) {
+        // the server's message sent later goes to the room's own timeline, not a Matrix thread.
+        if self.root.is_some() {
+            return;
+        }
         let (backend, events, room) = (Arc::clone(&self.backend), self.events.clone(), self.send_room.clone());
         self.followers.spawn(async move {
             let can = backend.can_send_later(&room).await;

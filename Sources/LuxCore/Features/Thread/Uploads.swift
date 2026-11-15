@@ -40,9 +40,10 @@ public final class Uploads {
         self.directory = directory
     }
 
-    /// Sends files to a chat, one message each, in order; a reply answers with the first, and
-    /// `caption` goes with the first as its text.
-    public func send(_ urls: [URL], to roomId: String, caption: String? = nil, replyTo: String?) {
+    /// Sends files to a chat (as replies in the Matrix thread of `threadRoot`, if given), one
+    /// message each, in order; a reply answers with the first, and `caption` goes with the first
+    /// as its text.
+    public func send(_ urls: [URL], to roomId: String, threadRoot: String? = nil, caption: String? = nil, replyTo: String?) {
         guard !urls.isEmpty else { return }
         if !isActive {
             files = 0
@@ -65,7 +66,8 @@ public final class Uploads {
                     if let limit, attachment.size > limit { throw AttachmentMaker.Failure.tooLarge(name: attachment.name, limit: limit) }
                     let size = Int64(attachment.size)
                     progress.totalUnitCount += size
-                    let id = try await account.value.send(attachment, roomId: roomId, caption: caption, replyTo: replyTo)
+                    let id = try await account.value.send(attachment, roomId: roomId, threadRoot: threadRoot, caption: caption,
+                                                          replyTo: replyTo)
                     replyTo = nil
                     caption = nil
                     if let id { follow(id, in: roomId, size: size) } else { done(id: nil, size: size, ok: true) }

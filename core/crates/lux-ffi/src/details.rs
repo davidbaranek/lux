@@ -13,10 +13,11 @@ use lux_core::ports::{
 };
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, with_account};
+use crate::chat::CorePreviewKind;
 use crate::chat::path_text;
 use crate::organizing::CoreChatChange;
 use crate::profile::CorePictureFormat;
-use crate::timeline::{CorePicture, picture};
+use crate::timeline::{CoreParticipant, CorePicture, CoreThreadSummary, picture};
 
 /// When a chat's messages notify.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
@@ -164,6 +165,30 @@ impl From<&Member> for CoreMember {
 #[derive(uniffi::Object)]
 pub struct CoreMemberList {
     members: Vec<Member>,
+}
+
+/// A Matrix thread of a room, as the room's list of threads shows it.
+#[derive(uniffi::Record)]
+pub struct CoreListedThread {
+    /// Its root's event: the thread opens by it.
+    pub root_event_id: String,
+    /// Who wrote the root.
+    pub sender: CoreParticipant,
+    /// What the root is.
+    pub kind: CorePreviewKind,
+    /// When the root was sent.
+    pub date: SystemTime,
+    /// Its replies, summed up.
+    pub summary: CoreThreadSummary,
+}
+
+/// One page of a room's Matrix threads.
+#[derive(uniffi::Record)]
+pub struct CoreThreadPage {
+    /// The page's threads, the latest active first.
+    pub threads: Vec<CoreListedThread>,
+    /// Where the next page starts; none after the last.
+    pub next: Option<String>,
 }
 
 #[uniffi::export]
@@ -381,6 +406,33 @@ impl CoreAccount {
             backend: self.backend().clone(),
             history: tokio::sync::Mutex::new(history),
         }))
+    }
+
+    /// One page of the room's Matrix threads from `from` (the latest active first when none).
+    ///
+    /// # Errors
+    /// When the room is not the account's, or the server does not answer.
+    pub async fn room_threads(
+        &self,
+        room_id: String,
+        from: Option<String>,
+    ) -> Result<CoreThreadPage, CoreAccountError> {
+        let room = RoomId::from(room_id);
+        let page = with_account!(self.backend(), account => account.threads(&room, from.as_deref()).await)?;
+        Ok(CoreThreadPage {
+            threads: page
+                .threads
+                .into_iter()
+                .map(|thread| CoreListedThread {
+                    root_event_id: thread.root.to_string(),
+                    sender: thread.sender.into(),
+                    kind: thread.kind.into(),
+                    date: thread.date,
+                    summary: thread.summary.into(),
+                })
+                .collect(),
+            next: page.next,
+        })
     }
 
     /// When the chat's messages notify (each room's, for a merged one).

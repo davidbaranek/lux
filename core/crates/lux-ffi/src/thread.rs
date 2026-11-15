@@ -66,6 +66,9 @@ pub struct CoreThreadOpening {
     pub read_receipts: CoreReadReceipts,
     /// The time zone of its days (an IANA name; the system's if unknown).
     pub time_zone: String,
+    /// The Matrix thread it shows, by its root's event id (in the chat's one room); none: the
+    /// chat's own timeline.
+    pub thread_root: Option<String>,
 }
 
 impl From<CoreThreadOpening> for ThreadSpec {
@@ -84,6 +87,7 @@ impl From<CoreThreadOpening> for ThreadSpec {
             listed_unread: opening.listed_unread,
             read_receipts: opening.read_receipts.into(),
             zone: zone(&opening.time_zone),
+            thread: opening.thread_root.map(EventId::from),
         }
     }
 }
@@ -273,6 +277,8 @@ pub struct CoreUpload {
     pub caption: Option<String>,
     /// The message the first one answers.
     pub reply_to: Option<String>,
+    /// The Matrix thread they go to, by its root's event id.
+    pub thread_root: Option<String>,
 }
 
 // MARK: the listener
@@ -305,6 +311,7 @@ impl ThreadListener for Listener {
             room_id: upload.room.to_string(),
             caption: upload.caption,
             reply_to: upload.reply.map(|id| id.to_string()),
+            thread_root: upload.thread.map(|root| root.to_string()),
         });
     }
 

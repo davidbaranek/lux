@@ -132,13 +132,17 @@ final class RustAccount: Sendable {
         try await worded { try await account.setPusher(pusher: pusher) }
     }
 
-    /// Sends `text` to a room and returns once the server has it: a reply from a notification,
-    /// after which the app may be suspended at once.
-    func sendNow(roomId: String, text: String) async throws { try await worded { try await account.sendNow(roomId: roomId, text: text) } }
+    /// Sends `text` to a room (a reply in the Matrix thread of `threadRoot`, if given) and
+    /// returns once the server has it: a reply from a notification, after which the app may be
+    /// suspended at once.
+    func sendNow(roomId: String, threadRoot: String?, text: String) async throws {
+        try await worded { try await account.sendNow(roomId: roomId, threadRoot: threadRoot, text: text) }
+    }
 
-    /// Marks a room read up to one message: the one a notification showed.
-    func markRead(roomId: String, upTo eventId: String) async throws {
-        try await worded { try await account.markReadUpTo(roomId: roomId, eventId: eventId) }
+    /// Marks a room (the Matrix thread of `threadRoot`, if given) read up to one message: the one
+    /// a notification showed.
+    func markRead(roomId: String, threadRoot: String?, upTo eventId: String) async throws {
+        try await worded { try await account.markReadUpTo(roomId: roomId, threadRoot: threadRoot, eventId: eventId) }
     }
 
     /// A background refresh: syncs until the server answered (at most `seconds`), then stops.

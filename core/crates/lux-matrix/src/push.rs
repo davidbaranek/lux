@@ -4,7 +4,7 @@
 //! environment) makes a new pusher beside the old one. The pusher this device registered last is
 //! kept in the account's store, and goes once the new one is in place.
 
-use lux_core::ids::{EventId, RoomId};
+use lux_core::ids::{EventId, TimelineId};
 use lux_core::ports::{BackendError, NotificationStream, Push};
 use lux_core::push::Pusher;
 use matrix_sdk::Client;
@@ -12,7 +12,8 @@ use matrix_sdk::ruma::EventId as SdkEventId;
 use matrix_sdk::ruma::api::client::push::{PusherIds, PusherInit, PusherKind};
 use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
 use matrix_sdk::ruma::events::receipt::ReceiptThread;
-use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
+use matrix_sdk::ruma::events::relation::Thread;
+use matrix_sdk::ruma::events::room::message::{Relation, RoomMessageEventContent};
 use matrix_sdk::ruma::push::{HttpPusherData, PushFormat};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -116,21 +117,27 @@ impl Push for MatrixAccount {
         keep_pusher(&self.client, None).await
     }
 
-    async fn send_now(&self, room: &RoomId, text: &str) -> Result<(), BackendError> {
+    async fn send_now(&self, to: &TimelineId, text: &str) -> Result<(), BackendError> {
+        let room = self.room(&to.room)?;
+        let mut content = RoomMessageEventContent::text_markdown(text);
+        if let Some(root) = thread_root(to)? {
+            // a thread's reply; clients that know no threads see it answer the root.
+            content.relates_to = Some(Relation::Thread(Thread::plain(root.clone(), root)));
+        }
         self.begin_background_work().await;
         // not through the send queue, which returns before the server has the message.
-        self.room(room)?
-            .send(RoomMessageEventContent::text_markdown(text))
-            .await
-            .map(|_| ())
-            .map_err(from_sdk)
+        room.send(content).await.map(|_| ()).map_err(from_sdk)
     }
 
-    async fn mark_read_up_to(&self, room: &RoomId, event: &EventId) -> Result<(), BackendError> {
+    async fn mark_read_up_to(&self, of: &TimelineId, event: &EventId) -> Result<(), BackendError> {
         let event = <&SdkEventId>::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;
+        let thread = match thread_root(of)? {
+            Some(root) => ReceiptThread::Thread(root),
+            None => ReceiptThread::Unthreaded,
+        };
+        let room = self.room(&of.room)?;
         self.begin_background_work().await;
-        self.room(room)?
-            .send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event.to_owned())
+        room.send_single_receipt(ReceiptType::Read, thread, event.to_owned())
             .await
             .map_err(from_sdk)
     }
@@ -138,6 +145,15 @@ impl Push for MatrixAccount {
     fn live_notifications(&self) -> NotificationStream {
         self.live.follow()
     }
+}
+
+/// The SDK's id of a timeline's Matrix thread root, if it is a thread's.
+fn thread_root(timeline: &TimelineId) -> Result<Option<matrix_sdk::ruma::OwnedEventId>, BackendError> {
+    timeline
+        .thread
+        .as_ref()
+        .map(|root| SdkEventId::parse(root.as_str()).map_err(|_| BackendError::UnknownMessage))
+        .transpose()
 }
 
 #[cfg(test)]

@@ -15,10 +15,11 @@ import UserNotifications
 @MainActor
 final class MacNotifications: NSObject, @MainActor UNUserNotificationCenterDelegate {
     private let session: Session
-    /// Opens a chat by one of its rooms.
-    var openChat: ((String) -> Void)?
-    /// Whether the chat on screen is in the focused window: its messages notify nothing.
-    var isShowing: (String) -> Bool = { _ in false }
+    /// Opens a chat by one of its rooms, at its Matrix thread (by its root) if given.
+    var openChat: ((_ room: String, _ thread: String?) -> Void)?
+    /// Whether the chat (or the thread, by its root) on screen is in the focused window: its
+    /// messages notify nothing.
+    var isShowing: (_ room: String, _ thread: String?) -> Bool = { _, _ in false }
     private var following: Task<Void, Never>?
 
     init(session: Session) {
@@ -56,7 +57,7 @@ final class MacNotifications: NSObject, @MainActor UNUserNotificationCenterDeleg
     }
 
     private func show(_ message: PushedMessage) {
-        if NSApp.isActive, isShowing(message.roomId) { return }
+        if NSApp.isActive, isShowing(message.roomId, message.threadRoot) { return }
         let content = UNMutableNotificationContent()
         content.title = message.title
         content.subtitle = message.subtitle
@@ -65,7 +66,7 @@ final class MacNotifications: NSObject, @MainActor UNUserNotificationCenterDeleg
         content.threadIdentifier = message.chatId
         content.categoryIdentifier = PushNotifications.messageCategory
         // as a push carries them: the same actions answer both.
-        content.userInfo = ["room_id": message.roomId, "event_id": message.eventId]
+        content.userInfo = message.userInfo
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: message.eventId, content: content, trigger: nil))
     }
 
@@ -73,9 +74,9 @@ final class MacNotifications: NSObject, @MainActor UNUserNotificationCenterDeleg
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
         async -> UNNotificationPresentationOptions {
-        let room = PushNotifications.room(of: notification.request.content.userInfo)
-        // the chat in front shows the message itself.
-        if let room, NSApp.isActive, isShowing(room) { return [] }
+        let info = notification.request.content.userInfo
+        // the chat (or the thread) in front shows the message itself.
+        if let room = PushNotifications.room(of: info), NSApp.isActive, isShowing(room, PushPayload(userInfo: info)?.threadRoot) { return [] }
         return [.banner, .list, .sound]
     }
 
@@ -85,9 +86,9 @@ final class MacNotifications: NSObject, @MainActor UNUserNotificationCenterDeleg
     }
 
     private func handle(_ action: NotificationAction) async {
-        if case .open(let room) = action {
+        if case .open(let room, let thread) = action {
             NSApp.activate()
-            openChat?(room)
+            openChat?(room, thread)
             return
         }
         await session.answer(action)
