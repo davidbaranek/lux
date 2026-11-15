@@ -81,6 +81,11 @@ public final class LocalStore: Sendable {
         try await store.imageUnread(eventId: eventId)
     }
 
+    /// Asks again for every photo that could not be read (another model, the photo downloads now).
+    public func retryUnreadImages() async throws {
+        try await store.retryUnreadImages()
+    }
+
     /// Forgets every photo's embedding (search by how photos look was turned off); their words
     /// stay, as read by `reader` (the one without the model).
     public func forgetImageEmbeddings(reader: String) async throws {

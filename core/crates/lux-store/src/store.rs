@@ -252,6 +252,22 @@ impl Store {
             .await
     }
 
+    /// Gives every photo that could not be read its tries back: the reasons may be gone (the
+    /// model is another, the photo downloads now), so they are asked for again.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn retry_unread_images(&self) -> Result<()> {
+        self.worker
+            .run(|connection| {
+                connection
+                    .prepare_cached("UPDATE images SET tries = 0 WHERE tries > 0")?
+                    .execute([])?;
+                Ok(())
+            })
+            .await
+    }
+
     /// Forgets every photo's embedding (search by how photos look turned off), and keeps their
     /// words as read by `reader`: the reader without the model, so they are not read again.
     ///
@@ -278,9 +294,10 @@ impl Store {
             .run(move |connection| {
                 let counts: [i64; 4] = connection
                     .prepare_cached(
-                        "SELECT count(*), count(*) FILTER (WHERE reader = ?1), count(reader), count(embedding) FROM images",
+                        "SELECT count(*), count(*) FILTER (WHERE reader = ?1 OR tries >= ?2), count(reader), count(embedding) \
+                         FROM images",
                     )?
-                    .query_row([reader], |row| Ok([row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?]))?;
+                    .query_row(params![reader, MAX_TRIES], |row| Ok([row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?]))?;
                 let [total, read, with_words, with_embedding] = counts.map(i64::unsigned_abs);
                 Ok(ImageCounts {
                     total,

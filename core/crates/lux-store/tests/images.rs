@@ -97,6 +97,13 @@ async fn a_photo_that_fails_three_times_is_not_asked_for_again() {
         store.image_unread("$1".into()).await.unwrap();
     }
     assert!(store.images_to_read(READER.into(), 10).await.unwrap().is_empty());
+    // a photo given up on counts as done, so nothing looks as if it waits.
+    let counts = store.image_counts(READER.into()).await.unwrap();
+    assert_eq!((counts.total, counts.read), (1, 1));
+    // another reader (the model arrived) asks for it again.
+    store.retry_unread_images().await.unwrap();
+    assert_eq!(store.images_to_read(READER.into(), 10).await.unwrap().len(), 1);
+    assert_eq!(store.image_counts(READER.into()).await.unwrap().read, 0);
 }
 
 #[tokio::test]

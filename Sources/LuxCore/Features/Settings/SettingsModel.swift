@@ -21,54 +21,53 @@ public final class SettingsModel {
         session.search?.photos.searchesByLook ?? Preferences.shared.searchesPhotosByLook
     }
 
-    /// The basic index of photos (their words), in words: "224 photos · complete", "180 of 224
-    /// photos read"; nil before the index opens.
-    public var photoWords: String? {
-        guard let progress = session.search?.photos.progress else { return nil }
-        return Self.read(progress.withWords, of: progress.total)
-    }
-
-    /// The photo search model on this device, in words: not downloaded (search by look is off),
-    /// downloading, ready, or not to be had.
-    public var photoModel: String {
-        switch session.search?.photos.looks {
-        case .off?, nil: String(localized: "Not downloaded")
-        case .downloading(let fraction)?:
-            String(localized: "Downloading · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
-        case .on(hasModel: true)?: String(localized: "Ready on this device")
-        case .on(hasModel: false)?: String(localized: "Not available: photos are found by their words")
+    /// Where the photos stand now, in one line: what is happening, never what a button would do.
+    /// "Downloading the model · 34 %", "Reading · 120 of 224", "96 photos waiting · read while
+    /// charging", "All 224 photos read"; nil before the index opens.
+    public var photoStatus: String? {
+        guard let photos = session.search?.photos else { return nil }
+        let progress = photos.progress
+        let byWordsOnly = if case .on(hasModel: false) = photos.looks { true } else { false }
+        let status: String
+        if case .downloading(let fraction) = photos.looks {
+            status = String(localized: "Downloading the model · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
+        } else if progress.isReading {
+            status = String(localized: "Reading · \(progress.read.formatted(.number)) of \(progress.total.formatted(.number))")
+        } else if photos.hasUnread {
+            let left = max(progress.total - progress.read, 0).formatted(.number)
+            status = switch photos.readNowBlocked {
+            case .battery?: String(localized: "\(left) photos waiting · Low Power Mode is on")
+            case .data?: String(localized: "\(left) photos waiting · Low Data Mode is on")
+            #if os(iOS)
+            case nil: String(localized: "\(left) photos waiting · read while charging")
+            #else
+            case nil: String(localized: "\(left) photos waiting")
+            #endif
+            }
+        } else if progress.total == 0 {
+            status = String(localized: "No photos yet")
+        } else {
+            status = String(localized: "All \(progress.total.formatted(.number)) photos read")
         }
+        return byWordsOnly ? status + " · " + String(localized: "by their words only") : status
     }
 
-    /// How many photos the model has read (their embeddings), in words; "Off" while search by look
-    /// is off.
-    public var photoLooks: String {
-        guard let photos = session.search?.photos, case .on(hasModel: true) = photos.looks else {
-            return searchesPhotosByLook ? String(localized: "Waiting for the model") : String(localized: "Off")
-        }
-        return Self.read(photos.progress.withEmbedding, of: photos.progress.total)
+    /// Photos are being read or the model downloads: Settings shows it as under way.
+    public var isPhotoWorkUnderWay: Bool {
+        guard let photos = session.search?.photos else { return false }
+        if case .downloading = photos.looks { return true }
+        return photos.progress.isReading
     }
 
-    private static func read(_ read: Int, of total: Int) -> String {
-        read >= total
-            ? String(localized: "\(total.formatted(.number)) photos · complete")
-            : String(localized: "\(read.formatted(.number)) of \(total.formatted(.number)) photos read")
+    /// What Settings offers for the photos now: to stop the reading, to read the waiting photos
+    /// now, or nothing.
+    public enum PhotoAction { case stop, readNow }
+    public var photoAction: PhotoAction? {
+        guard let photos = session.search?.photos else { return nil }
+        if photos.progress.isReading { return .stop }
+        return photos.hasUnread && photos.readNowBlocked == nil ? .readNow : nil
     }
 
-    /// Photos are being read now: Settings offers to stop.
-    public var isReadingPhotos: Bool { session.search?.photos.isReading ?? false }
-    /// Some photos wait to be read: Settings offers to read them now.
-    public var hasUnreadPhotos: Bool { session.search?.photos.hasUnread ?? false }
-
-    /// Why photos cannot be read now, in words: the device saves its battery or its data; nil
-    /// when they can.
-    public var readPhotosBlocked: String? {
-        switch session.search?.photos.readNowBlocked {
-        case .battery?: String(localized: "Not while Low Power Mode is on.")
-        case .data?: String(localized: "Not while Low Data Mode is on.")
-        case nil: nil
-        }
-    }
 
     /// Reads every photo not read yet, now; on the iPhone in a task the system shows as a Live
     /// Activity, which goes on when the user leaves the app.

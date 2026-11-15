@@ -107,7 +107,8 @@ pub struct ImageRead {
 pub struct ImageCounts {
     /// The photos.
     pub total: u64,
-    /// The photos the reader asked about has read (the others wait for it).
+    /// The photos done for the reader asked about: read by it, or left after too many failed
+    /// tries (the others wait for it).
     pub read: u64,
     /// The photos whose words were read, by any reader.
     pub with_words: u64,
