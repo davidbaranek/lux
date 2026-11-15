@@ -12,6 +12,7 @@
 		021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3129E33F5CAAED4C0B82EB92 /* SignInController.swift */; };
 		02A6600AB83B5B16B1B38D90 /* TypingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC0D1B214F00F8C6A3313FD /* TypingView.swift */; };
 		042345998078B252CFE0863D /* ThreadViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */; };
+		08B199F4C47F89EEA44BF366 /* ProfileViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7AE0A9E340C58E1A40417BD /* ProfileViewController.swift */; };
 		0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0506303EA2A161FB930E67 /* MarkdownStyler.swift */; };
 		0A691855DC38F4118E696C65 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1019436DD5B08FB56BEDB051 /* NotificationService.swift */; };
 		0BCF753EFAFAE2E02791361D /* FileDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B078C1F708797864150311C6 /* FileDropView.swift */; };
@@ -282,6 +283,7 @@
 		F4104CEA496E32C0FC3DCF04 /* RailController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailController.swift; sourceTree = "<group>"; };
 		F6062145D14EE693AA7E8CED /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
 		F6D204CD16F57C75829F8BF1 /* MessageText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageText.swift; sourceTree = "<group>"; };
+		F7AE0A9E340C58E1A40417BD /* ProfileViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewController.swift; sourceTree = "<group>"; };
 		FADF248706333E9027B678F9 /* SharedItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedItems.swift; sourceTree = "<group>"; };
 		FBC0E1EB28C8C6C1DD1F4A0C /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		FF01EEA04AB3C27BFD91EAED /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
@@ -530,6 +532,7 @@
 		78EA7C8989F2A568ED88D97E /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				F7AE0A9E340C58E1A40417BD /* ProfileViewController.swift */,
 				802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */,
 				6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */,
 			);
@@ -1060,6 +1063,7 @@
 				B7AEA23C2F785A725402F3AF /* Notifications.swift in Sources */,
 				2C6C61D1739FD5E41B33D6E0 /* PinnedChatCell.swift in Sources */,
 				99746989F9BF6DCCE165A6AD /* PlacesSheetViewController.swift in Sources */,
+				08B199F4C47F89EEA44BF366 /* ProfileViewController.swift in Sources */,
 				DECA8F2F35AC1DF95C3406C0 /* RecoveryKeyViewController.swift in Sources */,
 				478267813ABE0BBC663B3827 /* RecoverySetupViewController.swift in Sources */,
 				4A7B4DEEA8CBD32189398BF5 /* ScrollBenchmark.swift in Sources */,

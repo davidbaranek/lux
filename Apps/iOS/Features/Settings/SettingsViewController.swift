@@ -14,6 +14,9 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private lazy var theme = list.defaultTheme
     private let signOut: () -> Void
     private var observation: AnyObject?
+    /// The account's picture as the profile row shows it, round; nil while it loads or without one.
+    private var profilePicture: UIImage?
+    private var shownPicture: ImageRef?
     private var networksObservation: AnyObject?
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
@@ -49,8 +52,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content = .subtitleCell()
                 content.text = model.profile?.name
                 content.secondaryText = model.profile?.userId
-                content.image = UIImage(systemName: "person.crop.circle.fill")
+                content.image = profilePicture ?? UIImage(systemName: "person.crop.circle.fill")
                 content.imageProperties.preferredSymbolConfiguration = .init(pointSize: 40)
+                content.imageProperties.maximumSize = CGSize(width: 48, height: 48)
+                cell.accessories = [.disclosureIndicator()]
             case .networks:
                 content.text = String(localized: "Networks")
                 content.secondaryText = networksSummary
@@ -116,6 +121,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
 
         observation = model.changes.observe { [weak self] in
             guard let self else { return }
+            loadProfilePicture()
             var snapshot = dataSource.snapshot()
             snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex])
             dataSource.apply(snapshot)
@@ -133,6 +139,9 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         switch dataSource.itemIdentifier(for: indexPath) {
+        case .profile?:
+            guard let profile = session.profile else { return }
+            navigationController?.pushViewController(ProfileViewController(model: profile, images: session.images), animated: true)
         case .networks?:
             guard let networks = session.networks else { return }
             navigationController?.pushViewController(NetworksViewController(model: networks, mode: .settings), animated: true)
@@ -153,6 +162,23 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             confirmSignOut(from: collectionView.cellForItem(at: indexPath))
         default:
             break
+        }
+    }
+
+    /// The profile row's picture, when the account's changed.
+    private func loadProfilePicture() {
+        let ref = model.profile?.avatar
+        guard ref != shownPicture else { return }
+        shownPicture = ref
+        profilePicture = nil
+        guard let ref, let images = session.images else { return }
+        let pixels = Int(48 * traitCollection.displayScale)
+        Task { [weak self] in
+            guard let image = await images.image(ref, pixels: pixels, shape: .circle), let self, shownPicture == ref else { return }
+            profilePicture = UIImage(cgImage: image, scale: traitCollection.displayScale, orientation: .up)
+            var snapshot = dataSource.snapshot()
+            snapshot.reconfigureItems([.profile])
+            await dataSource.apply(snapshot)
         }
     }
 
