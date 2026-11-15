@@ -3,7 +3,9 @@ import Foundation
 /// The account and its encryption, for the Settings screens.
 @MainActor
 public final class SettingsModel {
-    public private(set) var profile: Profile?
+    /// The account's name and picture, shared with the other screens that show them.
+    public var profile: Profile? { session.profile?.profile }
+    public var isSavingProfile: Bool { session.profile?.isSaving ?? false }
     public private(set) var recovery: RecoveryState = .unknown
     /// This device is verified by the account; nil until known.
     public private(set) var isVerified: Bool?
@@ -17,6 +19,7 @@ public final class SettingsModel {
     private let session: Session
     private var indexProgress: AnyObject?
     private var securityChanges: AnyObject?
+    private var profileChanges: AnyObject?
 
     public init(session: Session) {
         self.session = session
@@ -33,9 +36,8 @@ public final class SettingsModel {
     }
 
     public func load() async {
-        guard let account = try? await account.value else { return }
-        async let profile = try? account.profile()
-        self.profile = await profile
+        profileChanges = session.profile?.changes.observe { [weak self] in self?.changes.send() }
+        await session.profile?.load()
         await loadSecurity()
         // verified on another device, recovery set up: the rows say so as it happens.
         securityChanges = session.security?.changes.observe { [weak self] in

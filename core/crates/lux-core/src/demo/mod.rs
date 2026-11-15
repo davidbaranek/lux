@@ -11,6 +11,7 @@
 
 mod bridges;
 mod data;
+mod profile;
 mod security;
 mod seeded;
 mod timeline;
@@ -29,13 +30,14 @@ use tokio::sync::watch;
 use self::data::ChatState;
 use crate::chat::{Chat, Label, Request, SavedKind, SavedMessage, ScheduledMessage, Snapshot, Space};
 use crate::diff;
-use crate::ids::{ChatId, DeviceId, EventId, LabelId, RoomId, ScheduledId, UserId};
+use crate::ids::{ChatId, DeviceId, EventId, LabelId, MediaId, RoomId, ScheduledId, UserId};
 use crate::merge::{self, Merge};
 use crate::organizer::{LabelError, Organized, checked_name};
 use crate::places::Arrangement;
 use crate::ports::{
-    BackendError, ChatAccount, ChatActions, ChatChange, DeviceSignOut, DiffStream, EncryptionSetup, Organizing,
-    OwnDevice, RecoveryState, SavedMessages, Scheduling, Security, Spaces, ThreadBackend, ValueStream,
+    AccountProfile, BackendError, ChatAccount, ChatActions, ChatChange, DeviceSignOut, DiffStream, EncryptionSetup,
+    Organizing, OwnDevice, Picture, Profile, RecoveryState, SavedMessages, Scheduling, Security, Spaces, ThreadBackend,
+    ValueStream,
 };
 use crate::preview::{Preview, PreviewSource, Sender};
 
@@ -86,6 +88,7 @@ pub struct DemoAccount {
     inner: Arc<Mutex<Inner>>,
     timelines: DemoTimelines,
     security: security::DemoSecurity,
+    profile: profile::DemoProfile,
 }
 
 /// The account's state: what the user changed, and the lists as last sent. Each change runs
@@ -157,6 +160,7 @@ impl DemoAccount {
             inner,
             timelines,
             security,
+            profile: profile::DemoProfile::new(),
         }
     }
 
@@ -555,6 +559,25 @@ impl SavedMessages for DemoAccount {
 impl Spaces for DemoAccount {
     fn spaces(&self) -> ValueStream<Arc<[Space]>> {
         watched(self.lock().spaces.subscribe())
+    }
+}
+
+impl AccountProfile for DemoAccount {
+    async fn profile(&self) -> Result<Profile, BackendError> {
+        Ok(self.profile.profile(&self.user))
+    }
+
+    async fn set_name(&self, name: &str) -> Result<(), BackendError> {
+        self.profile.set_name(name)
+    }
+
+    async fn set_avatar(&self, picture: Picture) -> Result<MediaId, BackendError> {
+        self.profile.set_avatar(&picture)
+    }
+
+    async fn remove_avatar(&self) -> Result<(), BackendError> {
+        self.profile.remove_avatar();
+        Ok(())
     }
 }
 

@@ -18,6 +18,7 @@ mod message;
 mod organizing;
 mod people;
 mod places;
+mod profile;
 mod push;
 mod runtime;
 mod security;

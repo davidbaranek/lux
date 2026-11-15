@@ -66,6 +66,9 @@ pub enum BackendError {
     /// not that far, an account without its encryption identity.
     #[error("this cannot be done now")]
     NotAllowed,
+    /// The display name is longer than the server takes.
+    #[error("the name is too long")]
+    NameTooLong,
     /// A file on the device could not be read or written, or is no attachment.
     #[error("a file on the device failed")]
     File(#[source] Cause),

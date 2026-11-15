@@ -54,6 +54,7 @@ What is done, and what comes next in order. How things work lives in
 - [x] A demo account for development and benchmarks (`-LuxDemo`)
 - [x] Background refresh on iPhone
 - [x] Settings: account, encryption, search index
+- [x] The account's own name and picture, changed in Settings (iPhone and Mac)
 
 ## Next
 

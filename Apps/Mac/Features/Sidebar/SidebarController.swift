@@ -112,11 +112,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         // the index's progress under the results; the index opens a moment after the account.
         searchOpened = session.searchChanges.observe { [weak self] in self?.followIndex() }
         followIndex()
-        Task {
-            let settings = SettingsModel(session: session)
-            await settings.load()
-            rail.showAccount(settings.profile)
+        // the account's picture, as Settings changes it.
+        profileChanges = session.profile?.changes.observe { [weak self] in
+            guard let self else { return }
+            rail.showAccount(session.profile?.profile)
         }
+        Task { await session.profile?.load() }
     }
 
     /// The shown place's colour: over the whole sidebar, and the list's accent. Neutral keeps the
@@ -143,6 +144,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     }
 
     private var searchOpened: AnyObject?
+    private var profileChanges: AnyObject?
     private var indexProgress: AnyObject?
 
     private func followIndex() {

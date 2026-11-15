@@ -283,6 +283,9 @@ pub enum CoreAccountError {
         /// What went wrong.
         message: String,
     },
+    /// The display name is longer than the server takes.
+    #[error("the name is too long")]
+    NameTooLong,
 }
 
 impl From<BackendError> for CoreAccountError {
@@ -332,6 +335,7 @@ impl From<BackendError> for CoreAccountError {
             BackendError::File(cause) => Self::File {
                 message: cause.to_string(),
             },
+            BackendError::NameTooLong => Self::NameTooLong,
         }
     }
 }

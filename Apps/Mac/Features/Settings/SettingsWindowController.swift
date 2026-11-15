@@ -9,7 +9,7 @@ final class SettingsWindowController: NSWindowController {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         var panes: [(NSViewController, String, String)] = [
-            (AccountSettingsController(model: model, images: images, signOut: signOut), String(localized: "Account"), "person.crop.circle"),
+            (AccountSettingsController(model: model, profile: session.profile, images: images, signOut: signOut), String(localized: "Account"), "person.crop.circle"),
         ]
         if let list {
             panes.append((AppearanceSettingsController(list: list), String(localized: "Appearance"), "paintpalette"))
@@ -48,8 +48,10 @@ func settingsForm(_ rows: [[NSView]]) -> NSView {
         grid.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 28),
         grid.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -28),
         grid.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
-        // rows stay at the top; the window takes the form's height.
-        grid.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -24).withPriority(.defaultLow),
+        // rows stay at the top; the window takes the form's height. Below the rows' hugging
+        // (250), so a window taller than the form never stretches a row; above the fitting size's
+        // compression (50), so the form's height still sizes the window.
+        grid.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -24).withPriority(.init(200)),
         grid.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -24),
         container.widthAnchor.constraint(equalToConstant: 520),
     ])

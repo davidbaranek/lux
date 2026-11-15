@@ -11,11 +11,9 @@
 use std::collections::HashSet;
 
 use lux_core::bridges::{BridgeOffer, Offers};
-use lux_core::ids::{MediaId, RoomId, UserId};
+use lux_core::ids::{MediaId, RoomId};
 use lux_core::network::Network;
-use lux_core::ports::{
-    BackendError, Bridges as _, Contact, ContactAccount, ContactListing, ContactProblem, People, Profile,
-};
+use lux_core::ports::{BackendError, Bridges as _, Contact, ContactAccount, ContactListing, ContactProblem, People};
 use matrix_sdk::reqwest::Method;
 use matrix_sdk::ruma::api::client::room::Visibility;
 use matrix_sdk::ruma::api::client::room::create_room::v3::{Request as CreateRoom, RoomPreset};
@@ -93,18 +91,6 @@ impl People for MatrixAccount {
         request.initial_state = vec![encryption()];
         let room = self.client.create_room(request).await.map_err(from_sdk)?;
         Ok(RoomId::from(room.room_id().as_str()))
-    }
-
-    async fn profile(&self) -> Result<Profile, BackendError> {
-        let own = self.client.user_id().ok_or(BackendError::SignedOut)?.to_owned();
-        let account = self.client.account();
-        let name = account.get_display_name().await.map_err(from_sdk)?;
-        let avatar = account.get_avatar_url().await.map_err(from_sdk)?;
-        Ok(Profile {
-            user_id: UserId::from(own.as_str()),
-            name: name.unwrap_or_else(|| own.localpart().to_owned()),
-            avatar: avatar.map(|url| MediaId::from(url.as_str())),
-        })
     }
 }
 

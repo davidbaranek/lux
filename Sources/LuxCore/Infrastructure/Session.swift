@@ -97,6 +97,8 @@ public final class Session {
     /// What this device needs for encryption, and the verifications other devices ask for (made
     /// with the account).
     public private(set) var security: SecurityModel?
+    /// The account's own name and picture (made with the account).
+    public private(set) var profile: ProfileModel?
     /// A message was scheduled from a chat: the list reads the waiting ones again.
     public let scheduledChanges = Broadcast()
 
@@ -207,6 +209,7 @@ public final class Session {
         uploads = nil
         networks = nil
         security = nil
+        profile = nil
         search = nil
         store = nil
         onAccountLost?()
@@ -347,6 +350,7 @@ public final class Session {
         uploads = nil
         networks = nil
         security = nil
+        profile = nil
         Preferences.shared.networksWelcomed = false
         Preferences.shared.recoverySetupOffered = false
     }
@@ -373,6 +377,7 @@ public final class Session {
         uploads = Uploads(account: account, directory: outgoingDirectory)
         networks = NetworksModel(account: account, server: homeserver)
         security = SecurityModel(account: account)
+        profile = ProfileModel(account: account)
     }
 
     /// The account's encrypted store (its folder's `lux-search/index.sqlite`).

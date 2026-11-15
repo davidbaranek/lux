@@ -34,6 +34,7 @@ mod members;
 mod notification;
 mod organizer;
 mod people;
+mod profile;
 mod push;
 mod redecrypt;
 mod room_list;
