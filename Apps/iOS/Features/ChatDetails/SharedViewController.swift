@@ -27,6 +27,7 @@ final class SharedViewController: UIViewController, UICollectionViewDelegate, UI
         if let model = models[kind] { return model }
         let model = details.shared(kind)
         models[kind] = model
+        model.prepareSearch()
         return model
     }
 

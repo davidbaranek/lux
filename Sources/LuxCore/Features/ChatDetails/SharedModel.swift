@@ -45,6 +45,12 @@ public final class SharedModel {
         self.photos = photos
     }
 
+    /// Media are searched by their look too: the text encoder starts loading as they show (its
+    /// first load on a device takes some 20 s), so a search finds them by it from the start.
+    public func prepareSearch() {
+        if kind == .media { photos()?.prepareForSearch() }
+    }
+
     /// Shows what holds every word of `text` (all, when it has none) once typing pauses, and
     /// returns when its first page is read (or a newer search took over).
     public func search(_ text: String) async {

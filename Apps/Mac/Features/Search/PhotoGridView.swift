@@ -11,6 +11,10 @@ final class PhotoGridView: NSTableCellView {
 
     /// Opens the photo's chat at it.
     var onOpen: ((FoundPhoto) -> Void)?
+    /// The grid got another width (the table's cell is narrower than the table): its height
+    /// follows from it.
+    var onWidth: ((CGFloat) -> Void)?
+    private var reportedWidth: CGFloat = 0
 
     private var photos: [FoundPhoto] = []
     private var tiles: [NSButton] = []
@@ -72,6 +76,10 @@ final class PhotoGridView: NSTableCellView {
 
     override func layout() {
         super.layout()
+        if bounds.width > 0, bounds.width != reportedWidth {
+            reportedWidth = bounds.width
+            onWidth?(bounds.width)
+        }
         let columns = Self.columns(bounds.width)
         let side = Self.side(bounds.width)
         // what rounding leaves over goes to both sides, so the grid stays centred.

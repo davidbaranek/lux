@@ -84,6 +84,7 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
                 let grid = table.makeView(withIdentifier: PhotoGridView.reuse, owner: nil) as? PhotoGridView ?? PhotoGridView()
                 grid.show(self?.photos ?? [], images: images)
                 grid.onOpen = { [weak self] photo in self?.onOpen?(photo.chat, photo.id) }
+                grid.onWidth = { [weak self] width in self?.gridGot(width) }
                 return grid
             }
             let cell = table.makeView(withIdentifier: ChatCellView.reuse, owner: nil) as? ChatCellView ?? ChatCellView()
@@ -175,10 +176,24 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
         scrollAboveStatus.isActive = note != nil
     }
 
+    /// The grid's own width, as its cell has it: the table's less the row's insets.
+    private var gridWidth: CGFloat?
+
+    /// The grid is as tall as its rows of photos at the width it got; told after the layout pass
+    /// that gave it, not in it.
+    private func gridGot(_ width: CGFloat) {
+        guard width != gridWidth else { return }
+        gridWidth = width
+        Task { @MainActor [weak self] in
+            guard let self, let row = dataSource.row(forItemIdentifier: Self.photoGrid) else { return }
+            table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        }
+    }
+
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         switch dataSource.itemIdentifier(forRow: row) {
         case nil: 28
-        case Self.photoGrid?: PhotoGridView.height(for: photos.count, width: tableView.bounds.width)
+        case Self.photoGrid?: PhotoGridView.height(for: photos.count, width: gridWidth ?? tableView.bounds.width)
         default: 64
         }
     }
