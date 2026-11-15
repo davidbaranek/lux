@@ -141,14 +141,14 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         animateInspector(collapsed: false)
     }
 
-    /// Opens or closes the inspector beside the chat; the chat is measured once, at the end.
+    /// Opens or closes the inspector beside the chat, which resizes live as it slides.
     private func animateInspector(collapsed: Bool, then done: (() -> Void)? = nil) {
         let chat = openThread
-        chat?.holdsLayout = true
+        chat?.resizesLive = true
         NSAnimationContext.runAnimationGroup { _ in
             inspectorItem.animator().isCollapsed = collapsed
         } completionHandler: {
-            chat?.holdsLayout = false
+            chat?.resizesLive = false
             done?()
         }
     }
