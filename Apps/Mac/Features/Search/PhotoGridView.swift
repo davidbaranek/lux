@@ -5,9 +5,9 @@ import LuxCore
 /// opens the photo's chat at it.
 final class PhotoGridView: NSTableCellView {
     static let reuse = NSUserInterfaceItemIdentifier("photo-grid")
-    private static let side: CGFloat = 92
+    /// A thumbnail at least this wide: the row fits as many as it can, then they grow to fill it.
+    private static let minSide: CGFloat = 76
     private static let spacing: CGFloat = 4
-    private static let inset: CGFloat = 12
 
     /// Opens the photo's chat at it.
     var onOpen: ((FoundPhoto) -> Void)?
@@ -19,11 +19,17 @@ final class PhotoGridView: NSTableCellView {
     /// The height the grid takes at `width` for `count` photos.
     static func height(for count: Int, width: CGFloat) -> CGFloat {
         let rows = (count + columns(width) - 1) / columns(width)
-        return CGFloat(rows) * (side + spacing) - spacing + 2 * spacing
+        return CGFloat(rows) * (side(width) + spacing) - spacing + 2 * spacing
     }
 
     private static func columns(_ width: CGFloat) -> Int {
-        max(1, Int((width - 2 * inset + spacing) / (side + spacing)))
+        max(1, Int((width + spacing) / (minSide + spacing)))
+    }
+
+    /// The thumbnails' side at `width`: the row edge to edge, as the rows above and below it.
+    private static func side(_ width: CGFloat) -> CGFloat {
+        let columns = CGFloat(columns(width))
+        return max(1, floor((width - spacing * (columns - 1)) / columns))
     }
 
     func show(_ photos: [FoundPhoto], images: ImagePipeline?) {
@@ -50,7 +56,7 @@ final class PhotoGridView: NSTableCellView {
             tile.setAccessibilityLabel(String(localized: "Photo from \(photo.isOwn ? String(localized: "you") : photo.senderName) in \(photo.chat.name)"))
             tile.toolTip = photo.chat.name
             let ref = photo.image
-            let pixels = Int(Self.side * (window?.backingScaleFactor ?? 2))
+            let pixels = Int(Self.side(bounds.width > 0 ? bounds.width : 300) * (window?.backingScaleFactor ?? 2))
             if let cached = images?.cached(ref, pixels: pixels) {
                 tile.image = Self.filled(cached)
                 continue
@@ -67,12 +73,15 @@ final class PhotoGridView: NSTableCellView {
     override func layout() {
         super.layout()
         let columns = Self.columns(bounds.width)
+        let side = Self.side(bounds.width)
+        // what rounding leaves over goes to both sides, so the grid stays centred.
+        let left = floor((bounds.width - CGFloat(columns) * side - CGFloat(columns - 1) * Self.spacing) / 2)
         for (index, tile) in tiles.enumerated() where index < photos.count {
             let (row, column) = (index / columns, index % columns)
             // flipped or not, the first row is at the top.
-            let y = isFlipped ? Self.spacing + CGFloat(row) * (Self.side + Self.spacing)
-                : bounds.height - Self.spacing - CGFloat(row + 1) * Self.side - CGFloat(row) * Self.spacing
-            tile.frame = CGRect(x: Self.inset + CGFloat(column) * (Self.side + Self.spacing), y: y, width: Self.side, height: Self.side)
+            let y = isFlipped ? Self.spacing + CGFloat(row) * (side + Self.spacing)
+                : bounds.height - Self.spacing - CGFloat(row + 1) * side - CGFloat(row) * Self.spacing
+            tile.frame = CGRect(x: left + CGFloat(column) * (side + Self.spacing), y: y, width: side, height: side)
         }
     }
 
@@ -81,7 +90,7 @@ final class PhotoGridView: NSTableCellView {
         let shorter = min(image.width, image.height)
         let square = CGRect(x: (image.width - shorter) / 2, y: (image.height - shorter) / 2, width: shorter, height: shorter)
         let cropped = image.cropping(to: square) ?? image
-        return NSImage(cgImage: cropped, size: NSSize(width: side, height: side))
+        return NSImage(cgImage: cropped, size: NSSize(width: cropped.width, height: cropped.height))
     }
 
     @objc private func open(_ tile: NSButton) {

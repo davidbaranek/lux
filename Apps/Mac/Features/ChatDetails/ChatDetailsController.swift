@@ -67,8 +67,7 @@ final class ChatDetailsController: NSViewController {
         header.setCustomSpacing(6, after: subtitle)
 
         let actions = NSStackView(views: [mute, markRead, edit])
-        actions.spacing = 8
-        actions.distribution = .fillEqually
+        actions.spacing = 10
 
         // capsule tabs, as Messages' details; they scroll sideways when the inspector is narrow.
         tabs.onSelect = { [weak self] in self?.chooseTab() }
@@ -332,27 +331,70 @@ private final class CapsuleTabs: NSView {
     }
 }
 
-/// A quick action under a chat's name, as Messages draws them: a symbol over a short title, in
-/// a rounded tile.
-private final class QuickAction: NSButton {
+/// A quick action under a chat's name, as Messages draws them: a symbol centred over a short
+/// title, on a rounded tile.
+private final class QuickAction: NSControl {
+    private let symbol = NSImageView()
+    private let title = NSTextField(labelWithString: "")
+
     convenience init(target: AnyObject, action: Selector) {
         self.init(frame: .zero)
         self.target = target
         self.action = action
-        bezelStyle = .flexiblePush
-        imagePosition = .imageAbove
-        controlSize = .large
-        font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        symbolConfiguration = .init(pointSize: 15, weight: .medium)
-        contentTintColor = .controlAccentColor
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.cornerCurve = .continuous
+        symbol.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+        symbol.contentTintColor = .labelColor
+        title.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        title.alignment = .center
+        let content = NSStackView(views: [symbol, title])
+        content.orientation = .vertical
+        content.alignment = .centerX
+        content.spacing = 4
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 52).isActive = true
-        widthAnchor.constraint(greaterThanOrEqualToConstant: 72).isActive = true
+        NSLayoutConstraint.activate([
+            content.centerXAnchor.constraint(equalTo: centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbol.heightAnchor.constraint(equalToConstant: 20),
+            heightAnchor.constraint(equalToConstant: 54),
+            widthAnchor.constraint(equalToConstant: 76),
+        ])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
     }
 
-    func set(_ symbol: String, _ title: String) {
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        self.title = title
+    func set(_ symbolName: String, _ text: String) {
+        symbol.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        title.stringValue = text
+        setAccessibilityLabel(text)
+    }
+
+    override var isEnabled: Bool {
+        didSet { alphaValue = isEnabled ? 1 : 0.5 }
+    }
+
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        alphaValue = 0.7
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        alphaValue = isEnabled ? 1 : 0.5
+        guard isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        sendAction(action, to: target)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        sendAction(action, to: target)
     }
 }
 
