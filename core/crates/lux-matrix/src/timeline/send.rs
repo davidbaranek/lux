@@ -9,20 +9,20 @@ use lux_core::ids::{ChatId, MessageId, MessageRef, RoomId, TimelineId};
 use lux_core::message::SendState;
 use lux_core::ports::{BackendError, ChatSending};
 use lux_core::timeline::{Draft, OutgoingAttachment, OutgoingKind, Quote, Receipt};
-use matrix_sdk::attachment::{AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail};
 use matrix_sdk::Room;
+use matrix_sdk::attachment::{AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail};
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk::room::MessagesOptions;
-use matrix_sdk::ruma::OwnedEventId;
-use matrix_sdk::serde_helpers::extract_thread_root;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::reply::Reply;
+use matrix_sdk::ruma::OwnedEventId;
 use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
 use matrix_sdk::ruma::events::receipt::ReceiptThread;
 use matrix_sdk::ruma::events::room::message::{
     RoomMessageEventContent, RoomMessageEventContentWithoutRelation, TextMessageEventContent,
 };
 use matrix_sdk::ruma::{EventId as SdkEventId, OwnedTransactionId, TransactionId, UInt};
+use matrix_sdk::serde_helpers::extract_thread_root;
 use matrix_sdk::store::{ComposerDraft, ComposerDraftType};
 use matrix_sdk_ui::timeline::SendTarget;
 
@@ -247,7 +247,10 @@ impl ChatSending for MatrixTimelines {
 /// memory).
 async fn newest_outside_threads(room: &Room) -> Result<Option<OwnedEventId>, BackendError> {
     let outside = |event: &TimelineEvent| {
-        extract_thread_root(event.raw()).is_none().then(|| event.event_id().map(ToOwned::to_owned)).flatten()
+        extract_thread_root(event.raw())
+            .is_none()
+            .then(|| event.event_id().map(ToOwned::to_owned))
+            .flatten()
     };
     if let Some(cache) = room.client().event_cache()
         && let Ok((events, _handles)) = cache.room(room.room_id()).await
