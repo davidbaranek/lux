@@ -68,6 +68,8 @@ final class ChatDetailsController: NSViewController {
 
         let actions = NSStackView(views: [mute, markRead, edit])
         actions.spacing = 10
+        // as wide as its tiles, so the column centres it.
+        actions.setHuggingPriority(.required, for: .horizontal)
 
         // capsule tabs, as Messages' details; they scroll sideways when the inspector is narrow.
         tabs.onSelect = { [weak self] in self?.chooseTab() }
@@ -99,7 +101,9 @@ final class ChatDetailsController: NSViewController {
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             topic.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -40),
             actions.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -32),
-            tabsScroll.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -24),
+            tabsScroll.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -32),
+            // as wide as the tabs when they fit, so the column centres them.
+            tabsScroll.widthAnchor.constraint(equalTo: tabs.widthAnchor).withPriority(.defaultHigh),
             tabsScroll.heightAnchor.constraint(equalToConstant: 28),
             pane.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
@@ -272,6 +276,8 @@ final class ChatDetailsController: NSViewController {
 private final class CapsuleTabs: NSView {
     var onSelect: (() -> Void)?
     private let row = NSStackView()
+    /// Behind the chosen tab: Liquid Glass, as Messages marks it.
+    private let glass = NSGlassEffectView()
 
     var titles: [String] = [] {
         didSet {
@@ -279,13 +285,10 @@ private final class CapsuleTabs: NSView {
                 let button = NSButton(title: title, target: self, action: #selector(pick))
                 button.tag = index
                 button.isBordered = false
-                button.wantsLayer = true
-                button.layer?.cornerRadius = 11
-                button.layer?.cornerCurve = .continuous
                 button.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
                 button.translatesAutoresizingMaskIntoConstraints = false
-                button.heightAnchor.constraint(equalToConstant: 22).isActive = true
-                button.widthAnchor.constraint(equalToConstant: ceil(button.intrinsicContentSize.width) + 20).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+                button.widthAnchor.constraint(equalToConstant: ceil(button.intrinsicContentSize.width) + 24).isActive = true
                 return button
             }, in: .leading)
             mark()
@@ -296,6 +299,8 @@ private final class CapsuleTabs: NSView {
 
     init() {
         super.init(frame: .zero)
+        glass.cornerRadius = 13
+        addSubview(glass)
         row.spacing = 2
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
@@ -314,20 +319,19 @@ private final class CapsuleTabs: NSView {
         onSelect?()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        mark()
+    override func layout() {
+        super.layout()
+        glass.frame = row.views[safe: selected]?.frame ?? .zero
     }
 
     private func mark() {
         for case let button as NSButton in row.views {
             let on = button.tag == selected
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                button.layer?.backgroundColor = on ? NSColor.quaternaryLabelColor.cgColor : nil
-            }
             button.contentTintColor = on ? .labelColor : .secondaryLabelColor
             button.setAccessibilityValue(on ? String(localized: "Selected") : nil)
         }
+        glass.isHidden = row.views.isEmpty
+        needsLayout = true
     }
 }
 

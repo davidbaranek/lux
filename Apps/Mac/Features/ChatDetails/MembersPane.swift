@@ -46,8 +46,8 @@ final class MembersPane: NSViewController, NSTableViewDataSource, NSTableViewDel
         container.addSubview(scroll)
         container.addSubview(empty)
         NSLayoutConstraint.activate([
-            search.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            search.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            search.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            search.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
             search.topAnchor.constraint(equalTo: container.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),

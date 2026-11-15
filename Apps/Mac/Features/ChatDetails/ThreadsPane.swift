@@ -119,6 +119,13 @@ private final class ThreadRowView: NSTableCellView {
         root.lineBreakMode = .byTruncatingTail
         replies.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         replies.lineBreakMode = .byTruncatingTail
+        // one line each, cut short: the row's height is fixed.
+        for label in [name, root, replies] {
+            label.maximumNumberOfLines = 1
+            label.cell?.wraps = false
+            label.cell?.usesSingleLineMode = true
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
         dot.wantsLayer = true
         dot.layer?.cornerRadius = 4
         let top = NSStackView(views: [name, time])
