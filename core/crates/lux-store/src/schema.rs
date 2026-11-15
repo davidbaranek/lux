@@ -30,7 +30,7 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE kept(key TEXT PRIMARY KEY, value BLOB NOT NULL);
     ",
     // 2: the photos: who sent them and their captions, from the history; what the apps read in
-    // them (their words, their embedding) once photo search is on, and by which reader.
+    // them (their words; their embedding, when search by look is on), and by which reader.
     "
     CREATE TABLE images(
         id INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, room_id TEXT NOT NULL,

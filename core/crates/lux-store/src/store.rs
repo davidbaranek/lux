@@ -252,17 +252,17 @@ impl Store {
             .await
     }
 
-    /// Forgets what was read in every photo (photo search turned off); the photos stay, to be
-    /// read again if it is turned on.
+    /// Forgets every photo's embedding (search by how photos look turned off), and keeps their
+    /// words as read by `reader`: the reader without the model, so they are not read again.
     ///
     /// # Errors
     /// SQLite's, or [`Error::Closed`].
-    pub async fn forget_image_reads(&self) -> Result<()> {
+    pub async fn forget_image_embeddings(&self, reader: String) -> Result<()> {
         self.worker
-            .run(|connection| {
-                connection.execute_batch(
-                    "UPDATE images SET words = '', embedding = NULL, reader = NULL, tries = 0 WHERE reader IS NOT NULL OR tries > 0;",
-                )?;
+            .run(move |connection| {
+                connection
+                    .prepare_cached("UPDATE images SET embedding = NULL, reader = ?1 WHERE reader IS NOT NULL")?
+                    .execute([reader])?;
                 Ok(())
             })
             .await

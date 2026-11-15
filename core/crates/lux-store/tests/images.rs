@@ -190,7 +190,7 @@ async fn finds_a_photo_by_its_look_and_ranks_one_found_both_ways_first() {
 }
 
 #[tokio::test]
-async fn turned_off_forgets_what_was_read_and_a_deleted_photo_goes() {
+async fn turned_off_the_embeddings_go_the_words_stay_and_a_deleted_photo_goes() {
     let folder = TempDir::new().unwrap();
     let store = store(&folder).await;
     store
@@ -206,11 +206,13 @@ async fn turned_off_forgets_what_was_read_and_a_deleted_photo_goes() {
         .unwrap();
     store.remove(vec!["$2".into()]).await.unwrap();
     assert_eq!(found(&store, search("faktura", None)).await, ["$1"]);
-    store.forget_image_reads().await.unwrap();
-    assert!(found(&store, search("faktura", Some(vec![1.0, 0.0]))).await.is_empty());
+    store.forget_image_embeddings("words-only".into()).await.unwrap();
+    // found by its words still, no longer by its look; read by the reader without the model.
+    assert_eq!(found(&store, search("faktura", None)).await, ["$1"]);
+    assert!(found(&store, search("", Some(vec![1.0, 0.0]))).await.is_empty());
     assert_eq!(
-        store.image_counts(READER.into()).await.unwrap(),
-        ImageCounts { total: 1, read: 0 }
+        store.image_counts("words-only".into()).await.unwrap(),
+        ImageCounts { total: 1, read: 1 }
     );
     // a forgotten chat's photos go with its messages.
     store.forget_chat("!a".into(), None).await.unwrap();

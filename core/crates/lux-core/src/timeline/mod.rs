@@ -297,7 +297,7 @@ pub struct IndexedMessage {
 }
 
 /// A photo, as the search index keeps it: where it is and who sent it; what it shows is the
-/// apps' to read (its text, its embedding), once the user turns photo search on.
+/// apps' to read (its words; its embedding, when the user turns search by look on).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexedImage {
     /// Its event.

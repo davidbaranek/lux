@@ -331,9 +331,10 @@ impl CoreStore {
         Ok(self.store.image_unread(event_id.into()).await?)
     }
 
-    /// Forgets what was read in every photo (photo search turned off).
-    pub async fn forget_image_reads(&self) -> Result<(), CoreStoreError> {
-        Ok(self.store.forget_image_reads().await?)
+    /// Forgets every photo's embedding (search by look turned off); their words stay, as read by
+    /// `reader`.
+    pub async fn forget_image_embeddings(&self, reader: String) -> Result<(), CoreStoreError> {
+        Ok(self.store.forget_image_embeddings(reader).await?)
     }
 
     /// How many photos the index has, and how many `reader` has read.
