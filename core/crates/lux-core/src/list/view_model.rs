@@ -23,7 +23,7 @@ use crate::actions::Actions;
 use crate::chat::{Chat, Request, ScheduledMessage, Space};
 use crate::ids::{ChatId, EventId, LabelId, RoomId, ScheduledId};
 use crate::organizer::Organized;
-use crate::places::{Arrangement, ChatFilter, ChatOrder, PlaceId, Theme};
+use crate::places::{Arrangement, ChatFilter, ChatOrder, InboxRule, PlaceId, Theme};
 use crate::ports::{
     BackendError, ChatAccount, ChatActions, ChatChange, Diffs, Organizing, SavedMessages, Scheduling, Spaces,
 };
@@ -83,6 +83,8 @@ enum Intent {
     ShowAllPlaces,
     Theme(PlaceId, Option<Theme>),
     DefaultTheme(Theme),
+    Inbox(PlaceId, InboxRule),
+    ChatInbox(ChatId, Option<InboxRule>),
     Act(Action),
     /// The waiting messages, read.
     Scheduled(Vec<ScheduledMessage>),
@@ -251,6 +253,17 @@ impl ChatListViewModel {
     /// Sets the colour of the places without one of their own.
     pub fn set_default_theme(&self, theme: Theme) {
         self.send(Intent::DefaultTheme(theme));
+    }
+
+    /// Says how much of a network's or a space's chats the inbox shows; another place has
+    /// no rule, and stays as it is.
+    pub fn set_inbox(&self, place: PlaceId, rule: InboxRule) {
+        self.send(Intent::Inbox(place, rule));
+    }
+
+    /// Gives a chat an inbox rule of its own, or (`None`) has it follow its places' again.
+    pub fn set_chat_inbox(&self, chat: ChatId, rule: Option<InboxRule>) {
+        self.send(Intent::ChatInbox(chat, rule));
     }
 }
 
@@ -453,6 +466,17 @@ fn handle<B: ChatListBackend>(intent: Intent, state: &mut ListState, actor: &mut
             arrangement.theme = theme;
             return arrange(state, actor, arrangement);
         }
+        Intent::Inbox(place, rule) => {
+            if !place.has_inbox_rule() {
+                return false;
+            }
+            let arrangement = state.arrangement().clone().with_inbox(place.key(), rule);
+            return arrange(state, actor, arrangement);
+        }
+        Intent::ChatInbox(chat, rule) => {
+            let arrangement = state.arrangement().clone().with_chat_inbox(chat, rule);
+            return arrange(state, actor, arrangement);
+        }
         Intent::Act(action) => {
             actor.act(action);
             return false;
@@ -597,9 +621,10 @@ mod tests {
     use super::{ChatListViewModel, ListListener, ListSetup};
     use crate::chat::{Chat, Folder};
     use crate::demo::{DemoAccount, DemoConfig};
+    use crate::ids::ChatId;
     use crate::list::{ListRow, ListUpdate, LoadState};
     use crate::network::Network;
-    use crate::places::{PlaceId, SectionId, Theme};
+    use crate::places::{InboxRule, PlaceId, SectionId, Theme};
     use crate::ports::{BackendError, ChatChange};
 
     struct Relay(mpsc::UnboundedSender<ListUpdate>);
@@ -819,6 +844,41 @@ mod tests {
             } else {
                 Theme::Indigo
             }));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_network_kept_out_of_the_inbox_leaves_at_once_and_a_chat_of_it_may_stay() {
+        let demo = demo();
+        let (list, mut batches) = list(&demo);
+        let mut shown = Shown::default();
+        let first = next(&mut batches).await;
+        assert_eq!(first.chat_inbox, Some(HashMap::new()));
+        shown.apply(&first);
+        let signal = Network::from_id("signal");
+        let snapshot = demo.snapshot();
+        let of_signal: Vec<String> = (snapshot.chats.iter())
+            .filter(|chat| chat.network == signal && chat.pinned.is_none() && chat.folder == Folder::Inbox)
+            .map(|chat| chat.id.to_string())
+            .collect();
+        assert!(of_signal.len() > 1);
+        let inbox = |shown: &Shown| shown.ids(&SectionId::All);
+        assert!(of_signal.iter().all(|id| inbox(&shown).contains(id)));
+        // a label has no inbox rule.
+        list.set_inbox(PlaceId::Label("work".into()), InboxRule::Never);
+        list.set_inbox(PlaceId::Network(signal.clone()), InboxRule::Never);
+        let batch = next(&mut batches).await;
+        shown.apply(&batch);
+        let places = batch.places.unwrap();
+        let place = places.iter().find(|place| place.id == PlaceId::Network(signal.clone()));
+        assert_eq!(place.and_then(|place| place.inbox), Some(InboxRule::Never));
+        assert!(of_signal.iter().all(|id| !inbox(&shown).contains(id)));
+        let kept = ChatId::from(of_signal[0].as_str());
+        list.set_chat_inbox(kept.clone(), Some(InboxRule::All));
+        let batch = next(&mut batches).await;
+        shown.apply(&batch);
+        assert_eq!(batch.chat_inbox, Some([(kept, InboxRule::All)].into()));
+        assert!(inbox(&shown).contains(&of_signal[0]));
+        assert!(!inbox(&shown).contains(&of_signal[1]));
     }
 
     #[tokio::test(start_paused = true)]

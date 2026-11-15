@@ -67,6 +67,8 @@ public struct PlaceItem: Hashable, Sendable, Identifiable {
     public var theme = PlaceTheme.neutral
     /// The colour the user gave it; nil takes the one for every place.
     public var ownTheme: PlaceTheme?
+    /// How much of a network's or a space's chats the inbox shows; nil for the other places.
+    public var inbox: InboxRule?
 }
 
 /// The places as the app words and draws them; the core composes the list of them and what

@@ -147,6 +147,26 @@ extension CoreTheme {
     }
 }
 
+extension CoreInboxRule {
+    init(_ rule: InboxRule) {
+        self = switch rule {
+        case .all: .all
+        case .mentions: .mentions
+        case .never: .never
+        }
+    }
+}
+
+extension InboxRule {
+    init(_ rule: CoreInboxRule) {
+        self = switch rule {
+        case .all: .all
+        case .mentions: .mentions
+        case .never: .never
+        }
+    }
+}
+
 extension PlaceTheme {
     init(_ theme: CoreTheme) {
         self = switch theme {

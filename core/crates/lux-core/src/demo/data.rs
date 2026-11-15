@@ -140,6 +140,8 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
         )),
         date: Some(start.checked_sub(ago).unwrap_or(start)),
         unread_count,
+        // some unread groups mention the user.
+        unread_mentions: u32::from(is_group && unread_count > 0 && index.is_multiple_of(3)),
         is_marked_unread,
         is_muted: match changed.notifications {
             Some(NotificationMode::Off | NotificationMode::Mentions) => true,

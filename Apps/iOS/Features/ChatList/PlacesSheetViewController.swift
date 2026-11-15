@@ -178,16 +178,28 @@ final class PlacesSheetViewController: UIViewController, UICollectionViewDelegat
         pinsChanged()
     }
 
-    /// A long press: hide the place, or show it again (not the inbox).
+    /// A long press: hide the place, or show it again (not the inbox); its colour; how much of
+    /// a network or a space the inbox shows, and on the inbox, that of every one.
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
                         point: CGPoint) -> UIContextMenuConfiguration? {
-        guard !isEditing, let place = indexPaths.first.flatMap({ dataSource.itemIdentifier(for: $0) }), place != .inbox,
+        guard !isEditing, let place = indexPaths.first.flatMap({ dataSource.itemIdentifier(for: $0) }),
               let item = items[place] else { return nil }
+        if place == .inbox {
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+                guard let self else { return nil }
+                return UIMenu(children: [themeMenu(item), InboxMenu.overview(model.places) { [weak self] place, rule in
+                    self?.model.setInbox(place, rule)
+                }])
+            }
+        }
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             let action = item.isHidden
                 ? UIAction(title: String(localized: "Show"), image: UIImage(systemName: "eye")) { _ in self?.model.setHidden(place, false) }
                 : UIAction(title: String(localized: "Hide"), image: UIImage(systemName: "eye.slash")) { _ in self?.model.setHidden(place, true) }
-            return UIMenu(children: [action, self?.themeMenu(item)].compactMap(\.self))
+            let inbox = item.inbox.map { current in
+                InboxMenu.place(current: current) { rule in self?.model.setInbox(place, rule) }
+            }
+            return UIMenu(children: [action, self?.themeMenu(item), inbox].compactMap(\.self))
         }
     }
 

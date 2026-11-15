@@ -360,8 +360,15 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             }
         }
         let main = changes.filter { !$0.isDestructive }.map(action)
-        return UIMenu(children: [UIMenu(options: .displayInline, children: main), remindMenu(for: row), labelsMenu(for: row), mergeMenu(for: row),
-                                 UIMenu(options: .displayInline, children: changes.filter(\.isDestructive).map(action))])
+        return UIMenu(children: [UIMenu(options: .displayInline, children: main), remindMenu(for: row), labelsMenu(for: row), inboxMenu(for: row),
+                                 mergeMenu(for: row), UIMenu(options: .displayInline, children: changes.filter(\.isDestructive).map(action))])
+    }
+
+    /// Whether the inbox shows the chat: as its places say, or by a rule of its own.
+    private func inboxMenu(for row: ChatRow) -> UIMenu {
+        InboxMenu.chat(current: model.chatInbox[row.id], isGroup: row.isGroup) { [weak self] rule in
+            self?.model.setChatInbox(row.id, rule)
+        }
     }
 
     /// One person's chats on several networks as one: merge with another chat, or take a merged

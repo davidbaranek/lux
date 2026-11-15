@@ -12,6 +12,8 @@ final class RailController: NSViewController {
     var onHide: ((Place?, Bool) -> Void)?
     /// A place's own colour chosen, or (nil) the one for every place.
     var onTheme: ((Place, PlaceTheme?) -> Void)?
+    /// How much of a network's or a space's chats the inbox shows, chosen.
+    var onInbox: ((Place, InboxRule) -> Void)?
     /// The colour of the places without their own: the menu's Default names it.
     var defaultTheme = PlaceTheme.neutral
     var onAccount: (() -> Void)?
@@ -114,7 +116,8 @@ final class RailController: NSViewController {
 
     // MARK: Hiding places
 
-    /// A place's menu: its colour, hide it (all but the inbox), and the hidden ones to show again.
+    /// A place's menu: its colour, how much of it the inbox shows (a network's or a space's; on
+    /// the inbox, every one's), hide it (all but the inbox), and the hidden ones to show again.
     private func menu(for place: Place) -> NSMenu? {
         let menu = NSMenu()
         if let item = items.first(where: { $0.id == place }) {
@@ -127,6 +130,11 @@ final class RailController: NSViewController {
             }
             colour.submenu = submenu
             menu.addItem(colour)
+            if let current = item.inbox {
+                menu.addItem(InboxMenu.item(place: place, current: current, target: self, action: #selector(choseInbox(_:))))
+            } else if place == .inbox {
+                menu.addItem(InboxMenu.overview(items, target: self, action: #selector(choseInbox(_:))))
+            }
             menu.addItem(.separator())
         }
         if place != .inbox, let item = items.first(where: { $0.id == place }) {
@@ -171,6 +179,11 @@ final class RailController: NSViewController {
     @objc private func choseTheme(_ item: NSMenuItem) {
         guard let choice = item.representedObject as? ThemeMenu.Choice, let place = choice.place else { return }
         onTheme?(place, choice.theme)
+    }
+
+    @objc private func choseInbox(_ item: NSMenuItem) {
+        guard let choice = item.representedObject as? InboxMenu.Choice, let place = choice.place, let rule = choice.rule else { return }
+        onInbox?(place, rule)
     }
 
     @objc private func hidePlace(_ item: NSMenuItem) {

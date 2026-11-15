@@ -42,6 +42,8 @@ pub struct Chat {
     pub date: Option<SystemTime>,
     /// Unread messages, not counting mentions apart.
     pub unread_count: u32,
+    /// Unread messages that mention the user (or the room).
+    pub unread_mentions: u32,
     /// The user marked it unread by hand.
     pub is_marked_unread: bool,
     /// Its notifications are off.

@@ -56,6 +56,7 @@ mod tests {
                     preview: None,
                     date: None,
                     unread_count: 0,
+                    unread_mentions: 0,
                     is_marked_unread: false,
                     is_muted: false,
                     network: Network::Matrix,
