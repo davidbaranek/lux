@@ -11,7 +11,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
     private enum Item: Hashable {
         case header
         case room(String)
-        case notifications, encryption, address
+        case notifications, messages, encryption, address
         case members(String)
         case shared(SharedKind)
         case markRead, leave
@@ -90,7 +90,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         if let info = model.info {
             snapshot.appendSections([.networks, .settings])
             snapshot.appendItems(info.rooms.map { .room($0.id) }, toSection: .networks)
-            snapshot.appendItems([.notifications, .encryption] + (model.mainRoom?.address == nil ? [] : [.address]), toSection: .settings)
+            snapshot.appendItems([.notifications, .messages, .encryption] + (model.mainRoom?.address == nil ? [] : [.address]), toSection: .settings)
             let groups = info.rooms.filter { !$0.isDirect }
             if !groups.isEmpty {
                 snapshot.appendSections([.people])
@@ -147,6 +147,11 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             content.text = String(localized: "Notifications")
             content.secondaryText = model.info?.notifications?.title ?? String(localized: "Mixed")
             cell.accessories = [.popUpMenu(notificationsMenu(), displayed: .always)]
+        case .messages:
+            content.image = UIImage(systemName: "text.bubble")
+            content.text = String(localized: "Messages")
+            content.secondaryText = model.chatStyleOverride?.title ?? String(localized: "As in Settings")
+            cell.accessories = [.popUpMenu(chatStyleMenu(), displayed: .always)]
         case .encryption:
             let encrypted = model.info?.isEncrypted == true
             content.image = UIImage(systemName: encrypted ? "lock.fill" : "lock.open")
@@ -185,6 +190,17 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             UIAction(title: setting.title, image: UIImage(systemName: setting.symbol),
                      state: model.info?.notifications == setting ? .on : .off) { [weak self] _ in
                 self?.change(of: "chat notifications") { try await $0.setNotifications(setting) }
+            }
+        })
+    }
+
+    /// Bubbles, plain rows, or as Settings says; the current choice ticked.
+    private func chatStyleMenu() -> UIMenu {
+        let current = model.chatStyleOverride
+        return UIMenu(options: .singleSelection, children: model.chatStyleChoices.map { choice in
+            UIAction(title: choice.title, image: UIImage(systemName: choice.style == nil ? "gear" : choice.style == .plain ? "text.alignleft" : "bubble.left.and.bubble.right"),
+                     state: current == choice.style ? .on : .off) { [weak self] _ in
+                self?.model.chatStyleOverride = choice.style
             }
         })
     }

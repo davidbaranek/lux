@@ -59,6 +59,23 @@ public final class ChatDetailsModel {
 
     // MARK: Changes
 
+    /// How this chat draws its messages, when it differs from the app's; nil follows Settings. An
+    /// open chat redraws at once (`Preferences.chatStyleChanges`).
+    public var chatStyleOverride: ChatStyle? {
+        get { Preferences.shared.chatStyleOverride(in: row.id) }
+        set {
+            Preferences.shared.setChatStyle(newValue, in: row.id)
+            changes.send()
+        }
+    }
+
+    /// The choices for how the chat draws its messages, the last following Settings, which it names
+    /// ("As in Settings (Bubbles)").
+    public var chatStyleChoices: [(title: String, style: ChatStyle?)] {
+        ChatStyle.allCases.map { ($0.title, $0) }
+            + [(String(localized: "As in Settings (\(Preferences.shared.chatStyle.title))"), nil)]
+    }
+
     public func setNotifications(_ setting: NotificationSetting) async throws {
         try await save { try await $0.setNotifications(chatId: self.row.id, setting) }
         row.isMuted = setting == .off || setting == .mentions

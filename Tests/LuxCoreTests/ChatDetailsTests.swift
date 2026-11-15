@@ -63,6 +63,16 @@ struct ChatDetailsTests {
         #expect(!links.items.isEmpty)
     }
 
+    @Test func aChatKeepsItsOwnMessageStyleOverTheAppsAndNamesTheAppsInItsChoices() {
+        let details = session.details(of: row("!room3:demo", isGroup: true))
+        defer { details.chatStyleOverride = nil }
+        details.chatStyleOverride = .plain
+        #expect(Preferences.shared.chatStyle(in: "!room3:demo") == .plain)
+        #expect(details.chatStyleChoices.last?.title.contains(Preferences.shared.chatStyle.title) == true)
+        details.chatStyleOverride = nil
+        #expect(Preferences.shared.chatStyle(in: "!room3:demo") == Preferences.shared.chatStyle)
+    }
+
     @Test func aMergedChatShowsEachOfItsRooms() async throws {
         let details = session.details(of: row("merge:demo-jana", name: "Jana Dvořáková"))
         try await details.load()

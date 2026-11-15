@@ -21,6 +21,7 @@ final class ChatDetailsController: NSViewController {
     private lazy var edit = NSButton(title: String(localized: "Edit…"), target: self, action: #selector(openEdit))
     private let networks = NSStackView()
     private let notifications = NSPopUpButton()
+    private let chatStyle = NSPopUpButton()
     private let encryption = NSTextField(labelWithString: "")
     private let encryptionIcon = NSImageView()
     private let address = NSTextField(labelWithString: "")
@@ -78,6 +79,9 @@ final class ChatDetailsController: NSViewController {
             notifications.lastItem?.image = NSImage(systemSymbolName: setting.symbol, accessibilityDescription: nil)
             notifications.lastItem?.representedObject = setting
         }
+        chatStyle.target = self
+        chatStyle.action = #selector(chooseChatStyle)
+        chatStyle.controlSize = .small
         encryptionIcon.symbolConfiguration = .init(pointSize: 11, weight: .medium)
         let encryptionView = NSStackView(views: [encryptionIcon, encryption])
         encryptionView.spacing = 4
@@ -86,6 +90,7 @@ final class ChatDetailsController: NSViewController {
         let grid = NSGridView(views: [
             [label(String(localized: "Networks:")), networks],
             [label(String(localized: "Notifications:")), notifications],
+            [label(String(localized: "Messages:")), chatStyle],
             [label(String(localized: "Encryption:")), encryptionView],
             [label(String(localized: "Address:")), address],
         ])
@@ -93,7 +98,7 @@ final class ChatDetailsController: NSViewController {
         grid.columnSpacing = 8
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
-        addressRow = grid.row(at: 3)
+        addressRow = grid.row(at: 4)
 
         markRead.controlSize = .small
         leave.controlSize = .small
@@ -159,6 +164,12 @@ final class ChatDetailsController: NSViewController {
         notifications.selectItem(at: setting.flatMap { NotificationSetting.allCases.firstIndex(of: $0) } ?? -1)
         notifications.isEnabled = model.info != nil && !model.isSaving
         if setting == nil, model.info != nil { notifications.setTitle(String(localized: "Mixed")) }
+        chatStyle.removeAllItems()
+        for (index, choice) in model.chatStyleChoices.enumerated() {
+            chatStyle.addItem(withTitle: choice.title)
+            chatStyle.lastItem?.tag = index
+        }
+        chatStyle.selectItem(withTag: model.chatStyleChoices.firstIndex { $0.style == model.chatStyleOverride } ?? 0)
         let encrypted = model.info?.isEncrypted == true
         encryptionIcon.image = NSImage(systemSymbolName: encrypted ? "lock.fill" : "lock.open", accessibilityDescription: nil)
         encryptionIcon.contentTintColor = encrypted ? .systemGreen : .secondaryLabelColor
@@ -229,6 +240,10 @@ final class ChatDetailsController: NSViewController {
     @objc private func chooseNotifications() {
         guard let setting = notifications.selectedItem?.representedObject as? NotificationSetting else { return }
         change(String(localized: "The notifications could not be changed.")) { try await $0.setNotifications(setting) }
+    }
+
+    @objc private func chooseChatStyle() {
+        model.chatStyleOverride = model.chatStyleChoices[safe: chatStyle.selectedTag()]?.style
     }
 
     @objc private func toggleRead() {
