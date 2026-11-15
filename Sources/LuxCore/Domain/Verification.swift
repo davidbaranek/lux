@@ -47,6 +47,14 @@ public struct OwnDevice: Sendable, Equatable, Hashable, Identifiable {
     public var title: String { name.flatMap { $0.isEmpty ? nil : $0 } ?? id }
 }
 
+/// How another of the account's devices is signed out (`lux_core`'s `DeviceSignOut`).
+public enum DeviceSignOut: Sendable, Equatable {
+    /// On the server's account page, in the browser: its address, at the device.
+    case inBrowser(URL)
+    /// Here, with the account's password.
+    case withPassword
+}
+
 /// What this device still needs to read the account's encrypted messages (`lux_core`'s
 /// `EncryptionSetup`, decided in the core).
 public enum EncryptionSetup: Sendable, Equatable {

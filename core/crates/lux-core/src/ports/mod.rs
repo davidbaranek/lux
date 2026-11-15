@@ -33,7 +33,8 @@ pub use people::{Contact, ContactAccount, ContactListing, ContactProblem, People
 pub use push::{NotificationStream, Push};
 pub use secrets::{SecretStore, SecretStoreError, SessionSecrets, StoreKey};
 pub use security::{
-    DeviceTrust, EncryptionSetup, OwnDevice, RecoveryState, Security, Verification, VerificationEmoji, VerificationStep,
+    DeviceSignOut, DeviceTrust, EncryptionSetup, OwnDevice, RecoveryState, Security, Verification, VerificationEmoji,
+    VerificationStep,
 };
 pub use sign_in::{LoginMethods, OAuthClient, OAuthSignIn, SignIn};
 pub use thread::ThreadBackend;

@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 use lux_core::demo::DemoVerification;
-use lux_core::ports::{EncryptionSetup, OwnDevice, RecoveryState, Security, Verification, VerificationStep};
+use lux_core::ports::{
+    DeviceSignOut, EncryptionSetup, OwnDevice, RecoveryState, Security, Verification, VerificationStep,
+};
 use lux_matrix::MatrixVerification;
 
 use crate::account::{CoreAccount, CoreAccountError, CoreListenerHandle, with_account};
@@ -85,6 +87,27 @@ impl From<OwnDevice> for CoreOwnDevice {
             name: device.name,
             is_verified: device.is_verified,
             is_this_device: device.is_this_device,
+        }
+    }
+}
+
+/// How another of the account's devices is signed out.
+#[derive(Clone, uniffi::Enum)]
+pub enum CoreDeviceSignOut {
+    /// On the server's account page, in the browser.
+    InBrowser {
+        /// The page's address, at the device.
+        url: String,
+    },
+    /// Here, with the account's password.
+    WithPassword,
+}
+
+impl From<DeviceSignOut> for CoreDeviceSignOut {
+    fn from(sign_out: DeviceSignOut) -> Self {
+        match sign_out {
+            DeviceSignOut::InBrowser(url) => Self::InBrowser { url },
+            DeviceSignOut::WithPassword => Self::WithPassword,
         }
     }
 }
@@ -331,6 +354,24 @@ impl CoreAccount {
         let verification: CoreVerification =
             with_account!(self.backend(), account => account.verify_device(&device_id).await?.into());
         Ok(Arc::new(verification))
+    }
+
+    /// How the account's device `device_id` is signed out.
+    ///
+    /// # Errors
+    /// `NotAllowed` for this device; others when the server cannot be asked.
+    pub async fn device_sign_out(&self, device_id: String) -> Result<CoreDeviceSignOut, CoreAccountError> {
+        let sign_out = with_account!(self.backend(), account => account.device_sign_out(&device_id).await?);
+        Ok(sign_out.into())
+    }
+
+    /// Signs the account's device `device_id` out with the account's password.
+    ///
+    /// # Errors
+    /// `WrongCredentials` for a wrong password, `NotAllowed` for this device or a server that
+    /// asks for more than the password.
+    pub async fn sign_out_device(&self, device_id: String, password: String) -> Result<(), CoreAccountError> {
+        Ok(with_account!(self.backend(), account => account.sign_out_device(&device_id, &password).await)?)
     }
 
     /// Whether the key backup is open on this device.

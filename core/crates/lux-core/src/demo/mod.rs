@@ -34,8 +34,8 @@ use crate::merge::{self, Merge};
 use crate::organizer::{LabelError, Organized, checked_name};
 use crate::places::Arrangement;
 use crate::ports::{
-    BackendError, ChatAccount, ChatActions, ChatChange, DiffStream, EncryptionSetup, Organizing, OwnDevice,
-    RecoveryState, SavedMessages, Scheduling, Security, Spaces, ThreadBackend, ValueStream,
+    BackendError, ChatAccount, ChatActions, ChatChange, DeviceSignOut, DiffStream, EncryptionSetup, Organizing,
+    OwnDevice, RecoveryState, SavedMessages, Scheduling, Security, Spaces, ThreadBackend, ValueStream,
 };
 use crate::preview::{Preview, PreviewSource, Sender};
 
@@ -579,6 +579,14 @@ impl Security for DemoAccount {
 
     async fn verify_device(&self, device: &str) -> Result<DemoVerification, BackendError> {
         self.security.verify_device(device).await
+    }
+
+    async fn device_sign_out(&self, device: &str) -> Result<DeviceSignOut, BackendError> {
+        self.security.device_sign_out(device).await
+    }
+
+    async fn sign_out_device(&self, device: &str, password: &str) -> Result<(), BackendError> {
+        self.security.sign_out_device(device, password).await
     }
 
     fn verification_requests(&self) -> ValueStream<Arc<DemoVerification>> {

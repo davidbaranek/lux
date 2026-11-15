@@ -30,6 +30,22 @@ extension RustAccount {
         try await worded { try await account.ownDevices() }.map(OwnDevice.init)
     }
 
+    func deviceSignOut(device: String) async throws -> DeviceSignOut {
+        switch try await worded({ try await account.deviceSignOut(deviceId: device) }) {
+        case .inBrowser(let url):
+            // the server's own address; one that does not parse cannot be opened either.
+            guard let url = URL(string: url) else { throw AccountFailure.notAllowed }
+            return .inBrowser(url)
+        case .withPassword:
+            return .withPassword
+        }
+    }
+
+    /// Throws `AccountFailure.wrongCredentials` for a wrong password.
+    func signOut(device: String, password: String) async throws {
+        try await worded { try await account.signOutDevice(deviceId: device, password: password) }
+    }
+
     func recoveryState() -> RecoveryState {
         switch account.recoveryState() {
         case .enabled: .enabled

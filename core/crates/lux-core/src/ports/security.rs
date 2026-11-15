@@ -83,6 +83,16 @@ pub struct OwnDevice {
     pub is_this_device: bool,
 }
 
+/// How another of the account's devices is signed out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeviceSignOut {
+    /// On the server's account page, in the browser: the address opens it at the device. A
+    /// server whose sign-in is its own (OAuth) signs devices out only there.
+    InBrowser(String),
+    /// Here, with the account's password.
+    WithPassword,
+}
+
 /// One emoji to compare with the other device's.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct VerificationEmoji {
@@ -147,11 +157,24 @@ pub trait Security: Send + Sync {
     /// Asks the account's other devices to verify this one.
     fn verify_this_device(&self) -> impl Future<Output = Result<Self::Verification, BackendError>> + Send;
 
-    /// The account's devices that can verify, this one first.
+    /// The account's devices, as the server has them now, this one first.
     fn own_devices(&self) -> impl Future<Output = Result<Vec<OwnDevice>, BackendError>> + Send;
 
     /// Asks the account's device `device` to verify with this one.
     fn verify_device(&self, device: &str) -> impl Future<Output = Result<Self::Verification, BackendError>> + Send;
+
+    /// How the account's device `device` is signed out.
+    ///
+    /// The error is [`BackendError::NotAllowed`] for this device: it signs out on its own.
+    fn device_sign_out(&self, device: &str) -> impl Future<Output = Result<DeviceSignOut, BackendError>> + Send;
+
+    /// Signs the account's device `device` out with the account's password, where the server
+    /// allows it ([`DeviceSignOut::WithPassword`]): its session ends, and it no longer reads the
+    /// account's messages.
+    ///
+    /// The error is [`BackendError::WrongCredentials`] for a wrong password,
+    /// [`BackendError::NotAllowed`] for this device.
+    fn sign_out_device(&self, device: &str, password: &str) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// The verifications the account's other devices ask for, as they arrive.
     fn verification_requests(&self) -> ValueStream<Arc<Self::Verification>>;
