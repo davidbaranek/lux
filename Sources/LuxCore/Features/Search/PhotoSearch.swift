@@ -145,7 +145,6 @@ public final class PhotoSearch {
             guard !Task.isCancelled, searchesByLook else { return }
             let model = try PhotoSearchModel(folder: folder)
             self.model = model
-            await model.prepareTextEncoder()
             await indexer.use(model)
             progress = await indexer.progress()
         } catch {

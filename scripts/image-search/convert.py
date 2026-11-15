@@ -35,7 +35,7 @@ from transformers import AutoModel, AutoProcessor
 
 MODEL = "google/siglip2-base-patch16-256"
 # the revision the app's model is built from, so a rebuild gives the same model.
-REVISION = "main"
+REVISION = "3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab"
 SIDE = 256
 TEXT_LENGTH = 64
 

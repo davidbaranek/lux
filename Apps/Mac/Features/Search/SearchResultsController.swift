@@ -16,6 +16,8 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     private var rows: [String: ChatRow] = [:]
     private var chats: [String: ChatRow] = [:]
     private var photos: [FoundPhoto] = []
+    /// The width the grid's height was measured at.
+    private var laidOutWidth: CGFloat = 0
     /// The one item of the photos section: their grid.
     private static let photoGrid = "photo-grid"
     /// While the index is still reading chats, one small line under the results.
@@ -100,6 +102,8 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     override func viewDidLayout() {
         super.viewDidLayout()
         // a wider or narrower window fits more or fewer photos in a row of the grid.
+        guard table.bounds.width != laidOutWidth else { return }
+        laidOutWidth = table.bounds.width
         if let row = dataSource.row(forItemIdentifier: Self.photoGrid) {
             table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
         }

@@ -7,7 +7,8 @@ import Vision
 /// image encoder and a text encoder whose embeddings share one space, so the words "dog on the
 /// beach" lie near a photo of one, in any of the languages it learned. Both run on the device
 /// (Core ML, on the Neural Engine where there is one); each loads when first needed, as each is
-/// large, the text encoder ahead of the first search (`prepareTextEncoder`).
+/// large: the image encoder while photos are read, the text encoder from the first search on
+/// (until it is loaded, a search finds photos by their words).
 actor PhotoSearchModel {
     /// What `model.json` says of the model.
     struct Description: Decodable, Sendable {

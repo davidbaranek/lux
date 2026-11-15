@@ -28,6 +28,11 @@ final class PhotoReading {
     /// Asks for a reading while the iPhone charges: the app went to the background. The system
     /// keeps one request; asking again replaces it.
     func schedule() {
+        // nothing to read: no task to wake the iPhone for (new photos ask for one again).
+        guard session.search?.photos.hasUnread ?? true else {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.identifier)
+            return
+        }
         let request = BGProcessingTaskRequest(identifier: Self.identifier)
         // the photos download from the server, and reading them takes the battery's time.
         request.requiresNetworkConnectivity = true

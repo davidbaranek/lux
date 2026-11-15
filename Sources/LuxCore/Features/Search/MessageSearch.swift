@@ -72,8 +72,9 @@ public final class MessageSearch {
     public func search(_ text: String) async -> SearchHits {
         guard text.contains(where: { $0.isLetter || $0.isNumber }), let account = try? await account.value else { return SearchHits() }
         async let chats = account.findChats(text, limit: 20)
+        async let foundPhotos = photos.search(text)
         let found = (try? await store.search(text, limit: 60)) ?? []
-        let images = await photos.search(text)
+        let images = await foundPhotos
         let shown = await account.chats(ofRooms: Array(Set(found.map(\.roomId) + images.map(\.roomId))))
         let messages = found.compactMap { hit -> FoundItem? in
             guard let chat = shown[hit.roomId] else { return nil }
