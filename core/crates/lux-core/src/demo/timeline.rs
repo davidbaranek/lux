@@ -261,10 +261,12 @@ fn shared_items(room: &RoomId, message: &TimelineMessage) -> Vec<SharedItem> {
     let mut items: Vec<SharedItem> = match &message.media {
         Some(Media::Photo { picture, .. }) => vec![item(SharedContent::Photo {
             picture: picture.clone(),
+            caption: message.message.body.clone(),
         })],
         Some(Media::Video { poster, duration }) => vec![item(SharedContent::Video {
             poster: poster.clone(),
             duration: *duration,
+            caption: message.message.body.clone(),
         })],
         Some(Media::File {
             name, size, mimetype, ..

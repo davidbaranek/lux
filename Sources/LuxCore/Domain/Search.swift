@@ -55,9 +55,7 @@ public struct FoundPhoto: Sendable, Hashable, Identifiable {
 
     /// Its thumbnail, by its event; named by it (letters and digits only: the demo draws it as a
     /// file of that name).
-    public var image: ImageRef {
-        .shared(roomId: roomId, eventId: id, name: "photo-" + String(id.unicodeScalars.filter(CharacterSet.alphanumerics.contains)))
-    }
+    public var image: ImageRef { .foundPhoto(roomId: roomId, eventId: id) }
 }
 
 extension FoundPhoto {

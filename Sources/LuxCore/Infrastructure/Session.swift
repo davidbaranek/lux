@@ -79,7 +79,7 @@ public final class Session {
 
     /// A chat's details screen.
     public func details(of row: ChatRow) -> ChatDetailsModel {
-        ChatDetailsModel(account: account, row: row, originals: originalsDirectory)
+        ChatDetailsModel(account: account, row: row, originals: originalsDirectory) { [weak self] in self?.search?.photos }
     }
 
     /// The chat that shows a room (its own, or the merged chat it is in); nil when the list has

@@ -5,7 +5,9 @@
 use std::collections::VecDeque;
 
 use crate::ids::RoomId;
-use crate::ports::{BackendError, ChatDetails, Member, NotificationMode, RoomDetails, SharedItem, SharedKind};
+use crate::ports::{
+    BackendError, ChatDetails, Member, NotificationMode, RoomDetails, SharedContent, SharedItem, SharedKind,
+};
 use crate::search::{folded, words};
 
 /// The members in the order the screen lists them: the account first, then by role (creators and
@@ -30,6 +32,20 @@ pub fn find_members<'a>(members: &'a [Member], query: &str) -> impl Iterator<Ite
     })
 }
 
+/// Whether a shared item holds every word of `words` (folded, as [`words`] gives them): a file's
+/// name, a link's address and the text around it, the words sent with a photo or a video.
+fn shares_words(item: &SharedItem, words: &[String]) -> bool {
+    if words.is_empty() {
+        return true;
+    }
+    let text = folded(&match &item.content {
+        SharedContent::Photo { caption, .. } | SharedContent::Video { caption, .. } => caption.clone(),
+        SharedContent::File { name, .. } => name.clone(),
+        SharedContent::Link { url, text } => format!("{url} {text}"),
+    });
+    words.iter().all(|word| text.contains(word.as_str()))
+}
+
 /// When a chat's messages notify: its rooms' one setting, `None` when they differ (a merged chat
 /// whose rooms were set apart, here or on their networks).
 #[must_use]
@@ -47,6 +63,8 @@ const MAX_PAGES: usize = 12;
 #[derive(Debug)]
 pub struct SharedHistory {
     kind: SharedKind,
+    /// The words an item must hold to be given; none gives them all.
+    words: Vec<String>,
     rooms: Vec<Cursor>,
 }
 
@@ -66,6 +84,7 @@ impl SharedHistory {
     pub fn new(rooms: Vec<RoomId>, kind: SharedKind) -> Self {
         Self {
             kind,
+            words: Vec::new(),
             rooms: rooms
                 .into_iter()
                 .map(|room| Cursor {
@@ -76,6 +95,14 @@ impl SharedHistory {
                 })
                 .collect(),
         }
+    }
+
+    /// Only the items that hold every word of `query`, ignoring case and accents: a file's name,
+    /// a link's address or the text around it, the words sent with a photo or a video.
+    #[must_use]
+    pub fn finding(mut self, query: &str) -> Self {
+        self.words = words(query).collect();
+        self
     }
 
     /// Every room was read back to its first message, and all it shared was given.
@@ -104,8 +131,11 @@ impl SharedHistory {
                 }
                 pages += 1;
                 let page = backend.shared(&room.room, room.from.as_deref()).await?;
-                room.found
-                    .extend(page.items.into_iter().filter(|item| item.content.kind() == self.kind));
+                room.found.extend(
+                    page.items
+                        .into_iter()
+                        .filter(|item| item.content.kind() == self.kind && shares_words(item, &self.words)),
+                );
                 room.at_start = page.next.is_none();
                 room.from = page.next;
                 continue;
@@ -229,11 +259,12 @@ mod tests {
                                 width: 1,
                                 height: 1,
                             },
+                            caption: format!("minute {minute}"),
                         }
                     } else {
                         SharedContent::Link {
-                            url: "https://a.test".to_owned(),
-                            text: String::new(),
+                            url: format!("https://a.test/{minute}"),
+                            text: "Plán výletu".to_owned(),
                         }
                     },
                 })
@@ -293,5 +324,32 @@ mod tests {
         assert_eq!(minutes(history.next(&pages, 10).await.unwrap()), [50, 40, 20, 10]);
         assert!(history.is_at_start());
         assert!(history.next(&pages, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_search_gives_only_what_holds_its_words_reading_on_past_what_does_not() {
+        let a = RoomId::from("!a:test");
+        let pages = Pages {
+            rooms: HashMap::from([(
+                a.clone(),
+                vec![
+                    (90, true),
+                    (80, false),
+                    (70, true),
+                    (60, false),
+                    (40, true),
+                    (30, false),
+                    (10, true),
+                ],
+            )]),
+        };
+        let mut photos = SharedHistory::new(vec![a.clone()], SharedKind::Media).finding("MINUTE 4");
+        assert_eq!(photos.next(&pages, 10).await.unwrap().len(), 1);
+        assert!(photos.is_at_start());
+        // a link by its text without accents, or by its address.
+        let mut links = SharedHistory::new(vec![a.clone()], SharedKind::Links).finding("plan vylet");
+        assert_eq!(links.next(&pages, 10).await.unwrap().len(), 3);
+        let mut links = SharedHistory::new(vec![a], SharedKind::Links).finding("a.test/30");
+        assert_eq!(links.next(&pages, 10).await.unwrap().len(), 1);
     }
 }
