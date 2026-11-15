@@ -101,11 +101,15 @@ impl ChatActions for MatrixAccount {
             }
             ChatChange::Unmute => self.unmute(&rooms).await,
             ChatChange::Read => {
+                // every room of a merged chat, though one fails: the first failure is told.
+                let mut failure = None;
                 for room in &rooms {
                     let id = RoomId::from(room.room_id().as_str());
-                    self.timelines.mark_read(&id.into(), Receipt::Public).await?;
+                    if let Err(error) = self.timelines.mark_read(&id.into(), Receipt::Public).await {
+                        failure.get_or_insert(error);
+                    }
                 }
-                Ok(())
+                failure.map_or(Ok(()), Err)
             }
             ChatChange::Unread => each(&rooms, |room| async move { room.set_unread_flag(true).await }).await,
             ChatChange::LowPriority => {

@@ -10,6 +10,11 @@ use lux_core::message::SendState;
 use lux_core::ports::{BackendError, ChatSending};
 use lux_core::timeline::{Draft, OutgoingAttachment, OutgoingKind, Quote, Receipt};
 use matrix_sdk::attachment::{AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail};
+use matrix_sdk::Room;
+use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::room::MessagesOptions;
+use matrix_sdk::ruma::OwnedEventId;
+use matrix_sdk::serde_helpers::extract_thread_root;
 use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::reply::Reply;
 use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
@@ -203,8 +208,8 @@ impl ChatSending for MatrixTimelines {
     /// The one receipt path, for an open chat and for the chat list's "read" alike: an open
     /// timeline knows its newest message best (and a thread's receipt is the thread's, the room's
     /// own the main thread's: reading one leaves the other unread); a chat not open reads up to the
-    /// room's newest event, without opening its timeline, all its threads with it. Either takes
-    /// the unread mark away.
+    /// newest event of the room's own timeline, without opening it, its threads up to there with
+    /// it. Either takes the unread mark away.
     async fn mark_read(&self, of: &TimelineId, receipt: Receipt) -> Result<(), BackendError> {
         let receipt = match receipt {
             Receipt::Public => ReceiptType::Read,
@@ -219,7 +224,8 @@ impl ChatSending for MatrixTimelines {
                 .map_err(from_sdk);
         }
         let room = self.room(&of.room)?;
-        match room.latest_event().event_id() {
+        let newest = newest_outside_threads(&room).await?;
+        match newest {
             Some(event) => {
                 room.send_single_receipt(receipt, ReceiptThread::Unthreaded, event)
                     .await
@@ -234,8 +240,32 @@ impl ChatSending for MatrixTimelines {
     }
 }
 
+/// The newest event of a room's own timeline, out of its threads: where a receipt for the whole
+/// room goes. The SDK counts a room's unread messages outside its threads, and a receipt on a
+/// thread's reply (often the room's newest event) is one it cannot place: the room would stay
+/// unread. The event cache's newest, else the server's (a room not shown lately has none in
+/// memory).
+async fn newest_outside_threads(room: &Room) -> Result<Option<OwnedEventId>, BackendError> {
+    let outside = |event: &TimelineEvent| {
+        extract_thread_root(event.raw()).is_none().then(|| event.event_id().map(ToOwned::to_owned)).flatten()
+    };
+    if let Some(cache) = room.client().event_cache()
+        && let Ok((events, _handles)) = cache.room(room.room_id()).await
+        && let Ok(Some(newest)) = events.rfind_map_event_in_memory_by(outside).await
+    {
+        return Ok(Some(newest));
+    }
+    let mut options = MessagesOptions::backward();
+    options.limit = UInt::from(PAGE_FOR_RECEIPT);
+    let page = room.messages(options).await.map_err(from_sdk)?;
+    Ok(page.chunk.iter().find_map(outside))
+}
+
+/// How many of a room's newest events are asked for to find one out of its threads.
+const PAGE_FOR_RECEIPT: u32 = 20;
+
 /// The SDK's id of the Matrix thread a timeline is, if it is one.
-fn thread_root(timeline: &TimelineId) -> Result<Option<matrix_sdk::ruma::OwnedEventId>, BackendError> {
+fn thread_root(timeline: &TimelineId) -> Result<Option<OwnedEventId>, BackendError> {
     timeline
         .thread
         .as_ref()
@@ -349,7 +379,7 @@ impl AttachmentRequest {
     ///
     /// # Errors
     /// When the queue does not take it.
-    pub(crate) async fn send(self, room: &matrix_sdk::Room) -> Result<(), BackendError> {
+    pub(crate) async fn send(self, room: &Room) -> Result<(), BackendError> {
         room.send_queue()
             .send_attachment(self.name, self.mimetype, self.data, self.config)
             .await
@@ -365,7 +395,7 @@ impl AttachmentRequest {
     pub(crate) async fn send_in(
         self,
         timeline: &matrix_sdk_ui::Timeline,
-        in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
+        in_reply_to: Option<OwnedEventId>,
     ) -> Result<(), BackendError> {
         let config = matrix_sdk_ui::timeline::AttachmentConfig {
             txn_id: self.config.txn_id,
