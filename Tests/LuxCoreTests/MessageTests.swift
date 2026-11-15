@@ -89,6 +89,48 @@ struct MessageLayoutTests {
         #expect(layout.post!.maxY < layout.bubble.height)
     }
 
+    @Test func plainRowsPutEveryoneUnderTheirPictureAndName() {
+        let m = BubbleMetrics()
+        let column = m.sideMargin + m.plainAvatarSide + m.plainAvatarGap
+        for own in [false, true] {
+            let layout = MessageLayout.make(message(own: own, body: "hello"), showsSender: false, style: .plain, width: 400,
+                                            metrics: m, measure: FixedMeasure())
+            #expect(layout.avatar?.minX == m.sideMargin)
+            #expect(layout.sender?.minX == column)
+            #expect(layout.time!.minX > layout.sender!.maxX)
+            #expect(layout.bubble.minX == column)
+            #expect(layout.body?.origin == .zero)
+            #expect(layout.bubble.minY >= layout.sender!.maxY)
+            #expect(layout.band == CGRect(x: 0, y: layout.band!.minY, width: 400, height: layout.height - layout.band!.minY))
+        }
+    }
+
+    @Test func aPlainRunShowsItsNameOnceAndUsesTheWholeWidth() {
+        var item = message(own: false, body: String(repeating: "a", count: 100))
+        item.startsGroup = false
+        let layout = MessageLayout.make(item, showsSender: true, style: .plain, width: 400, metrics: BubbleMetrics(), measure: FixedMeasure())
+        #expect(layout.sender == nil && layout.avatar == nil && layout.time == nil)
+        // past the bubbles' widest (78 % of the row).
+        #expect(layout.bubble.width > floor(400 * 0.78))
+        #expect(layout.bubble.maxX <= 400 - BubbleMetrics().sideMargin)
+    }
+
+    @Test func aPlainRowsEditedMarkSitsAtItsLeadingEdge() {
+        var item = message(own: true, body: "hello there")
+        item.footer = .init(isEdited: true, status: nil)
+        let layout = MessageLayout.make(item, showsSender: false, style: .plain, width: 400, metrics: BubbleMetrics(), measure: FixedMeasure())
+        #expect(layout.footer?.minX == 0)
+    }
+
+    @Test func aNewStyleMeasuresEveryMessageAgain() {
+        let cache = MessageLayoutCache()
+        let items = [message(own: false, body: "one")]
+        let bubbles = cache.update(items, showsSender: false, width: 300, measure: FixedMeasure()).layouts["m"]
+        let plain = cache.update(items, showsSender: false, style: .plain, width: 300, measure: FixedMeasure()).layouts["m"]
+        #expect(bubbles?.style == .bubbles)
+        #expect(plain?.style == .plain)
+    }
+
     @Test func cacheMeasuresOnlyWhatChanged() {
         let cache = MessageLayoutCache()
         var items = [message(own: false, body: "one")]

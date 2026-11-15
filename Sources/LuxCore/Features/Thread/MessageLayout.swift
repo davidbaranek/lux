@@ -5,6 +5,8 @@ import os
 /// The kinds of text in a message row; each platform measures them with its own fonts.
 public enum TextRole: Sendable {
     case sender, quote, body, footer, reactions
+    /// The sender's name over a group of plain rows (`ChatStyle.plain`).
+    case author
     /// A file's name in its row.
     case fileName
     /// A shared post's card: its title (at most two lines), its caption, and "Show more".
@@ -55,8 +57,25 @@ public struct BubbleMetrics: Sendable, Equatable {
     public var markerHeight: CGFloat = 32
     /// A shared post's caption shows this many lines until the user unfolds it.
     public var postLines = 4
+    /// Plain rows (`ChatStyle.plain`): the sender's picture beside their name, their messages in
+    /// a column after it.
+    public var plainAvatarSide: CGFloat = 36
+    public var plainAvatarGap: CGFloat = 12
+    /// A shared post's card in a plain row is no wider than this.
+    public var plainCardWidth: CGFloat = 400
+    /// Space above a plain group's name, and above every other of its rows.
+    public var plainGroupGap: CGFloat = 14
+    public var plainRunGap: CGFloat = 2
+    /// The band behind a plain row (for a tap, a menu, a jump) reaches this far round its parts.
+    public var plainBand: CGFloat = 2
 
     public init() {}
+}
+
+/// How a chat draws its messages: in bubbles, one's own on the trailing side, or as plain rows
+/// under their sender's picture and name, across the whole width (as Discord and Slack do).
+public enum ChatStyle: String, Sendable, CaseIterable {
+    case bubbles, plain
 }
 
 /// Where every part of a message row goes, measured once off the main thread (as Signal's
@@ -67,7 +86,11 @@ public struct MessageLayout: Sendable, Equatable {
     private enum Part { case quote, photo, file, postTitle, postText, postMore, body, footer }
 
     public var height: CGFloat
+    public var style: ChatStyle = .bubbles
     public var sender: CGRect?
+    /// A plain group's time, after its sender's name.
+    public var time: CGRect?
+    /// The message's content: a bubble's ground, or a plain row's parts (with no ground).
     public var bubble: CGRect
     public var quote: CGRect?
     public var photo: CGRect?
@@ -87,8 +110,11 @@ public struct MessageLayout: Sendable, Equatable {
     public var footer: CGRect?
     public var reactions: CGRect?
     /// The sender's picture, level with the bubble's bottom; nil for own messages, outside groups,
-    /// and inside a run.
+    /// and inside a run. A plain group's, beside its name, own messages too.
     public var avatar: CGRect?
+    /// A plain row's band across the whole row, behind its parts: it takes a tap, lifts for the
+    /// menu, flashes after a jump and darkens while the details show. Nil for a bubble.
+    public var band: CGRect?
     /// "Today", "Yesterday"… above the first message of a day, across the whole row.
     public var day: CGRect?
     /// "New messages" above the first unread message, across the whole row.
@@ -98,13 +124,21 @@ public struct MessageLayout: Sendable, Equatable {
     /// "WhatsApp · Today 14:32" under a message the user tapped.
     public var detail: CGRect?
 
-    public static func make(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool = false, width: CGFloat,
-                            metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
-        // a group's incoming messages are indented by the picture column.
-        let indent = showsSender && !message.isOwn ? m.avatarSide + m.avatarGap : 0
-        let maxBubble = floor(min(width * m.maxBubbleShare, width - 2 * m.sideMargin - indent))
+    public static func make(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool = false, style: ChatStyle = .bubbles,
+                            width: CGFloat, metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
+        switch style {
+        case .bubbles: bubbled(message, showsSender: showsSender, isFirstUnread: isFirstUnread, width: width, metrics: m, measure: measure)
+        case .plain: plain(message, showsSender: showsSender, isFirstUnread: isFirstUnread, width: width, metrics: m, measure: measure)
+        }
+    }
+
+    /// The parts inside a message's bubble (or a plain row's content), in its coordinates, with
+    /// the bubble's size; at most `maxBubble` wide. `padded`: the parts keep the bubble's padding
+    /// (a plain row's parts have none, but a card's).
+    private static func content(_ message: MessageItem, maxBubble: CGFloat, padded: Bool, timeAtLeading: Bool,
+                                metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
         // a photo or a video alone is the bubble itself, as Messages draws it: no padding round it.
-        let (padX, padY) = message.isMediaOnly ? (CGFloat(0), CGFloat(0)) : (m.paddingX, m.paddingY)
+        let (padX, padY) = message.isMediaOnly || !padded ? (CGFloat(0), CGFloat(0)) : (m.paddingX, m.paddingY)
         // a shared post is a card the width of its media, the media edge to edge at its top.
         let post = message.postCard
         let edgeMedia = post != nil && message.photo != nil && message.album.count <= 1 && message.quote == nil
@@ -167,7 +201,7 @@ public struct MessageLayout: Sendable, Equatable {
                 y = part.size.height + (isLast ? 0 : padY)
             } else {
                 // the time sits at the bubble's trailing edge; the rest at its leading edge.
-                let x = part.kind == .footer ? bubbleWidth - max(padX, 4) - part.size.width : padX
+                let x = part.kind == .footer && !timeAtLeading ? bubbleWidth - max(padX, 4) - part.size.width : padX
                 let rect = CGRect(origin: CGPoint(x: x, y: y), size: part.size)
                 switch part.kind {
                 case .quote: layout.quote = rect
@@ -192,17 +226,62 @@ public struct MessageLayout: Sendable, Equatable {
         if post != nil, let postBottom {
             layout.post = CGRect(x: 0, y: 0, width: bubbleWidth, height: min(ceil(postBottom), bubbleHeight))
         }
+        layout.bubble.size = CGSize(width: bubbleWidth, height: bubbleHeight)
+        return layout
+    }
 
-        func aligned(_ w: CGFloat) -> CGFloat { message.isOwn ? width - m.sideMargin - w : m.sideMargin + indent }
+    /// The day separator's and the unread marker's rows above a message, from the row's top;
+    /// returns where the message starts.
+    private mutating func placeMarkers(_ message: MessageItem, isFirstUnread: Bool, width: CGFloat, metrics m: BubbleMetrics) -> CGFloat {
         var top: CGFloat = 0
         if message.startsDay || message.startsTimeGap {
-            layout.day = CGRect(x: 0, y: top + 4, width: width, height: m.markerHeight)
+            day = CGRect(x: 0, y: top + 4, width: width, height: m.markerHeight)
             top += m.markerHeight + 4
         }
         if isFirstUnread {
-            layout.unreadMarker = CGRect(x: 0, y: top + 4, width: width, height: m.markerHeight)
+            unreadMarker = CGRect(x: 0, y: top + 4, width: width, height: m.markerHeight)
             top += m.markerHeight + 4
         }
+        return top
+    }
+
+    /// What goes under a message, each line at `x(width)`: its reactions, its details, who read it.
+    private mutating func placeUnder(_ message: MessageItem, showsSender: Bool, top start: CGFloat, maxWidth: CGFloat,
+                                     metrics m: BubbleMetrics, measure: some TextMeasuring, x: (CGFloat) -> CGFloat) -> CGFloat {
+        var top = start
+        if let text = message.reactionsText {
+            let size = measure.size(of: text, role: .reactions, width: maxWidth)
+            let pill = CGSize(width: ceil(size.width + 2 * m.reactionPaddingX), height: ceil(size.height + 2 * m.reactionPaddingY))
+            top += m.outerSpacing
+            reactions = CGRect(x: x(pill.width), y: top, width: pill.width, height: pill.height)
+            top += pill.height
+        }
+        if let text = message.detailText {
+            let size = measure.size(of: text, role: .footer, width: maxWidth)
+            top += m.outerSpacing
+            detail = CGRect(x: x(size.width), y: top, width: size.width, height: size.height)
+            top += size.height
+        }
+        if let text = message.readersText(inGroup: showsSender) {
+            let size = measure.size(of: text, role: .footer, width: maxWidth)
+            top += m.outerSpacing
+            readers = CGRect(x: x(size.width), y: top, width: size.width, height: size.height)
+            top += size.height
+        }
+        return top
+    }
+
+    /// A bubble, one's own at the trailing side, others' at the leading side under their name.
+    private static func bubbled(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool, width: CGFloat,
+                                metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
+        // a group's incoming messages are indented by the picture column.
+        let indent = showsSender && !message.isOwn ? m.avatarSide + m.avatarGap : 0
+        let maxBubble = floor(min(width * m.maxBubbleShare, width - 2 * m.sideMargin - indent))
+        var layout = content(message, maxBubble: maxBubble, padded: true, timeAtLeading: false, metrics: m, measure: measure)
+        let (bubbleWidth, bubbleHeight) = (layout.bubble.width, layout.bubble.height)
+
+        func aligned(_ w: CGFloat) -> CGFloat { message.isOwn ? width - m.sideMargin - w : m.sideMargin + indent }
+        var top = layout.placeMarkers(message, isFirstUnread: isFirstUnread, width: width, metrics: m)
         top += message.startsGroup ? m.groupGap : m.runGap
         if showsSender, !message.isOwn, message.startsGroup {
             let size = measure.size(of: message.senderName, role: .sender, width: maxBubble)
@@ -215,25 +294,44 @@ public struct MessageLayout: Sendable, Equatable {
             layout.avatar = CGRect(x: m.sideMargin, y: layout.bubble.maxY - m.avatarSide, width: m.avatarSide, height: m.avatarSide)
         }
         top += bubbleHeight
-        if let reactions = message.reactionsText {
-            let text = measure.size(of: reactions, role: .reactions, width: maxBubble)
-            let size = CGSize(width: ceil(text.width + 2 * m.reactionPaddingX), height: ceil(text.height + 2 * m.reactionPaddingY))
-            top += m.outerSpacing
-            layout.reactions = CGRect(x: aligned(size.width), y: top, width: size.width, height: size.height)
-            top += size.height
+        top = layout.placeUnder(message, showsSender: showsSender, top: top, maxWidth: maxBubble, metrics: m, measure: measure, x: aligned)
+        layout.height = ceil(top)
+        return layout
+    }
+
+    /// A plain row: the first of a sender's run under their picture, name and time, every message
+    /// in the column after the picture, own ones too, with no bubble round it.
+    private static func plain(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool, width: CGFloat,
+                              metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
+        let column = m.sideMargin + m.plainAvatarSide + m.plainAvatarGap
+        let available = max(floor(width - column - m.sideMargin), 1)
+        // a shared post keeps its card, which reads best at a card's width.
+        let maxContent = message.postCard == nil ? available : min(available, m.plainCardWidth)
+        var layout = content(message, maxBubble: maxContent, padded: message.postCard != nil, timeAtLeading: true,
+                             metrics: m, measure: measure)
+        layout.style = .plain
+        var top = layout.placeMarkers(message, isFirstUnread: isFirstUnread, width: width, metrics: m)
+        top += message.startsGroup ? m.plainGroupGap : m.plainRunGap
+        let bandTop = top - m.plainBand
+        if message.startsGroup {
+            let name = measure.size(of: message.senderName, role: .author, width: available)
+            let time = measure.size(of: message.headerTimeText, role: .footer, width: available)
+            let gap: CGFloat = 6
+            let nameWidth = min(name.width, available - time.width - gap)
+            layout.sender = CGRect(x: column, y: top, width: max(nameWidth, 0), height: name.height)
+            // the time on the name's line, their bottoms level.
+            layout.time = CGRect(x: column + max(nameWidth, 0) + gap, y: top + name.height - time.height - 1,
+                                 width: time.width, height: time.height)
+            layout.avatar = CGRect(x: m.sideMargin, y: top, width: m.plainAvatarSide, height: m.plainAvatarSide)
+            top += name.height + m.outerSpacing
         }
-        if let detail = message.detailText {
-            let size = measure.size(of: detail, role: .footer, width: maxBubble)
-            top += m.outerSpacing
-            layout.detail = CGRect(x: aligned(size.width), y: top, width: size.width, height: size.height)
-            top += size.height
-        }
-        if let readers = message.readersText(inGroup: showsSender) {
-            let size = measure.size(of: readers, role: .footer, width: maxBubble)
-            top += m.outerSpacing
-            layout.readers = CGRect(x: aligned(size.width), y: top, width: size.width, height: size.height)
-            top += size.height
-        }
+        layout.bubble.origin = CGPoint(x: column, y: top)
+        top += layout.bubble.height
+        top = layout.placeUnder(message, showsSender: showsSender, top: top, maxWidth: available, metrics: m, measure: measure) { _ in column }
+        // a run's single line is no shorter than the picture beside it.
+        if let avatar = layout.avatar, message.endsGroup { top = max(top, avatar.maxY) }
+        top += m.plainBand
+        layout.band = CGRect(x: 0, y: bandTop, width: width, height: top - bandTop)
         layout.height = ceil(top)
         return layout
     }
@@ -256,6 +354,9 @@ extension MessageLayout {
 extension MessageItem {
     /// What a row shows, in one place, so the layout measures exactly what the cell draws.
     public var quoteText: String? { quote.map { "↩︎ " + $0 } }
+
+    /// After a plain group's sender's name: the time of its first message ("14:32").
+    public var headerTimeText: String { TimeText.message(date) }
 
     /// Above the first message of a day, or after a pause: the day and the time ("Today 14:32").
     public var separatorText: String {
@@ -347,6 +448,7 @@ public final class MessageLayoutCache: Sendable {
     private struct State {
         var width: CGFloat = 0
         var showsSender = false
+        var style = ChatStyle.bubbles
         var firstUnread: String?
         var entries: [String: Entry] = [:]
     }
@@ -361,11 +463,11 @@ public final class MessageLayoutCache: Sendable {
 
     /// The layouts of `messages` at `width`, measuring only new or changed messages, and the ids
     /// of messages that were there before and look different now. Call off the main thread.
-    public func update(_ messages: [MessageItem], showsSender: Bool, firstUnread: String? = nil, width: CGFloat,
-                       measure: some TextMeasuring) -> (layouts: [String: MessageLayout], changed: [String]) {
+    public func update(_ messages: [MessageItem], showsSender: Bool, firstUnread: String? = nil, style: ChatStyle = .bubbles,
+                       width: CGFloat, measure: some TextMeasuring) -> (layouts: [String: MessageLayout], changed: [String]) {
         let previous = state.withLock { current -> [String: Entry] in
-            if current.width != width || current.showsSender != showsSender || current.firstUnread != firstUnread {
-                current = State(width: width, showsSender: showsSender, firstUnread: firstUnread)
+            if current.width != width || current.showsSender != showsSender || current.firstUnread != firstUnread || current.style != style {
+                current = State(width: width, showsSender: showsSender, style: style, firstUnread: firstUnread)
             }
             return current.entries
         }
@@ -381,8 +483,8 @@ public final class MessageLayoutCache: Sendable {
             // string measuring makes temporary Objective-C objects; a worker thread would keep them
             // until its pool drains, which for thousands of messages is many megabytes.
             let layout = autoreleasepool {
-                MessageLayout.make(message, showsSender: showsSender, isFirstUnread: message.id == firstUnread, width: width,
-                                   metrics: metrics, measure: measure)
+                MessageLayout.make(message, showsSender: showsSender, isFirstUnread: message.id == firstUnread, style: style,
+                                   width: width, metrics: metrics, measure: measure)
             }
             entries[message.id] = Entry(message: message, layout: layout)
         }

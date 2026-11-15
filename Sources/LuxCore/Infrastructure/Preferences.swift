@@ -41,6 +41,19 @@ public final class Preferences {
         set { defaults.set(newValue.rawValue, forKey: "chatOrder") }
     }
 
+    /// How chats draw their messages, on this device: bubbles until the user picks plain rows.
+    public var chatStyle: ChatStyle {
+        get { defaults.string(forKey: "chatStyle").flatMap(ChatStyle.init(rawValue:)) ?? .bubbles }
+        set {
+            guard newValue != chatStyle else { return }
+            defaults.set(newValue.rawValue, forKey: "chatStyle")
+            chatStyleChanges.send()
+        }
+    }
+
+    /// Open chats draw their messages again when `chatStyle` changes.
+    public let chatStyleChanges = Broadcast()
+
     /// The server last signed in to; nil for Lux's own.
     public var homeserver: String? {
         get { defaults.string(forKey: "homeserver") }
