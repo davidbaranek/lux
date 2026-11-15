@@ -9,16 +9,17 @@ import UserNotifications
 @MainActor
 final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate {
     private let session: Session
-    /// Opens a chat by one of its rooms; set once the chat list shows.
-    var openChat: ((String) -> Void)? {
+    /// Opens a chat by one of its rooms, at its Matrix thread (by its root) if given; set once
+    /// the chat list shows.
+    var openChat: ((_ room: String, _ thread: String?) -> Void)? {
         didSet {
             guard let openChat, let waiting = chatToOpen else { return }
             chatToOpen = nil
-            openChat(waiting)
+            openChat(waiting.room, waiting.thread)
         }
     }
     /// A chat tapped before the list was there to open it.
-    private var chatToOpen: String?
+    private var chatToOpen: (room: String, thread: String?)?
 
     init(session: Session) {
         self.session = session
@@ -50,9 +51,11 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
         async -> UNNotificationPresentationOptions {
-        let room = PushNotifications.room(of: notification.request.content.userInfo)
-        // the chat on screen shows the message itself.
-        if let room, session.roomsOnScreen.contains(room) { return [] }
+        let info = notification.request.content.userInfo
+        // the chat (or the thread) on screen shows the message itself.
+        if let room = PushNotifications.room(of: info), session.showsMessage(of: room, thread: PushPayload(userInfo: info)?.threadRoot) {
+            return []
+        }
         return [.banner, .list, .sound, .badge]
     }
 
@@ -62,8 +65,8 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
     }
 
     private func handle(_ action: NotificationAction) async {
-        if case .open(let room) = action {
-            if let openChat { openChat(room) } else { chatToOpen = room }
+        if case .open(let room, let thread) = action {
+            if let openChat { openChat(room, thread) } else { chatToOpen = (room, thread) }
             return
         }
         await session.answer(action)

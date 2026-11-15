@@ -82,7 +82,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
                 Task { await self?.session.signOut(); self?.show(signedIn: false) }
             }
             window.rootViewController = UINavigationController(rootViewController: list)
-            notifications.openChat = { [weak list] room in list?.openChat(roomId: room) }
+            notifications.openChat = { [weak list] room, thread in list?.openChat(roomId: room, thread: thread) }
             // another of the account's devices asks to verify: over whatever shows.
             session.security?.onRequest = { [weak window] verification in
                 guard var top = window?.rootViewController else { return }
