@@ -520,15 +520,17 @@ struct ChatInfoForm: View {
                     row(String(localized: "Encryption"), state.isEncrypted == false ? "lock.open.fill" : "lock.fill",
                         state.isEncrypted == false ? .orange : .green)
                 }
-                LabeledContent {
-                    HStack(spacing: 6) {
-                        ForEach(state.networks, id: \.self) { network in
-                            Image(nsImage: NetworkImage.image(network)).resizable().frame(width: 16, height: 16)
-                            Text(Networks.name(network))
-                        }
-                    }
-                } label: {
+                // the networks by name where they fit beside the label, else by their pictures
+                // alone; never under it (a labeled row would move a value that does not fit there).
+                HStack {
                     row(String(localized: "Networks"), "point.3.connected.trianglepath.dotted", .purple)
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    ViewThatFits(in: .horizontal) {
+                        networks(named: true)
+                        networks(named: false)
+                    }
+                    .foregroundStyle(.secondary)
                 }
                 if let address = state.address {
                     LabeledContent {
@@ -555,6 +557,17 @@ struct ChatInfoForm: View {
     }
 
     /// A row's title beside its symbol on a coloured tile, as System Settings shows them.
+    private func networks(named: Bool) -> some View {
+        HStack(spacing: 6) {
+            ForEach(state.networks, id: \.self) { network in
+                Image(nsImage: NetworkImage.image(network)).resizable().frame(width: 16, height: 16)
+                    .help(Networks.name(network))
+                if named { Text(Networks.name(network)).lineLimit(1) }
+            }
+        }
+        .fixedSize()
+    }
+
     private func row(_ title: String, _ symbol: String, _ color: Color) -> some View {
         Label {
             Text(title)

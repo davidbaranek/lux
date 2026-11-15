@@ -8,7 +8,7 @@ import LuxCore
 /// its root, its replies, the composer replying there.
 final class ThreadController: NSViewController, NSTableViewDelegate, NSTextFieldDelegate, NSMenuItemValidation {
     let session: Session
-    private let row: ChatRow
+    let row: ChatRow
     let model: ThreadModel
     var messages: [String: MessageItem] = [:]
     private var order: [String] = []
@@ -308,6 +308,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             empty.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             empty.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
+        // the live resize ended: every message is measured for the width it ended at.
+        container.onEndLiveResize = { [weak self] in self?.view.needsLayout = true }
         view = container
         updateTheme()
 
@@ -346,8 +348,6 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         NotificationCenter.default.addObserver(self, selector: #selector(userStartedScrolling),
                                                name: NSScrollView.willStartLiveScrollNotification, object: scroll)
         scroll.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(windowEndedLiveResize),
-                                               name: NSWindow.didEndLiveResizeNotification, object: nil)
         model.onUpdate = { [weak self] messages in self?.show(messages) }
         // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
         styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in
@@ -415,7 +415,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         // the chat got wider or narrower: measure again for the new width.
         let width = scroll.contentView.bounds.width
         if width > 0, width != layoutWidth {
-            if isResizingLive {
+            // a chat still to show its first messages measures them all, live or not.
+            if isResizingLive, shownFirst {
                 relayoutShown(width: width)
             } else {
                 layoutWidth = width
@@ -485,12 +486,6 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         // `order` mirrors the applied snapshot: an array index, not a data source lookup, for every row.
         order.indices.contains(row) ? layouts[order[row]]?.height ?? 44 : 44
-    }
-
-    /// The window's edge let go: every message is measured for the width it ended at.
-    @objc private func windowEndedLiveResize(_ note: Notification) {
-        guard (note.object as? NSWindow) === view.window else { return }
-        view.needsLayout = true
     }
 
     /// The rows on screen (and a few around them) measured for `width` now, on the main thread:

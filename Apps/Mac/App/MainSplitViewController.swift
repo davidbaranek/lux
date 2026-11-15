@@ -47,11 +47,12 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         sidebarController.onTheme = { [weak self] theme in
             self?.detail.theme = theme
             self?.openThread?.theme = theme
-            (self?.inspector.shown as? ThreadPanelController)?.thread.theme = theme
+            (self?.inspector.shown as? ThreadController)?.theme = theme
         }
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         chatTitle.onClick = { [weak self] in self?.showDetails(nil) }
+        inspector.onShow = { [weak self] shown in self?.updateThreadItems(shown) }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
@@ -127,12 +128,12 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     /// A Matrix thread of the open chat in the inspector, beside the chat.
     private func showThread(_ thread: MatrixThread) {
         guard let row = openRow else { return }
-        if let panel = inspector.shown as? ThreadPanelController, panel.thread.model.thread == thread, !inspectorItem.isCollapsed {
-            view.window?.makeFirstResponder(panel.thread.field)
+        if let shown = inspector.shown as? ThreadController, shown.model.thread == thread, !inspectorItem.isCollapsed {
+            view.window?.makeFirstResponder(shown.field)
             return
         }
         let controller = ThreadController(session: session, row: row, theme: listModel.theme, thread: thread)
-        inspector.show(ThreadPanelController(thread: controller, chatName: row.name) { [weak self] in self?.closeInspector() })
+        inspector.show(controller)
         openInspector()
     }
 
@@ -193,7 +194,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         // the sidebar button and the filter at the sidebar's right edge, by the chat.
         [Self.placeTitle, .flexibleSpace, Self.newMessage, Self.filter, .toggleSidebar, .sidebarTrackingSeparator, Self.chatTitle, .flexibleSpace, Self.networks,
-         .inspectorTrackingSeparator, .flexibleSpace, Self.chatInfo]
+         .inspectorTrackingSeparator, Self.threadTitle, .flexibleSpace, Self.closeThread, Self.chatInfo]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -228,6 +229,36 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             item.toolTip = String(localized: "Chat Details (⌘I)")
             item.action = #selector(showDetails(_:))
             item.target = self
+            return item
+        }
+        if id == Self.threadTitle {
+            // over a thread in the inspector: "Thread" and its chat's name, as Messages titles it.
+            let item = NSToolbarItem(itemIdentifier: id)
+            let title = NSTextField(labelWithString: String(localized: "Thread"))
+            title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+            threadChatName.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            threadChatName.textColor = .secondaryLabelColor
+            threadChatName.lineBreakMode = .byTruncatingTail
+            let names = NSStackView(views: [title, threadChatName])
+            names.orientation = .vertical
+            names.alignment = .leading
+            names.spacing = 0
+            item.view = names
+            item.label = String(localized: "Thread")
+            item.isBordered = false
+            item.isHidden = true
+            threadTitleItem = item
+            return item
+        }
+        if id == Self.closeThread {
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: String(localized: "Close Thread"))
+            item.label = String(localized: "Close Thread")
+            item.toolTip = String(localized: "Close Thread")
+            item.action = #selector(closeThread(_:))
+            item.target = self
+            item.isHidden = true
+            closeThreadItem = item
             return item
         }
         if id == Self.newMessage {
@@ -269,6 +300,21 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     static let networks = NSToolbarItem.Identifier("networks")
     static let chatTitle = NSToolbarItem.Identifier("chat-title")
     static let chatInfo = NSToolbarItem.Identifier("chat-info")
+    static let threadTitle = NSToolbarItem.Identifier("thread-title")
+    static let closeThread = NSToolbarItem.Identifier("close-thread")
+    private let threadChatName = NSTextField(labelWithString: "")
+    private var threadTitleItem: NSToolbarItem?
+    private var closeThreadItem: NSToolbarItem?
+
+    /// A thread in the inspector: its title and close button show in the toolbar over it.
+    private func updateThreadItems(_ shown: NSViewController?) {
+        let thread = shown as? ThreadController
+        threadChatName.stringValue = thread?.row.name ?? ""
+        threadTitleItem?.isHidden = thread == nil
+        closeThreadItem?.isHidden = thread == nil
+    }
+
+    @objc private func closeThread(_ sender: Any?) { closeInspector() }
     private let chatTitle = ChatTitleView()
 
     // MARK: A merged chat's networks
