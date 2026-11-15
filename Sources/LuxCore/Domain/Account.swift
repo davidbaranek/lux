@@ -3,9 +3,24 @@ import Foundation
 /// The signed-in account.
 public struct Profile: Sendable, Equatable {
     public var userId: String
+    /// The name to show: the display name, else the user id's local part.
     public var name: String
+    /// The display name, when the account has one: what the name field starts with.
+    public var displayName: String?
     public var avatar: ImageRef?
-    public init(userId: String, name: String, avatar: ImageRef?) { self.userId = userId; self.name = name; self.avatar = avatar }
+    /// The server lets the user change the name, the picture.
+    public var canChangeName: Bool
+    public var canChangeAvatar: Bool
+
+    public init(userId: String, name: String, displayName: String?, avatar: ImageRef?,
+                canChangeName: Bool, canChangeAvatar: Bool) {
+        self.userId = userId
+        self.name = name
+        self.displayName = displayName
+        self.avatar = avatar
+        self.canChangeName = canChangeName
+        self.canChangeAvatar = canChangeAvatar
+    }
 }
 
 /// Whether this device can read the account's encrypted history from its key backup.

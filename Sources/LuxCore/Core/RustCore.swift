@@ -49,6 +49,7 @@ extension AccountFailure {
         case .TimePassed: .timePassed
         case .NotWaiting: .notWaiting
         case .WrongRecoveryKey: .wrongRecoveryKey
+        case .NameTooLong: .nameTooLong
         }
     }
 }

@@ -2,8 +2,8 @@ import Foundation
 import LuxBindings
 
 /// The Rust core's account beyond its lists (the chat list's view model has its own actions, in
-/// `RustChatList.swift`, the thread's in `RustThread.swift`, security in `RustSecurity.swift`): people, in
-/// the app's types.
+/// `RustChatList.swift`, the thread's in `RustThread.swift`, security in `RustSecurity.swift`): people and
+/// the profile, in the app's types.
 /// The generated types stay in `Core/`.
 extension RustAccount {
     // MARK: People
@@ -21,10 +21,22 @@ extension RustAccount {
 
     func createRoom(name: String) async throws -> String { try await worded { try await account.createRoom(name: name) } }
 
+    // MARK: Profile
+
     func profile() async throws -> Profile {
         let own = try await worded { try await account.profile() }
-        return Profile(userId: own.userId, name: own.name, avatar: own.avatar.map { .person(url: $0) })
+        return Profile(userId: own.userId, name: own.name, displayName: own.displayName, avatar: own.avatar.map { .person(url: $0) },
+                       canChangeName: own.canChangeName, canChangeAvatar: own.canChangeAvatar)
     }
+
+    func setProfileName(_ name: String) async throws { try await worded { try await account.setProfileName(name: name) } }
+
+    /// Uploads a JPEG as the account's picture.
+    func setProfilePicture(jpeg: Data) async throws {
+        _ = try await worded { try await account.setProfilePicture(data: jpeg, format: .jpeg) }
+    }
+
+    func removeProfilePicture() async throws { try await worded { try await account.removeProfilePicture() } }
 }
 
 private extension Contact {

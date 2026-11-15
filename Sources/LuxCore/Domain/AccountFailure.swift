@@ -11,6 +11,7 @@ public enum AccountFailure: LocalizedError, Equatable, Sendable {
     case labelNameEmpty, labelNameTaken, labelGone
     case notSavable, encryptedChat, timePassed, notWaiting
     case wrongRecoveryKey
+    case nameTooLong
 
     public var errorDescription: String? {
         switch self {
@@ -41,6 +42,7 @@ public enum AccountFailure: LocalizedError, Equatable, Sendable {
         case .timePassed: String(localized: "That time has passed. Pick a later one.")
         case .notWaiting: String(localized: "That message is no longer waiting to be sent.")
         case .wrongRecoveryKey: String(localized: "That recovery key does not open this account's backup.")
+        case .nameTooLong: String(localized: "That name is too long. Use at most 256 characters.")
         }
     }
 
@@ -50,7 +52,7 @@ public enum AccountFailure: LocalizedError, Equatable, Sendable {
     public var isForTheUser: Bool {
         switch self {
         case .labelNameEmpty, .labelNameTaken, .labelGone, .notSavable, .encryptedChat, .timePassed, .notWaiting, .notAllowed,
-             .forbidden, .unknownChat, .unknownContact, .unknownMessage:
+             .nameTooLong, .forbidden, .unknownChat, .unknownContact, .unknownMessage:
             true
         default:
             false
