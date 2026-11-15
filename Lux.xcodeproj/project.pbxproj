@@ -197,6 +197,7 @@
 		1E4568CFB0703D28EFF82DF4 /* ChatPickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPickerViewController.swift; sourceTree = "<group>"; };
 		1EC833400271142BD4015641 /* ChatPickerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPickerController.swift; sourceTree = "<group>"; };
 		1FF13B6AE3AAD0FE241761F3 /* Lux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lux.entitlements; sourceTree = "<group>"; };
+		BB39620C0DF9FF91919295A9 /* lux-native-verify */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-verify"; path = .; sourceTree = SOURCE_ROOT; };
 		2180360AB5C0E986ABBBF07D /* ChatListController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListController.swift; sourceTree = "<group>"; };
 		221E1270C13A8CD9D9D32FEC /* NetworkSignInController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSignInController.swift; sourceTree = "<group>"; };
 		2229367875593093149B0ED6 /* ChatCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCellView.swift; sourceTree = "<group>"; };
@@ -239,7 +240,6 @@
 		77CAAA103DF399F24DF658ED /* ChatStylePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStylePicker.swift; sourceTree = "<group>"; };
 		78529247C0AB5140BE3E949A /* NetworksController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworksController.swift; sourceTree = "<group>"; };
 		7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
-		BB39620C0DF9FF91919295A9 /* lux-native-verify */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-verify"; path = .; sourceTree = SOURCE_ROOT; };
 		802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryKeyViewController.swift; sourceTree = "<group>"; };
 		8037AF71FCD7245CB0695B9A /* Lux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lux.entitlements; sourceTree = "<group>"; };
 		8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTests.swift; sourceTree = "<group>"; };
