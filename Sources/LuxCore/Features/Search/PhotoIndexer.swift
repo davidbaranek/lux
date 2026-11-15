@@ -67,6 +67,7 @@ actor PhotoIndexer {
             guard let photos = try? await store.imagesToRead(by: reader.name, limit: min(left, Self.batch)) else { return false }
             if photos.isEmpty { return true }
             var reads: [PhotoRead] = []
+            let started = ContinuousClock.now
             for photo in photos where !Task.isCancelled {
                 if let read = await self.read(photo, by: reader, from: account) {
                     reads.append(read)
@@ -79,7 +80,13 @@ actor PhotoIndexer {
                 return false
             }
             left -= photos.count
-            report(await progress())
+            let progress = await progress()
+            let each = (ContinuousClock.now - started) / photos.count
+            Log.metrics.notice("""
+                photo search: \(progress.read) of \(progress.total) photos read, \
+                \(each.formatted(.units(allowed: [.milliseconds])), privacy: .public) each (download and reading)
+                """)
+            report(progress)
         }
         return false
     }

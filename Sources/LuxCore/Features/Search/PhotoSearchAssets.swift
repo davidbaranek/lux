@@ -13,6 +13,7 @@ enum PhotoSearchAssets {
 
     /// The pack is on the device.
     static func isOnDevice() async -> Bool {
+        if LaunchOptions.photoModel != nil { return true }
         if #available(iOS 26.4, macOS 26.4, *) {
             return AssetPackManager.shared.assetPackIsAvailableLocally(withID: packID)
         }
@@ -22,6 +23,7 @@ enum PhotoSearchAssets {
     /// The model's folder, downloading the pack first when it is not on the device; `progress`
     /// hears how far the download is (0…1).
     static func modelFolder(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        if let folder = LaunchOptions.photoModel { return folder }
         let manager = AssetPackManager.shared
         let pack = try await manager.assetPack(withID: packID)
         let following = Task {
@@ -37,6 +39,7 @@ enum PhotoSearchAssets {
 
     /// Frees the pack's space: photo search was turned off.
     static func remove() async {
+        guard LaunchOptions.photoModel == nil else { return }
         do { try await AssetPackManager.shared.remove(assetPackWithID: packID) } catch {
             Log.app.notice("photo search: the model stays: \(String(describing: error), privacy: .public)")
         }

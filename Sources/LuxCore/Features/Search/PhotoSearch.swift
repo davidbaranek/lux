@@ -1,35 +1,41 @@
 import Foundation
 
-/// Search in photos, when the user turns it on: the photos the index keeps are read on this
-/// device (their words by Vision, their look by the photo search model, downloaded on turning it
-/// on), and a search finds them by those, and by the messages sent near them. Nothing leaves the
-/// device. On the iPhone a few new photos are read while the app is open, the rest at night
-/// (`PhotoReading`, a background processing task); on the Mac all of them, quietly.
+/// Search in photos, all on this device. Always: the words in each photo (Vision) and the
+/// messages sent near it. When the user turns it on: how photos look too, by the photo search
+/// model (downloaded then, about 450 MB), so "dog on the beach" finds one with no words at all.
+/// Nothing leaves the device. On the iPhone a few new photos are read while the app is open, the
+/// rest while it charges (`PhotoReading`, a background processing task); on the Mac all of them,
+/// quietly.
 @MainActor
 public final class PhotoSearch {
-    /// Where photo search is, for Settings.
-    public enum State: Equatable, Sendable {
+    /// Where the search by how photos look is, for Settings.
+    public enum Looks: Equatable, Sendable {
         case off
         /// The model is downloading (0…1).
         case downloading(Double)
-        /// The photos read, of all, and whether the reading is under way; `hasModel` is false
-        /// when the model could not be had (only the words in photos are read).
-        case on(read: Int, total: Int, isReading: Bool, hasModel: Bool)
+        /// On; `hasModel` is false when the model could not be had (only the words are read).
+        case on(hasModel: Bool)
     }
 
-    public var state: State {
-        guard isOn else { return .off }
+    public var looks: Looks {
+        guard searchesByLook else { return .off }
         if let downloading { return .downloading(downloading) }
-        return .on(read: progress.read, total: progress.total, isReading: progress.isReading, hasModel: model != nil)
+        return .on(hasModel: model != nil)
+    }
+    /// The photos read by the current reader, of all, and whether the reading is under way.
+    private(set) var progress = PhotoIndexer.Progress(read: 0, total: 0, isReading: false) {
+        didSet { changes.send() }
     }
     public let changes = Broadcast()
 
+    /// Search finds photos by how they look (the model); the words in them are found always.
+    public var searchesByLook: Bool { Preferences.shared.searchesPhotosByLook }
+
     /// How far the model's download is, while it downloads.
     private var downloading: Double? { didSet { changes.send() } }
-    private var progress = PhotoIndexer.Progress(read: 0, total: 0, isReading: false) { didSet { changes.send() } }
 
     /// How many new photos the iPhone reads at a time while the app is open; the rest wait for
-    /// the night.
+    /// it to charge.
     #if os(iOS)
     private static let foregroundLimit: Int? = 24
     #else
@@ -48,43 +54,40 @@ public final class PhotoSearch {
         Task { [weak self] in
             for await progress in reports { self?.progress = progress }
         }
-        if Preferences.shared.searchesPhotos { start() }
+        if searchesByLook { loadModel() }
     }
 
-    public var isOn: Bool { Preferences.shared.searchesPhotos }
-
-    /// Turns photo search on: the model downloads, and the photos are read.
-    public func turnOn() {
-        guard !isOn else { return }
-        Preferences.shared.searchesPhotos = true
-        start()
-    }
-
-    /// Turns photo search off: the reading stops, what was read and the model go.
-    public func turnOff() async {
-        guard isOn else { return }
-        Preferences.shared.searchesPhotos = false
+    /// Turns the search by how photos look on (the model downloads, every photo is read again
+    /// with it) or off (the model and the photos' embeddings go; their words stay).
+    public func setSearchesByLook(_ on: Bool) async {
+        guard on != searchesByLook else { return }
+        Preferences.shared.searchesPhotosByLook = on
+        if on {
+            loadModel()
+            return
+        }
         loading?.cancel()
         loading = nil
         model = nil
+        downloading = nil
         await indexer.stop()
         await indexer.use(nil)
-        try? await store.forgetImageReads()
+        try? await store.forgetImageEmbeddings(reader: PhotoReader(model: nil).name)
         await PhotoSearchAssets.remove()
-        downloading = nil
-        changes.send()
+        progress = await indexer.progress()
+        update()
     }
 
     /// New photos came: a few of them are read now (all on the Mac).
     func update() {
-        guard isOn else { return }
+        // while the model loads, the photos wait: they are read once, with it.
+        guard loading == nil else { return }
         // below what the user does: the reading yields to the app.
         Task(priority: .utility) { [indexer] in await indexer.read(limit: Self.foregroundLimit) }
     }
 
     /// Reads every photo not read yet (the iPhone's background task); true when none is left.
     public func readAll() async -> Bool {
-        guard isOn else { return true }
         await loading?.value
         return await indexer.read(limit: nil)
     }
@@ -94,9 +97,8 @@ public final class PhotoSearch {
         await indexer.stop()
     }
 
-    /// The photos that match `text`, the best first; none while photo search is off.
+    /// The photos that match `text`, the best first.
     func search(_ text: String) async -> [ImageHit] {
-        guard isOn else { return [] }
         let model = self.model
         var embedding: [Float]?
         do { embedding = try await model?.embedding(of: text) } catch {
@@ -107,31 +109,32 @@ public final class PhotoSearch {
 
     /// Gets the model (downloading it the first time), then reads the photos with it; when it
     /// cannot be had, only their words.
-    private func start() {
+    private func loadModel() {
         loading?.cancel()
-        loading = Task { [weak self] in await self?.loadModel() }
+        loading = Task { [weak self] in
+            await self?.getModel()
+            self?.loading = nil
+            self?.update()
+        }
     }
 
-    private func loadModel() async {
-        progress = await indexer.progress()
+    private func getModel() async {
         if await !PhotoSearchAssets.isOnDevice() { downloading = 0 }
+        defer { downloading = nil }
         do {
             let folder = try await PhotoSearchAssets.modelFolder { [weak self] fraction in
                 Task { @MainActor in
                     if self?.downloading != nil { self?.downloading = fraction }
                 }
             }
-            guard !Task.isCancelled, isOn else { return }
+            guard !Task.isCancelled, searchesByLook else { return }
             let model = try PhotoSearchModel(folder: folder)
             self.model = model
             await model.prepareTextEncoder()
             await indexer.use(model)
+            progress = await indexer.progress()
         } catch {
             Log.app.error("photo search: no model: \(String(describing: error), privacy: .public)")
         }
-        downloading = nil
-        guard !Task.isCancelled, isOn else { return }
-        progress = await indexer.progress()
-        update()
     }
 }

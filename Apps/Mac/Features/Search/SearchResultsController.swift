@@ -1,8 +1,8 @@
 import AppKit
 import LuxCore
 
-/// What a search found, under "Conversations", "Photos" (when photo search is on) and
-/// "Messages", in the chat list's own row view.
+/// What a search found, under "Conversations", "Photos" (a grid of thumbnails) and "Messages", in
+/// the chat list's own row view.
 final class SearchResultsController: NSViewController, NSTableViewDelegate {
     enum Section: Int { case chats, photos, messages }
 
@@ -15,6 +15,9 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     private var dataSource: NSTableViewDiffableDataSource<Section, String>!
     private var rows: [String: ChatRow] = [:]
     private var chats: [String: ChatRow] = [:]
+    private var photos: [FoundPhoto] = []
+    /// The one item of the photos section: their grid.
+    private static let photoGrid = "photo-grid"
     /// While the index is still reading chats, one small line under the results.
     private let status = NSTextField(labelWithString: "")
     private let scroll = NSScrollView()
@@ -61,6 +64,12 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
 
         let images = images
         dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, _, id in
+            if id == Self.photoGrid {
+                let grid = table.makeView(withIdentifier: PhotoGridView.reuse, owner: nil) as? PhotoGridView ?? PhotoGridView()
+                grid.show(self?.photos ?? [], images: images)
+                grid.onOpen = { [weak self] photo in self?.onOpen?(photo.chat, photo.id) }
+                return grid
+            }
             let cell = table.makeView(withIdentifier: ChatCellView.reuse, owner: nil) as? ChatCellView ?? ChatCellView()
             if let row = self?.rows[id] { cell.show(row, images: images) }
             return cell
@@ -88,13 +97,19 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
         showProgress(progress)
     }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // a wider or narrower window fits more or fewer photos in a row of the grid.
+        if let row = dataSource.row(forItemIdentifier: Self.photoGrid) {
+            table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        }
+    }
+
     func show(_ hits: SearchHits) {
         let found = hits.messages.map(\.row)
-        let photos = hits.photos.map(\.row)
-        rows = Dictionary((hits.chats + photos + found).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        // a found message's or photo's chat, by its event's id.
-        chats = Dictionary(hits.messages.map { ($0.id, $0.chat) } + hits.photos.map { ($0.id, $0.chat) },
-                           uniquingKeysWith: { first, _ in first })
+        photos = hits.photos
+        rows = Dictionary((hits.chats + found).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        chats = Dictionary(hits.messages.map { ($0.id, $0.chat) }, uniquingKeysWith: { first, _ in first })
         var snapshot = NSDiffableDataSourceSnapshot<Section, String>()
         if !hits.chats.isEmpty {
             snapshot.appendSections([.chats])
@@ -102,13 +117,18 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
         }
         if !photos.isEmpty {
             snapshot.appendSections([.photos])
-            snapshot.appendItems(photos.map(\.id).filter { !snapshot.itemIdentifiers.contains($0) }, toSection: .photos)
+            snapshot.appendItems([Self.photoGrid], toSection: .photos)
         }
         if !found.isEmpty {
             snapshot.appendSections([.messages])
             snapshot.appendItems(found.map(\.id).filter { !snapshot.itemIdentifiers.contains($0) }, toSection: .messages)
         }
         dataSource.apply(snapshot, animatingDifferences: false)
+        // the grid is one item, the same for new photos: it draws them, at their height.
+        if let row = dataSource.row(forItemIdentifier: Self.photoGrid) {
+            (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? PhotoGridView)?.show(photos, images: images)
+            table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        }
     }
 
     /// The index's note while it is not complete; nothing once it is. The results end above it.
@@ -123,7 +143,16 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        dataSource.itemIdentifier(forRow: row) == nil ? 28 : 64
+        switch dataSource.itemIdentifier(forRow: row) {
+        case nil: 28
+        case Self.photoGrid?: PhotoGridView.height(for: photos.count, width: tableView.bounds.width)
+        default: 64
+        }
+    }
+
+    /// The photos' grid is no row to choose: its thumbnails are.
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        dataSource.itemIdentifier(forRow: row) != Self.photoGrid
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {

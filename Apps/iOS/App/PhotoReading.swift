@@ -4,7 +4,7 @@ import UIKit
 
 /// Reads the photos photo search has not read yet, while the iPhone charges (a background
 /// processing task: the system runs it when the iPhone is idle, usually at night, and ends it
-/// when it wants the time back). The reading goes on from where it stopped, the next night.
+/// when it wants the time back). The reading goes on from where it stopped, the next time.
 @MainActor
 final class PhotoReading {
     static let identifier = "\(AppIdentity.bundleId).photos"
@@ -25,13 +25,9 @@ final class PhotoReading {
         if !registered { Log.app.error("photo search: the background task is not registered") }
     }
 
-    /// Asks for a night's reading: the app went to the background with photo search on. The
-    /// system keeps one request; asking again replaces it.
+    /// Asks for a reading while the iPhone charges: the app went to the background. The system
+    /// keeps one request; asking again replaces it.
     func schedule() {
-        guard Preferences.shared.searchesPhotos else {
-            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.identifier)
-            return
-        }
         let request = BGProcessingTaskRequest(identifier: Self.identifier)
         // the photos download from the server, and reading them takes the battery's time.
         request.requiresNetworkConnectivity = true
@@ -47,7 +43,7 @@ final class PhotoReading {
         work = Task { [weak self] in
             let done = await session.readPhotosInBackground()
             if UIApplication.shared.applicationState != .active { session.enterBackground() }
-            // photos left: the next night goes on.
+            // photos left: the next time goes on.
             if !done { self?.schedule() }
             self?.complete(ok: done)
         }

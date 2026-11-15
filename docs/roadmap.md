@@ -45,8 +45,8 @@ What is done, and what comes next in order. How things work lives in
 - [x] Chats by name, without case or accents
 - [x] Messages from an encrypted on-device index (FTS5), filled in the background, merged chats'
       rooms included; deleted and left chats forgotten
-- [x] Photos, opt-in, read on the device: the words in them (Vision), how they look (SigLIP 2 on
-      Core ML, an Apple-hosted asset pack) and the messages sent near them
+- [x] Photos, read on the device: by the words in them (Vision) and the messages sent near them;
+      by how they look when turned on (SigLIP 2 on Core ML, an Apple-hosted asset pack)
 
 ### Platform
 

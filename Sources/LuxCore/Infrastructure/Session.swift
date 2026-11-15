@@ -330,12 +330,12 @@ public final class Session {
         return await account.refresh(within: seconds)
     }
 
-    /// The system's background processing task for photo search (at night, charging): opens the
+    /// The system's background processing task for photo search (while it charges): opens the
     /// kept account if the app was not running, and its stores without the sync, reads the
     /// photos not read yet, and closes the stores again unless the app came to the front. True
     /// when every photo is read; the task's expiry cancels it (`stopReadingPhotos`).
     public func readPhotosInBackground() async -> Bool {
-        guard Preferences.shared.searchesPhotos, await restore(), let account = try? await account.value,
+        guard await restore(), let account = try? await account.value,
               let search = await openedSearch() else { return false }
         await account.beginBackgroundWork()
         return await search.photos.readAll()

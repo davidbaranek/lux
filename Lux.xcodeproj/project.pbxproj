@@ -17,12 +17,14 @@
 		0A691855DC38F4118E696C65 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1019436DD5B08FB56BEDB051 /* NotificationService.swift */; };
 		0BCF753EFAFAE2E02791361D /* FileDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B078C1F708797864150311C6 /* FileDropView.swift */; };
 		0EB1E2C25071B08EA917D05A /* MessageText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D204CD16F57C75829F8BF1 /* MessageText.swift */; };
+		110619B8D09442F40E7A03C2 /* PhotoGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B20AF00D700E184F762839 /* PhotoGridView.swift */; };
 		1322779071799623AC019A4A /* AppearanceSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D98930FAB5212EFBE46E3F0 /* AppearanceSettingsController.swift */; };
 		13C7E06187CA876F4131B833 /* Networks.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7175CD37D14C455234289062 /* Networks.xcassets */; };
 		155CC3FC8242AA590FAC279E /* EmojiImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */; };
 		161FD7F6214F84D5B1DCF6C3 /* NetworksController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78529247C0AB5140BE3E949A /* NetworksController.swift */; };
 		16C4E2E4903056B6CAF6CC26 /* EncryptionSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */; };
 		19CFE62599A7B533ED61E3EB /* DownloaderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378931B4C04A8B241BE933C4 /* DownloaderExtension.swift */; };
+		1A161C3182667ECEC8DD7744 /* SearchSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80D030C126F85C86D0EA1320 /* SearchSettingsController.swift */; };
 		1BCA865F8FF6EF1EE6695A87 /* SearchResultsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */; };
 		1C9F5F75836DD643D24F1AA2 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38EB133AC22139BB66D39275 /* main.swift */; };
 		252EDCA93CE5B2A96E8E349D /* BadgeLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */; };
@@ -272,6 +274,7 @@
 		7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
 		802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryKeyViewController.swift; sourceTree = "<group>"; };
 		8037AF71FCD7245CB0695B9A /* Lux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lux.entitlements; sourceTree = "<group>"; };
+		80D030C126F85C86D0EA1320 /* SearchSettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchSettingsController.swift; sourceTree = "<group>"; };
 		8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTests.swift; sourceTree = "<group>"; };
 		8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIFont+Bold.swift"; sourceTree = "<group>"; };
 		83A756DC00736E9731ED03F4 /* ThreadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadController.swift; sourceTree = "<group>"; };
@@ -325,6 +328,7 @@
 		E3280A12939AF3F7D291E91C /* Lux-iOS-Notifications.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Notifications.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3633EB47A1DD6D7C2A8AEDA /* VerificationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationController.swift; sourceTree = "<group>"; };
 		E3ED44BAF9870039CBBE2D09 /* MessageText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageText.swift; sourceTree = "<group>"; };
+		E7B20AF00D700E184F762839 /* PhotoGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoGridView.swift; sourceTree = "<group>"; };
 		E889EBAD13A8573958DF1452 /* ConfirmIdentityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmIdentityViewController.swift; sourceTree = "<group>"; };
 		EA3776EDAC6CDA5CF7A31983 /* SidebarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarController.swift; sourceTree = "<group>"; };
 		EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStyling.swift; sourceTree = "<group>"; };
@@ -439,6 +443,7 @@
 		2BE5C74E1C18D04508C39462 /* Search */ = {
 			isa = PBXGroup;
 			children = (
+				E7B20AF00D700E184F762839 /* PhotoGridView.swift */,
 				85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */,
 			);
 			path = Search;
@@ -696,6 +701,7 @@
 				4E12BEF6929D3632673C59AF /* AccountSettingsController.swift */,
 				0D98930FAB5212EFBE46E3F0 /* AppearanceSettingsController.swift */,
 				14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */,
+				80D030C126F85C86D0EA1320 /* SearchSettingsController.swift */,
 				BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */,
 			);
 			path = Settings;
@@ -1127,12 +1133,14 @@
 				161FD7F6214F84D5B1DCF6C3 /* NetworksController.swift in Sources */,
 				C69D0F00C7AD9CFA40008641 /* NewConversationController.swift in Sources */,
 				6948CB74315F9E166913736C /* Notifications.swift in Sources */,
+				110619B8D09442F40E7A03C2 /* PhotoGridView.swift in Sources */,
 				BF426102B9FBC3A10280E7DA /* PinnedGridView.swift in Sources */,
 				4D6E68B7D4F5F0EF832AA23D /* RailButton.swift in Sources */,
 				27B057F73D3889A613A56B2E /* RailController.swift in Sources */,
 				D9F5BB596C18FA8E3AA08B01 /* RecoverySetupController.swift in Sources */,
 				FA7B9102187DE1BB0B565AF4 /* ScrollBenchmark.swift in Sources */,
 				CFA436A69A0242CBEB19E202 /* SearchResultsController.swift in Sources */,
+				1A161C3182667ECEC8DD7744 /* SearchSettingsController.swift in Sources */,
 				33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */,
 				BC0306C758185E08AECE4715 /* SendLaterMenu.swift in Sources */,
 				39E0ADF22084E1A99A293F55 /* SettingsWindowController.swift in Sources */,

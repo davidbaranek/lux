@@ -1,8 +1,8 @@
 import LuxCore
 import UIKit
 
-/// What a search found: "Conversations", "Photos" (a strip of thumbnails, when photo search is
-/// on), then "Messages", in the chat list's own row.
+/// What a search found: "Conversations", "Photos" (a grid of thumbnails), then "Messages", in
+/// the chat list's own row.
 final class SearchResultsViewController: UIViewController, UICollectionViewDelegate {
     enum Section: Int { case chats, photos, messages }
 
@@ -36,7 +36,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
             guard self?.dataSource.sectionIdentifier(for: index) == .photos else {
                 return NSCollectionLayoutSection.list(using: list, layoutEnvironment: environment)
             }
-            return Self.photoStrip()
+            return Self.photoGrid(width: environment.container.effectiveContentSize.width)
         }
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -127,16 +127,20 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         if collectionView.contentInset.top != top { collectionView.contentInset.top = top }
     }
 
-    /// One row of square thumbnails that scrolls sideways.
-    private static func photoStrip() -> NSCollectionLayoutSection {
-        let side: CGFloat = 96
-        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .fractionalHeight(1)))
-        let group = NSCollectionLayoutGroup.horizontal(layoutSize: .init(widthDimension: .absolute(side), heightDimension: .absolute(side)),
-                                                       subitems: [item])
+    /// The found photos as a grid of square thumbnails, about 100 points each, as Photos shows
+    /// them.
+    private static func photoGrid(width: CGFloat) -> NSCollectionLayoutSection {
+        let spacing: CGFloat = 2
+        let columns = max(3, Int((width / 100).rounded()))
+        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1 / CGFloat(columns)),
+                                                            heightDimension: .fractionalHeight(1)))
+        let group = NSCollectionLayoutGroup.horizontal(
+            layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .fractionalWidth(1 / CGFloat(columns))),
+            repeatingSubitem: item, count: columns)
+        group.interItemSpacing = .fixed(spacing)
         let section = NSCollectionLayoutSection(group: group)
-        section.orthogonalScrollingBehavior = .continuous
-        section.interGroupSpacing = 6
-        section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 12, trailing: 16)
+        section.interGroupSpacing = spacing
+        section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0)
         section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
             layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(36)),
             elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)]
@@ -157,7 +161,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
     }
 }
 
-/// A found photo's thumbnail, square, its corners rounded.
+/// A found photo's thumbnail, square, filled.
 private final class PhotoCell: UICollectionViewCell {
     private let picture = UIImageView()
     private var shown: ImageRef?
@@ -167,8 +171,6 @@ private final class PhotoCell: UICollectionViewCell {
         picture.contentMode = .scaleAspectFill
         picture.clipsToBounds = true
         picture.backgroundColor = .secondarySystemFill
-        picture.layer.cornerRadius = 10
-        picture.layer.cornerCurve = .continuous
         picture.frame = contentView.bounds
         picture.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         contentView.addSubview(picture)

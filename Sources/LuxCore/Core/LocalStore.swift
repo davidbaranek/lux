@@ -81,9 +81,10 @@ public final class LocalStore: Sendable {
         try await store.imageUnread(eventId: eventId)
     }
 
-    /// Forgets what was read in every photo: photo search was turned off.
-    public func forgetImageReads() async throws {
-        try await store.forgetImageReads()
+    /// Forgets every photo's embedding (search by how photos look was turned off); their words
+    /// stay, as read by `reader` (the one without the model).
+    public func forgetImageEmbeddings(reader: String) async throws {
+        try await store.forgetImageEmbeddings(reader: reader)
     }
 
     /// How many photos the index has, and how many `reader` has read.

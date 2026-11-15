@@ -15,28 +15,35 @@ public final class SettingsModel {
     /// The search index on this device: how many messages, and whether it is still reading.
     public private(set) var searchIndex: String?
 
-    /// Search finds photos too (read on this device); off until the user turns it on.
-    public var searchesPhotos: Bool { session.search?.photos.isOn ?? Preferences.shared.searchesPhotos }
+    /// Search finds photos by how they look too (the model, on this device); the words in them
+    /// and the messages near them it finds always.
+    public var searchesPhotosByLook: Bool {
+        session.search?.photos.searchesByLook ?? Preferences.shared.searchesPhotosByLook
+    }
 
-    /// Where photo search is, in words: "Downloading the model · 40 %", "1 200 of 5 000 photos
-    /// read"; nil while it is off.
-    public var photoSearchStatus: String? {
-        switch session.search?.photos.state {
-        case nil, .off: nil
-        case .downloading(let fraction):
+    /// The photos read, in words: "180 of 224 photos read"; nil before the index opens.
+    public var photosRead: String? {
+        guard let progress = session.search?.photos.progress, progress.total > 0 else { return nil }
+        return String(localized: "\(progress.read.formatted(.number)) of \(progress.total.formatted(.number)) photos read")
+    }
+
+    /// Where the search by look is, when it is on: "Downloading the model · 40 %", or that the
+    /// model could not be had; nil while it is off or ready.
+    public var photoLooksStatus: String? {
+        switch session.search?.photos.looks {
+        case .downloading(let fraction)?:
             String(localized: "Downloading the model · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
-        case .on(let read, let total, _, let hasModel):
-            hasModel || total == 0
-                ? String(localized: "\(read.formatted(.number)) of \(total.formatted(.number)) photos read")
-                : String(localized: "The model is not on this device: only the words in photos are read")
+        case .on(hasModel: false)?:
+            String(localized: "The model is not on this device yet: photos are found by their words")
+        case .on(hasModel: true)?, .off?, nil:
+            nil
         }
     }
 
-    /// Turns photo search on (the model downloads, the photos are read on this device) or off
-    /// (what was read and the model go).
-    public func setSearchesPhotos(_ on: Bool) async {
-        guard let photos = session.search?.photos else { return }
-        if on { photos.turnOn() } else { await photos.turnOff() }
+    /// Turns the search by how photos look on (the model downloads; the photos are read again
+    /// while the device charges) or off (the model and what it read go).
+    public func setSearchesPhotosByLook(_ on: Bool) async {
+        await session.search?.photos.setSearchesByLook(on)
         changes.send()
     }
 

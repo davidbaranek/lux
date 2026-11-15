@@ -1,11 +1,11 @@
 import LuxCore
 import UIKit
 
-/// Settings: the account, the places' colour, encryption (the key backup), and signing out, as an
-/// inset-grouped list.
+/// Settings: the account, the places' colour, encryption (the key backup), privacy, search, and
+/// signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
-    private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, session }
-    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoSearch, signOut }
+    private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
+    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoLooks, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -97,19 +97,23 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
             case .searchIndex:
                 content.text = String(localized: "Search Index")
-                content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
+                content.secondaryText = [model.searchIndex ?? String(localized: "Opening…"), model.photosRead]
+                    .compactMap(\.self).joined(separator: "\n")
                 content.image = UIImage(systemName: "magnifyingglass")
-            case .photoSearch:
+            case .photoLooks:
                 content = .cell()
-                content.text = String(localized: "Search in Photos")
-                content.secondaryText = model.photoSearchStatus
-                    ?? String(localized: "Find photos by what they show and the words in them. Read on this iPhone, mostly at night while it charges; the model takes about 450 MB.")
+                content.text = String(localized: "Search by What Photos Show")
+                content.secondaryText = model.photoLooksStatus ?? String(localized: """
+                    Photos are always found by the words in them and the messages sent with them. This also finds \
+                    them by what they show ("dog on the beach"). It downloads a model of about 450 MB and reads \
+                    the photos on this iPhone, in the background while it charges.
+                    """)
                 content.secondaryTextProperties.color = .secondaryLabel
                 let toggle = UISwitch()
-                toggle.isOn = model.searchesPhotos
+                toggle.isOn = model.searchesPhotosByLook
                 toggle.addAction(UIAction { [weak self, weak toggle] _ in
                     let on = toggle?.isOn ?? false
-                    Task { await self?.model.setSearchesPhotos(on) }
+                    Task { await self?.model.setSearchesPhotosByLook(on) }
                 }, for: .valueChanged)
                 cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
             case .signOut:
@@ -128,7 +132,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendItems([.networks], toSection: .networks)
         snapshot.appendItems([.theme], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
-        snapshot.appendItems([.readReceipts, .searchIndex, .photoSearch], toSection: .privacy)
+        snapshot.appendItems([.readReceipts], toSection: .privacy)
+        snapshot.appendItems([.searchIndex, .photoLooks], toSection: .search)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
 
@@ -136,7 +141,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoSearch])
+            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoLooks])
             dataSource.apply(snapshot)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in
