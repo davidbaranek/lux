@@ -237,3 +237,31 @@ async fn turned_off_the_embeddings_go_the_words_stay_and_a_deleted_photo_goes() 
     store.forget_chat("!a".into(), None).await.unwrap();
     assert_eq!(store.image_counts(READER.into()).await.unwrap().total, 0);
 }
+
+/// Reading without the model (it could not be had) leaves the photos the model read as they are:
+/// their words and embeddings stay, and nothing waits to be read again.
+#[tokio::test]
+async fn the_words_reader_leaves_what_the_model_read() {
+    let folder = TempDir::new().unwrap();
+    let store = store(&folder).await;
+    store
+        .add_images(vec![image("$1", "!a", "", 1), image("$2", "!a", "", 2)])
+        .await
+        .unwrap();
+    let model = "vision-text-1+siglip2@256";
+    store
+        .set_images_read(vec![ImageRead {
+            event_id: "$1".into(),
+            reader: model.into(),
+            words: "a mushroom".into(),
+            embedding: Some(vec![0.5; 4]),
+        }])
+        .await
+        .unwrap();
+    let waiting = store.images_to_read("vision-text-1".into(), 10).await.unwrap();
+    assert_eq!(waiting.len(), 1, "only the photo no reader read");
+    let counts = store.image_counts("vision-text-1".into()).await.unwrap();
+    assert_eq!((counts.read, counts.with_embedding), (1, 1));
+    // the model's reader still reads what the words' reader did.
+    assert_eq!(store.images_to_read(model.into(), 10).await.unwrap().len(), 1);
+}
