@@ -37,7 +37,7 @@ use crate::places::Arrangement;
 use crate::ports::{
     AccountProfile, BackendError, ChatAccount, ChatActions, ChatChange, ChatDetails, DeviceSignOut, DiffStream,
     EncryptionSetup, MAX_NAME_LENGTH, Member, NotificationMode, Organizing, OwnDevice, Picture, Profile, RecoveryState,
-    RoomDetails, SavedMessages, Scheduling, Security, SharedPage, Spaces, ThreadBackend, ValueStream,
+    RoomDetails, SavedMessages, Scheduling, Security, SharedPage, Spaces, ThreadBackend, ThreadPage, ValueStream,
 };
 use crate::preview::{Preview, PreviewSource, Sender};
 
@@ -601,6 +601,11 @@ impl ChatDetails for DemoAccount {
         Ok(self.timelines.shared(room, from))
     }
 
+    async fn threads(&self, room: &RoomId, from: Option<&str>) -> Result<ThreadPage, BackendError> {
+        Self::room_number(&self.lock(), room)?;
+        Ok(self.timelines.threads(room, from))
+    }
+
     async fn set_notifications(&self, chat: &ChatId, mode: NotificationMode) -> Result<(), BackendError> {
         let rooms = self.lock().rooms_of(chat);
         if rooms.is_empty() {
@@ -859,7 +864,10 @@ mod tests {
         }
         assert_ne!(rows[0].id, ChatId::Room(room.clone()));
 
-        demo.timelines().send_text(&room, "on my way", None).await.unwrap();
+        demo.timelines()
+            .send_text(&room.clone().into(), "on my way", None)
+            .await
+            .unwrap();
 
         for diff in chats.next().await.unwrap() {
             diff.apply(&mut rows);

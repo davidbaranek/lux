@@ -42,7 +42,7 @@ fn room() -> RoomId {
 
 /// The room's messages now: the first batch of its live list is all of them.
 async fn snapshot(timelines: &MatrixTimelines) -> Vec<Arc<TimelineMessage>> {
-    let mut batches = timelines.messages(&room()).await.unwrap();
+    let mut batches = timelines.messages(&room().into()).await.unwrap();
     let mut messages = eyeball_im::Vector::new();
     for diff in futures_util::StreamExt::next(&mut batches).await.unwrap_or_default() {
         diff.apply(&mut messages);
@@ -172,8 +172,8 @@ async fn paging_back_shows_older_messages_and_reaches_the_start() {
     let timelines = MatrixTimelines::new(client);
 
     // the opening fills its first screen from the server, back to the start.
-    timelines.prefetch(&room()).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room()))
+    timelines.prefetch(&room().into()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
         .await
         .unwrap();
     let page = page_until(&timelines, |page| page.len() == 3).await;
@@ -183,12 +183,12 @@ async fn paging_back_shows_older_messages_and_reaches_the_start() {
             .collect::<Vec<_>>(),
         ["oldest", "older", "newest"]
     );
-    timelines.load_older(&room(), 20).await.unwrap();
-    assert!(timelines.is_at_start(&room()).await.unwrap());
+    timelines.load_older(&room().into(), 20).await.unwrap();
+    assert!(timelines.is_at_start(&room().into()).await.unwrap());
 
     // a saved message is found in the timeline by its event id.
     let found = timelines
-        .show_event(&room(), &lux_core::ids::EventId::from("$oldest"))
+        .show_event(&room().into(), &lux_core::ids::EventId::from("$oldest"))
         .await
         .unwrap();
     assert_eq!(found.as_ref(), Some(&page[0].message.id));
@@ -220,7 +220,10 @@ async fn a_sent_text_shows_at_once_then_as_sent() {
     let page = page_until(&timelines, body_is("question")).await;
     let question = MessageRef::Local(page[0].message.id.clone());
 
-    timelines.send_text(&room(), "**sure**", Some(&question)).await.unwrap();
+    timelines
+        .send_text(&room().into(), "**sure**", Some(&question))
+        .await
+        .unwrap();
     let page = page_until(&timelines, |page| {
         page.iter()
             .any(|message| message.message.body == "sure" && message.message.state == SendState::Sent)
@@ -253,7 +256,7 @@ async fn a_send_that_failed_for_a_moment_goes_on_retry_with_those_queued_after_i
     let timelines = MatrixTimelines::new(client);
     snapshot(&timelines).await;
 
-    timelines.send_text(&room(), "first", None).await.unwrap();
+    timelines.send_text(&room().into(), "first", None).await.unwrap();
     let page = page_until(&timelines, |page| {
         page.iter()
             .any(|message| message.message.body == "first" && message.message.state == SendState::Failed)
@@ -261,7 +264,7 @@ async fn a_send_that_failed_for_a_moment_goes_on_retry_with_those_queued_after_i
     .await;
     let first = page.iter().find(|message| message.message.body == "first").unwrap();
     // the failure turned the room's queue off: what comes next waits.
-    timelines.send_text(&room(), "second", None).await.unwrap();
+    timelines.send_text(&room().into(), "second", None).await.unwrap();
 
     timelines.retry(&room(), &first.message.id).await.unwrap();
     page_until(&timelines, |page| {
@@ -321,7 +324,7 @@ async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
         .await;
     server.mock_room_send().ok(event_id!("$photo")).mount().await;
     let timelines = MatrixTimelines::new(client);
-    timelines.prefetch(&room()).await.unwrap();
+    timelines.prefetch(&room().into()).await.unwrap();
 
     let folder = tempfile::tempdir().unwrap();
     let file = folder.path().join("trip.jpg");
@@ -335,7 +338,7 @@ async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
         thumbnail: None,
     };
     let id = timelines
-        .send_attachment(&room(), &attachment, Some("Trip"), None)
+        .send_attachment(&room().into(), &attachment, Some("Trip"), None)
         .await
         .unwrap()
         .expect("the local echo showed");
@@ -386,7 +389,7 @@ async fn reading_sends_a_private_receipt_unless_asked_for_a_public_one() {
         .await;
     let timelines = MatrixTimelines::new(client);
     page_until(&timelines, body_is("unread")).await;
-    timelines.mark_read(&room(), Receipt::Private).await.unwrap();
+    timelines.mark_read(&room().into(), Receipt::Private).await.unwrap();
     server.server().verify().await;
 }
 
@@ -432,12 +435,12 @@ async fn the_first_unread_message_is_paged_back_to() {
         .mount()
         .await;
     let timelines = MatrixTimelines::new(client);
-    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room()))
+    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
         .await
         .unwrap();
 
     let first = timelines
-        .first_unread(&room())
+        .first_unread(&room().into())
         .await
         .unwrap()
         .expect("an unread message");
@@ -711,7 +714,7 @@ async fn pictures_load_once_per_url_and_size_and_without_a_thumbnail_as_they_are
 /// The messages of `room` once it holds `count` of them.
 async fn messages_of(timelines: &MatrixTimelines, room: &RoomId, count: usize) -> Vec<Arc<TimelineMessage>> {
     tokio::time::timeout(Duration::from_secs(10), async {
-        let mut batches = timelines.messages(room).await.unwrap();
+        let mut batches = timelines.messages(&room.into()).await.unwrap();
         let mut messages = eyeball_im::Vector::new();
         while let Some(batch) = futures_util::StreamExt::next(&mut batches).await {
             for diff in batch {

@@ -3,8 +3,8 @@ import UIKit
 
 /// A chat's details, opened from its title, as Messages' and Contacts' cards are laid out: the
 /// picture, name and topic over an inset-grouped list of its networks (a merged chat's rooms),
-/// its notifications, low priority, its encryption, its members, what it shared, and marking it
-/// read or leaving it. Edit (for who may) changes its name, topic and picture.
+/// its notifications, low priority, its encryption, its members, its Matrix threads and what it
+/// shared, and marking it read or leaving it. Edit (for who may) changes its name, topic and picture.
 final class ChatDetailsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Hashable { case header, networks, settings, people, shared, actions }
 
@@ -13,6 +13,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         case room(String)
         case notifications, lowPriority, messages, encryption, address
         case members(String)
+        case threads
         case shared(SharedKind)
         case markRead, leave
     }
@@ -25,6 +26,8 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
     private var observation: AnyObject?
     /// The chat was renamed or repictured: the thread's title follows.
     var onChange: ((ChatRow) -> Void)?
+    /// A thread was picked from the chat's threads: it opens over the chat.
+    var onOpenThread: ((MatrixThread) -> Void)?
 
     init(session: Session, row: ChatRow, list: ChatListModel?) {
         self.session = session
@@ -98,7 +101,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             }
         }
         snapshot.appendSections([.shared, .actions])
-        snapshot.appendItems(SharedKind.allCases.map(Item.shared), toSection: .shared)
+        snapshot.appendItems([.threads] + SharedKind.allCases.map(Item.shared), toSection: .shared)
         snapshot.appendItems([.markRead, .leave], toSection: .actions)
         snapshot.reconfigureItems(snapshot.itemIdentifiers)
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -185,6 +188,10 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             content.text = model.row.isMerged ? Networks.name(room.network) : String(localized: "Members")
             content.secondaryText = room.joinedMembers.formatted()
             cell.accessories = [.disclosureIndicator()]
+        case .threads:
+            content.image = UIImage(systemName: "bubble.left.and.text.bubble.right")
+            content.text = String(localized: "Threads")
+            cell.accessories = [.disclosureIndicator()]
         case .shared(let kind):
             content.image = UIImage(systemName: kind.symbol)
             content.text = kind.title
@@ -235,7 +242,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         switch dataSource.itemIdentifier(for: indexPath) {
-        case .members, .shared, .markRead, .leave, .address: true
+        case .members, .threads, .shared, .markRead, .leave, .address: true
         default: false
         }
     }
@@ -246,6 +253,10 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         case .members(let id):
             guard let room = room(id) else { return }
             navigationController?.pushViewController(MembersViewController(model: model.members(of: room), images: session.images), animated: true)
+        case .threads:
+            let threads = ThreadsViewController(model: model.threads(), images: session.images)
+            threads.onOpen = { [weak self] thread in self?.onOpenThread?(thread) }
+            navigationController?.pushViewController(threads, animated: true)
         case .shared(let kind):
             navigationController?.pushViewController(SharedViewController(details: model, kind: kind, images: session.images), animated: true)
         case .markRead:

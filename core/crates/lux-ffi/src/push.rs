@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::timeline::timeline_id;
 use futures_util::StreamExt;
 use lux_core::ids::{EventId, RoomId};
 use lux_core::ports::Push;
@@ -82,22 +83,37 @@ impl CoreAccount {
         Ok(account.set_pusher(&pusher.into()).await?)
     }
 
-    /// Sends `text` to the room, returning once the server has it (a reply from a notification).
+    /// Sends `text` to the room (a reply in the Matrix thread of `thread_root`, if given),
+    /// returning once the server has it (a reply from a notification).
     ///
     /// # Errors
     /// When the room is not the account's, or the server cannot be reached.
-    pub async fn send_now(&self, room_id: String, text: String) -> Result<(), CoreAccountError> {
-        Ok(self.matrix_account()?.send_now(&RoomId::from(room_id), &text).await?)
-    }
-
-    /// Marks the room read up to `event_id` (a notification's message).
-    ///
-    /// # Errors
-    /// When the room is not the account's, or the server cannot be reached.
-    pub async fn mark_read_up_to(&self, room_id: String, event_id: String) -> Result<(), CoreAccountError> {
+    pub async fn send_now(
+        &self,
+        room_id: String,
+        thread_root: Option<String>,
+        text: String,
+    ) -> Result<(), CoreAccountError> {
         Ok(self
             .matrix_account()?
-            .mark_read_up_to(&RoomId::from(room_id), &EventId::from(event_id))
+            .send_now(&timeline_id(room_id, thread_root), &text)
+            .await?)
+    }
+
+    /// Marks the room (the Matrix thread of `thread_root`, if given) read up to `event_id` (a
+    /// notification's message).
+    ///
+    /// # Errors
+    /// When the room is not the account's, or the server cannot be reached.
+    pub async fn mark_read_up_to(
+        &self,
+        room_id: String,
+        thread_root: Option<String>,
+        event_id: String,
+    ) -> Result<(), CoreAccountError> {
+        Ok(self
+            .matrix_account()?
+            .mark_read_up_to(&timeline_id(room_id, thread_root), &EventId::from(event_id))
             .await?)
     }
 
@@ -161,6 +177,8 @@ pub struct CoreNotification {
     /// The sender's picture, a small image file's bytes; none when it has none or could not be
     /// had in time.
     pub sender_image: Option<Vec<u8>>,
+    /// The Matrix thread it replies in, by its root's event id: opening it opens the thread.
+    pub thread_root: Option<String>,
 }
 
 impl CoreNotification {
@@ -177,6 +195,7 @@ impl CoreNotification {
             is_noisy: notification.is_noisy,
             is_late: notification.is_late,
             sender_image: pictures.sender,
+            thread_root: notification.thread.map(|root| root.to_string()),
         }
     }
 }

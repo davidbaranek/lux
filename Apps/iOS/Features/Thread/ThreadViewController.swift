@@ -2,7 +2,9 @@ import LuxCore
 import UIKit
 
 /// One chat: messages over a diffable data source keyed by message id, a glass composer that rides
-/// the keyboard, and a long-press menu with reactions over a preview of the bubble itself.
+/// the keyboard, and a long-press menu with reactions over a preview of the bubble itself. A
+/// Matrix thread of the chat shows the same way, pushed over the chat: its root, its replies, the
+/// composer replying there.
 ///
 /// Every row's layout is measured off the main thread before it is shown (`MessageLayoutCache`,
 /// as Signal's conversation view does) and reused while the message stays the same; the flow
@@ -67,15 +69,17 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     /// the inbox.
     private weak var list: ChatListModel?
 
-    init(session: Session, row: ChatRow, theme: PlaceTheme, list: ChatListModel?, focusEvent: String? = nil) {
+    /// The chat of `row`, or its Matrix thread `thread`.
+    init(session: Session, row: ChatRow, theme: PlaceTheme, list: ChatListModel?, focusEvent: String? = nil,
+         thread: MatrixThread? = nil) {
         self.session = session
         self.row = row
         self.list = list
         self.theme = theme
         self.focusEvent = focusEvent
-        model = ThreadModel(session: session, row: row)
+        model = ThreadModel(session: session, row: row, thread: thread)
         super.init(nibName: nil, bundle: nil)
-        title = row.name
+        title = thread == nil ? row.name : String(localized: "Thread")
         hidesBottomBarWhenPushed = true
     }
 
@@ -100,7 +104,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.titleView = chatTitle
         chatTitle.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openDetails)))
-        if row.isMerged {
+        if model.thread != nil {
+            // the chat it is in, under "Thread".
+            chatTitle.subtitle = String(localized: "Thread")
+        } else if row.isMerged {
             navigationItem.rightBarButtonItem = networksButton
             model.onShownRoom = { [weak self] _ in self?.updateNetworks() }
             updateNetworks()
@@ -136,6 +143,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             }
             // a shared post's card (its title and caption) opens the post; its media opens as any.
             cell.onPostOpen = message.shared?.link.map { post in { UIApplication.shared.open(post) } }
+            cell.onThreadTap = message.thread == nil ? nil : { [weak self] in
+                guard let self, let message = messages[id] else { return }
+                openThread(of: message)
+            }
             cell.onMediaTap = message.hasMedia ? { [weak self] view, index in
                 guard let self, let message = messages[id] else { return }
                 media.open(message, at: index, from: view, model: model)
@@ -146,7 +157,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
         swipeToReply = SwipeToReply(collectionView, canReply: { [weak self] indexPath in
             guard let message = self?.message(at: indexPath) else { return false }
-            return MessageAction.available(for: message).contains(.reply)
+            return MessageAction.available(for: message, inThread: self?.model.thread != nil).contains(.reply)
         }, reply: { [weak self] indexPath in
             guard let self, let message = message(at: indexPath) else { return }
             model.reply(to: message)
@@ -173,6 +184,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         ])
 
         composer.translatesAutoresizingMaskIntoConstraints = false
+        if model.thread != nil { composer.placeholderText = String(localized: "Reply in Thread") }
         composer.onSend = { [weak self] text in
             self?.model.send(text)
             self?.donateSent()
@@ -281,13 +293,20 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         // on screen: no banners for it, and what it notified is seen.
-        session.roomsOnScreen = rooms
-        Task { [rooms] in await PushNotifications.removeDelivered(rooms: rooms) }
+        if let thread = model.thread {
+            session.roomsOnScreen = []
+            session.threadsOnScreen = [thread.rootEventId]
+        } else {
+            session.roomsOnScreen = rooms
+            session.threadsOnScreen = []
+            Task { [rooms] in await PushNotifications.removeDelivered(rooms: rooms) }
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if session.roomsOnScreen == rooms { session.roomsOnScreen = [] }
+        if let thread = model.thread { session.threadsOnScreen.remove(thread.rootEventId) }
         model.stopWatchingTyping()
         model.saveDraft(composer.text)
     }
@@ -524,10 +543,26 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         networksButton.accessibilityValue = chatTitle.subtitle
     }
 
+    /// The Matrix thread `message` starts (a new one, to reply in, if it starts none), pushed
+    /// over the chat.
+    func openThread(of message: MessageItem) {
+        guard model.thread == nil, !message.eventId.isEmpty else { return }
+        openThread(MatrixThread(roomId: message.roomId, rootEventId: message.eventId))
+    }
+
+    /// A Matrix thread of this chat, pushed over it.
+    func openThread(_ thread: MatrixThread) {
+        navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: theme, list: list, thread: thread), animated: true)
+    }
+
     /// The chat's details, from its title, as Messages opens a conversation's.
     @objc private func openDetails() {
         let details = ChatDetailsViewController(session: session, row: row, list: list)
-        details.onChange = { [weak self] row in self?.chatTitle.show(row, images: self?.session.images) }
+        details.onChange = { [weak self] row in
+            self?.chatTitle.show(row, images: self?.session.images)
+            if self?.model.thread != nil { self?.chatTitle.subtitle = String(localized: "Thread") }
+        }
+        details.onOpenThread = { [weak self] thread in self?.openThread(thread) }
         navigationController?.pushViewController(details, animated: true)
     }
 

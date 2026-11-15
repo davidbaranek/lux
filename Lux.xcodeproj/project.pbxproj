@@ -25,6 +25,7 @@
 		155CC3FC8242AA590FAC279E /* EmojiImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */; };
 		161FD7F6214F84D5B1DCF6C3 /* NetworksController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78529247C0AB5140BE3E949A /* NetworksController.swift */; };
 		16C4E2E4903056B6CAF6CC26 /* EncryptionSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */; };
+		17BF442818FAF191DBFB8270 /* ThreadsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9BC36F4F3BEDEEDA5776AA5 /* ThreadsViewController.swift */; };
 		19CFE62599A7B533ED61E3EB /* DownloaderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378931B4C04A8B241BE933C4 /* DownloaderExtension.swift */; };
 		1A161C3182667ECEC8DD7744 /* SearchSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80D030C126F85C86D0EA1320 /* SearchSettingsController.swift */; };
 		1BCA865F8FF6EF1EE6695A87 /* SearchResultsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */; };
@@ -66,6 +67,7 @@
 		6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */; };
 		657C45CA956C202D41ADF97C /* DevicesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D38CDE5B816C247508144E /* DevicesViewController.swift */; };
 		683DD25022320CAE2D32D91F /* ChatListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C63259781CAA212711C097 /* ChatListViewController.swift */; };
+		685C068BDF01C5CD0ECC80C8 /* ThreadSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */; };
 		6948CB74315F9E166913736C /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */; };
 		6B251BC0D10032002FAB5EE0 /* BackgroundRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */; };
 		6CED0114453863479F5508B4 /* AccountSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E12BEF6929D3632673C59AF /* AccountSettingsController.swift */; };
@@ -93,6 +95,7 @@
 		9D0FFDEEFE4F3E82502A4DAB /* SharedPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47371175077B06DD93D8E819 /* SharedPane.swift */; };
 		9DB35B0612E722C0127644BC /* EmojiImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */; };
 		9F072E62A5C4445EEBB245C0 /* Lux-iOS-Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9FFF5BA4BC18335532D67927 /* ThreadSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8CEDE7F2FF46DA53A4C8D0C /* ThreadSummaryView.swift */; };
 		A159AD2F5FD5649235134D50 /* MembersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D737288FA31CA350724D718 /* MembersViewController.swift */; };
 		A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */; };
 		A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */; };
@@ -105,6 +108,7 @@
 		ADF0DBB8BC40F9B8A814EFF8 /* NetworkImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */; };
 		B075CAE896F653EF49C0F8FE /* ThemeMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA1C19BCC5C987F9DB15E5D /* ThemeMenu.swift */; };
 		B139BD6E0E50BCBC3DA070DA /* VerificationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3633EB47A1DD6D7C2A8AEDA /* VerificationController.swift */; };
+		B19DE83C6A3884374DB7613D /* ThreadsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4C9FF0F97F7DDE576EC682 /* ThreadsPane.swift */; };
 		B1FA151DF3B7DE373AE4F34F /* MessageText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED44BAF9870039CBBE2D09 /* MessageText.swift */; };
 		B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2180360AB5C0E986ABBBF07D /* ChatListController.swift */; };
 		B653F26A44AE4D274DB849D7 /* UIFont+Bold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */; };
@@ -130,6 +134,7 @@
 		D9F5BB596C18FA8E3AA08B01 /* RecoverySetupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E3E60D668BFA91A83F63D0 /* RecoverySetupController.swift */; };
 		DEC843A195F03049A897DEAC /* NewConversationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */; };
 		DECA8F2F35AC1DF95C3406C0 /* RecoveryKeyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */; };
+		E08452C764F062D293602F98 /* InspectorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F75AFB92D1559227086945 /* InspectorController.swift */; };
 		E147D495AC39B7A968B095E8 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60079532E50D716748C497E7 /* AvatarView.swift */; };
 		E78834AAAD1D2FAF1F0DC1D0 /* ChatTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15301CE9D8CDC009F178CF79 /* ChatTitleView.swift */; };
 		E87A984B2C06178BAE83ED09 /* AlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A688E800048B078A52B754C7 /* AlbumView.swift */; };
@@ -229,7 +234,6 @@
 
 /* Begin PBXFileReference section */
 		0424D3218B18987B7AEDF49E /* LoadingBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingBubble.swift; sourceTree = "<group>"; };
-		04424153533D74D731FD8A90 /* image-search */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "image-search"; path = .; sourceTree = SOURCE_ROOT; };
 		045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
 		05956B7632D91F0739F96D43 /* Lux-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lux-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		06C63259781CAA212711C097 /* ChatListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListViewController.swift; sourceTree = "<group>"; };
@@ -283,6 +287,7 @@
 		5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViewController.swift; sourceTree = "<group>"; };
 		585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeLabel.swift; sourceTree = "<group>"; };
 		5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
+		BB39620C0DF9FF91919295A9 /* lux-native-verify */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-verify"; path = .; sourceTree = SOURCE_ROOT; };
 		5F2C98214DB4409B4C68E2DF /* InboxMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxMenu.swift; sourceTree = "<group>"; };
 		60079532E50D716748C497E7 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		61650F6A784137B4735B8EA7 /* MessageTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTableView.swift; sourceTree = "<group>"; };
@@ -315,6 +320,7 @@
 		9644BAAAE059CA06889DB30A /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
 		977E45B2786136014F3666DB /* NSViewController+Failure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSViewController+Failure.swift"; sourceTree = "<group>"; };
 		97D38CDE5B816C247508144E /* DevicesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesViewController.swift; sourceTree = "<group>"; };
+		983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadSummaryView.swift; sourceTree = "<group>"; };
 		9AA1C19BCC5C987F9DB15E5D /* ThemeMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeMenu.swift; sourceTree = "<group>"; };
 		9AA6FB47F4FED7224573798C /* UIViewController+Failure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIViewController+Failure.swift"; sourceTree = "<group>"; };
 		9AC9E7CDBFC3557241A8B83D /* VerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViewController.swift; sourceTree = "<group>"; };
@@ -329,6 +335,7 @@
 		A688E800048B078A52B754C7 /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
 		A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsViewController.swift; sourceTree = "<group>"; };
 		A8D13E5EA6D6F6231E9F0C43 /* AssetDownloader-iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "AssetDownloader-iOS.entitlements"; sourceTree = "<group>"; };
+		A8F75AFB92D1559227086945 /* InspectorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorController.swift; sourceTree = "<group>"; };
 		A911F525CB872B6D4D247132 /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
 		B078C1F708797864150311C6 /* FileDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropView.swift; sourceTree = "<group>"; };
 		B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
@@ -350,6 +357,7 @@
 		D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploads.swift; sourceTree = "<group>"; };
 		D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Composer.swift"; sourceTree = "<group>"; };
 		DE4A4506DA1C1DD8E5FB5EE2 /* NetworksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworksViewController.swift; sourceTree = "<group>"; };
+		DE4C9FF0F97F7DDE576EC682 /* ThreadsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadsPane.swift; sourceTree = "<group>"; };
 		DEC2C68FC0EDAFF2781D12DF /* NotificationMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationMenu.swift; sourceTree = "<group>"; };
 		E00570185AFDD380CCE7DD74 /* SignInViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInViewController.swift; sourceTree = "<group>"; };
 		E03D292A05B73F3E895EF3E8 /* ThemeMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeMenu.swift; sourceTree = "<group>"; };
@@ -361,6 +369,8 @@
 		E3ED44BAF9870039CBBE2D09 /* MessageText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageText.swift; sourceTree = "<group>"; };
 		E7B20AF00D700E184F762839 /* PhotoGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoGridView.swift; sourceTree = "<group>"; };
 		E889EBAD13A8573958DF1452 /* ConfirmIdentityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmIdentityViewController.swift; sourceTree = "<group>"; };
+		E8CEDE7F2FF46DA53A4C8D0C /* ThreadSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadSummaryView.swift; sourceTree = "<group>"; };
+		E9BC36F4F3BEDEEDA5776AA5 /* ThreadsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadsViewController.swift; sourceTree = "<group>"; };
 		EA3776EDAC6CDA5CF7A31983 /* SidebarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarController.swift; sourceTree = "<group>"; };
 		EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStyling.swift; sourceTree = "<group>"; };
 		F0E3E60D668BFA91A83F63D0 /* RecoverySetupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySetupController.swift; sourceTree = "<group>"; };
@@ -419,6 +429,7 @@
 				0CA5C750269A65579B132470 /* EditChatViewController.swift */,
 				6D737288FA31CA350724D718 /* MembersViewController.swift */,
 				5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */,
+				E9BC36F4F3BEDEEDA5776AA5 /* ThreadsViewController.swift */,
 			);
 			path = ChatDetails;
 			sourceTree = "<group>";
@@ -466,6 +477,7 @@
 			children = (
 				23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */,
 				C74036405B2152475BBCC458 /* ChatTitleView.swift */,
+				A8F75AFB92D1559227086945 /* InspectorController.swift */,
 				38EB133AC22139BB66D39275 /* main.swift */,
 				A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */,
 				9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */,
@@ -641,6 +653,7 @@
 				FE318413E2F507F57F29C300 /* EditChatController.swift */,
 				4131CD8140B7AEF0964D274B /* MembersPane.swift */,
 				47371175077B06DD93D8E819 /* SharedPane.swift */,
+				DE4C9FF0F97F7DDE576EC682 /* ThreadsPane.swift */,
 			);
 			path = ChatDetails;
 			sourceTree = "<group>";
@@ -723,6 +736,7 @@
 				D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */,
 				7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */,
 				F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */,
+				E8CEDE7F2FF46DA53A4C8D0C /* ThreadSummaryView.swift */,
 			);
 			path = Thread;
 			sourceTree = "<group>";
@@ -831,7 +845,7 @@
 		DC93430DB5458DAF85591C76 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				04424153533D74D731FD8A90 /* image-search */,
+				BB39620C0DF9FF91919295A9 /* lux-native-verify */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -885,6 +899,7 @@
 				6A3A3C976B72208FEFA37889 /* MessageCell.swift */,
 				F6D204CD16F57C75829F8BF1 /* MessageText.swift */,
 				9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */,
+				983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */,
 				B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */,
 				62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */,
 				BAC0D1B214F00F8C6A3313FD /* TypingView.swift */,
@@ -1187,6 +1202,7 @@
 				0BCF753EFAFAE2E02791361D /* FileDropView.swift in Sources */,
 				9C07EBB6628BB81A3CE6B539 /* FileRowView.swift in Sources */,
 				04DDB2D9D29BC65964566554 /* InboxMenu.swift in Sources */,
+				E08452C764F062D293602F98 /* InspectorController.swift in Sources */,
 				ED1DBD72CF9220FA4A9C1D3D /* LoadingBubble.swift in Sources */,
 				D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */,
 				0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */,
@@ -1224,6 +1240,8 @@
 				A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */,
 				CB917858113CEA60B6902902 /* ThreadController+QuickLook.swift in Sources */,
 				FA8C719FA0213F63F8924662 /* ThreadController.swift in Sources */,
+				9FFF5BA4BC18335532D67927 /* ThreadSummaryView.swift in Sources */,
+				B19DE83C6A3884374DB7613D /* ThreadsPane.swift in Sources */,
 				B139BD6E0E50BCBC3DA070DA /* VerificationController.swift in Sources */,
 				1C9F5F75836DD643D24F1AA2 /* main.swift in Sources */,
 			);
@@ -1309,8 +1327,10 @@
 				39A051D7618EECD53E44045D /* SwipeToReply.swift in Sources */,
 				01C3E40E77DF50004F0F91BC /* ThemeBand.swift in Sources */,
 				8AC205D501695BBB98E0D29D /* ThemeMenu.swift in Sources */,
+				685C068BDF01C5CD0ECC80C8 /* ThreadSummaryView.swift in Sources */,
 				47074059C06133CD5EDD5D79 /* ThreadViewController+Menu.swift in Sources */,
 				042345998078B252CFE0863D /* ThreadViewController.swift in Sources */,
+				17BF442818FAF191DBFB8270 /* ThreadsViewController.swift in Sources */,
 				02A6600AB83B5B16B1B38D90 /* TypingView.swift in Sources */,
 				B653F26A44AE4D274DB849D7 /* UIFont+Bold.swift in Sources */,
 				780316DD6166F699F95047BE /* UIViewController+Failure.swift in Sources */,

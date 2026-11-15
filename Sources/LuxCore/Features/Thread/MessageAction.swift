@@ -3,9 +3,12 @@ import Foundation
 /// What a message's menu offers. The rules live here, so both apps offer the same.
 public enum MessageAction: Hashable, Sendable {
     case reply, edit, copy, copyLink, save, unsave, forward, delete, retry, discard
+    /// Opens the Matrix thread the message starts (a new one if it starts none yet), to reply there.
+    case replyInThread
 
-    /// The actions for `message`, in menu order (reactions come before them, where they apply).
-    public static func available(for message: MessageItem) -> [MessageAction] {
+    /// The actions for `message`, in menu order (reactions come before them, where they apply);
+    /// `inThread`: it shows in a Matrix thread's timeline, where no thread starts.
+    public static func available(for message: MessageItem, inThread: Bool = false) -> [MessageAction] {
         if message.isDeleted { return [] }
         switch message.state {
         case .failed: return [.retry, .discard] + (message.body.isEmpty ? [] : [.copy])
@@ -13,6 +16,8 @@ public enum MessageAction: Hashable, Sendable {
         case .sent: break
         }
         var actions: [MessageAction] = [.reply]
+        // a thread starts at a message the server has.
+        if !inThread, !message.eventId.isEmpty { actions.append(.replyInThread) }
         if message.isEditable { actions.append(.edit) }
         if !message.body.isEmpty { actions.append(.copy) }
         if message.shared?.url != nil { actions.append(.copyLink) }
@@ -30,6 +35,7 @@ public enum MessageAction: Hashable, Sendable {
     public var title: String {
         switch self {
         case .reply: String(localized: "Reply")
+        case .replyInThread: String(localized: "Reply in Thread")
         case .edit: String(localized: "Edit")
         case .copy: String(localized: "Copy")
         case .copyLink: String(localized: "Copy Link")
@@ -45,6 +51,7 @@ public enum MessageAction: Hashable, Sendable {
     public var symbol: String {
         switch self {
         case .reply: "arrowshape.turn.up.left"
+        case .replyInThread: "bubble.left.and.text.bubble.right"
         case .edit: "pencil"
         case .copy: "doc.on.doc"
         case .copyLink: "link"

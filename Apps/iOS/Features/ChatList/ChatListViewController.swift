@@ -502,21 +502,24 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         }
     }
 
-    private func open(_ row: ChatRow, focusEvent: String? = nil) {
-        navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme, list: model, focusEvent: focusEvent), animated: true)
+    private func open(_ row: ChatRow, focusEvent: String? = nil, thread: MatrixThread? = nil) {
+        let chat = ThreadViewController(session: session, row: row, theme: model.theme, list: model, focusEvent: focusEvent)
+        navigationController?.pushViewController(chat, animated: thread == nil)
+        // a thread over its chat: back goes to the chat.
+        if let thread { chat.openThread(thread) }
     }
 
     /// Opens the chat of a notification the user tapped: the merged chat its room is part of,
-    /// else the room's own, over whatever was on screen. Right after launch the account's chats
-    /// may not have come yet: it waits for them a few seconds.
-    func openChat(roomId: String) {
+    /// else the room's own, over whatever was on screen; a thread's reply, at the thread. Right
+    /// after launch the account's chats may not have come yet: it waits for them a few seconds.
+    func openChat(roomId: String, thread: String? = nil) {
         Task { [weak self] in
             for _ in 0..<20 {
                 guard let self, session.isSignedIn else { return }
                 if let row = await session.chat(ofRoom: roomId) {
                     presentedViewController?.dismiss(animated: false)
                     navigationController?.popToRootViewController(animated: false)
-                    open(row)
+                    open(row, thread: thread.map { MatrixThread(roomId: roomId, rootEventId: $0) })
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(250))

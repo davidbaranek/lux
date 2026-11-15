@@ -292,8 +292,17 @@ public final class Session {
 
     // MARK: Push notifications
 
-    /// The rooms of the chat on screen: their notifications show no banner.
+    /// The rooms of the chat on screen: their notifications show no banner (but a Matrix
+    /// thread's reply, which the chat's own timeline does not show).
     public var roomsOnScreen: Set<String> = []
+    /// The Matrix threads on screen, by their roots: their replies' notifications show no banner.
+    public var threadsOnScreen: Set<String> = []
+
+    /// What a notification of `room` (a reply in the thread of `thread`, if any) shows is on
+    /// screen already: its thread, or its chat.
+    public func showsMessage(of room: String, thread: String?) -> Bool {
+        thread.map(threadsOnScreen.contains) ?? roomsOnScreen.contains(room)
+    }
 
     /// Registers this device's push token with the account's server (each launch: the token
     /// may have changed, and the server renews the pusher).
@@ -310,14 +319,15 @@ public final class Session {
         }
     }
 
-    /// Answers a notification: `text` to its room, sent before this returns.
-    public func reply(roomId: String, text: String) async throws {
-        try await account.value.sendNow(roomId: roomId, text: text)
+    /// Answers a notification: `text` to its room (its Matrix thread, if it came in one), sent
+    /// before this returns.
+    public func reply(roomId: String, threadRoot: String? = nil, text: String) async throws {
+        try await account.value.sendNow(roomId: roomId, threadRoot: threadRoot, text: text)
     }
 
-    /// Marks a notification's room read up to its message.
-    public func markRead(roomId: String, upTo eventId: String) async throws {
-        try await account.value.markRead(roomId: roomId, upTo: eventId)
+    /// Marks a notification's room (its Matrix thread, if it came in one) read up to its message.
+    public func markRead(roomId: String, threadRoot: String? = nil, upTo eventId: String) async throws {
+        try await account.value.markRead(roomId: roomId, threadRoot: threadRoot, upTo: eventId)
     }
 
     /// The notifications of what the sync brings while the app runs (the Mac shows them

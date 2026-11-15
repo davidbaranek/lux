@@ -162,6 +162,60 @@ public final class ChatDetailsModel {
     public func shared(_ kind: SharedKind) -> SharedModel {
         SharedModel(account: account, chatId: row.id, kind: kind, originals: originals, photos: photos)
     }
+
+    /// Its Matrix threads.
+    public func threads() -> ThreadsModel {
+        ThreadsModel(account: account, row: row)
+    }
+}
+
+/// A chat's Matrix threads (each room's, for a merged chat), the latest active first, read a
+/// page at a time from the server as the user scrolls.
+@MainActor
+public final class ThreadsModel {
+    /// The chat whose threads they are: a thread opens in it.
+    public let row: ChatRow
+    public private(set) var threads: [ListedThread] = []
+    public private(set) var isLoading = false
+    /// Every room's every thread was read.
+    public private(set) var isComplete = false
+    public private(set) var failure: AccountFailure?
+    public let changes = Broadcast()
+
+    private let account: Task<RustAccount, any Error>
+    /// Where each room's next page starts; a room is gone from it once all its threads came.
+    private var next: [String: String?]
+
+    init(account: Task<RustAccount, any Error>, row: ChatRow) {
+        self.account = account
+        self.row = row
+        next = Dictionary(uniqueKeysWithValues: row.chatRooms.map { ($0.id, String?.none) })
+    }
+
+    /// Reads each room's next page, unless pages are on their way or all were read.
+    public func loadMore() async {
+        guard !isLoading, !isComplete else { return }
+        isLoading = true
+        failure = nil
+        changes.send()
+        defer {
+            isLoading = false
+            changes.send()
+        }
+        do {
+            let account = try await account.value
+            for (room, from) in next {
+                let page = try await account.threads(roomId: room, from: from)
+                let known = Set(threads.map(\.id))
+                threads += page.threads.filter { !known.contains($0.id) }
+                if let more = page.next { next[room] = more } else { next.removeValue(forKey: room) }
+            }
+            threads.sort { $0.activity > $1.activity }
+            isComplete = next.isEmpty
+        } catch {
+            failure = error as? AccountFailure ?? .connectionFailed
+        }
+    }
 }
 
 /// A room's members, found by name as the user types.

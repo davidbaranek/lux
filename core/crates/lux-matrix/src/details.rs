@@ -5,7 +5,7 @@
 use lux_core::ids::{ChatId, MediaId, RoomId, UserId};
 use lux_core::ports::{
     BackendError, ChatActions, ChatChange, ChatDetails, Member, NotificationMode, Picture, PictureFormat, Role,
-    RoomDetails, RoomPermissions, SharedPage,
+    RoomDetails, RoomPermissions, SharedPage, ThreadPage,
 };
 use matrix_sdk::RoomMemberships;
 use matrix_sdk::notification_settings::RoomNotificationMode;
@@ -72,6 +72,10 @@ impl ChatDetails for MatrixAccount {
 
     async fn shared(&self, room: &RoomId, from: Option<&str>) -> Result<SharedPage, BackendError> {
         crate::timeline::shared::page(&self.room(room)?, from).await
+    }
+
+    async fn threads(&self, room: &RoomId, from: Option<&str>) -> Result<ThreadPage, BackendError> {
+        self.timelines().threads(room, from).await
     }
 
     async fn set_notifications(&self, chat: &ChatId, mode: NotificationMode) -> Result<(), BackendError> {
