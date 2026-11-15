@@ -100,6 +100,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     private let focusEvent: String?
     private var layouts: [String: MessageLayout] = [:]
     private let layoutCache = MessageLayoutCache()
+    private var styleObservation: AnyObject?
     private let text = MessageText()
     private var layoutWidth: CGFloat = 0
     /// The newest update; an older one still measuring is dropped.
@@ -318,6 +319,11 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
                                                name: NSScrollView.willStartLiveScrollNotification, object: scroll)
         scroll.contentView.postsBoundsChangedNotifications = true
         model.onUpdate = { [weak self] messages in self?.show(messages) }
+        // bubbles or plain rows, as Settings has it: every row is measured again.
+        styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in
+            guard let self else { return }
+            show(model.messages, relayout: true)
+        }
         model.onFirstUnread = { [weak self] _ in self?.showLateFirstUnread() }
         model.onLoading = { [weak self] loading in
             self?.loading.set(visible: loading)
@@ -445,11 +451,11 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         guard layoutWidth > 0, model.hasLoaded else { return }
         generation += 1
         let generation = generation, width = layoutWidth, text = text, cache = layoutCache, isGroup = row.isGroup
-        let firstUnread = model.firstUnreadId
+        let firstUnread = model.firstUnreadId, style = Preferences.shared.chatStyle
         Task {
             let state = Signposts.thread.beginInterval("measure")
             let (layouts, changed) = await Self.measure(new, cache: cache, showsSender: isGroup, firstUnread: firstUnread,
-                                                        width: width, text: text)
+                                                        style: style, width: width, text: text)
             Signposts.thread.endInterval("measure", state, "\(new.count) messages, \(changed.count) changed")
             guard generation == self.generation else { return }
             appliedGeneration = generation
@@ -459,8 +465,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 
     @concurrent
     private static func measure(_ messages: [MessageItem], cache: MessageLayoutCache, showsSender: Bool, firstUnread: String?,
-                                width: CGFloat, text: MessageText) async -> ([String: MessageLayout], [String]) {
-        cache.update(messages, showsSender: showsSender, firstUnread: firstUnread, width: width, measure: text)
+                                style: ChatStyle, width: CGFloat, text: MessageText) async -> ([String: MessageLayout], [String]) {
+        cache.update(messages, showsSender: showsSender, firstUnread: firstUnread, style: style, width: width, measure: text)
     }
 
     /// The message whose shared post's caption the user just unfolded or folded: its next change

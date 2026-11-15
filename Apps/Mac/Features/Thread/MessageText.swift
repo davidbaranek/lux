@@ -7,6 +7,8 @@ import LuxCore
 /// `CTFont`, which Core Text documents as safe to use from any thread.
 struct MessageText: TextMeasuring, @unchecked Sendable {
     let sender = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    /// A plain group's sender's name.
+    let author = NSFont.systemFont(ofSize: NSFont.systemFontSize + 1, weight: .semibold)
     let quote = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
     let body = NSFont.systemFont(ofSize: NSFont.systemFontSize + 1)
     let footer = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize - 1)
@@ -22,6 +24,7 @@ struct MessageText: TextMeasuring, @unchecked Sendable {
     func font(_ role: TextRole) -> NSFont {
         switch role {
         case .sender: sender
+        case .author: author
         case .quote: quote
         case .body: body
         case .footer: footer

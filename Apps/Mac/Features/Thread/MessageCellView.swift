@@ -6,7 +6,11 @@ final class MessageCellView: NSTableCellView {
     static let reuse = NSUserInterfaceItemIdentifier("MessageCell")
 
     private let sender = TextView()
+    /// A plain group's time, after its sender's name.
+    private let time = TextView()
     private let bubble = FlippedView()
+    /// A plain row's band behind its parts (`MessageLayout.band`).
+    private let band = FlippedView()
     private let quote = TextView()
     private let photo = RemoteImageView()
     private let videoBadge = VideoBadgeView()
@@ -25,6 +29,8 @@ final class MessageCellView: NSTableCellView {
     private let reactions = TextView()
     private let reactionsBackground = FlippedView()
     private let avatar = AvatarView(side: 28)
+    /// A plain group's sender's picture, beside their name.
+    private let plainAvatar = AvatarView(side: BubbleMetrics().plainAvatarSide)
     private let day = TextView()
     private let unreadMarker = UnreadMarkerView()
     private let readers = TextView()
@@ -95,8 +101,14 @@ final class MessageCellView: NSTableCellView {
         }
         failed.contentTintColor = .systemRed
         failed.symbolConfiguration = .init(pointSize: 16, weight: .regular)
-        for view in [day, unreadMarker, avatar, sender, bubble, reactionsBackground, readers, detail, failed] as [NSView] { addSubview(view) }
+        band.wantsLayer = true
+        band.layer?.cornerRadius = 6
+        band.layer?.cornerCurve = .continuous
+        for view in [band, day, unreadMarker, avatar, plainAvatar, sender, time, bubble, reactionsBackground, readers, detail, failed] as [NSView] {
+            addSubview(view)
+        }
         bubble.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(bubbleClicked)))
+        band.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(bandClicked)))
         replyArrow.image = NSImage(systemSymbolName: "arrowshape.turn.up.left.circle.fill", accessibilityDescription: nil)
         replyArrow.symbolConfiguration = arrowStyle(armed: false)
         replyArrow.alphaValue = 0
@@ -159,6 +171,9 @@ final class MessageCellView: NSTableCellView {
         onBubbleTap?()
     }
 
+    /// A click on a plain row beside its parts.
+    @objc private func bandClicked() { onBubbleTap?() }
+
     @objc private func mediaClicked(_ click: NSClickGestureRecognizer) {
         onMediaTap?(0)
     }
@@ -184,12 +199,20 @@ final class MessageCellView: NSTableCellView {
     /// Draws the eye to the bubble after a jump to it: the bubble takes the accent colour, then
     /// fades back to its own.
     func flash() {
-        guard let own = shown?.0.isOwn, let layer = bubble.layer else { return }
+        guard let (message, layout) = shown, let layer = (layout.band == nil ? bubble : band).layer else { return }
+        let own = message.isOwn
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            let base = (own ? accent : NSColor.incomingBubble).usingColorSpace(.sRGB) ?? .gray
-            // others' grey turns to the accent; one's own (already the accent) lightens.
-            let highlight = own ? base.blended(withFraction: 0.35, of: .white) ?? base
+            let base: NSColor, highlight: NSColor
+            if layout.band != nil {
+                // a plain row's band takes a wash of the accent colour.
+                base = layer.backgroundColor.flatMap(NSColor.init(cgColor:)) ?? .clear
+                highlight = accent.withAlphaComponent(0.25)
+            } else {
+                base = (own ? accent : NSColor.incomingBubble).usingColorSpace(.sRGB) ?? .gray
+                // others' grey turns to the accent; one's own (already the accent) lightens.
+                highlight = own ? base.blended(withFraction: 0.35, of: .white) ?? base
                                 : base.blended(withFraction: 0.55, of: accent) ?? base
+            }
             let pulse = CAKeyframeAnimation(keyPath: "backgroundColor")
             pulse.values = [base.cgColor, highlight.cgColor, highlight.cgColor, base.cgColor]
             pulse.keyTimes = [0, 0.12, 0.35, 1]
@@ -205,7 +228,9 @@ final class MessageCellView: NSTableCellView {
         if let shown, shown.0 == message, shown.1 == layout { return }
         shown = (message, layout)
         source = (text, images, isGroup)
-        let own = message.isOwn
+        let plain = layout.style == .plain
+        // a plain row's parts are on the chat's own ground, one's own too.
+        let own = message.isOwn && !plain
         let ink: NSColor = own ? .white : .labelColor
         day.isHidden = layout.day == nil
         if let frame = layout.day.map(Self.centredLine(text.footer)) {
@@ -222,11 +247,22 @@ final class MessageCellView: NSTableCellView {
         place(detail, layout.detail, message.detailText, text.footer, .secondaryLabelColor)
         // a message that did not go out is marked as such.
         bubble.alphaValue = message.state == .failed ? 0.6 : 1
-        place(sender, layout.sender, message.senderName, text.sender, .secondaryLabelColor)
+        // a plain group's name: one's own in the place's colour, others' in the text's.
+        place(sender, layout.sender, message.senderName, plain ? text.author : text.sender,
+              !plain ? .secondaryLabelColor : message.isOwn ? accent : .labelColor)
+        place(time, layout.time, message.headerTimeText, text.footer, .secondaryLabelColor)
         bubble.frame = layout.bubble
+        // the layer clips to its corners: a plain row's text, at its edge, has none.
+        bubble.layer?.cornerRadius = plain ? 0 : 16
+        band.isHidden = layout.band == nil
+        if let frame = layout.band {
+            band.frame = frame
+            // a plain row has no bubble: its band shades while the details show.
+            band.layer?.backgroundColor = message.showsDetail ? NSColor.labelColor.withAlphaComponent(0.07).cgColor : nil
+        }
         // a clicked message darkens while its details show.
         let fill: NSColor = own ? accent : .incomingBubble
-        bubble.layer?.backgroundColor = message.isMediaOnly ? nil
+        bubble.layer?.backgroundColor = message.isMediaOnly || plain ? nil
             : (message.showsDetail ? fill.blended(withFraction: 0.22, of: .black) ?? fill : fill).cgColor
         place(quote, layout.quote, message.quoteText, text.quote, ink.withAlphaComponent(0.75))
         placeBody(message, frame: layout.body, text: text, ink: ink)
@@ -234,7 +270,9 @@ final class MessageCellView: NSTableCellView {
               own && !message.isMediaOnly ? NSColor.white.withAlphaComponent(0.75) : .secondaryLabelColor)
         failed.isHidden = message.state != .failed
         if message.state == .failed {
-            failed.frame = CGRect(x: layout.bubble.minX - 24, y: layout.bubble.midY - 9, width: 18, height: 18)
+            // before a bubble; at a plain row's trailing edge, the picture column being before it.
+            let x = plain ? layout.bubble.maxX + 6 : layout.bubble.minX - 24
+            failed.frame = CGRect(x: x, y: layout.bubble.midY - 9, width: 18, height: 18)
         }
         reactionsBackground.isHidden = layout.reactions == nil
         if let frame = layout.reactions, let string = message.reactionsText {
@@ -246,10 +284,12 @@ final class MessageCellView: NSTableCellView {
             reactions.frame = frame.offsetBy(dx: -frame.minX, dy: -frame.minY).insetBy(dx: 8, dy: 3)
             reactions.set(string, font: text.reactions, color: .labelColor)
         }
-        avatar.isHidden = layout.avatar == nil
+        avatar.isHidden = layout.avatar == nil || plain
+        plainAvatar.isHidden = layout.avatar == nil || !plain
         if let frame = layout.avatar {
-            avatar.frame = frame
-            avatar.show(message.senderAvatar, name: message.senderName, images: images)
+            let view = plain ? plainAvatar : avatar
+            view.frame = frame
+            view.show(message.senderAvatar, name: message.senderName, images: images)
         }
         album.isHidden = layout.albumTiles.isEmpty
         if let frame = layout.photo, !layout.albumTiles.isEmpty {
@@ -295,10 +335,10 @@ final class MessageCellView: NSTableCellView {
         postCard.isHidden = layout.post == nil
         if let frame = layout.post {
             postCard.frame = frame
-            // its top is the bubble's; its bottom too when nothing follows it.
-            postCard.layer?.maskedCorners = frame.maxY >= layout.bubble.height ? Self.allCorners
+            // its top is the bubble's; its bottom too when nothing follows it (always in a plain row).
+            postCard.layer?.maskedCorners = frame.maxY >= layout.bubble.height || layout.style == .plain ? Self.allCorners
                 : [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-            postCard.layer?.backgroundColor = (message.isOwn ? NSColor.incomingBubble
+            postCard.layer?.backgroundColor = (message.isOwn && layout.style == .bubbles ? NSColor.incomingBubble
                 : NSColor.labelColor.withAlphaComponent(0.07)).cgColor
         }
         place(postTitle, layout.postTitle, message.postCard?.title, text.postTitle, .labelColor)
@@ -312,7 +352,7 @@ final class MessageCellView: NSTableCellView {
         body.isHidden = frame == nil
         guard let frame else { return }
         body.frame = frame
-        body.set(text.bodyText(message, ink: ink, link: message.isOwn ? ink : .linkColor))
+        body.set(text.bodyText(message, ink: ink, link: ink == .white ? ink : .linkColor))
     }
 
     /// A day's name, centred in the row's full-width rect for it.
