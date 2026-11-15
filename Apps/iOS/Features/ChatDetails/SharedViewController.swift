@@ -4,8 +4,11 @@ import UIKit
 
 /// What a chat shared, the newest first, read back as the user scrolls: photos and videos in a
 /// grid of squares (as Photos and Messages show them), files and links as rows. The kinds switch
-/// in the bar. A photo, video or file opens in Quick Look, a link in the browser.
-final class SharedViewController: UIViewController, UICollectionViewDelegate, @MainActor QLPreviewControllerDataSource {
+/// in the bar, and the search field keeps those that hold its words (photos also by the words in
+/// them and how they look, from photo search). A photo, video or file opens in Quick Look, a link
+/// in the browser.
+final class SharedViewController: UIViewController, UICollectionViewDelegate, UISearchResultsUpdating,
+    @MainActor QLPreviewControllerDataSource {
     private let details: ChatDetailsModel
     private let images: ImagePipeline?
     private var models: [SharedKind: SharedModel] = [:]
@@ -18,6 +21,7 @@ final class SharedViewController: UIViewController, UICollectionViewDelegate, @M
     private let loading = UIActivityIndicatorView(style: .medium)
     private var previewed: URL?
     private lazy var kinds = UISegmentedControl(items: SharedKind.allCases.map(\.title))
+    private let search = UISearchController(searchResultsController: nil)
 
     private var model: SharedModel {
         if let model = models[kind] { return model }
@@ -42,10 +46,15 @@ final class SharedViewController: UIViewController, UICollectionViewDelegate, @M
         kinds.selectedSegmentIndex = SharedKind.allCases.firstIndex(of: kind) ?? 0
         kinds.addAction(UIAction { [weak self] _ in self?.switchKind() }, for: .valueChanged)
         navigationItem.titleView = kinds
+        search.searchResultsUpdater = self
+        search.obscuresBackgroundDuringPresentation = false
+        navigationItem.searchController = search
+        navigationItem.hidesSearchBarWhenScrolling = false
 
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout())
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.delegate = self
+        collectionView.keyboardDismissMode = .onDrag
         collectionView.topEdgeEffect.style = .soft
         collectionView.accessibilityIdentifier = "shared"
         view.addSubview(collectionView)
@@ -103,9 +112,23 @@ final class SharedViewController: UIViewController, UICollectionViewDelegate, @M
 
     private func follow() {
         let model = model
+        search.searchBar.placeholder = String(localized: "Search \(kind.title)")
         observation = model.changes.observe { [weak self] in self?.update() }
         update()
-        if model.items.isEmpty { Task { await model.loadMore() } }
+        // the kind switched to keeps the typed words.
+        let text = search.searchBar.text ?? ""
+        if model.query != text.trimmingCharacters(in: .whitespacesAndNewlines) {
+            updateSearchResults(for: search)
+        } else if model.items.isEmpty {
+            Task { await model.loadMore() }
+        }
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        let model = model
+        let text = searchController.searchBar.text ?? ""
+        // a newer search makes this one's stale in the model.
+        Task { await model.search(text) }
     }
 
     /// Photos in a grid of squares, four across on a phone and more on a wider screen; the
@@ -140,7 +163,8 @@ final class SharedViewController: UIViewController, UICollectionViewDelegate, @M
         case .files: String(localized: "No files yet")
         case .links: String(localized: "No links yet")
         }
-        empty.text = model.failure?.localizedDescription ?? none
+        let found = model.query.isEmpty ? none : String(localized: "No Results for “\(model.query)”")
+        empty.text = model.failure?.localizedDescription ?? found
         // a long stretch that shared nothing of this kind: read on until the screen fills or the start.
         if !model.isLoading, !model.isComplete, model.failure == nil, model.items.count < 24 {
             Task { await model.loadMore() }

@@ -2,12 +2,14 @@ import AppKit
 import LuxCore
 
 /// What a chat shared, of one kind, in the details, the newest first and read back as the user
-/// scrolls: photos and videos as a grid of squares, files and links as rows. A click opens a
-/// photo, video or file in its app, a link in the browser.
+/// scrolls: photos and videos as a grid of squares, files and links as rows, under a search field
+/// that keeps those that hold its words (photos also by the words in them and how they look, from
+/// photo search). A click opens a photo, video or file in its app, a link in the browser.
 final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollectionViewDelegate {
     private let model: SharedModel
     private let images: ImagePipeline?
     private var observation: AnyObject?
+    private let search = NSSearchField()
     private let collection = NSCollectionView()
     private let empty = NSTextField(labelWithString: "")
     private var scrolled: NSObjectProtocol?
@@ -21,6 +23,10 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     override func loadView() {
+        search.placeholderString = String(localized: "Search \(model.kind.title)")
+        search.sendsSearchStringImmediately = true
+        search.target = self
+        search.action = #selector(searched)
         collection.collectionViewLayout = layout()
         collection.dataSource = self
         collection.delegate = self
@@ -35,17 +41,21 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
         scroll.drawsBackground = false
         empty.textColor = .secondaryLabelColor
         empty.alignment = .center
-        for view in [scroll, empty] as [NSView] { view.translatesAutoresizingMaskIntoConstraints = false }
+        for view in [search, scroll, empty] as [NSView] { view.translatesAutoresizingMaskIntoConstraints = false }
         let container = NSView()
+        container.addSubview(search)
         container.addSubview(scroll)
         container.addSubview(empty)
         NSLayoutConstraint.activate([
+            search.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            search.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            search.topAnchor.constraint(equalTo: container.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: container.topAnchor),
+            scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 8),
             scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            empty.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            empty.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            empty.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            empty.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
         ])
         view = container
         // near the end of what was read, the next page.
@@ -83,11 +93,18 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
         case .files: String(localized: "No files yet")
         case .links: String(localized: "No links yet")
         }
-        empty.stringValue = model.isLoading ? String(localized: "Loading…") : model.failure?.localizedDescription ?? none
+        let found = model.query.isEmpty ? none : String(localized: "No Results for “\(model.query)”")
+        empty.stringValue = model.isLoading ? String(localized: "Loading…") : model.failure?.localizedDescription ?? found
         // a long stretch that shared nothing of this kind: read on until the pane fills or the start.
         if !model.isLoading, !model.isComplete, model.failure == nil, model.items.count < 18 {
             Task { await model.loadMore() }
         }
+    }
+
+    @objc private func searched() {
+        let (model, text) = (model, search.stringValue)
+        // a newer search makes this one's stale in the model.
+        Task { await model.search(text) }
     }
 
     private func loadMoreIfNearEnd() {
