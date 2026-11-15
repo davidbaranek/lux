@@ -120,10 +120,7 @@ impl ItemMapper {
             },
             event_id: event.event_id().map(|id| EventId::from(id.as_str())),
             sender_name,
-            sender_avatar: match event.sender_profile() {
-                TimelineDetails::Ready(profile) => profile.avatar_url.as_ref().map(|url| MediaId::from(url.as_str())),
-                _ => None,
-            },
+            sender_avatar: profile_avatar(event.sender_profile()),
             is_own: event.is_own(),
             is_editable: event.is_editable(),
             kind: shown.kind,
@@ -180,11 +177,11 @@ impl ItemMapper {
 }
 
 /// What a message-like item shows.
-struct Shown {
+pub(super) struct Shown {
     kind: MessageKind,
-    body: String,
-    media: Option<Media>,
-    styles: Vec<TextStyle>,
+    pub(super) body: String,
+    pub(super) media: Option<Media>,
+    pub(super) styles: Vec<TextStyle>,
 }
 
 impl Shown {
@@ -284,7 +281,7 @@ fn without_address<'a>(body: &'a str, url: &str) -> Option<&'a str> {
 }
 
 /// A message's text (its formatted body's when it has formatting), media and runs.
-fn message_shown(message: &MessageType) -> Shown {
+pub(super) fn message_shown(message: &MessageType) -> Shown {
     let (body, formatted, media) = match message {
         MessageType::Text(text) => (text.body.clone(), text.formatted.as_ref(), None),
         MessageType::Notice(notice) => (notice.body.clone(), notice.formatted.as_ref(), None),
@@ -391,16 +388,18 @@ fn attachment(media: &Media) -> Option<Attachment> {
 
 /// The quote of the message a reply answers; empty while it is not known.
 fn quote(details: &InReplyToDetails) -> Quote {
-    let (sender_name, kind) = match &details.event {
+    let (sender_name, sender_avatar, kind) = match &details.event {
         TimelineDetails::Ready(event) => (
             profile_name(&event.sender_profile, event.sender.localpart()),
+            profile_avatar(&event.sender_profile),
             Some(quoted_kind(&event.content)),
         ),
-        _ => (String::new(), None),
+        _ => (String::new(), None, None),
     };
     Quote {
         event_id: EventId::from(details.event_id.as_str()),
         sender_name,
+        sender_avatar,
         kind,
     }
 }
@@ -436,6 +435,14 @@ pub(crate) fn profile_name(profile: &TimelineDetails<Profile>, localpart: &str) 
             ..
         }) if !name.is_empty() => name.clone(),
         _ => localpart.to_owned(),
+    }
+}
+
+/// A sender's picture; `None` without one, or while their profile is not known.
+pub(crate) fn profile_avatar(profile: &TimelineDetails<Profile>) -> Option<MediaId> {
+    match profile {
+        TimelineDetails::Ready(profile) => profile.avatar_url.as_ref().map(|url| MediaId::from(url.as_str())),
+        _ => None,
     }
 }
 
@@ -491,42 +498,7 @@ pub(crate) struct MediaOf {
 pub(crate) fn media_of(event: &EventTimelineItem) -> Option<MediaOf> {
     let content = event.content().as_msglike()?;
     match &content.kind {
-        MsgLikeKind::Message(message) => match message.msgtype() {
-            MessageType::Image(image) => {
-                let info = image.info.as_deref();
-                Some(MediaOf {
-                    source: image.source.clone(),
-                    thumbnail: info.and_then(|info| info.thumbnail_source.clone()),
-                    filename: image.filename().to_owned(),
-                    mimetype: info.and_then(|info| info.mimetype.clone()),
-                })
-            }
-            MessageType::Video(video) => {
-                let info = video.info.as_deref();
-                Some(MediaOf {
-                    source: video.source.clone(),
-                    thumbnail: info.and_then(|info| info.thumbnail_source.clone()),
-                    filename: video.filename().to_owned(),
-                    mimetype: info.and_then(|info| info.mimetype.clone()),
-                })
-            }
-            MessageType::Audio(audio) => Some(MediaOf {
-                source: audio.source.clone(),
-                thumbnail: None,
-                filename: audio.filename().to_owned(),
-                mimetype: audio.info.as_deref().and_then(|info| info.mimetype.clone()),
-            }),
-            MessageType::File(file) => {
-                let info = file.info.as_deref();
-                Some(MediaOf {
-                    source: file.source.clone(),
-                    thumbnail: info.and_then(|info| info.thumbnail_source.clone()),
-                    filename: file.filename().to_owned(),
-                    mimetype: info.and_then(|info| info.mimetype.clone()),
-                })
-            }
-            _ => None,
-        },
+        MsgLikeKind::Message(message) => message_media(message.msgtype()),
         MsgLikeKind::Sticker(sticker) => {
             let content = sticker.content();
             Some(MediaOf {
@@ -534,6 +506,46 @@ pub(crate) fn media_of(event: &EventTimelineItem) -> Option<MediaOf> {
                 thumbnail: None,
                 filename: content.body.clone(),
                 mimetype: content.info.mimetype.clone(),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The media a message carries: a photo's, a video's, a sound's or a file's.
+pub(crate) fn message_media(message: &MessageType) -> Option<MediaOf> {
+    match message {
+        MessageType::Image(image) => {
+            let info = image.info.as_deref();
+            Some(MediaOf {
+                source: image.source.clone(),
+                thumbnail: info.and_then(|info| info.thumbnail_source.clone()),
+                filename: image.filename().to_owned(),
+                mimetype: info.and_then(|info| info.mimetype.clone()),
+            })
+        }
+        MessageType::Video(video) => {
+            let info = video.info.as_deref();
+            Some(MediaOf {
+                source: video.source.clone(),
+                thumbnail: info.and_then(|info| info.thumbnail_source.clone()),
+                filename: video.filename().to_owned(),
+                mimetype: info.and_then(|info| info.mimetype.clone()),
+            })
+        }
+        MessageType::Audio(audio) => Some(MediaOf {
+            source: audio.source.clone(),
+            thumbnail: None,
+            filename: audio.filename().to_owned(),
+            mimetype: audio.info.as_deref().and_then(|info| info.mimetype.clone()),
+        }),
+        MessageType::File(file) => {
+            let info = file.info.as_deref();
+            Some(MediaOf {
+                source: file.source.clone(),
+                thumbnail: info.and_then(|info| info.thumbnail_source.clone()),
+                filename: file.filename().to_owned(),
+                mimetype: info.and_then(|info| info.mimetype.clone()),
             })
         }
         _ => None,

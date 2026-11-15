@@ -22,7 +22,7 @@ pub fn find_chats<'a>(
 }
 
 /// The query's words, folded: what is between the characters that are neither letters nor digits.
-fn words(query: &str) -> impl Iterator<Item = String> {
+pub(crate) fn words(query: &str) -> impl Iterator<Item = String> {
     query
         .split(|character: char| !character.is_alphanumeric())
         .filter(|word| !word.is_empty())
@@ -30,7 +30,7 @@ fn words(query: &str) -> impl Iterator<Item = String> {
 }
 
 /// `text` in lower case, without its accents.
-fn folded(text: &str) -> String {
+pub(crate) fn folded(text: &str) -> String {
     text.nfd()
         .filter(|character| !is_combining_mark(*character))
         .flat_map(char::to_lowercase)
@@ -56,6 +56,7 @@ mod tests {
                     preview: None,
                     date: None,
                     unread_count: 0,
+                    unread_mentions: 0,
                     is_marked_unread: false,
                     is_muted: false,
                     network: Network::Matrix,

@@ -49,6 +49,38 @@ public final class Preferences {
         set { defaults.set(newValue.rawValue, forKey: "chatOrder") }
     }
 
+    /// How chats draw their messages, on this device: bubbles until the user picks plain rows.
+    public var chatStyle: ChatStyle {
+        get { defaults.string(forKey: "chatStyle").flatMap(ChatStyle.init(rawValue:)) ?? .bubbles }
+        set {
+            guard newValue != chatStyle else { return }
+            defaults.set(newValue.rawValue, forKey: "chatStyle")
+            chatStyleChanges.send()
+        }
+    }
+
+    /// Open chats draw their messages again when `chatStyle`, or a chat's own, changes.
+    public let chatStyleChanges = Broadcast()
+
+    /// How one chat draws its messages, when it differs from `chatStyle`.
+    public func chatStyleOverride(in roomId: String) -> ChatStyle? {
+        (defaults.dictionary(forKey: "chatStyleByChat")?[roomId] as? String).flatMap(ChatStyle.init(rawValue:))
+    }
+
+    /// Sets how one chat draws its messages; nil follows `chatStyle`.
+    public func setChatStyle(_ style: ChatStyle?, in roomId: String) {
+        guard style != chatStyleOverride(in: roomId) else { return }
+        var all = defaults.dictionary(forKey: "chatStyleByChat") ?? [:]
+        all[roomId] = style?.rawValue
+        defaults.set(all, forKey: "chatStyleByChat")
+        chatStyleChanges.send()
+    }
+
+    /// How a chat draws its messages: its own choice, else the app's.
+    public func chatStyle(in roomId: String) -> ChatStyle {
+        chatStyleOverride(in: roomId) ?? chatStyle
+    }
+
     /// The server last signed in to; nil for Lux's own.
     public var homeserver: String? {
         get { defaults.string(forKey: "homeserver") }

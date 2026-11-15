@@ -1,17 +1,15 @@
 import LuxCore
 import UIKit
 
-/// Settings: the account, the places' colour, encryption (the key backup), privacy, search, and
-/// signing out, as an inset-grouped list.
+/// Settings: the account, its networks, the appearance (`AppearanceViewController`), encryption (the
+/// key backup), privacy, search, and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
-    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoWords, photoLooks, photoModel, photoLooksState, readPhotos, signOut }
+    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, photoWords, photoLooks, photoModel, photoLooksState, readPhotos, signOut }
 
     private let model: SettingsModel
     private let session: Session
     private let list: ChatListModel
-    /// The places' colour as chosen here: the list has it a moment later.
-    private lazy var theme = list.defaultTheme
     private let signOut: () -> Void
     private var observation: AnyObject?
     /// The account's picture as the profile row shows it, round; nil while it loads or without one.
@@ -61,11 +59,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.secondaryText = networksSummary
                 content.image = UIImage(systemName: "point.3.connected.trianglepath.dotted")
                 cell.accessories = [.disclosureIndicator()]
-            case .theme:
-                content.text = String(localized: "Colour")
-                content.secondaryText = String(localized: "For places without their own")
+            case .appearance:
+                content.text = String(localized: "Appearance")
+                content.secondaryText = model.chatStyle.title
                 content.image = UIImage(systemName: "paintpalette")
-                cell.accessories = [.customView(configuration: .init(customView: themeButton(), placement: .trailing()))]
+                cell.accessories = [.disclosureIndicator()]
             case .verify:
                 content.text = String(localized: "Verify This Device")
                 content.secondaryText = switch model.isVerified {
@@ -153,7 +151,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendSections(Section.allCases)
         snapshot.appendItems([.profile], toSection: .account)
         snapshot.appendItems([.networks], toSection: .networks)
-        snapshot.appendItems([.theme], toSection: .appearance)
+        snapshot.appendItems([.appearance], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts], toSection: .privacy)
         snapshot.appendItems([.searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos], toSection: .search)
@@ -164,7 +162,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos])
+            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery, .searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos])
             dataSource.apply(snapshot)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in
@@ -186,6 +184,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         case .networks?:
             guard let networks = session.networks else { return }
             navigationController?.pushViewController(NetworksViewController(model: networks, mode: .settings), animated: true)
+        case .appearance?:
+            navigationController?.pushViewController(AppearanceViewController(model: model, list: list), animated: true)
         case .verify?:
             let verification = VerificationViewController(model: VerificationModel(session: session)) { [weak self] in
                 Task { await self?.model.load() }
@@ -225,26 +225,6 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             snapshot.reconfigureItems([.profile])
             await dataSource.apply(snapshot)
         }
-    }
-
-    /// The colour of the places without their own, as a pop-up button of the colours.
-    private func themeButton() -> UIButton {
-        var configuration = UIButton.Configuration.plain()
-        configuration.title = theme.title
-        configuration.image = ThemeMenu.swatch(theme)
-        configuration.imagePadding = 6
-        configuration.indicator = .popup
-        let button = UIButton(configuration: configuration)
-        button.menu = ThemeMenu.menu(current: theme) { [weak self] theme in
-            guard let self, let theme else { return }
-            self.theme = theme
-            list.setDefaultTheme(theme)
-            var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.theme])
-            dataSource.apply(snapshot)
-        }
-        button.showsMenuAsPrimaryAction = true
-        return button
     }
 
     /// How many networks are connected, or why there are none.

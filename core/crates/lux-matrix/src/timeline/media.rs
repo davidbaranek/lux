@@ -8,19 +8,17 @@ use std::path::{Path, PathBuf};
 use lux_core::ids::{EventId, MediaId, MessageId, RoomId};
 use lux_core::ports::{BackendError, ChatMedia};
 use lux_core::timeline::ImageSource;
-use matrix_sdk::Room;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
+use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::UInt;
 use matrix_sdk::ruma::events::room::MediaSource;
-use matrix_sdk::ruma::events::room::message::MessageType;
-use matrix_sdk::ruma::events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent};
-use matrix_sdk::ruma::{OwnedEventId, OwnedMxcUri};
 use sha2::{Digest, Sha256};
 use tracing::debug;
 use uuid::Uuid;
 
 use super::MatrixTimelines;
-use super::items::{media_key, media_of};
+use super::items::{MediaOf, media_key, media_of};
+use super::shared::event_media;
 use crate::errors::from_sdk;
 
 /// The side of a room's or a person's picture, in pixels.
@@ -57,31 +55,19 @@ pub(crate) async fn avatar_bytes(
 /// The side a photo's thumbnail is asked at, when the sender sent none.
 const THUMBNAIL_SIDE: u32 = 800;
 
-impl MatrixTimelines {
-    /// A found photo's thumbnail, by its event: its file is named by the event, so a photo shown
-    /// again (the same search typed on) does not ask the server for its event again.
-    async fn found_thumbnail(
-        &self,
-        room: &RoomId,
-        event: &EventId,
-        folder: &Path,
-    ) -> Result<Option<PathBuf>, BackendError> {
-        let file = folder.join(found_file_name(event));
-        if file.is_file() {
-            return Ok(Some(file));
-        }
-        let Some(photo) = found_photo(&self.room(room)?, event).await? else {
-            return Ok(None);
-        };
-        let request = photo.thumbnail.map_or_else(|| photo_thumbnail(photo.source), original);
-        let data = picture_content(&self.client, &request, false).await.map_err(from_sdk)?;
-        write(&file, data).await?;
-        Ok(Some(file))
-    }
-}
-
 impl ChatMedia for MatrixTimelines {
     async fn image_file(&self, source: &ImageSource, folder: &Path) -> Result<Option<PathBuf>, BackendError> {
+        // a picture by its event is kept by its event: shown again (a search typed on, the chat's
+        // details opened again), no server is asked for the event again.
+        let by_event = match source {
+            ImageSource::Shared { event, .. } => Some(folder.join(event_file_name(event))),
+            _ => None,
+        };
+        if let Some(file) = &by_event
+            && file.is_file()
+        {
+            return Ok(Some(file.clone()));
+        }
         let request = match source {
             ImageSource::Room(room) => {
                 let Some(url) = crate::mapping::room_picture(&self.room(room)?).await else {
@@ -96,21 +82,33 @@ impl ChatMedia for MatrixTimelines {
                 }
                 avatar(url)
             }
-            ImageSource::Photo { room, message } | ImageSource::Poster { room, message } => {
-                let timeline = self.open(room).await?;
-                let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
-                let Some(media) = media_of(&item) else {
+            ImageSource::Photo { .. } | ImageSource::Poster { .. } | ImageSource::Shared { .. } => {
+                let media = match source {
+                    ImageSource::Photo { room, message } | ImageSource::Poster { room, message } => {
+                        let timeline = self.open(room).await?;
+                        let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
+                        media_of(&item)
+                    }
+                    ImageSource::Shared { room, event } => event_media(&self.room(room)?, event).await?,
+                    ImageSource::Room(_) | ImageSource::Person(_) => None,
+                };
+                let Some(media) = media else {
                     return Ok(None);
                 };
                 match (media.thumbnail, source) {
+                    // the sender's thumbnail or poster, as it is.
                     (Some(thumbnail), _) => original(thumbnail),
                     (None, ImageSource::Poster { .. }) => return Ok(None),
-                    (None, _) => photo_thumbnail(media.source),
+                    (None, ImageSource::Shared { .. }) if is_video(media.mimetype.as_deref()) => return Ok(None),
+                    // a photo without one: the server scales it, unless it is encrypted.
+                    (None, _) => match media.source {
+                        MediaSource::Plain(_) => thumbnail(media.source, THUMBNAIL_SIDE),
+                        MediaSource::Encrypted(_) => original(media.source),
+                    },
                 }
             }
-            ImageSource::Found { room, event } => return self.found_thumbnail(room, event, folder).await,
         };
-        let file = folder.join(file_name(&request));
+        let file = by_event.unwrap_or_else(|| folder.join(file_name(&request)));
         if file.is_file() {
             return Ok(Some(file));
         }
@@ -124,6 +122,28 @@ impl ChatMedia for MatrixTimelines {
         let timeline = self.open(room).await?;
         let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
         let media = media_of(&item).ok_or(BackendError::NotAllowed)?;
+        self.original_file(media, folder).await
+    }
+
+    async fn shared_file(&self, room: &RoomId, event: &EventId, folder: &Path) -> Result<PathBuf, BackendError> {
+        let media = event_media(&self.room(room)?, event)
+            .await?
+            .ok_or(BackendError::NotAllowed)?;
+        self.original_file(media, folder).await
+    }
+
+    async fn max_upload_size(&self) -> Result<u64, BackendError> {
+        self.client
+            .load_or_fetch_max_upload_size()
+            .await
+            .map(u64::from)
+            .map_err(from_sdk)
+    }
+}
+
+impl MatrixTimelines {
+    /// The media's original, loaded once into `folder`.
+    async fn original_file(&self, media: MediaOf, folder: &Path) -> Result<PathBuf, BackendError> {
         let request = original(media.source);
         // its own folder, so the file keeps the name it was sent with.
         let file = folder
@@ -142,38 +162,10 @@ impl ChatMedia for MatrixTimelines {
         write(&file, data).await?;
         Ok(file)
     }
+}
 
-    async fn found_photo_file(
-        &self,
-        room: &RoomId,
-        event: &EventId,
-        folder: &Path,
-    ) -> Result<Option<PathBuf>, BackendError> {
-        let Some(photo) = found_photo(&self.room(room)?, event).await? else {
-            return Ok(None);
-        };
-        let request = original(photo.source);
-        let file = folder.join(file_name(&request));
-        if !file.is_file() {
-            // read once by the apps, then deleted: not kept in the SDK's cache.
-            let data = self
-                .client
-                .media()
-                .get_media_content(&request, false)
-                .await
-                .map_err(from_sdk)?;
-            write(&file, data).await?;
-        }
-        Ok(Some(file))
-    }
-
-    async fn max_upload_size(&self) -> Result<u64, BackendError> {
-        self.client
-            .load_or_fetch_max_upload_size()
-            .await
-            .map(u64::from)
-            .map_err(from_sdk)
-    }
+fn is_video(mimetype: Option<&str>) -> bool {
+    mimetype.is_some_and(|mimetype| mimetype.starts_with("video/"))
 }
 
 /// The bytes `request` asks for, from the SDK's media cache or the server. A server may make no
@@ -194,41 +186,6 @@ async fn picture_content(
                 .await
         }
         content => content,
-    }
-}
-
-/// A photo's media, and its sender's thumbnail.
-struct FoundPhoto {
-    source: MediaSource,
-    thumbnail: Option<MediaSource>,
-}
-
-/// The photo `event` sent, from the event cache or the server (decrypted); `None` when it is no
-/// photo, or no longer one (deleted).
-async fn found_photo(room: &Room, event: &EventId) -> Result<Option<FoundPhoto>, BackendError> {
-    let event_id = OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;
-    let event = room.load_or_fetch_event(&event_id, None).await.map_err(from_sdk)?;
-    let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-        message,
-    )))) = event.raw().deserialize()
-    else {
-        return Ok(None);
-    };
-    let MessageType::Image(image) = message.content.msgtype else {
-        return Ok(None);
-    };
-    Ok(Some(FoundPhoto {
-        thumbnail: image.info.and_then(|info| info.thumbnail_source),
-        source: image.source,
-    }))
-}
-
-/// A photo's thumbnail when its sender sent none: the server scales it, unless it is encrypted
-/// (the server cannot read it), then the photo as it is, which the apps scale.
-fn photo_thumbnail(source: MediaSource) -> MediaRequestParameters {
-    match source {
-        MediaSource::Plain(_) => thumbnail(source, THUMBNAIL_SIDE),
-        MediaSource::Encrypted(_) => original(source),
     }
 }
 
@@ -260,10 +217,10 @@ fn file_name(request: &MediaRequestParameters) -> String {
     name
 }
 
-/// A found photo's thumbnail's file name: its event, hashed (any id, one name each).
-fn found_file_name(event: &EventId) -> String {
-    let mut name = String::with_capacity(64 + 6);
-    name.push_str("found-");
+/// The file name of a picture by its event: the event, hashed (any id, one name each).
+fn event_file_name(event: &EventId) -> String {
+    let mut name = String::with_capacity(6 + 64);
+    name.push_str("event-");
     // writing to a string cannot fail.
     for byte in Sha256::digest(event.as_str()) {
         let _ = write!(name, "{byte:02x}");

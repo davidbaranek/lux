@@ -8,7 +8,7 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use super::{Arrangement, ChatFilter, PlaceId, Theme, arranged_order};
+use super::{Arrangement, ChatFilter, InboxRule, InboxRules, PlaceId, Theme, arranged_order};
 use crate::chat::{Chat, Folder, Snapshot, Space};
 use crate::ids::{ChatId, MediaId, RoomId};
 use crate::network::Network;
@@ -31,6 +31,8 @@ pub struct ListedPlace {
     pub theme: Theme,
     /// The colour the user gave it, if any; `None` takes the one for every place.
     pub own_theme: Option<Theme>,
+    /// How much of a network or a space the inbox shows; `None` for the other places.
+    pub inbox: Option<InboxRule>,
 }
 
 /// What a section is.
@@ -124,7 +126,7 @@ pub(crate) fn compose<S: BuildHasher>(
     arrangement: &Arrangement,
     now: SystemTime,
 ) -> ComposedList {
-    let sections = sections(snapshot, place, order);
+    let sections = sections(snapshot, place, order, arrangement);
     ComposedList {
         places: places(snapshot, arrangement, now),
         sections: match filter {
@@ -144,13 +146,17 @@ fn unread<'a>(chats: impl Iterator<Item = &'a Arc<Chat>>) -> u32 {
 }
 
 /// The places as the user arranged them: the folders (the app's lists among them when they
-/// hold something), the networks with inbox chats, the top-level spaces, the labels.
+/// hold something), the networks with chats out of the archive, the top-level spaces, the
+/// labels.
 #[must_use]
 pub(crate) fn places(snapshot: &Snapshot, arrangement: &Arrangement, now: SystemTime) -> Vec<ListedPlace> {
     let chats = &snapshot.chats;
-    let inbox = || chats.iter().filter(|chat| chat.folder == Folder::Inbox);
+    let rules = InboxRules::new(arrangement, &snapshot.spaces);
+    let inbox = chats.iter().filter(|chat| rules.admits(chat));
+    // a network's and a space's chats: those of the inbox and of low priority.
+    let kept = || chats.iter().filter(|chat| chat.folder != Folder::Archive);
     let mut places: Vec<(PlaceId, u32)> = vec![
-        (PlaceId::INBOX, unread(inbox())),
+        (PlaceId::INBOX, unread(inbox)),
         (
             PlaceId::Folder(Folder::LowPriority),
             unread(chats.iter().filter(|chat| chat.folder == Folder::LowPriority)),
@@ -175,9 +181,9 @@ pub(crate) fn places(snapshot: &Snapshot, arrangement: &Arrangement, now: System
         let requests = snapshot.requests.len().try_into().unwrap_or(u32::MAX);
         places.push((PlaceId::Requests, requests));
     }
-    // each network with inbox chats, in the apps' order.
+    // each network with chats out of the archive, in the apps' order.
     let mut networks: BTreeMap<&Network, u32> = BTreeMap::new();
-    for chat in inbox() {
+    for chat in kept() {
         let count = networks.entry(&chat.network).or_default();
         *count = count.saturating_add(u32::from(counts(chat)));
     }
@@ -188,7 +194,7 @@ pub(crate) fn places(snapshot: &Snapshot, arrangement: &Arrangement, now: System
     );
     // the list of places shows the top of each tree; a space inside another is its section.
     for space in top_level_spaces(&snapshot.spaces) {
-        let count = unread(inbox().filter(|chat| space.chats.contains(&chat.id)));
+        let count = unread(kept().filter(|chat| space.chats.contains(&chat.id)));
         places.push((PlaceId::Space(space.id.clone()), count));
     }
     for label in &snapshot.labels {
@@ -226,13 +232,14 @@ pub(crate) fn places(snapshot: &Snapshot, arrangement: &Arrangement, now: System
                 _ => (None, None),
             };
             Some(ListedPlace {
-                id,
                 unread,
                 is_hidden,
                 name,
                 avatar,
                 theme: arrangement.theme_of(key),
                 own_theme,
+                inbox: id.has_inbox_rule().then(|| arrangement.inbox_of(key)),
+                id,
             })
         })
         .collect()
@@ -291,9 +298,16 @@ fn message_date(chat: &Chat) -> Option<SystemTime> {
 /// The chats a place shows, in `ordering`, in sections: one untitled section for a
 /// folder or a network; for a space, its own chats, then a titled section for each space inside
 /// it (their chats include those of deeper spaces). A chat shows once, in the first section
-/// that has it. The inbox's pinned chats come first, as a grid, in their pin order.
+/// that has it. The inbox shows the chats its rules let in (`arrangement`), its pinned chats
+/// first, as a grid, in their pin order. A network and a space show their chats out of the
+/// archive, those kept out of the inbox and those of low priority too.
 #[must_use]
-pub(crate) fn sections(snapshot: &Snapshot, place: &PlaceId, ordering: ChatOrder) -> Vec<Section> {
+pub(crate) fn sections(
+    snapshot: &Snapshot,
+    place: &PlaceId,
+    ordering: ChatOrder,
+    arrangement: &Arrangement,
+) -> Vec<Section> {
     let chats = &snapshot.chats;
     let order = ordering.of(chats);
     let rows = |admits: &dyn Fn(&Chat) -> bool| -> Vec<Row> {
@@ -303,9 +317,11 @@ pub(crate) fn sections(snapshot: &Snapshot, place: &PlaceId, ordering: ChatOrder
             .map(|&index| Row::Chat(index))
             .collect()
     };
-    let in_inbox = |chat: &Chat| chat.folder == Folder::Inbox;
+    let kept = |chat: &Chat| chat.folder != Folder::Archive;
     match place {
         PlaceId::Folder(Folder::Inbox) => {
+            let rules = InboxRules::new(arrangement, &snapshot.spaces);
+            let in_inbox = |chat: &Chat| rules.admits(chat);
             let mut pinned: Vec<(usize, f64)> = order
                 .iter()
                 .filter_map(|&index| {
@@ -367,7 +383,7 @@ pub(crate) fn sections(snapshot: &Snapshot, place: &PlaceId, ordering: ChatOrder
         }
         PlaceId::Network(network) => vec![Section::untitled(
             SectionId::All,
-            rows(&|chat| in_inbox(chat) && chat.network == *network),
+            rows(&|chat| kept(chat) && chat.network == *network),
         )],
         PlaceId::Label(id) => snapshot
             .labels
@@ -382,7 +398,7 @@ pub(crate) fn sections(snapshot: &Snapshot, place: &PlaceId, ordering: ChatOrder
     }
 }
 
-/// A space's own inbox chats, then a titled section for each space inside it.
+/// A space's own chats out of the archive, then a titled section for each space inside it.
 fn space_sections(snapshot: &Snapshot, order: &[usize], id: &RoomId) -> Vec<Section> {
     let Some(space) = snapshot.spaces.iter().find(|space| space.id == *id) else {
         return Vec::new();
@@ -399,7 +415,7 @@ fn space_sections(snapshot: &Snapshot, order: &[usize], id: &RoomId) -> Vec<Sect
             .iter()
             .filter(|&&index| {
                 let chat = &snapshot.chats[index];
-                chat.folder == Folder::Inbox && admits(&chat.id) && shown.insert(index)
+                chat.folder != Folder::Archive && admits(&chat.id) && shown.insert(index)
             })
             .map(|&index| Row::Chat(index))
             .collect()
@@ -425,6 +441,11 @@ pub(super) mod tests {
     use crate::chat::{Label, Request, SavedKind, SavedMessage};
     use crate::preview::{Membership, Preview, PreviewSource, Sender};
 
+    /// The sections as the user arranged nothing.
+    fn sections(snapshot: &Snapshot, place: &PlaceId, ordering: ChatOrder) -> Vec<Section> {
+        super::sections(snapshot, place, ordering, &Arrangement::default())
+    }
+
     pub(in crate::places) fn chat(id: &str, network: &str) -> Chat {
         Chat {
             id: id.into(),
@@ -432,6 +453,7 @@ pub(super) mod tests {
             preview: None,
             date: None,
             unread_count: 0,
+            unread_mentions: 0,
             is_marked_unread: false,
             is_muted: false,
             network: Network::from_id(network),
@@ -592,6 +614,59 @@ pub(super) mod tests {
         assert_eq!((space.theme, space.own_theme), (Theme::Pink, Some(Theme::Pink)));
         let inbox = places.iter().find(|place| place.id == PlaceId::INBOX).unwrap();
         assert_eq!((inbox.theme, inbox.own_theme), (Theme::Green, None));
+    }
+
+    #[test]
+    fn a_space_kept_out_of_the_inbox_still_shows_its_chats_and_counts_them() {
+        let mut snapshot = snapshot();
+        Arc::make_mut(&mut snapshot.chats[0]).is_group = true;
+        let arrangement = Arrangement::default().with_inbox(PlaceId::Space("s".into()).key(), InboxRule::Mentions);
+        let inbox = super::sections(&snapshot, &PlaceId::INBOX, ChatOrder::Activity, &arrangement);
+        // "a" is a group of the space that does not mention the user, "d" a conversation of two.
+        assert_eq!(chat_ids(&snapshot, &inbox), [["b", "d"]]);
+        let space = super::sections(
+            &snapshot,
+            &PlaceId::Space("s".into()),
+            ChatOrder::Activity,
+            &arrangement,
+        );
+        assert_eq!(chat_ids(&snapshot, &space), [["a"], ["d"]]);
+        let places = places(&snapshot, &arrangement, at(0));
+        let unread: Vec<(String, u32, Option<InboxRule>)> = places
+            .iter()
+            .map(|place| (place.id.key().to_string(), place.unread, place.inbox))
+            .collect();
+        assert_eq!(unread[0], ("folder:inbox".to_owned(), 1, None));
+        assert_eq!(unread[3], ("network:whatsapp".to_owned(), 1, Some(InboxRule::All)));
+        assert_eq!(unread[5], ("space:s".to_owned(), 2, Some(InboxRule::Mentions)));
+        // a mention lets it in.
+        Arc::make_mut(&mut snapshot.chats[0]).unread_mentions = 1;
+        let inbox = super::sections(&snapshot, &PlaceId::INBOX, ChatOrder::Activity, &arrangement);
+        assert_eq!(chat_ids(&snapshot, &inbox), [["a", "b", "d"]]);
+    }
+
+    #[test]
+    fn low_priority_leaves_a_chat_in_its_network_and_its_space() {
+        let mut snapshot = snapshot();
+        for index in [0, 1] {
+            Arc::make_mut(&mut snapshot.chats[index]).folder = Folder::LowPriority;
+        }
+        let inbox = sections(&snapshot, &PlaceId::INBOX, ChatOrder::Activity);
+        assert_eq!(chat_ids(&snapshot, &inbox), [["d"]]);
+        let whatsapp = sections(
+            &snapshot,
+            &PlaceId::Network(Network::from_id("whatsapp")),
+            ChatOrder::Activity,
+        );
+        assert_eq!(chat_ids(&snapshot, &whatsapp), [["a", "b"]]);
+        let space = sections(&snapshot, &PlaceId::Space("s".into()), ChatOrder::Activity);
+        assert_eq!(chat_ids(&snapshot, &space), [["a"], ["d"]]);
+        // the network stays a place with no chat in the inbox.
+        assert!(
+            places(&snapshot, &Arrangement::default(), at(0))
+                .iter()
+                .any(|place| place.id == PlaceId::Network(Network::from_id("whatsapp")))
+        );
     }
 
     #[test]

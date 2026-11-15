@@ -191,6 +191,9 @@ pub struct Quote {
     pub event_id: EventId,
     /// Its sender's name; empty until it is known.
     pub sender_name: String,
+    /// Its sender's picture, beside a quote drawn above its answer; `None` without one, or until
+    /// it is known.
+    pub sender_avatar: Option<MediaId>,
     /// What it is (its text in one line, a photo), for the apps to word; `None` until it is known.
     pub kind: Option<PreviewKind>,
 }
@@ -345,20 +348,19 @@ pub enum ImageSource {
         /// The message.
         message: MessageId,
     },
-    /// A photo by its event, as the search index knows it (no timeline holds it): its
-    /// thumbnail.
-    Found {
-        /// Its room.
-        room: RoomId,
-        /// Its event.
-        event: EventId,
-    },
     /// A video message's poster.
     Poster {
         /// Its room.
         room: RoomId,
         /// The message.
         message: MessageId,
+    },
+    /// A shared photo's thumbnail or video's poster, by its event, which the timeline may not hold.
+    Shared {
+        /// Its room.
+        room: RoomId,
+        /// The message's event.
+        event: EventId,
     },
 }
 

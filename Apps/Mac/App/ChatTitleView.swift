@@ -34,8 +34,22 @@ final class ChatTitleView: NSStackView {
         alignment = .centerY
         spacing = 8
         setAccessibilityElement(true)
-        setAccessibilityRole(.staticText)
+        // a click opens the chat's details.
+        setAccessibilityRole(.button)
+        setAccessibilityHelp(String(localized: "Shows the chat's details"))
+        toolTip = String(localized: "Chat Details (⌘I)")
+        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(clicked)))
         isHidden = true
+    }
+
+    /// The title was clicked.
+    var onClick: (() -> Void)?
+
+    @objc private func clicked() { onClick?() }
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return onClick != nil
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }

@@ -72,10 +72,12 @@ What is done, and what comes next in order. How things work lives in
 
 ### 2. Chat details and settings
 
-- [ ] Chat info and members
-- [ ] Rename, picture, invite
+- [x] Chat info and members: picture, name, topic, networks (a merged chat's rooms), encryption,
+      notifications, members found by name, mark read, leave (from the chat's title)
+- [x] Rename, picture, topic (who may, by power level)
+- [ ] Invite, and a member's own card (message them, their role)
 - [ ] Disappearing messages
-- [ ] Shared media
+- [x] Shared media, files and links, read back from the server across a merged chat's rooms
 - [ ] Spaces: create one, add chats
 - [ ] Settings: appearance, notifications, sign out other sessions
 

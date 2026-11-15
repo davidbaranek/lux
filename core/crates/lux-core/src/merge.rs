@@ -129,6 +129,7 @@ pub fn fold(mut chats: Vec<Arc<Chat>>, merges: &[Merge]) -> Vec<Arc<Chat>> {
             })
             .unwrap_or(first);
         let unread_count = members.iter().map(|&index| chats[index].unread_count).sum();
+        let unread_mentions = members.iter().map(|&index| chats[index].unread_mentions).sum();
         let is_marked_unread = members.iter().any(|&index| chats[index].is_marked_unread);
         let is_muted = members.iter().all(|&index| chats[index].is_muted);
         let pinned = members.iter().filter_map(|&index| chats[index].pinned).reduce(f64::min);
@@ -137,6 +138,7 @@ pub fn fold(mut chats: Vec<Arc<Chat>>, merges: &[Merge]) -> Vec<Arc<Chat>> {
         folded.id = merge.chat_id();
         folded.name.clone_from(&merge.name);
         folded.unread_count = unread_count;
+        folded.unread_mentions = unread_mentions;
         folded.is_marked_unread = is_marked_unread;
         folded.is_muted = is_muted;
         folded.pinned = pinned;
@@ -196,6 +198,7 @@ mod tests {
             preview: Some(Preview::text(format!("{id} says hi"))),
             date: minutes.map(|minutes| SystemTime::UNIX_EPOCH + Duration::from_secs(minutes * 60)),
             unread_count: unread,
+            unread_mentions: 0,
             is_marked_unread: false,
             is_muted: true,
             network: Network::from_id(network),

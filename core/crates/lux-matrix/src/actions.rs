@@ -42,7 +42,7 @@ impl MatrixAccount {
     }
 
     /// The rooms of a chat of the list: a merged chat's, else its own; each must be there.
-    fn rooms_of(&self, chat: &ChatId) -> Result<Vec<Room>, BackendError> {
+    pub(crate) fn rooms_of(&self, chat: &ChatId) -> Result<Vec<Room>, BackendError> {
         let rooms = chat.rooms(&self.organizer.now().merges);
         if rooms.is_empty() {
             return Err(BackendError::UnknownChat(chat.clone()));

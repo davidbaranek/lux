@@ -43,6 +43,8 @@ struct ChatListBatch: Sendable {
     var labels: [ChatLabel]?
     var reminders: [Reminder]?
     var loading: Loading?
+    /// The chats (by id) with an inbox rule of their own, when they changed.
+    var chatInbox: [String: InboxRule]?
 }
 
 extension [ChatSection] {

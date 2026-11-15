@@ -69,6 +69,8 @@ final class RustChatList: Sendable {
     func showAllPlaces() { list.showAllPlaces() }
     func setTheme(_ place: Place, _ theme: PlaceTheme?) { list.setTheme(place: CorePlace(place), theme: theme.map(CoreTheme.init)) }
     func setDefaultTheme(_ theme: PlaceTheme) { list.setDefaultTheme(theme: CoreTheme(theme)) }
+    func setInbox(_ place: Place, _ rule: InboxRule) { list.setInbox(place: CorePlace(place), rule: CoreInboxRule(rule)) }
+    func setChatInbox(_ chatId: String, _ rule: InboxRule?) { list.setChatInbox(chat: chatId, rule: rule.map(CoreInboxRule.init)) }
 }
 
 /// Passes the core's batches on, mapped where they arrive, so the main actor only applies them;
@@ -119,6 +121,7 @@ private extension ChatListBatch {
                       var item = Places.item(place, unread: Int(listed.unread), isHidden: listed.isHidden, name: listed.name, avatar: avatar)
                       item.theme = PlaceTheme(listed.theme)
                       item.ownTheme = listed.ownTheme.map(PlaceTheme.init)
+                      item.inbox = listed.inbox.map(InboxRule.init)
                       return item
                   },
                   theme: update.theme.map(PlaceTheme.init),
@@ -135,7 +138,8 @@ private extension ChatListBatch {
                       case .done: .done
                       }
                       return Loading(state: state, answered: loading.answered)
-                  })
+                  },
+                  chatInbox: update.chatInbox?.mapValues(InboxRule.init))
     }
 }
 

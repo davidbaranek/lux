@@ -72,6 +72,7 @@ lux-native/
 │   │   │   ├── ports/       the traits a backend implements
 │   │   │   ├── list/        the chat list's view model
 │   │   │   ├── thread/      a chat's thread view model
+│   │   │   ├── details.rs   a chat's details: members found, shared history paged
 │   │   │   ├── organizer/   archive, reminders, merges, labels applied to the list
 │   │   │   ├── places/      inbox, networks, spaces, labels: the list's places
 │   │   │   ├── timeline/    messages as the backend gives them

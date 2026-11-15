@@ -10,6 +10,7 @@ pub mod bridged_space;
 pub mod bridges;
 pub mod chat;
 pub mod demo;
+pub mod details;
 pub mod diff;
 pub mod ids;
 pub mod list;

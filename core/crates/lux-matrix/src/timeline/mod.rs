@@ -13,6 +13,7 @@ mod opened;
 mod previews;
 mod room;
 pub(crate) mod send;
+pub(crate) mod shared;
 
 use std::sync::Arc;
 use std::time::SystemTime;

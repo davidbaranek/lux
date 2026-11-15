@@ -313,10 +313,10 @@ enum PreviewLine {
         }
     }
 
-    /// A quote: its sender, then what it is; empty until the message is known.
-    static func quote(_ quote: CoreQuote) -> String {
-        let what = quote.kind.map(body) ?? ""
-        return quote.senderName.isEmpty ? what : "\(quote.senderName): \(what)"
+    /// A quote: its sender, their picture and what it is; empty until the message is known.
+    static func quote(_ quote: CoreQuote) -> MessageItem.Quote {
+        MessageItem.Quote(senderName: quote.senderName, text: quote.kind.map(body) ?? "",
+                          senderAvatar: quote.senderAvatar.map { .person(url: $0) })
     }
 
     /// What a message is: its text, or its kind ("Photo").

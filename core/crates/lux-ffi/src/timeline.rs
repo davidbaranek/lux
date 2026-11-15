@@ -137,6 +137,8 @@ pub struct CoreQuote {
     pub event_id: String,
     /// Its sender's name; empty until known.
     pub sender_name: String,
+    /// Its sender's picture; none without one, or until known.
+    pub sender_avatar: Option<String>,
     /// What it is, for the app to word; none until known.
     pub kind: Option<CorePreviewKind>,
 }
@@ -344,18 +346,18 @@ pub enum CoreImageSource {
         /// The message.
         message_id: String,
     },
-    /// A photo the search index found, by its event: its thumbnail.
-    Found {
+    /// A shared photo's thumbnail or video's poster, by its message's event.
+    Shared {
         /// Its room.
         room_id: String,
-        /// Its event.
+        /// The message's event.
         event_id: String,
     },
 }
 
 // MARK: mappings
 
-fn picture(picture: &Picture) -> CorePicture {
+pub(crate) fn picture(picture: &Picture) -> CorePicture {
     CorePicture {
         source: picture.source.to_string(),
         width: picture.width,
@@ -367,6 +369,7 @@ fn quote(quote: Quote) -> CoreQuote {
     CoreQuote {
         event_id: quote.event_id.to_string(),
         sender_name: quote.sender_name,
+        sender_avatar: quote.sender_avatar.as_ref().map(ToString::to_string),
         kind: quote.kind.map(CorePreviewKind::from),
     }
 }
@@ -564,9 +567,9 @@ impl From<CoreImageSource> for ImageSource {
                 room: room_id.into(),
                 message: message_id.into(),
             },
-            CoreImageSource::Found { room_id, event_id } => Self::Found {
+            CoreImageSource::Shared { room_id, event_id } => Self::Shared {
                 room: room_id.into(),
-                event: event_id.into(),
+                event: EventId::from(event_id),
             },
         }
     }
@@ -669,30 +672,6 @@ impl CoreAccount {
         ))
         .await?;
         Ok(path_text(&file))
-    }
-
-    /// A photo's original by its event, loaded into `folder` for the app to read what it shows;
-    /// none when the event is no photo (the demo's photos are the app's to draw).
-    ///
-    /// # Errors
-    /// When it cannot be loaded or written.
-    pub async fn found_photo_file(
-        &self,
-        room_id: String,
-        event_id: String,
-        folder: String,
-    ) -> Result<Option<String>, CoreAccountError> {
-        let Backend::Matrix(account) = self.backend() else {
-            return Ok(None);
-        };
-        // the download's future is large: on the heap.
-        let file = Box::pin(account.timelines().found_photo_file(
-            &RoomId::from(room_id),
-            &EventId::from(event_id),
-            Path::new(&folder),
-        ))
-        .await?;
-        Ok(file.map(|file| path_text(&file)))
     }
 
     /// The largest file the server takes, in bytes.

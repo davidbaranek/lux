@@ -7,6 +7,8 @@ import LuxCore
 /// `CTFont`, which Core Text documents as safe to use from any thread.
 struct MessageText: TextMeasuring, @unchecked Sendable {
     let sender = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    /// A plain group's sender's name.
+    let author = NSFont.systemFont(ofSize: NSFont.systemFontSize + 1, weight: .semibold)
     let quote = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
     let body = NSFont.systemFont(ofSize: NSFont.systemFontSize + 1)
     let footer = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize - 1)
@@ -22,6 +24,8 @@ struct MessageText: TextMeasuring, @unchecked Sendable {
     func font(_ role: TextRole) -> NSFont {
         switch role {
         case .sender: sender
+        case .author: author
+        case .reply: quote
         case .quote: quote
         case .body: body
         case .footer: footer
@@ -38,10 +42,10 @@ struct MessageText: TextMeasuring, @unchecked Sendable {
         let rect = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
                                                   options: TextView.options, attributes: [.font: font])
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        // a quote and a post's title show at most two lines; a file's name, one (it truncates).
+        // a quote and a post's title show at most two lines; a file's name and a reply's line, one (they truncate).
         let height = switch role {
         case .quote, .postTitle: min(rect.height, lineHeight * 2)
-        case .fileName: lineHeight
+        case .fileName, .reply: lineHeight
         default: rect.height
         }
         return CGSize(width: ceil(rect.width), height: ceil(height))

@@ -12,7 +12,7 @@ use crate::chat::{Chat, Label, Request, ScheduledMessage, Snapshot, Space};
 use crate::diff;
 use crate::ids::ChatId;
 use crate::organizer::Organized;
-use crate::places::{self, Arrangement, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, Theme};
+use crate::places::{self, Arrangement, ChatFilter, ChatOrder, InboxRule, ListedPlace, PlaceId, SectionId, Theme};
 
 /// What the listener was last sent.
 #[derive(Debug, Default)]
@@ -24,6 +24,7 @@ struct Shown {
     reminders: Option<Vec<DueReminder>>,
     loading: Option<Loading>,
     theme: Option<Theme>,
+    chat_inbox: Option<HashMap<ChatId, InboxRule>>,
 }
 
 /// The list's state.
@@ -221,6 +222,11 @@ impl ListState {
         if theme.is_some() {
             self.shown.theme = theme;
         }
+        let chat_inbox =
+            (self.shown.chat_inbox.as_ref() != Some(&arrangement.chat_inbox)).then(|| arrangement.chat_inbox.clone());
+        if let Some(chat_inbox) = &chat_inbox {
+            self.shown.chat_inbox = Some(chat_inbox.clone());
+        }
         ListUpdate {
             place: self.place.clone(),
             places,
@@ -230,6 +236,7 @@ impl ListState {
             labels,
             reminders,
             loading,
+            chat_inbox,
         }
     }
 }

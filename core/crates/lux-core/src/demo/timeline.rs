@@ -23,7 +23,10 @@ use super::data::stable;
 use super::seeded::text;
 use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, UserId};
 use crate::message::{self, Attachment, Message, SendState};
-use crate::ports::{BackendError, ChatSending, ChatTimelines, DiffStream, RoomChanges, TimelineHold, TypingStream};
+use crate::ports::{
+    BackendError, ChatSending, ChatTimelines, DiffStream, RoomChanges, SharedContent, SharedItem, SharedPage,
+    TimelineHold, TypingStream,
+};
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
     Draft, FileKind, IndexHistory, IndexedImage, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
@@ -210,6 +213,7 @@ impl DemoTimelines {
         Some(Quote {
             event_id: message.event_id.clone()?,
             sender_name: message.sender_name.clone(),
+            sender_avatar: message.sender_avatar.clone(),
             kind: Some(PreviewKind::from(Kind::Text(&message.message.body))),
         })
     }
@@ -217,6 +221,67 @@ impl DemoTimelines {
     fn append(&self, room: &RoomId, message: TimelineMessage) {
         self.change(room, |messages| messages.push_back(Arc::new(message)));
     }
+
+    /// What the room's messages shared, a page of [`SHARED_PAGE`] messages back from `from` (a
+    /// place in the history, from its newest end).
+    pub(crate) fn shared(&self, room: &RoomId, from: Option<&str>) -> SharedPage {
+        let mut state = self.state();
+        let messages = self.room(&mut state, room);
+        let skip: usize = from.and_then(|from| from.parse().ok()).unwrap_or(0);
+        let end = (skip + SHARED_PAGE).min(messages.len());
+        let items = messages
+            .iter()
+            .rev()
+            .skip(skip)
+            .take(end.saturating_sub(skip))
+            .flat_map(|message| shared_items(room, message))
+            .collect();
+        SharedPage {
+            items,
+            next: (end < messages.len()).then(|| end.to_string()),
+        }
+    }
+}
+
+/// How many messages a page of the shared history reads.
+const SHARED_PAGE: usize = 50;
+
+/// What a message shared: its photo, video or file, and each link in its text.
+fn shared_items(room: &RoomId, message: &TimelineMessage) -> Vec<SharedItem> {
+    let Some(event) = message.event_id.clone() else {
+        return Vec::new();
+    };
+    let item = |content| SharedItem {
+        event: event.clone(),
+        room: room.clone(),
+        sender_name: message.sender_name.clone(),
+        date: message.message.date,
+        content,
+    };
+    let mut items: Vec<SharedItem> = match &message.media {
+        Some(Media::Photo { picture, .. }) => vec![item(SharedContent::Photo {
+            picture: picture.clone(),
+        })],
+        Some(Media::Video { poster, duration }) => vec![item(SharedContent::Video {
+            poster: poster.clone(),
+            duration: *duration,
+        })],
+        Some(Media::File {
+            name, size, mimetype, ..
+        }) => vec![item(SharedContent::File {
+            name: name.clone(),
+            size: *size,
+            mimetype: mimetype.clone(),
+        })],
+        None => Vec::new(),
+    };
+    items.extend(message.message.links.iter().map(|link| {
+        item(SharedContent::Link {
+            url: link.url.clone(),
+            text: message.message.body.clone(),
+        })
+    }));
+    items
 }
 
 impl ChatTimelines for DemoTimelines {
@@ -618,6 +683,8 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
             let reply = (index % 12 == 5 && index >= 10).then(|| Quote {
                 event_id: EventId::from(format!("{room}/{}", index - 10)),
                 sender_name: PEOPLE[(index - 10) % 3].to_owned(),
+                sender_avatar: ((index - 10) % 3 != 2)
+                    .then(|| MediaId::from(format!("demo-@friend{}:demo", (index - 10) % 3))),
                 kind: Some(PreviewKind::Text(text((i - 10) * 31 + 7))),
             });
             let readers = if index + 4 == count {

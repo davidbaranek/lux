@@ -109,16 +109,13 @@ public actor PhotoIndexer {
     }
 
     /// One photo read: downloaded into its own folder, read, and deleted. Nil when it cannot be
-    /// had or read.
+    /// had (deleted, not decrypted) or read: after a few tries it is left.
     private func read(_ photo: (eventId: String, roomId: String), by reader: PhotoReader,
                       from account: RustAccount) async -> PhotoRead? {
         let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: folder) }
         do {
-            guard let file = try await account.foundPhotoFile(roomId: photo.roomId, eventId: photo.eventId, directory: folder) else {
-                // no photo any more (deleted, replaced): nothing to find in it.
-                return PhotoRead(eventId: photo.eventId, reader: reader.name, words: "", embedding: nil)
-            }
+            let file = try await account.sharedFile(roomId: photo.roomId, eventId: photo.eventId, directory: folder)
             let (words, embedding) = try await reader.read(file)
             return PhotoRead(eventId: photo.eventId, reader: reader.name, words: words, embedding: embedding)
         } catch {

@@ -522,7 +522,7 @@ async fn the_index_history_holds_each_messages_newest_text_and_the_deleted_ones(
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_index_history_holds_photos_with_their_captions_and_a_found_one_loads_by_its_event() {
+async fn the_index_history_holds_photos_with_their_captions_and_one_loads_by_its_event() {
     use matrix_sdk::ruma::events::room::message::{ImageMessageEventContent, MessageType, RoomMessageEventContent};
 
     let server = MatrixMockServer::new().await;
@@ -589,9 +589,8 @@ async fn the_index_history_holds_photos_with_their_captions_and_a_found_one_load
 
     let folder = tempfile::tempdir().unwrap();
     let file = timelines
-        .found_photo_file(&room(), &"$dog".into(), folder.path())
+        .shared_file(&room(), &"$dog".into(), folder.path())
         .await
-        .unwrap()
         .unwrap();
     assert_eq!(std::fs::read(&file).unwrap(), b"binaryjpegfullimagedata");
 }

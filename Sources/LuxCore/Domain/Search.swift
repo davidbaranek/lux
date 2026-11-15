@@ -28,8 +28,11 @@ public struct FoundPhoto: Sendable, Hashable, Identifiable {
         self.reason = reason
     }
 
-    /// Its thumbnail.
-    public var image: ImageRef { .found(roomId: roomId, eventId: id) }
+    /// Its thumbnail, by its event; named by it (letters and digits only: the demo draws it as a
+    /// file of that name).
+    public var image: ImageRef {
+        .shared(roomId: roomId, eventId: id, name: "photo-" + String(id.unicodeScalars.filter(CharacterSet.alphanumerics.contains)))
+    }
 }
 
 extension FoundPhoto {

@@ -10,14 +10,13 @@ struct DemoMedia: Sendable {
     /// A made-up picture: a chat's or a person's, a photo or a video's poster.
     func imageFile(_ ref: ImageRef, directory: URL) throws -> URL? {
         let (name, seed, size): (String, Int, CGSize) = switch ref {
+        // a picture the user set in the demo is a new one.
+        case .room(_, let version) where version.hasPrefix("demo-room-picture"):
+            ("demo-\(stable(version) % 64).png", stable(version) % 64, CGSize(width: 160, height: 160))
         case .room(let id, _): ("demo-\(stable(id) % 64).png", stable(id) % 64, CGSize(width: 160, height: 160))
         case .person(let url): ("demo-p-\(stable(url) % 64).png", stable(url) % 64, CGSize(width: 160, height: 160))
-        case .photo(_, _, let name), .poster(_, _, let name): (name, stable(name), CGSize(width: 1200, height: 900))
-        case .found(_, let event):
-            // the made-up history's photos go by the message's place in it, as `mediaFile`.
-            Self.photoName(event).map { ($0, stable($0), CGSize(width: 1200, height: 900)) } ?? ("", 0, .zero)
+        case .photo(_, _, let name), .poster(_, _, let name), .shared(_, _, let name): (name, stable(name), CGSize(width: 1200, height: 900))
         }
-        if case .found = ref, name.isEmpty { return nil }
         // a sent photo's picture is its file on the device.
         if case .photo(_, _, let name) = ref, name.hasPrefix("/") { return URL(fileURLWithPath: name) }
         let file = directory.appendingPathComponent(name)
