@@ -335,6 +335,11 @@ impl CoreStore {
         Ok(self.store.image_unread(event_id.into()).await?)
     }
 
+    /// Asks again for every photo that could not be read.
+    pub async fn retry_unread_images(&self) -> Result<(), CoreStoreError> {
+        Ok(self.store.retry_unread_images().await?)
+    }
+
     /// Forgets every photo's embedding (search by look turned off); their words stay, as read by
     /// `reader`.
     pub async fn forget_image_embeddings(&self, reader: String) -> Result<(), CoreStoreError> {

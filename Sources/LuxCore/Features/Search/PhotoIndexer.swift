@@ -38,9 +38,11 @@ public actor PhotoIndexer {
         self.report = report
     }
 
-    /// The model arrived (the photos are read again with it), or went (photo search is off).
-    func use(_ model: PhotoSearchModel?) {
+    /// The model arrived (the photos are read again with it), or went (photo search is off): a
+    /// photo the last reader gave up on is tried again by this one.
+    func use(_ model: PhotoSearchModel?) async {
         reader = PhotoReader(model: model)
+        try? await store.retryUnreadImages()
     }
 
     /// Reads the photos not read yet, the newest first: at most `limit` (nil: all of them).
