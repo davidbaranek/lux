@@ -93,6 +93,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         view.backgroundColor = .systemBackground
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.titleView = chatTitle
+        chatTitle.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openDetails)))
         if row.isMerged {
             navigationItem.rightBarButtonItem = networksButton
             model.onShownRoom = { [weak self] _ in self?.updateNetworks() }
@@ -506,6 +507,13 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         networksButton.image = shown.map { NetworkImage.image($0.network).resized(to: 22) } ?? UIImage(systemName: "square.stack")
         networksButton.accessibilityLabel = String(localized: "Networks")
         networksButton.accessibilityValue = chatTitle.subtitle
+    }
+
+    /// The chat's details, from its title, as Messages opens a conversation's.
+    @objc private func openDetails() {
+        let details = ChatDetailsViewController(session: session, row: row)
+        details.onChange = { [weak self] row in self?.chatTitle.show(row, images: self?.session.images) }
+        navigationController?.pushViewController(details, animated: true)
     }
 
     /// A merged chat's composer shows the network a message goes through.
