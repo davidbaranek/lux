@@ -26,6 +26,21 @@ struct MessageLayoutTests {
         #expect(layout.sender == nil)
     }
 
+    /// Each reaction is a chip of its own (a bridge's "join thread" too), so each can be tapped;
+    /// chips that do not fit go on the next line, one's own message's at the trailing side.
+    @Test func eachReactionIsItsOwnChipAndTheyWrap() {
+        var item = message(own: true, body: "hello")
+        item.reactions = [.init(key: "👍", count: 3, isMine: true), .init(key: "join thread", count: 1, isMine: false),
+                          .init(key: String(repeating: "x", count: 20), count: 1, isMine: false)]
+        let layout = MessageLayout.make(item, showsSender: false, width: 400, metrics: BubbleMetrics(), measure: FixedMeasure())
+        #expect(layout.reactions.count == 3)
+        #expect(layout.reactions[0].maxX < layout.reactions[1].minX)
+        #expect(layout.reactions[0].minY == layout.reactions[1].minY)
+        #expect(layout.reactions[2].minY > layout.reactions[1].maxY)
+        #expect(layout.reactions[2].maxX == layout.bubble.maxX)
+        #expect(MessageItem.chipText(item.reactions[0]) == "👍 3")
+    }
+
     @Test func longTextWrapsInsideTheWidestBubble() {
         let layout = MessageLayout.make(message(own: false, body: String(repeating: "a", count: 100)), showsSender: true, width: 400,
                                         metrics: BubbleMetrics(), measure: FixedMeasure())

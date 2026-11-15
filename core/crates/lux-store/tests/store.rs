@@ -247,7 +247,10 @@ async fn the_file_is_encrypted_and_needs_its_key() {
         store.keep("chat-list".into(), b"kept secret".to_vec()).await.unwrap();
     }
     let bytes = database_bytes(&path);
-    assert!(!bytes.starts_with(b"SQLite format 3"));
+    // the header stays plain, so iOS knows the file for a database (and its locks for SQLite's);
+    // the pages after it are encrypted.
+    assert!(bytes.starts_with(b"SQLite format 3\0"));
+    assert!(!contains(&bytes[32..], b"CREATE TABLE"));
     assert!(!contains(&bytes, b"secret plans"));
     assert!(!contains(&bytes, b"kept secret"));
 
@@ -265,4 +268,28 @@ async fn the_file_is_encrypted_and_needs_its_key() {
     assert_eq!(store.message_count().await.unwrap(), 0);
     drop(store);
     assert!(Store::open(&path, other).await.is_ok());
+}
+
+/// A file from before the plain header (SQLCipher's salt in its first bytes) no longer opens, and
+/// the store, a cache, starts anew in its place.
+#[tokio::test]
+async fn a_file_with_an_encrypted_header_gives_way_to_a_new_one() {
+    let folder = TempDir::new().unwrap();
+    let path = file(&folder);
+    {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(&format!(
+                "PRAGMA key = \"x'{}'\"; CREATE TABLE old(x); INSERT INTO old VALUES (1);",
+                "ab".repeat(32)
+            ))
+            .unwrap();
+    }
+    assert!(!database_bytes(&path).starts_with(b"SQLite format 3"));
+    assert!(matches!(Store::open(&path, key()).await, Err(Error::Unreadable)));
+    let store = Store::open_or_replace(&path, key()).await.unwrap();
+    assert_eq!(store.message_count().await.unwrap(), 0);
+    drop(store);
+    assert!(database_bytes(&path).starts_with(b"SQLite format 3\0"));
 }

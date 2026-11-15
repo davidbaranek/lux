@@ -31,8 +31,8 @@ final class MessageCellView: NSTableCellView {
     private let postMore = TextView()
     private let body = TextView()
     private let footer = TextView()
-    private let reactions = TextView()
-    private let reactionsBackground = FlippedView()
+    /// One chip per reaction (its pill and its text), made as a message needs them and kept.
+    private var reactionChips: [(pill: FlippedView, text: TextView)] = []
     private let avatar = AvatarView(side: 28)
     /// A plain group's sender's picture, beside their name.
     private let plainAvatar = AvatarView(side: BubbleMetrics().plainAvatarSide)
@@ -53,6 +53,8 @@ final class MessageCellView: NSTableCellView {
     var onLink: ((URL) -> Void)?
     /// "Show more" (or "Show less") under a shared post's caption was clicked.
     var onPostMore: (() -> Void)?
+    /// A click on a reaction's chip: gives or takes back that reaction.
+    var onReactionTap: ((String) -> Void)?
     /// A click on a shared post's title or caption: opens the post.
     var onPostOpen: (() -> Void)?
     /// The bubble was clicked (not a link, a quote or media): its details show or hide.
@@ -100,9 +102,6 @@ final class MessageCellView: NSTableCellView {
         bubble.layer?.cornerCurve = .continuous
         photo.layer?.cornerRadius = 12
         photo.layer?.cornerCurve = .continuous
-        reactionsBackground.wantsLayer = true
-        reactionsBackground.layer?.backgroundColor = NSColor.incomingBubble.cgColor
-        reactionsBackground.addSubview(reactions)
         photo.addSubview(videoBadge)
         postCard.wantsLayer = true
         postCard.layer?.cornerRadius = 16
@@ -122,7 +121,7 @@ final class MessageCellView: NSTableCellView {
         band.layer?.cornerCurve = .continuous
         replyLine.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(quoteClicked)))
         for view in [band, day, unreadMarker, avatar, plainAvatar, sender, time, replyLink, replyAvatar, replyLine, bubble,
-                     reactionsBackground, thread, readers, detail, failed] as [NSView] {
+                     thread, readers, detail, failed] as [NSView] {
             addSubview(view)
         }
         bubble.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(bubbleClicked)))
@@ -301,16 +300,7 @@ final class MessageCellView: NSTableCellView {
             let x = plain ? layout.bubble.maxX + 6 : layout.bubble.minX - 24
             failed.frame = CGRect(x: x, y: layout.bubble.midY - 9, width: 18, height: 18)
         }
-        reactionsBackground.isHidden = layout.reactions == nil
-        if let frame = layout.reactions, let string = message.reactionsText {
-            reactionsBackground.frame = frame
-            reactionsBackground.layer?.cornerRadius = frame.height / 2
-            let mine = message.reactions.contains(where: \.isMine)
-            reactionsBackground.layer?.borderWidth = mine ? 1 : 0
-            reactionsBackground.layer?.borderColor = mine ? accent.cgColor : nil
-            reactions.frame = frame.offsetBy(dx: -frame.minX, dy: -frame.minY).insetBy(dx: 8, dy: 3)
-            reactions.set(string, font: text.reactions, color: .labelColor)
-        }
+        placeReactions(message, layout: layout, text: text)
         avatar.isHidden = layout.avatar == nil || plain
         plainAvatar.isHidden = layout.avatar == nil || !plain
         if let frame = layout.avatar {
@@ -411,6 +401,41 @@ final class MessageCellView: NSTableCellView {
             let height = ceil(font.ascender - font.descender + font.leading)
             return CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
         }
+    }
+
+    /// Each reaction as its own chip, one's own ringed in the place's colour.
+    private func placeReactions(_ message: MessageItem, layout: MessageLayout, text: MessageText) {
+        while reactionChips.count < layout.reactions.count {
+            let pill = FlippedView()
+            pill.wantsLayer = true
+            pill.layer?.backgroundColor = NSColor.incomingBubble.cgColor
+            let label = TextView()
+            pill.addSubview(label)
+            pill.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(reactionClicked)))
+            addSubview(pill)
+            reactionChips.append((pill, label))
+        }
+        for (index, chip) in reactionChips.enumerated() {
+            guard layout.reactions.indices.contains(index) else {
+                chip.pill.isHidden = true
+                continue
+            }
+            let frame = layout.reactions[index]
+            let reaction = message.reactions[index]
+            chip.pill.isHidden = false
+            chip.pill.frame = frame
+            chip.pill.layer?.cornerRadius = frame.height / 2
+            chip.pill.layer?.borderWidth = reaction.isMine ? 1 : 0
+            chip.pill.layer?.borderColor = reaction.isMine ? accent.cgColor : nil
+            chip.text.frame = frame.offsetBy(dx: -frame.minX, dy: -frame.minY).insetBy(dx: 8, dy: 3)
+            chip.text.set(MessageItem.chipText(reaction), font: text.reactions, color: .labelColor)
+        }
+    }
+
+    @objc private func reactionClicked(_ click: NSClickGestureRecognizer) {
+        guard let index = reactionChips.firstIndex(where: { $0.pill === click.view }), let message = shown?.0,
+              message.reactions.indices.contains(index) else { return }
+        onReactionTap?(message.reactions[index].key)
     }
 
     private func place(_ view: TextView, _ frame: CGRect?, _ string: String?, _ font: NSFont, _ color: NSColor) {

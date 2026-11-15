@@ -29,7 +29,8 @@ final class MessageCell: UICollectionViewCell {
     private let postMore = UILabel()
     private let body = UILabel()
     private let footer = UILabel()
-    private let reactions = UILabel()
+    /// One chip per reaction, made as a message needs them and kept for the next.
+    private var reactionChips: [UILabel] = []
     private let readers = UILabel()
     /// Under a Matrix thread's root: its summary, which opens the thread.
     private let thread = ThreadSummaryView()
@@ -57,6 +58,8 @@ final class MessageCell: UICollectionViewCell {
     var onBubbleTap: (() -> Void)?
     /// "Show more" (or "Show less") under a shared post's caption was tapped.
     var onPostMore: (() -> Void)?
+    /// A tap on a reaction's chip: gives or takes back that reaction.
+    var onReactionTap: ((String) -> Void)?
     /// A tap on a shared post's title or caption: opens the post.
     var onPostOpen: (() -> Void)?
     /// The photo, the video, the file or an album's tile (its index) was tapped: it opens,
@@ -74,10 +77,6 @@ final class MessageCell: UICollectionViewCell {
         body.numberOfLines = 0
         readers.textColor = .secondaryLabel
         detail.textColor = .secondaryLabel
-        reactions.textAlignment = .center
-        reactions.backgroundColor = .systemGray5
-        reactions.layer.cornerCurve = .continuous
-        reactions.layer.masksToBounds = true
         // round corners on the layers themselves, no masks (no offscreen pass for the bubble).
         bubble.layer.cornerRadius = 18
         bubble.layer.cornerCurve = .continuous
@@ -113,8 +112,7 @@ final class MessageCell: UICollectionViewCell {
         replyLine.isUserInteractionEnabled = true
         replyLine.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(quoteTapped)))
         replyAvatar.side = BubbleMetrics().replyAvatarSide
-        for view in [band, day, unreadMarker, avatar, sender, time, replyLink, replyAvatar, replyLine, bubble, reactions, thread, readers, detail,
-                     failed] {
+        for view in [band, day, unreadMarker, avatar, sender, time, replyLink, replyAvatar, replyLine, bubble, thread, readers, detail, failed] {
             contentView.addSubview(view)
         }
         thread.onTap = { [weak self] in self?.onThreadTap?() }
@@ -276,11 +274,7 @@ final class MessageCell: UICollectionViewCell {
             let x = plain ? layout.bubble.maxX + 6 : layout.bubble.minX - 26
             failed.frame = CGRect(x: x, y: layout.bubble.midY - 10, width: 20, height: 20)
         }
-        place(reactions, layout.reactions, message.reactionsText, text.reactions)
-        reactions.layer.cornerRadius = (layout.reactions?.height ?? 0) / 2
-        let mine = message.reactions.contains(where: \.isMine)
-        reactions.layer.borderWidth = mine ? 1 : 0
-        reactions.layer.borderColor = mine ? UIColor.tintColor.cgColor : nil
+        placeReactions(message, layout: layout, text: text)
         place(readers, layout.readers, message.readersText(inGroup: isGroup), text.footer)
         place(detail, layout.detail, message.detailText, text.footer)
         thread.isHidden = layout.thread == nil
@@ -336,6 +330,37 @@ final class MessageCell: UICollectionViewCell {
 
     /// A plain reply's line, as Discord draws one: the quoted sender's picture and name, then
     /// their message in the secondary colour, a rounded line from the sender's picture up to it.
+    /// Each reaction as its own chip, one's own ringed in the accent colour.
+    private func placeReactions(_ message: MessageItem, layout: MessageLayout, text: MessageText) {
+        while reactionChips.count < layout.reactions.count {
+            let chip = UILabel()
+            chip.textAlignment = .center
+            chip.backgroundColor = .systemGray5
+            chip.layer.cornerCurve = .continuous
+            chip.layer.masksToBounds = true
+            chip.isUserInteractionEnabled = true
+            chip.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(reactionTapped)))
+            contentView.addSubview(chip)
+            reactionChips.append(chip)
+        }
+        for (index, chip) in reactionChips.enumerated() {
+            let frame = layout.reactions.indices.contains(index) ? layout.reactions[index] : nil
+            let reaction = frame == nil ? nil : message.reactions[index]
+            place(chip, frame, reaction.map(MessageItem.chipText), text.reactions)
+            guard let frame, let reaction else { continue }
+            chip.tag = index
+            chip.layer.cornerRadius = frame.height / 2
+            chip.layer.borderWidth = reaction.isMine ? 1 : 0
+            chip.layer.borderColor = reaction.isMine ? UIColor.tintColor.cgColor : nil
+            chip.accessibilityTraits = reaction.isMine ? [.button, .selected] : .button
+        }
+    }
+
+    @objc private func reactionTapped(_ tap: UITapGestureRecognizer) {
+        guard let index = tap.view?.tag, let message = shown?.0, message.reactions.indices.contains(index) else { return }
+        onReactionTap?(message.reactions[index].key)
+    }
+
     private func placeReply(_ message: MessageItem, layout: MessageLayout, text: MessageText, images: ImagePipeline?) {
         let quote = layout.reply == nil ? nil : message.quote
         replyLine.isHidden = quote == nil

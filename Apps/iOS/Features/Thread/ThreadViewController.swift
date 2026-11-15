@@ -130,6 +130,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             cell.onQuoteTap = message.quote == nil ? nil : { [weak self] in self?.jump(toRepliedMessageOf: id) }
             cell.onLink = { url in UIApplication.shared.open(url) }
             cell.onBubbleTap = { [weak self] in self?.model.toggleDetail(of: id) }
+            cell.onReactionTap = { [weak self] key in self?.model.toggleReaction(key, on: id) }
             cell.onPostMore = { [weak self] in
                 self?.unfolding = id
                 self?.model.togglePost(of: id)
