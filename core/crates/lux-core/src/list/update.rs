@@ -1,5 +1,6 @@
 //! One frame's batch of changes to the chat list.
 
+use std::collections::HashMap;
 use std::time::SystemTime;
 
 use eyeball_im::VectorDiff;
@@ -7,7 +8,7 @@ use eyeball_im::VectorDiff;
 use super::{ListRow, Loading, SectionHeader};
 use crate::chat::Label;
 use crate::ids::ChatId;
-use crate::places::{ListedPlace, PlaceId, SectionId, Theme};
+use crate::places::{InboxRule, ListedPlace, PlaceId, SectionId, Theme};
 
 /// The rows of one section that changed, as diffs to apply in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +50,8 @@ pub struct ListUpdate {
     pub reminders: Option<Vec<DueReminder>>,
     /// How far the list is loaded, when that changed.
     pub loading: Option<Loading>,
+    /// The chats that follow an inbox rule of their own, not their places', when they changed.
+    pub chat_inbox: Option<HashMap<ChatId, InboxRule>>,
 }
 
 impl ListUpdate {
@@ -62,5 +65,6 @@ impl ListUpdate {
             && self.labels.is_none()
             && self.reminders.is_none()
             && self.loading.is_none()
+            && self.chat_inbox.is_none()
     }
 }

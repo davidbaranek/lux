@@ -1,7 +1,7 @@
 //! Places, as the apps see them.
 
 use lux_core::network::Network;
-use lux_core::places::{ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, SectionStyle, Theme};
+use lux_core::places::{ChatFilter, ChatOrder, InboxRule, ListedPlace, PlaceId, SectionId, SectionStyle, Theme};
 
 use crate::chat::CoreFolder;
 
@@ -205,6 +205,8 @@ pub struct CoreListedPlace {
     pub theme: CoreTheme,
     /// The colour the user gave it; `None` takes the one for every place.
     pub own_theme: Option<CoreTheme>,
+    /// How much of a network or a space the inbox shows; `None` for the other places.
+    pub inbox: Option<CoreInboxRule>,
 }
 
 impl From<ListedPlace> for CoreListedPlace {
@@ -217,6 +219,38 @@ impl From<ListedPlace> for CoreListedPlace {
             avatar: listed.avatar.map(|avatar| avatar.to_string()),
             theme: listed.theme.into(),
             own_theme: listed.own_theme.map(CoreTheme::from),
+            inbox: listed.inbox.map(CoreInboxRule::from),
+        }
+    }
+}
+
+/// How much of a place (or of one chat) the inbox shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]
+pub enum CoreInboxRule {
+    /// Everything.
+    All,
+    /// Conversations of two, and groups while they mention the user.
+    Mentions,
+    /// Nothing: its chats are read in their places only.
+    Never,
+}
+
+impl From<CoreInboxRule> for InboxRule {
+    fn from(rule: CoreInboxRule) -> Self {
+        match rule {
+            CoreInboxRule::All => Self::All,
+            CoreInboxRule::Mentions => Self::Mentions,
+            CoreInboxRule::Never => Self::Never,
+        }
+    }
+}
+
+impl From<InboxRule> for CoreInboxRule {
+    fn from(rule: InboxRule) -> Self {
+        match rule {
+            InboxRule::All => Self::All,
+            InboxRule::Mentions => Self::Mentions,
+            InboxRule::Never => Self::Never,
         }
     }
 }
