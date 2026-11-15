@@ -107,6 +107,12 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     private var styleObservation: AnyObject?
     private let text = MessageText()
     private var layoutWidth: CGFloat = 0
+    /// While the inspector opens or closes beside the chat: the messages keep their layout, and
+    /// the inspector slides over them; they are measured once for the new width when it ends,
+    /// not on every frame of the animation.
+    var holdsLayout = false {
+        didSet { if !holdsLayout { view.needsLayout = true } }
+    }
     /// The newest update; an older one still measuring is dropped.
     private var generation = 0
     /// The last generation the table shows: until it catches up, the rows on screen are not the
@@ -403,7 +409,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         super.viewDidLayout()
         // the chat got wider or narrower: measure again for the new width.
         let width = scroll.contentView.bounds.width
-        if width > 0, width != layoutWidth {
+        if width > 0, width != layoutWidth, !holdsLayout {
             layoutWidth = width
             show(model.messages, relayout: true)
         }

@@ -137,7 +137,19 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
 
     private func openInspector() {
         guard inspectorItem.isCollapsed else { return }
-        inspectorItem.animator().isCollapsed = false
+        animateInspector(collapsed: false)
+    }
+
+    /// Opens or closes the inspector beside the chat; the chat is measured once, at the end.
+    private func animateInspector(collapsed: Bool, then done: (() -> Void)? = nil) {
+        let chat = openThread
+        chat?.holdsLayout = true
+        NSAnimationContext.runAnimationGroup { _ in
+            inspectorItem.animator().isCollapsed = collapsed
+        } completionHandler: {
+            chat?.holdsLayout = false
+            done?()
+        }
     }
 
     /// Closes the inspector; what it showed goes (a thread stops following its timeline).
@@ -147,9 +159,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             inspector.show(nil)
             return
         }
-        NSAnimationContext.runAnimationGroup { _ in
-            inspectorItem.animator().isCollapsed = true
-        } completionHandler: { [weak self] in
+        animateInspector(collapsed: true) { [weak self] in
             guard let self, inspectorItem.isCollapsed else { return }
             inspector.show(nil)
         }
