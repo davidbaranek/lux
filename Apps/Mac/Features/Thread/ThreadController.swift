@@ -4,7 +4,7 @@ import LuxCore
 /// One chat: a table of recycled message rows over a diffable data source, a glass composer, and a
 /// right-click menu with reactions. Every row is measured off the main thread before it shows
 /// (`MessageLayoutCache`); the table gets exact heights and the rows only place their parts. A
-/// Matrix thread of the chat shows the same way, in a panel beside the chat (`ChatSplitController`):
+/// Matrix thread of the chat shows the same way, in the window's inspector beside the chat:
 /// its root, its replies, the composer replying there.
 final class ThreadController: NSViewController, NSTableViewDelegate, NSTextFieldDelegate, NSMenuItemValidation {
     let session: Session

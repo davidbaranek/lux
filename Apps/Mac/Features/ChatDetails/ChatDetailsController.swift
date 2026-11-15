@@ -1,8 +1,8 @@
 import AppKit
 import LuxCore
 
-/// A chat's details, in a popover from its title in the toolbar, as Messages shows a
-/// conversation's: its picture, name and topic, its networks (a merged chat's rooms), its
+/// A chat's details, in the window's inspector beside the chat (its title in the toolbar, or the
+/// info button, opens and closes it): its picture, name and topic, its networks (a merged chat's rooms), its
 /// notifications and encryption, marking it read and leaving it; under them its members and what
 /// it shared and its Matrix threads, one at a time. Edit… (for who may) changes its name, topic and
 /// picture.
@@ -43,7 +43,13 @@ final class ChatDetailsController: NSViewController {
         case shared(SharedKind)
     }
 
-    private static let width: CGFloat = 360
+    /// Between the chat's settings and its members, threads and shared items.
+    private let separatorLine: NSBox = {
+        let line = NSBox()
+        line.boxType = .separator
+        line.translatesAutoresizingMaskIntoConstraints = false
+        return line
+    }()
 
     init(session: Session, row: ChatRow) {
         self.session = session
@@ -60,7 +66,6 @@ final class ChatDetailsController: NSViewController {
         subtitle.textColor = .secondaryLabelColor
         subtitle.alignment = .center
         topic.alignment = .center
-        topic.preferredMaxLayoutWidth = Self.width - 40
         topic.isSelectable = true
         edit.controlSize = .small
         edit.bezelStyle = .push
@@ -114,22 +119,27 @@ final class ChatDetailsController: NSViewController {
         tabs.action = #selector(chooseTab)
         pane.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [header, grid, actions, separator(), tabs, pane])
+        let stack = NSStackView(views: [header, grid, actions, separatorLine, tabs, pane])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 18, left: 16, bottom: 12, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
+        // the members, threads or shared items take what is left of the inspector's height.
+        stack.setHuggingPriority(.defaultLow, for: .vertical)
+        pane.setContentHuggingPriority(.defaultLow, for: .vertical)
         let container = NSView()
         container.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            // under the window's toolbar, which spans the inspector too.
+            stack.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            container.widthAnchor.constraint(equalToConstant: Self.width),
+            topic.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -40),
+            separatorLine.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
             pane.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
-            pane.heightAnchor.constraint(equalToConstant: 240),
+            pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
         ])
         view = container
         observation = model.changes.observe { [weak self] in self?.update() }
@@ -145,13 +155,6 @@ final class ChatDetailsController: NSViewController {
         return label
     }
 
-    private func separator() -> NSView {
-        let line = NSBox()
-        line.boxType = .separator
-        line.translatesAutoresizingMaskIntoConstraints = false
-        line.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
-        return line
-    }
 
     private func update() {
         let row = model.row

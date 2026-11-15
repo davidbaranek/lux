@@ -27,7 +27,7 @@ final class ChatContainerController: NSViewController {
         addChild(next)
         next.view.frame = view.bounds
         next.view.autoresizingMask = [.width, .height]
-        guard let thread = next as? ThreadController ?? (next as? ChatSplitController)?.chat, let previous else {
+        guard let thread = next as? ThreadController, let previous else {
             view.addSubview(next.view)
             remove(previous)
             return

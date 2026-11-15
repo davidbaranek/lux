@@ -85,7 +85,6 @@
 		8D684BEEA4B55C5A372D4EBF /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB1888448FCBA297255D8F4 /* ComposerView.swift */; };
 		8DA6D64EC74046B5C76ADBB2 /* LoadingBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0424D3218B18987B7AEDF49E /* LoadingBubble.swift */; };
 		8E5744CB69A12FAA9AC0B18C /* BackgroundUploads.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */; };
-		92F8E90D84BAFFDE42DC70A7 /* ChatSplitController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F528A722FD23004BF06B010 /* ChatSplitController.swift */; };
 		94CC02234E6FE450938E7FEC /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = AB82166DFC9FDD92BB44334E /* LuxCore */; };
 		967349FF9CFE2A315B06B48A /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60079532E50D716748C497E7 /* AvatarView.swift */; };
 		9870605D274684B0114BCB1C /* Info-Mac.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2E8DBA576C484AC2544EB0FA /* Info-Mac.plist */; };
@@ -133,6 +132,7 @@
 		D9F5BB596C18FA8E3AA08B01 /* RecoverySetupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E3E60D668BFA91A83F63D0 /* RecoverySetupController.swift */; };
 		DEC843A195F03049A897DEAC /* NewConversationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */; };
 		DECA8F2F35AC1DF95C3406C0 /* RecoveryKeyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */; };
+		E08452C764F062D293602F98 /* InspectorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F75AFB92D1559227086945 /* InspectorController.swift */; };
 		E147D495AC39B7A968B095E8 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60079532E50D716748C497E7 /* AvatarView.swift */; };
 		E78834AAAD1D2FAF1F0DC1D0 /* ChatTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15301CE9D8CDC009F178CF79 /* ChatTitleView.swift */; };
 		E87A984B2C06178BAE83ED09 /* AlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A688E800048B078A52B754C7 /* AlbumView.swift */; };
@@ -251,7 +251,6 @@
 		1D889010E1B2AC08BF46E266 /* FilledTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilledTextField.swift; sourceTree = "<group>"; };
 		1E4568CFB0703D28EFF82DF4 /* ChatPickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPickerViewController.swift; sourceTree = "<group>"; };
 		1EC833400271142BD4015641 /* ChatPickerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPickerController.swift; sourceTree = "<group>"; };
-		1F528A722FD23004BF06B010 /* ChatSplitController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSplitController.swift; sourceTree = "<group>"; };
 		1FF13B6AE3AAD0FE241761F3 /* Lux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lux.entitlements; sourceTree = "<group>"; };
 		20A7CAA9E7FA199F4817C483 /* Lux-Mac-Assets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = "Lux-Mac-Assets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2180360AB5C0E986ABBBF07D /* ChatListController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListController.swift; sourceTree = "<group>"; };
@@ -333,6 +332,7 @@
 		A688E800048B078A52B754C7 /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
 		A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsViewController.swift; sourceTree = "<group>"; };
 		A8D13E5EA6D6F6231E9F0C43 /* AssetDownloader-iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "AssetDownloader-iOS.entitlements"; sourceTree = "<group>"; };
+		A8F75AFB92D1559227086945 /* InspectorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorController.swift; sourceTree = "<group>"; };
 		A911F525CB872B6D4D247132 /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
 		B078C1F708797864150311C6 /* FileDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropView.swift; sourceTree = "<group>"; };
 		B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
@@ -473,6 +473,7 @@
 			children = (
 				23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */,
 				C74036405B2152475BBCC458 /* ChatTitleView.swift */,
+				A8F75AFB92D1559227086945 /* InspectorController.swift */,
 				38EB133AC22139BB66D39275 /* main.swift */,
 				A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */,
 				9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */,
@@ -718,7 +719,6 @@
 			children = (
 				A688E800048B078A52B754C7 /* AlbumView.swift */,
 				045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */,
-				1F528A722FD23004BF06B010 /* ChatSplitController.swift */,
 				4F7C64CCAFB2B23EBFBBF6A9 /* ComposerModeBar.swift */,
 				B078C1F708797864150311C6 /* FileDropView.swift */,
 				4D1A30D2DF3D718DA2A4B81F /* FileRowView.swift */,
@@ -1185,7 +1185,6 @@
 				0081153BE394BC6DC28D5B7F /* ChatDetailsController.swift in Sources */,
 				B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */,
 				EAA215B7DC7259486BC719F0 /* ChatPickerController.swift in Sources */,
-				92F8E90D84BAFFDE42DC70A7 /* ChatSplitController.swift in Sources */,
 				1D909DDF5C83BC9399F987E2 /* ChatStylePicker.swift in Sources */,
 				C49CF522A44DCFC69D5B38C5 /* ChatTitleView.swift in Sources */,
 				EA5D02631FE7BFF04D17AAFC /* ComposerModeBar.swift in Sources */,
@@ -1197,6 +1196,7 @@
 				0BCF753EFAFAE2E02791361D /* FileDropView.swift in Sources */,
 				9C07EBB6628BB81A3CE6B539 /* FileRowView.swift in Sources */,
 				04DDB2D9D29BC65964566554 /* InboxMenu.swift in Sources */,
+				E08452C764F062D293602F98 /* InspectorController.swift in Sources */,
 				ED1DBD72CF9220FA4A9C1D3D /* LoadingBubble.swift in Sources */,
 				D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */,
 				0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */,
