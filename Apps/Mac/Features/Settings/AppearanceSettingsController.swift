@@ -2,10 +2,12 @@ import AppKit
 import LuxCore
 
 /// Appearance: the colour of the places without their own (the account keeps it, so every device
-/// shows it). A place's own colour is in its menu on the rail.
+/// shows it; a place's own colour is in its menu on the rail), and how chats draw their messages
+/// (on this device).
 final class AppearanceSettingsController: NSViewController {
     private let list: ChatListModel
     private let colors = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let chatStyle = ChatStylePicker(style: Preferences.shared.chatStyle)
     /// The colour as chosen here: the list has it a moment later.
     private lazy var theme = list.defaultTheme
 
@@ -22,9 +24,11 @@ final class AppearanceSettingsController: NSViewController {
         note.textColor = .secondaryLabelColor
         note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         note.preferredMaxLayoutWidth = 340
+        chatStyle.onChoose = { Preferences.shared.chatStyle = $0 }
         view = settingsForm([
             [NSTextField(labelWithString: String(localized: "Places’ colour:")), colors],
             [NSGridCell.emptyContentView, note],
+            [NSTextField(labelWithString: String(localized: "Messages:")), chatStyle],
         ])
         update()
     }

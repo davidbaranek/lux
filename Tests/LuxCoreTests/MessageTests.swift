@@ -89,6 +89,68 @@ struct MessageLayoutTests {
         #expect(layout.post!.maxY < layout.bubble.height)
     }
 
+    @Test func plainRowsPutEveryoneUnderTheirPictureAndName() {
+        let m = BubbleMetrics()
+        let column = m.sideMargin + m.plainAvatarSide + m.plainAvatarGap
+        for own in [false, true] {
+            let layout = MessageLayout.make(message(own: own, body: "hello"), showsSender: false, style: .plain, width: 400,
+                                            metrics: m, measure: FixedMeasure())
+            #expect(layout.avatar?.minX == m.sideMargin)
+            #expect(layout.sender?.minX == column)
+            #expect(layout.time!.minX > layout.sender!.maxX)
+            #expect(layout.bubble.minX == column)
+            #expect(layout.body?.origin == .zero)
+            #expect(layout.bubble.minY >= layout.sender!.maxY)
+            // the band reaches round the parts, to the row's bottom.
+            #expect(layout.band!.minY < layout.sender!.minY && layout.band!.maxY == layout.height)
+            #expect(layout.band!.minX == m.plainBandInset && layout.band!.maxX == 400 - m.plainBandInset)
+        }
+    }
+
+    @Test func aPlainRunShowsItsNameOnceAndUsesTheWholeWidth() {
+        var item = message(own: false, body: String(repeating: "a", count: 100))
+        item.startsGroup = false
+        let layout = MessageLayout.make(item, showsSender: true, style: .plain, width: 400, metrics: BubbleMetrics(), measure: FixedMeasure())
+        #expect(layout.sender == nil && layout.avatar == nil && layout.time == nil)
+        // past the bubbles' widest (78 % of the row).
+        #expect(layout.bubble.width > floor(400 * 0.78))
+        #expect(layout.bubble.maxX <= 400 - BubbleMetrics().sideMargin)
+    }
+
+    @Test func aPlainReplyQuotesItsMessageOnALineOverItsHeader() {
+        let m = BubbleMetrics()
+        var item = message(own: false, body: "yes")
+        item.startsGroup = false
+        item.quote = .init(senderName: "Petr", text: "coming?")
+        let layout = MessageLayout.make(item, showsSender: true, style: .plain, width: 400, metrics: m, measure: FixedMeasure())
+        #expect(layout.quote == nil)
+        #expect(layout.replyAvatar!.minX == m.sideMargin + m.plainAvatarSide + m.plainAvatarGap)
+        #expect(layout.reply!.minX > layout.replyAvatar!.maxX)
+        // a reply shows who sent it, under its quote, even inside a run.
+        #expect(layout.sender!.minY >= layout.reply!.maxY)
+        #expect(layout.avatar != nil)
+        // the link runs from above the sender's picture to before the quoted one's.
+        #expect(layout.replyLink!.minX == layout.avatar!.midX)
+        #expect(layout.replyLink!.maxX < layout.replyAvatar!.minX)
+        #expect(layout.replyLink!.maxY < layout.avatar!.minY)
+    }
+
+    @Test func aPlainRowsEditedMarkSitsAtItsLeadingEdge() {
+        var item = message(own: true, body: "hello there")
+        item.footer = .init(isEdited: true, status: nil)
+        let layout = MessageLayout.make(item, showsSender: false, style: .plain, width: 400, metrics: BubbleMetrics(), measure: FixedMeasure())
+        #expect(layout.footer?.minX == 0)
+    }
+
+    @Test func aNewStyleMeasuresEveryMessageAgain() {
+        let cache = MessageLayoutCache()
+        let items = [message(own: false, body: "one")]
+        let bubbles = cache.update(items, showsSender: false, width: 300, measure: FixedMeasure()).layouts["m"]
+        let plain = cache.update(items, showsSender: false, style: .plain, width: 300, measure: FixedMeasure()).layouts["m"]
+        #expect(bubbles?.style == .bubbles)
+        #expect(plain?.style == .plain)
+    }
+
     @Test func cacheMeasuresOnlyWhatChanged() {
         let cache = MessageLayoutCache()
         var items = [message(own: false, body: "one")]
@@ -96,6 +158,20 @@ struct MessageLayoutTests {
         #expect(cache.update(items, showsSender: false, width: 300, measure: FixedMeasure()).changed.isEmpty)
         items[0].body = "two"
         #expect(cache.update(items, showsSender: false, width: 300, measure: FixedMeasure()).changed == ["m"])
+    }
+}
+
+@MainActor
+struct ChatStylePreferenceTests {
+    @Test func aChatsOwnStyleWinsOverTheAppsUntilItIsCleared() {
+        let preferences = Preferences.shared
+        let app = preferences.chatStyle
+        defer { preferences.setChatStyle(nil, in: "!test:style") }
+        preferences.setChatStyle(app == .plain ? .bubbles : .plain, in: "!test:style")
+        #expect(preferences.chatStyle(in: "!test:style") != app)
+        #expect(preferences.chatStyle(in: "!other:style") == app)
+        preferences.setChatStyle(nil, in: "!test:style")
+        #expect(preferences.chatStyle(in: "!test:style") == app)
     }
 }
 

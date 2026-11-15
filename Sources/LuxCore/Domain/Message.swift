@@ -72,8 +72,8 @@ public struct MessageItem: Hashable, Sendable, Identifiable {
     public var uploadProgress: Double?
     public var reactions: [Reaction]
     public var isEdited: Bool
-    /// A quote of the message this one answers ("Anna: hi").
-    public var quote: String?
+    /// The message this one answers, as its quote shows it.
+    public var quote: Quote?
     /// Your own text message: it can be edited.
     public var isEditable = false
     /// Its event id once the server has it ("" before): what Saved keeps.
@@ -121,6 +121,20 @@ public struct MessageItem: Hashable, Sendable, Identifiable {
         }
     }
 
+    /// The message a reply answers: its sender (empty until known) and picture, and what it is
+    /// ("hi", "Photo").
+    public struct Quote: Hashable, Sendable {
+        public var senderName: String
+        public var text: String
+        public var senderAvatar: ImageRef?
+
+        public init(senderName: String, text: String, senderAvatar: ImageRef? = nil) {
+            self.senderName = senderName
+            self.text = text
+            self.senderAvatar = senderAvatar
+        }
+    }
+
     /// What is not plain about a message, as the core tells it; the app words it.
     public struct Footer: Hashable, Sendable {
         public enum Status: Hashable, Sendable {
@@ -145,7 +159,7 @@ public struct MessageItem: Hashable, Sendable, Identifiable {
     public var endsGroup = true
 
     public init(id: String, senderId: String, senderName: String, body: String, date: Date, isOwn: Bool,
-                state: State = .sent, photo: Photo? = nil, reactions: [Reaction] = [], isEdited: Bool = false, quote: String? = nil,
+                state: State = .sent, photo: Photo? = nil, reactions: [Reaction] = [], isEdited: Bool = false, quote: Quote? = nil,
                 senderAvatar: ImageRef? = nil) {
         self.senderAvatar = senderAvatar
         self.id = id

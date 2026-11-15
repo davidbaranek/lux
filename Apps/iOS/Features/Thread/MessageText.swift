@@ -4,7 +4,7 @@ import UIKit
 /// The fonts of a message row at one text size, and how they measure text. UIKit's string
 /// measuring is thread-safe, so layouts are made off the main thread with the fonts the cells use.
 struct MessageText: TextMeasuring, Sendable {
-    let sender: UIFont, quote: UIFont, body: UIFont, footer: UIFont, reactions: UIFont, fileName: UIFont
+    let sender: UIFont, author: UIFont, quote: UIFont, body: UIFont, footer: UIFont, reactions: UIFont, fileName: UIFont
     /// A shared post's card: its title, its caption, its "Show more".
     let postTitle: UIFont, postText: UIFont, postMore: UIFont
     /// Code in a message, at the body's size.
@@ -13,6 +13,7 @@ struct MessageText: TextMeasuring, Sendable {
     init(_ traits: UITraitCollection) {
         func font(_ style: UIFont.TextStyle) -> UIFont { .preferredFont(forTextStyle: style, compatibleWith: traits) }
         sender = font(.caption1)
+        author = font(.subheadline).bold
         quote = font(.footnote)
         body = font(.body)
         footer = font(.caption2)
@@ -27,6 +28,8 @@ struct MessageText: TextMeasuring, Sendable {
     func font(_ role: TextRole) -> UIFont {
         switch role {
         case .sender: sender
+        case .author: author
+        case .reply: quote
         case .quote: quote
         case .body: body
         case .footer: footer
@@ -44,11 +47,11 @@ struct MessageText: TextMeasuring, Sendable {
                                                   options: [.usesLineFragmentOrigin, .usesFontLeading],
                                                   attributes: [.font: font], context: nil)
         // a quote shows at most two lines.
-        // a file's name, one line (it truncates).
+        // a file's name and a reply's line, one line (they truncate).
         // a post's title, two.
         let height = switch role {
         case .quote, .postTitle: min(rect.height, font.lineHeight * 2)
-        case .fileName: ceil(font.lineHeight)
+        case .fileName, .reply: ceil(font.lineHeight)
         default: rect.height
         }
         return CGSize(width: ceil(rect.width), height: ceil(height))
