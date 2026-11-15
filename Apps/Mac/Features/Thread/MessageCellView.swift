@@ -47,12 +47,25 @@ final class MessageCellView: NSTableCellView {
 
     override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
     private var source: (MessageText, ImagePipeline?, Bool)?
+    /// The place's colour: one's own bubbles, "New messages", the marks of one's own reactions.
+    var accent = NSColor.controlAccentColor {
+        didSet {
+            guard accent != oldValue else { return }
+            unreadMarker.accent = accent
+            restyle()
+        }
+    }
 
     override var isFlipped: Bool { true }
 
     /// Layer colours are fixed values: resolve them again for the new appearance.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    /// Places the shown message again, its colours resolved anew.
+    private func restyle() {
         guard let (message, layout) = shown, let (text, images, isGroup) = source else { return }
         shown = nil
         effectiveAppearance.performAsCurrentDrawingAppearance { show(message, layout: layout, isGroup: isGroup, text: text, images: images) }
@@ -85,7 +98,7 @@ final class MessageCellView: NSTableCellView {
         for view in [day, unreadMarker, avatar, sender, bubble, reactionsBackground, readers, detail, failed] as [NSView] { addSubview(view) }
         bubble.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(bubbleClicked)))
         replyArrow.image = NSImage(systemSymbolName: "arrowshape.turn.up.left.circle.fill", accessibilityDescription: nil)
-        replyArrow.symbolConfiguration = Self.arrowStyle(armed: false)
+        replyArrow.symbolConfiguration = arrowStyle(armed: false)
         replyArrow.alphaValue = 0
         addSubview(replyArrow)
         setAccessibilityElement(true)
@@ -99,9 +112,9 @@ final class MessageCellView: NSTableCellView {
     @objc private func postMoreClicked() { onPostMore?() }
 
     /// A white arrow on a filled circle: grey until letting go would reply, then the accent colour.
-    private static func arrowStyle(armed: Bool) -> NSImage.SymbolConfiguration {
+    private func arrowStyle(armed: Bool) -> NSImage.SymbolConfiguration {
         NSImage.SymbolConfiguration(pointSize: 26, weight: .regular)
-            .applying(.init(paletteColors: [.white, armed ? .controlAccentColor : .systemGray]))
+            .applying(.init(paletteColors: [.white, armed ? accent : .systemGray]))
     }
 
     /// Moves the message `offset` points to the right and uncovers the arrow, which stays at the
@@ -110,7 +123,7 @@ final class MessageCellView: NSTableCellView {
         let armed = progress >= 1
         if armed != replyArmed {
             replyArmed = armed
-            replyArrow.symbolConfiguration = Self.arrowStyle(armed: armed)
+            replyArrow.symbolConfiguration = arrowStyle(armed: armed)
         }
         setBoundsOrigin(NSPoint(x: -offset, y: 0))
         let side: CGFloat = 30
@@ -173,10 +186,10 @@ final class MessageCellView: NSTableCellView {
     func flash() {
         guard let own = shown?.0.isOwn, let layer = bubble.layer else { return }
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            let base = (own ? NSColor.controlAccentColor : NSColor.incomingBubble).usingColorSpace(.sRGB) ?? .gray
+            let base = (own ? accent : NSColor.incomingBubble).usingColorSpace(.sRGB) ?? .gray
             // others' grey turns to the accent; one's own (already the accent) lightens.
             let highlight = own ? base.blended(withFraction: 0.35, of: .white) ?? base
-                                : base.blended(withFraction: 0.55, of: .controlAccentColor) ?? base
+                                : base.blended(withFraction: 0.55, of: accent) ?? base
             let pulse = CAKeyframeAnimation(keyPath: "backgroundColor")
             pulse.values = [base.cgColor, highlight.cgColor, highlight.cgColor, base.cgColor]
             pulse.keyTimes = [0, 0.12, 0.35, 1]
@@ -212,7 +225,7 @@ final class MessageCellView: NSTableCellView {
         place(sender, layout.sender, message.senderName, text.sender, .secondaryLabelColor)
         bubble.frame = layout.bubble
         // a clicked message darkens while its details show.
-        let fill: NSColor = own ? .controlAccentColor : .incomingBubble
+        let fill: NSColor = own ? accent : .incomingBubble
         bubble.layer?.backgroundColor = message.isMediaOnly ? nil
             : (message.showsDetail ? fill.blended(withFraction: 0.22, of: .black) ?? fill : fill).cgColor
         place(quote, layout.quote, message.quoteText, text.quote, ink.withAlphaComponent(0.75))
@@ -229,7 +242,7 @@ final class MessageCellView: NSTableCellView {
             reactionsBackground.layer?.cornerRadius = frame.height / 2
             let mine = message.reactions.contains(where: \.isMine)
             reactionsBackground.layer?.borderWidth = mine ? 1 : 0
-            reactionsBackground.layer?.borderColor = mine ? NSColor.controlAccentColor.cgColor : nil
+            reactionsBackground.layer?.borderColor = mine ? accent.cgColor : nil
             reactions.frame = frame.offsetBy(dx: -frame.minX, dy: -frame.minY).insetBy(dx: 8, dy: 3)
             reactions.set(string, font: text.reactions, color: .labelColor)
         }
@@ -291,7 +304,7 @@ final class MessageCellView: NSTableCellView {
         place(postTitle, layout.postTitle, message.postCard?.title, text.postTitle, .labelColor)
         place(postText, layout.postText, message.postCard?.description, text.postText, .secondaryLabelColor)
         place(postMore, layout.postMore, message.showsWholePost ? MessageItem.showLessText : MessageItem.showMoreText,
-              text.postMore, .controlAccentColor)
+              text.postMore, accent)
     }
 
     /// The text, with its formatting and links (the layout measured the same string).
@@ -330,16 +343,20 @@ extension NSColor {
 
 /// "New messages", between two hairlines in the accent colour.
 private final class UnreadMarkerView: NSView {
+    var accent = NSColor.controlAccentColor {
+        didSet { if accent != oldValue { needsDisplay = true } }
+    }
+
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         let text = NSAttributedString(string: String(localized: "New messages"), attributes: [
-            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium), .foregroundColor: NSColor.controlAccentColor,
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium), .foregroundColor: accent,
         ])
         let size = text.size()
         let label = NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
         text.draw(in: label)
-        NSColor.controlAccentColor.setFill()
+        accent.setFill()
         let y = bounds.midY, gap: CGFloat = 8, margin: CGFloat = 16
         NSRect(x: margin, y: y, width: max(0, label.minX - gap - margin), height: 1).fill()
         NSRect(x: label.maxX + gap, y: y, width: max(0, bounds.width - margin - label.maxX - gap), height: 1).fill()

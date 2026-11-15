@@ -53,9 +53,19 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     /// A message to open at (a saved one), by its event id.
     private let focusEvent: String?
 
-    init(session: Session, row: ChatRow, focusEvent: String? = nil) {
+    /// The colour of the place the chat opened from, for one's own bubbles. Neutral keeps the
+    /// system's blue.
+    var theme: PlaceTheme {
+        didSet {
+            guard theme != oldValue, isViewLoaded else { return }
+            updateTheme()
+        }
+    }
+
+    init(session: Session, row: ChatRow, theme: PlaceTheme, focusEvent: String? = nil) {
         self.session = session
         self.row = row
+        self.theme = theme
         self.focusEvent = focusEvent
         model = ThreadModel(session: session, row: row)
         super.init(nibName: nil, bundle: nil)
@@ -70,6 +80,13 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     private lazy var media = MediaPresenter(host: self)
     private lazy var attachments = AttachmentPicker(host: self) { [weak self] files in self?.model.attach(files) }
+
+    /// One's own bubbles: the place's colour, else the system's blue.
+    private var ownFill: UIColor { theme.color ?? .systemBlue }
+
+    private func updateTheme() {
+        for case let cell as MessageCell in collectionView.visibleCells { cell.ownFill = ownFill }
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -93,12 +110,14 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         collectionView.prefetchDataSource = self
         collectionView.accessibilityIdentifier = "messages"
         view.addSubview(collectionView)
+        updateTheme()
         // what scrolls under the bar blurs out gradually, not at a hard edge (the system's default).
         collectionView.topEdgeEffect.style = .soft
 
         let images = session.images
         let cell = UICollectionView.CellRegistration<MessageCell, String> { [weak self] cell, _, id in
             guard let self, let message = messages[id], let layout = layouts[id] else { return }
+            cell.ownFill = ownFill
             cell.show(message, layout: layout, isGroup: row.isGroup, text: text, images: images)
             cell.onQuoteTap = message.quote == nil ? nil : { [weak self] in self?.jump(toRepliedMessageOf: id) }
             cell.onLink = { url in UIApplication.shared.open(url) }

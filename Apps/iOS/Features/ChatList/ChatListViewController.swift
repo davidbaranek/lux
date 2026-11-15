@@ -317,7 +317,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             guard let collectionView = self?.collectionView else { return }
             ScrollBenchmark(collectionView, name: "chat list", direction: 1).run { [weak self] in
                 guard let self, let row = rows.first(where: \.isGroup) else { return }
-                navigationController?.pushViewController(ThreadViewController(session: session, row: row), animated: false)
+                navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme), animated: false)
             }
         }
     }
@@ -496,7 +496,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     private func open(_ row: ChatRow, focusEvent: String? = nil) {
-        navigationController?.pushViewController(ThreadViewController(session: session, row: row, focusEvent: focusEvent), animated: true)
+        navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme, focusEvent: focusEvent), animated: true)
     }
 
     /// Opens the chat of a notification the user tapped: the merged chat its room is part of,
@@ -552,12 +552,13 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         band.place(in: scrollView)
     }
 
-    /// The shown place's colour: the accent of the list and of what opens from it, and the band at
-    /// the top. Neutral keeps the app's own.
+    /// The shown place's colour: the accent of the list and of what opens from it, the band at the
+    /// top, and the open chat's own bubbles. Neutral keeps the app's own.
     func updateTheme() {
         let theme = model.theme
         band.theme = theme
         navigationController?.view.tintColor = theme.color
+        for case let thread as ThreadViewController in navigationController?.viewControllers ?? [] { thread.theme = theme }
     }
 
     /// Which of the place's chats show: the button at the bottom left.
@@ -593,7 +594,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             Task {
                 guard let id = try? await self.model.createRoom(name: name) else { return }
                 let row = ChatRow(id: id, name: name, preview: "", date: nil)
-                self.navigationController?.pushViewController(ThreadViewController(session: self.session, row: row), animated: true)
+                self.navigationController?.pushViewController(ThreadViewController(session: self.session, row: row, theme: self.model.theme), animated: true)
             }
         })
         present(alert, animated: true)
