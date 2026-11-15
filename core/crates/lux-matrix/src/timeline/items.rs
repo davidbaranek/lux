@@ -120,10 +120,7 @@ impl ItemMapper {
             },
             event_id: event.event_id().map(|id| EventId::from(id.as_str())),
             sender_name,
-            sender_avatar: match event.sender_profile() {
-                TimelineDetails::Ready(profile) => profile.avatar_url.as_ref().map(|url| MediaId::from(url.as_str())),
-                _ => None,
-            },
+            sender_avatar: profile_avatar(event.sender_profile()),
             is_own: event.is_own(),
             is_editable: event.is_editable(),
             kind: shown.kind,
@@ -391,16 +388,18 @@ fn attachment(media: &Media) -> Option<Attachment> {
 
 /// The quote of the message a reply answers; empty while it is not known.
 fn quote(details: &InReplyToDetails) -> Quote {
-    let (sender_name, kind) = match &details.event {
+    let (sender_name, sender_avatar, kind) = match &details.event {
         TimelineDetails::Ready(event) => (
             profile_name(&event.sender_profile, event.sender.localpart()),
+            profile_avatar(&event.sender_profile),
             Some(quoted_kind(&event.content)),
         ),
-        _ => (String::new(), None),
+        _ => (String::new(), None, None),
     };
     Quote {
         event_id: EventId::from(details.event_id.as_str()),
         sender_name,
+        sender_avatar,
         kind,
     }
 }
@@ -436,6 +435,14 @@ pub(crate) fn profile_name(profile: &TimelineDetails<Profile>, localpart: &str) 
             ..
         }) if !name.is_empty() => name.clone(),
         _ => localpart.to_owned(),
+    }
+}
+
+/// A sender's picture; `None` without one, or while their profile is not known.
+pub(crate) fn profile_avatar(profile: &TimelineDetails<Profile>) -> Option<MediaId> {
+    match profile {
+        TimelineDetails::Ready(profile) => profile.avatar_url.as_ref().map(|url| MediaId::from(url.as_str())),
+        _ => None,
     }
 }
 

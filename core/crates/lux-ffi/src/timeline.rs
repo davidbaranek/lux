@@ -137,6 +137,8 @@ pub struct CoreQuote {
     pub event_id: String,
     /// Its sender's name; empty until known.
     pub sender_name: String,
+    /// Its sender's picture; none without one, or until known.
+    pub sender_avatar: Option<String>,
     /// What it is, for the app to word; none until known.
     pub kind: Option<CorePreviewKind>,
 }
@@ -341,6 +343,7 @@ fn quote(quote: Quote) -> CoreQuote {
     CoreQuote {
         event_id: quote.event_id.to_string(),
         sender_name: quote.sender_name,
+        sender_avatar: quote.sender_avatar.as_ref().map(ToString::to_string),
         kind: quote.kind.map(CorePreviewKind::from),
     }
 }

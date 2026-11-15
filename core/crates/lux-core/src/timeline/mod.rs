@@ -191,6 +191,9 @@ pub struct Quote {
     pub event_id: EventId,
     /// Its sender's name; empty until it is known.
     pub sender_name: String,
+    /// Its sender's picture, beside a quote drawn above its answer; `None` without one, or until
+    /// it is known.
+    pub sender_avatar: Option<MediaId>,
     /// What it is (its text in one line, a photo), for the apps to word; `None` until it is known.
     pub kind: Option<PreviewKind>,
 }

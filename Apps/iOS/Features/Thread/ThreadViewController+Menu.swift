@@ -21,13 +21,9 @@ extension ThreadViewController {
         bubblePreview(at: indexPath)
     }
 
-    /// The bubble alone lifts, in its own shape.
+    /// The bubble alone lifts, in its own shape; a plain row, across the row.
     private func bubblePreview(at indexPath: IndexPath) -> UITargetedPreview? {
-        guard let view = collectionView.cellForItem(at: indexPath) as? MessageCell else { return nil }
-        let parameters = UIPreviewParameters()
-        parameters.visiblePath = UIBezierPath(roundedRect: view.bubble.bounds, cornerRadius: view.bubble.layer.cornerRadius)
-        parameters.backgroundColor = .clear
-        return UITargetedPreview(view: view.bubble, parameters: parameters)
+        (collectionView.cellForItem(at: indexPath) as? MessageCell)?.menuPreview
     }
 
     /// Reactions on top, then what `MessageAction` offers for the message.

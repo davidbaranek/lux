@@ -210,6 +210,7 @@ impl DemoTimelines {
         Some(Quote {
             event_id: message.event_id.clone()?,
             sender_name: message.sender_name.clone(),
+            sender_avatar: message.sender_avatar.clone(),
             kind: Some(PreviewKind::from(Kind::Text(&message.message.body))),
         })
     }
@@ -612,6 +613,8 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
             let reply = (index % 12 == 5 && index >= 10).then(|| Quote {
                 event_id: EventId::from(format!("{room}/{}", index - 10)),
                 sender_name: PEOPLE[(index - 10) % 3].to_owned(),
+                sender_avatar: ((index - 10) % 3 != 2)
+                    .then(|| MediaId::from(format!("demo-@friend{}:demo", (index - 10) % 3))),
                 kind: Some(PreviewKind::Text(text((i - 10) * 31 + 7))),
             });
             let readers = if index + 4 == count {

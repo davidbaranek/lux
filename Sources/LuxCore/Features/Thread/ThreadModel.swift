@@ -382,6 +382,13 @@ public final class ThreadModel {
     }
     public var onReadState: ((Bool) -> Void)?
 
+    /// How this chat draws its messages, and whether that is its own choice (nil follows the app's).
+    public var chatStyle: ChatStyle { Preferences.shared.chatStyle(in: chatId) }
+    public var chatStyleOverride: ChatStyle? {
+        get { Preferences.shared.chatStyleOverride(in: chatId) }
+        set { Preferences.shared.setChatStyle(newValue, in: chatId) }
+    }
+
     /// How this chat sends read receipts, and whether that is its own choice (nil follows the app's).
     public var readReceipts: ReadReceipts { Preferences.shared.readReceipts(in: chatId) }
     public var readReceiptsOverride: ReadReceipts? {

@@ -35,6 +35,15 @@ public final class SettingsModel {
         }
     }
 
+    /// Bubbles or plain rows, for every chat on this device.
+    public var chatStyle: ChatStyle {
+        get { Preferences.shared.chatStyle }
+        set {
+            Preferences.shared.chatStyle = newValue
+            changes.send()
+        }
+    }
+
     public func load() async {
         profileChanges = session.profile?.changes.observe { [weak self] in self?.changes.send() }
         await session.profile?.load()

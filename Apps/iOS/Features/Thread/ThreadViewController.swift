@@ -15,6 +15,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private var layouts: [String: MessageLayout] = [:]
     private var order: [String] = []
     private let layoutCache = MessageLayoutCache()
+    private var styleObservation: AnyObject?
     private lazy var text = MessageText(traitCollection)
     private var layoutWidth: CGFloat = 0
     /// The newest update; an older one still measuring is dropped.
@@ -233,6 +234,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             self.show(self.model.messages, relayout: true)
         }
         model.onUpdate = { [weak self] messages in self?.show(messages) }
+        // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
+        styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in
+            guard let self else { return }
+            show(model.messages, relayout: true)
+        }
         model.onFirstUnread = { [weak self] _ in self?.showLateFirstUnread() }
         model.onLoading = { [weak self] loading in
             self?.loading.set(visible: loading)
@@ -340,11 +346,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         guard layoutWidth > 0, model.hasLoaded else { return }
         generation += 1
         let generation = generation, width = layoutWidth, text = text, cache = layoutCache, isGroup = row.isGroup
-        let firstUnread = model.firstUnreadId
+        let firstUnread = model.firstUnreadId, style = model.chatStyle
         Task {
             let state = Signposts.thread.beginInterval("measure")
             let (layouts, changed) = await Self.measure(new, cache: cache, showsSender: isGroup, firstUnread: firstUnread,
-                                                        width: width, text: text)
+                                                        style: style, width: width, text: text)
             Signposts.thread.endInterval("measure", state, "\(new.count) messages, \(changed.count) changed")
             guard generation == self.generation else { return }
             apply(new, layouts: layouts, changed: relayout ? new.map(\.id) : changed)
@@ -353,8 +359,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     @concurrent
     private static func measure(_ messages: [MessageItem], cache: MessageLayoutCache, showsSender: Bool, firstUnread: String?,
-                                width: CGFloat, text: MessageText) async -> ([String: MessageLayout], [String]) {
-        cache.update(messages, showsSender: showsSender, firstUnread: firstUnread, width: width, measure: text)
+                                style: ChatStyle, width: CGFloat, text: MessageText) async -> ([String: MessageLayout], [String]) {
+        cache.update(messages, showsSender: showsSender, firstUnread: firstUnread, style: style, width: width, measure: text)
     }
 
     /// The message whose shared post's caption the user just unfolded or folded: its next change
@@ -476,7 +482,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             let tile = MessageLayout.albumGrid(count: item.album.count, width: metrics.photoWidth).tiles[0].width
             images.prefetch(item.album.map(\.photo.ref), pixels: Int(tile * scale))
         }
-        images.prefetch(items.compactMap(\.senderAvatar), pixels: AvatarView.pixels(metrics.avatarSide, traitCollection), shape: .circle)
+        let avatarSide = model.chatStyle == .plain ? metrics.plainAvatarSide : metrics.avatarSide
+        images.prefetch(items.compactMap(\.senderAvatar), pixels: AvatarView.pixels(avatarSide, traitCollection), shape: .circle)
     }
 
     /// The times to send later, or why not.

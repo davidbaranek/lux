@@ -21,7 +21,7 @@ use matrix_sdk_ui::timeline::SendTarget;
 
 use super::MatrixTimelines;
 use super::errors::{from_send_queue, from_timeline};
-use super::items::{profile_name, quoted_kind, send_state};
+use super::items::{profile_avatar, profile_name, quoted_kind, send_state};
 use crate::errors::from_sdk;
 
 impl ChatSending for MatrixTimelines {
@@ -227,12 +227,14 @@ impl MatrixTimelines {
         let mut quote = Quote {
             event_id: lux_core::ids::EventId::from(event.as_str()),
             sender_name: String::new(),
+            sender_avatar: None,
             kind: None,
         };
         if let Ok(timeline) = self.open(room).await
             && let Some(item) = timeline.timeline.item_by_event_id(event).await
         {
             quote.sender_name = profile_name(item.sender_profile(), item.sender().localpart());
+            quote.sender_avatar = profile_avatar(item.sender_profile());
             quote.kind = Some(quoted_kind(item.content()));
         }
         quote
