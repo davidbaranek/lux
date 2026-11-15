@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use super::*;
 use crate::FRAME;
 use crate::demo::{DemoAccount, DemoConfig, DemoTimelines};
-use crate::ids::MessageRef;
+use crate::ids::{MessageRef, TimelineId};
 use crate::network::Network;
 use crate::ports::ChatSending;
 use crate::ports::ThreadBackend;
@@ -59,6 +59,17 @@ async fn open(rooms: Vec<ChatRoom>, messages: usize, receipts: ReadReceipts) -> 
         messages_per_room: messages,
         ..DemoConfig::new(30)
     }));
+    open_on(threads, rooms, receipts, None).await
+}
+
+/// The view model of `rooms` (the Matrix thread of `thread` in the one room, if given), over
+/// `threads`.
+async fn open_on(
+    threads: Arc<DemoAccount>,
+    rooms: Vec<ChatRoom>,
+    receipts: ReadReceipts,
+    thread: Option<EventId>,
+) -> Opened {
     let (sender, heard) = mpsc::unbounded_channel();
     let spec = ThreadSpec {
         chat: rooms[0].id.as_str().into(),
@@ -67,6 +78,7 @@ async fn open(rooms: Vec<ChatRoom>, messages: usize, receipts: ReadReceipts) -> 
         listed_unread: false,
         read_receipts: receipts,
         zone: TimeZone::UTC,
+        thread,
     };
     let model = ThreadViewModel::open(&Handle::current(), Arc::clone(&threads), spec, Arc::new(Ear(sender)));
     let mut opened = Opened {
@@ -191,7 +203,7 @@ async fn a_merged_chat_writes_where_the_conversation_is_or_to_the_room_shown() {
     );
     thread
         .demo()
-        .send_text(&"!a:demo".into(), "news", None)
+        .send_text(&RoomId::from("!a:demo").into(), "news", None)
         .await
         .expect("sends");
     thread.frame().await;
@@ -231,6 +243,7 @@ async fn an_answer_goes_to_its_message_and_files_go_with_the_text_as_caption() {
             room: "!a:demo".into(),
             caption: Some("look".to_owned()),
             reply: Some("!a:demo/18".into()),
+            thread: None,
         })
     );
 }
@@ -291,6 +304,7 @@ fn open_slow(unread: Duration, listed_unread: bool) -> (ThreadViewModel, mpsc::U
         listed_unread,
         read_receipts: ReadReceipts::Automatic,
         zone: TimeZone::UTC,
+        thread: None,
     };
     let model = ThreadViewModel::open(&Handle::current(), threads, spec, Arc::new(Ear(sender)));
     (model, heard)
@@ -374,7 +388,7 @@ async fn a_jump_to_a_photo_in_an_album_answers_the_albums_row() {
         thread
             .threads
             .timelines()
-            .send_attachment(&"!r:demo".into(), &photo, None, None)
+            .send_attachment(&RoomId::from("!r:demo").into(), &photo, None, None)
             .await
             .unwrap();
     }
@@ -389,4 +403,174 @@ async fn a_jump_to_a_photo_in_an_album_answers_the_albums_row() {
     // the demo's events are its messages.
     let row = thread.model.jump_to_event(EventId::from(photo.as_str())).await;
     assert_eq!(row.as_ref(), Some(album.id()));
+}
+
+// MARK: Matrix threads
+
+/// The demo's room `!r:demo` of 30 messages, its newest thread's root being its 22nd.
+fn thread_demo() -> Arc<DemoAccount> {
+    Arc::new(DemoAccount::new(DemoConfig {
+        messages_per_room: 30,
+        ..DemoConfig::new(30)
+    }))
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_rooms_timeline_shows_a_threads_root_with_its_summary_and_not_its_replies() {
+    let thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
+    let root = thread
+        .rows
+        .iter()
+        .find(|row| row.id().as_str() == "!r:demo/22")
+        .expect("the root shows");
+    let summary = root.message.thread.as_ref().expect("its summary");
+    assert!(summary.replies >= 2);
+    assert!(summary.latest.is_some());
+    assert!(!summary.participants.is_empty());
+    assert!(thread.ids().iter().all(|id| !id.contains("/thread")));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_thread_opens_on_its_root_and_replies_and_what_is_sent_goes_there() {
+    let demo = thread_demo();
+    let mut chat = open_on(
+        Arc::clone(&demo),
+        vec![chat_room("!r:demo", "matrix")],
+        ReadReceipts::Automatic,
+        None,
+    )
+    .await;
+    let replies_before = chat
+        .rows
+        .iter()
+        .find(|row| row.id().as_str() == "!r:demo/22")
+        .expect("root")
+        .message
+        .thread
+        .as_ref()
+        .expect("summary")
+        .replies;
+    let mut thread = open_on(
+        Arc::clone(&demo),
+        vec![chat_room("!r:demo", "matrix")],
+        ReadReceipts::Automatic,
+        Some(EventId::from("!r:demo/22")),
+    )
+    .await;
+    let ids = thread.ids();
+    assert_eq!(ids[0], "!r:demo/22/thread");
+    assert_eq!(ids.len(), 1 + replies_before as usize);
+    assert!(ids[1..].iter().all(|id| id.starts_with("!r:demo/22/thread/")));
+    // nothing is sent later in a thread: the server's message would go to the room.
+    assert!(!thread.state().can_send_later);
+    thread.model.send_text("in the thread".to_owned(), None);
+    thread.frame().await;
+    assert_eq!(
+        thread.rows.last().map(|row| row.message.message.body.as_str()),
+        Some("in the thread")
+    );
+    // the room's timeline: the reply does not show, the root counts it.
+    chat.frame().await;
+    assert!(chat.rows.iter().all(|row| row.message.message.body != "in the thread"));
+    let summary = chat
+        .rows
+        .iter()
+        .find(|row| row.id().as_str() == "!r:demo/22")
+        .expect("root")
+        .message
+        .thread
+        .clone()
+        .expect("summary");
+    assert_eq!(summary.replies, replies_before + 1);
+    assert_eq!(summary.participants[0].name, "Me");
+    assert_eq!(
+        summary.latest.map(|latest| latest.kind),
+        Some(crate::preview::PreviewKind::Text("in the thread".to_owned()))
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn files_sent_in_a_thread_go_to_it() {
+    let mut thread = open_on(
+        thread_demo(),
+        vec![chat_room("!r:demo", "matrix")],
+        ReadReceipts::Automatic,
+        Some(EventId::from("!r:demo/22")),
+    )
+    .await;
+    thread.model.attach(vec![PathBuf::from("/tmp/a.jpg")]);
+    thread.model.send_text(String::new(), None);
+    tokio::time::sleep(FRAME * 3).await;
+    let mut upload = None;
+    while let Ok(heard) = thread.heard.try_recv() {
+        if let Heard::Upload(sent) = heard {
+            upload = Some(sent);
+        }
+    }
+    let upload = upload.expect("an upload");
+    assert_eq!(
+        upload.timeline(),
+        TimelineId::thread("!r:demo".into(), "!r:demo/22".into())
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn reacting_join_thread_to_a_bridges_notice_brings_the_threads_replies() {
+    let demo = thread_demo();
+    // the thread whose first reply is the bridge's notice, its join reaction waiting.
+    let mut found = None;
+    for index in [11, 22] {
+        let root = EventId::from(format!("!r:demo/{index}"));
+        let thread = open_on(
+            Arc::clone(&demo),
+            vec![chat_room("!r:demo", "matrix")],
+            ReadReceipts::Automatic,
+            Some(root.clone()),
+        )
+        .await;
+        if thread
+            .rows
+            .get(1)
+            .is_some_and(|row| row.message.message.body.starts_with("Thread created."))
+        {
+            found = Some(thread);
+        }
+    }
+    let mut thread = found.expect("a bridged thread among the demo's");
+    let notice = thread.rows[1].message.clone();
+    assert!(
+        notice
+            .reactions
+            .iter()
+            .any(|reaction| reaction.key == "join thread" && !reaction.is_mine)
+    );
+    let before = thread.rows.len();
+    thread
+        .model
+        .toggle_reaction(notice.message.id.clone(), "join thread".to_owned());
+    tokio::time::sleep(FRAME * 3).await;
+    thread.updates();
+    assert!(
+        thread.rows[1]
+            .message
+            .reactions
+            .iter()
+            .any(|reaction| reaction.key == "join thread" && reaction.is_mine)
+    );
+    assert_eq!(thread.rows.len(), before + 2);
+    assert!(thread.rows.last().is_some_and(|row| !row.message.is_own));
+}
+
+#[tokio::test]
+async fn a_rooms_threads_list_the_latest_active_first_a_page_at_a_time() {
+    use crate::ports::ChatDetails;
+    let demo = Arc::new(DemoAccount::new(DemoConfig {
+        messages_per_room: 200,
+        ..DemoConfig::new(30)
+    }));
+    let page = demo.threads(&"!room1:demo".into(), None).await.expect("listed");
+    assert!(page.threads.len() >= 2);
+    let latest = |thread: &crate::ports::ListedThread| thread.summary.latest.as_ref().map(|latest| latest.date);
+    assert!(page.threads.windows(2).all(|pair| latest(&pair[0]) >= latest(&pair[1])));
+    assert_eq!(page.threads[0].root.as_str(), "!room1:demo/192");
 }

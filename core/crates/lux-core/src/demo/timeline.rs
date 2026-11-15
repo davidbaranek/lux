@@ -1,7 +1,8 @@
 //! The demo's chats' timelines: each room's long made-up history (texts, photos, videos, files,
-//! albums, reactions, quotes, formatted bodies, readers), made on first use and the same every
-//! run, and what the user does to it (sending, editing, reacting…), live as diffs. A merged
-//! chat's rooms are two of them.
+//! albums, reactions, quotes, formatted bodies, readers, Matrix threads), made on first use and
+//! the same every run, and what the user does to it (sending, editing, reacting, replying in a
+//! thread…), live as diffs. A merged chat's rooms are two of them; a thread is a timeline of its
+//! own, its root's summary in the room's following its replies.
 //!
 //! [`DemoTimelines`] implements [`ChatTimelines`] and [`ChatSending`]; the made-up account holds
 //! them as a thread's backend.
@@ -21,7 +22,7 @@ use tokio::sync::broadcast;
 use super::SentMessages;
 use super::data::stable;
 use super::seeded::text;
-use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, UserId};
+use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, TimelineId, UserId};
 use crate::message::{self, Attachment, Message, SendState};
 use crate::ports::{
     BackendError, ChatSending, ChatTimelines, DiffStream, RoomChanges, SharedContent, SharedItem, SharedPage,
@@ -30,7 +31,8 @@ use crate::ports::{
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
     Draft, FileKind, IndexHistory, IndexedImage, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
-    Picture, Quote, Reaction, Reader, Receipt, SharedPost, TimelineMessage, Typist, html,
+    Participant, Picture, Quote, Reaction, Reader, Receipt, SharedPost, ThreadReply, ThreadSummary, TimelineMessage,
+    Typist, html,
 };
 
 /// The demo account's user.
@@ -69,8 +71,9 @@ pub struct DemoTimelines {
 
 #[derive(Default)]
 struct State {
-    rooms: HashMap<RoomId, ObservableVector<Arc<TimelineMessage>>>,
-    drafts: HashMap<RoomId, Draft>,
+    /// The rooms' own timelines and their threads', each made on first use.
+    timelines: HashMap<TimelineId, ObservableVector<Arc<TimelineMessage>>>,
+    drafts: HashMap<TimelineId, Draft>,
     /// Uploads under way: when each began, and its size.
     uploads: HashMap<MessageId, (SystemTime, u64)>,
 }
@@ -117,32 +120,69 @@ impl DemoTimelines {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Changes the room's messages (made first if new) and tells the listeners.
-    fn change<T>(&self, room: &RoomId, change: impl FnOnce(&mut ObservableVector<Arc<TimelineMessage>>) -> T) -> T {
+    /// Changes the timeline's messages (made first if new) and tells the listeners.
+    fn change<T>(
+        &self,
+        timeline: &TimelineId,
+        change: impl FnOnce(&mut ObservableVector<Arc<TimelineMessage>>) -> T,
+    ) -> T {
         let answer = {
             let mut state = self.state();
-            change(self.room(&mut state, room))
+            change(self.timeline(&mut state, timeline))
         };
         // nobody listening is no error.
-        let _ = self.changes.send(room.clone());
+        let _ = self.changes.send(timeline.room.clone());
         answer
     }
 
-    fn room<'a>(&self, state: &'a mut State, room: &RoomId) -> &'a mut ObservableVector<Arc<TimelineMessage>> {
+    /// The timeline's messages, made on first use: a room's history, or a thread's root and its
+    /// replies (none for a message that has no thread).
+    fn timeline<'a>(
+        &self,
+        state: &'a mut State,
+        timeline: &TimelineId,
+    ) -> &'a mut ObservableVector<Arc<TimelineMessage>> {
+        let made = (!state.timelines.contains_key(timeline)).then(|| match &timeline.thread {
+            None => history(&timeline.room, self.messages_per_room, self.start),
+            Some(root) => {
+                let main = self.timeline(state, &TimelineId::from(&timeline.room));
+                let root = main
+                    .iter()
+                    .find(|message| message.event_id.as_ref() == Some(root))
+                    .cloned();
+                root.map(|root| thread_history(&root)).unwrap_or_default()
+            }
+        });
         state
-            .rooms
-            .entry(room.clone())
-            .or_insert_with(|| ObservableVector::from(history(room, self.messages_per_room, self.start)))
+            .timelines
+            .entry(timeline.clone())
+            .or_insert_with(|| ObservableVector::from(made.unwrap_or_default()))
     }
 
-    /// A message's position and value.
-    fn find(&self, room: &RoomId, id: &MessageId) -> Result<(usize, Arc<TimelineMessage>), BackendError> {
-        self.find_ref(room, &MessageRef::Local(id.clone()))
-    }
-
-    fn find_ref(&self, room: &RoomId, message: &MessageRef) -> Result<(usize, Arc<TimelineMessage>), BackendError> {
+    /// A message's timeline (of those of its room made so far), position and value.
+    fn find(&self, room: &RoomId, id: &MessageId) -> Result<(TimelineId, usize, Arc<TimelineMessage>), BackendError> {
         let mut state = self.state();
-        let messages = self.room(&mut state, room);
+        // the room's own timeline is made first: a message there is found before any is opened.
+        self.timeline(&mut state, &TimelineId::from(room));
+        state
+            .timelines
+            .iter()
+            .filter(|(timeline, _)| &timeline.room == room)
+            .find_map(|(timeline, messages)| {
+                let index = messages.iter().position(|found| found.message.id == *id)?;
+                Some((timeline.clone(), index, Arc::clone(&messages[index])))
+            })
+            .ok_or(BackendError::UnknownMessage)
+    }
+
+    /// A message of the timeline, by its id or its event.
+    fn find_ref(
+        &self,
+        timeline: &TimelineId,
+        message: &MessageRef,
+    ) -> Result<(usize, Arc<TimelineMessage>), BackendError> {
+        let mut state = self.state();
+        let messages = self.timeline(&mut state, timeline);
         messages
             .iter()
             .position(|found| match message {
@@ -160,10 +200,10 @@ impl DemoTimelines {
         id: &MessageId,
         edit: impl FnOnce(&mut TimelineMessage),
     ) -> Result<(), BackendError> {
-        let (index, message) = self.find(room, id)?;
+        let (timeline, index, message) = self.find(room, id)?;
         let mut changed = (*message).clone();
         edit(&mut changed);
-        self.change(room, |messages| {
+        self.change(&timeline, |messages| {
             if index < messages.len() {
                 messages.set(index, Arc::new(changed));
             }
@@ -204,12 +244,13 @@ impl DemoTimelines {
             reply: None,
             readers: Vec::new(),
             shared: None,
+            thread: None,
         }
     }
 
     /// The quote of the message `reply` names, for an answer to it.
-    fn quote(&self, room: &RoomId, reply: &MessageRef) -> Option<Quote> {
-        let (_, message) = self.find_ref(room, reply).ok()?;
+    fn quote(&self, timeline: &TimelineId, reply: &MessageRef) -> Option<Quote> {
+        let (_, message) = self.find_ref(timeline, reply).ok()?;
         Some(Quote {
             event_id: message.event_id.clone()?,
             sender_name: message.sender_name.clone(),
@@ -218,15 +259,72 @@ impl DemoTimelines {
         })
     }
 
-    fn append(&self, room: &RoomId, message: TimelineMessage) {
-        self.change(room, |messages| messages.push_back(Arc::new(message)));
+    /// Adds the account's new message to the timeline; in a thread, its root's summary in the
+    /// room's own timeline counts it.
+    fn append(&self, timeline: &TimelineId, message: TimelineMessage) {
+        let reply = ThreadReply {
+            sender: Participant {
+                user: message.message.sender.clone(),
+                name: message.sender_name.clone(),
+                avatar: message.sender_avatar.clone(),
+            },
+            kind: PreviewKind::from(Kind::Text(&message.message.body)),
+            date: message.message.date,
+        };
+        self.change(timeline, |messages| messages.push_back(Arc::new(message)));
+        if let Some(root) = &timeline.thread {
+            let main = TimelineId::from(&timeline.room);
+            if let Ok((index, root)) = self.find_ref(&main, &MessageRef::Event(root.clone())) {
+                let mut changed = (*root).clone();
+                let summary = changed.thread.get_or_insert_with(ThreadSummary::default);
+                summary.replies += 1;
+                summary
+                    .participants
+                    .retain(|participant| participant.user != reply.sender.user);
+                summary.participants.insert(0, reply.sender.clone());
+                summary.latest = Some(reply);
+                self.change(&main, |messages| messages.set(index, Arc::new(changed)));
+            }
+        }
+    }
+
+    /// The room's threads, as the server lists them: newest activity first, a page from `from`.
+    pub(crate) fn threads(&self, room: &RoomId, from: Option<&str>) -> crate::ports::ThreadPage {
+        let mut state = self.state();
+        let messages = self.timeline(&mut state, &TimelineId::from(room));
+        let mut threads: Vec<crate::ports::ListedThread> = messages
+            .iter()
+            .filter_map(|message| {
+                let summary = message.thread.clone()?;
+                Some(crate::ports::ListedThread {
+                    root: message.event_id.clone()?,
+                    sender: Participant {
+                        user: message.message.sender.clone(),
+                        name: message.sender_name.clone(),
+                        avatar: message.sender_avatar.clone(),
+                    },
+                    kind: PreviewKind::from(Kind::Text(&message.message.body)),
+                    date: message.message.date,
+                    summary,
+                })
+            })
+            .collect();
+        threads.sort_by_key(|thread| {
+            std::cmp::Reverse(thread.summary.latest.as_ref().map_or(thread.date, |latest| latest.date))
+        });
+        let skip: usize = from.and_then(|from| from.parse().ok()).unwrap_or(0);
+        let end = (skip + THREADS_PAGE).min(threads.len());
+        crate::ports::ThreadPage {
+            next: (end < threads.len()).then(|| end.to_string()),
+            threads: threads.drain(skip.min(end)..end).collect(),
+        }
     }
 
     /// What the room's messages shared, a page of [`SHARED_PAGE`] messages back from `from` (a
     /// place in the history, from its newest end).
     pub(crate) fn shared(&self, room: &RoomId, from: Option<&str>) -> SharedPage {
         let mut state = self.state();
-        let messages = self.room(&mut state, room);
+        let messages = self.timeline(&mut state, &TimelineId::from(room));
         let skip: usize = from.and_then(|from| from.parse().ok()).unwrap_or(0);
         let end = (skip + SHARED_PAGE).min(messages.len());
         let items = messages
@@ -245,6 +343,9 @@ impl DemoTimelines {
 
 /// How many messages a page of the shared history reads.
 const SHARED_PAGE: usize = 50;
+
+/// How many threads a page of a room's threads lists.
+const THREADS_PAGE: usize = 20;
 
 /// What a message shared: its photo, video or file, and each link in its text.
 fn shared_items(room: &RoomId, message: &TimelineMessage) -> Vec<SharedItem> {
@@ -298,50 +399,55 @@ impl ChatTimelines for DemoTimelines {
     }
 
     /// The whole made-up history is there at once: nothing closes.
-    fn hold(&self, _room: &RoomId) -> TimelineHold {
+    fn hold(&self, _timeline: &TimelineId) -> TimelineHold {
         TimelineHold::new(|| {})
     }
 
-    async fn messages(&self, room: &RoomId) -> Result<DiffStream<Arc<TimelineMessage>>, BackendError> {
+    async fn messages(&self, timeline: &TimelineId) -> Result<DiffStream<Arc<TimelineMessage>>, BackendError> {
         let (values, batches) = {
             let mut state = self.state();
-            self.room(&mut state, room).subscribe().into_values_and_batched_stream()
+            self.timeline(&mut state, timeline)
+                .subscribe()
+                .into_values_and_batched_stream()
         };
         let first = stream::once(async move { vec![eyeball_im::VectorDiff::Reset { values }] });
         Ok(Box::pin(first.chain(batches)))
     }
 
-    async fn prefetch(&self, room: &RoomId) -> Result<(), BackendError> {
+    async fn prefetch(&self, timeline: &TimelineId) -> Result<(), BackendError> {
         let mut state = self.state();
-        self.room(&mut state, room);
+        self.timeline(&mut state, timeline);
         Ok(())
     }
 
-    async fn wait_until_filled(&self, _room: &RoomId) {}
+    async fn wait_until_filled(&self, _timeline: &TimelineId) {}
 
-    async fn load_older(&self, _room: &RoomId, _count: usize) -> Result<(), BackendError> {
+    async fn load_older(&self, _timeline: &TimelineId, _count: usize) -> Result<(), BackendError> {
         Ok(())
     }
 
-    async fn is_at_start(&self, _room: &RoomId) -> Result<bool, BackendError> {
+    async fn is_at_start(&self, _timeline: &TimelineId) -> Result<bool, BackendError> {
         Ok(true)
     }
 
-    async fn show_event(&self, room: &RoomId, event: &EventId) -> Result<Option<MessageId>, BackendError> {
+    async fn show_event(&self, timeline: &TimelineId, event: &EventId) -> Result<Option<MessageId>, BackendError> {
         Ok(self
-            .find(room, &MessageId::from(event.as_str()))
+            .find_ref(timeline, &MessageRef::Event(event.clone()))
             .ok()
             .map(|(_, message)| message.message.id.clone()))
     }
 
-    /// The demo's chats have their last five messages unread.
-    async fn first_unread(&self, room: &RoomId) -> Result<Option<MessageId>, BackendError> {
+    /// The demo's chats have their last five messages unread; their threads are read.
+    async fn first_unread(&self, timeline: &TimelineId) -> Result<Option<MessageId>, BackendError> {
         #[cfg(test)]
         tokio::time::sleep(Duration::from_millis(self.unread_millis.load(Ordering::Relaxed))).await;
+        if timeline.thread.is_some() {
+            return Ok(None);
+        }
         Ok(self
             .messages_per_room
             .checked_sub(5)
-            .map(|index| MessageId::from(format!("{room}/{index}"))))
+            .map(|index| MessageId::from(format!("{}/{index}", timeline.room))))
     }
 
     async fn index_history(
@@ -354,7 +460,7 @@ impl ChatTimelines for DemoTimelines {
         let most = max_pages as usize * 50;
         let mut history = IndexHistory::default();
         let mut state = self.state();
-        let shown = self.room(&mut state, room);
+        let shown = self.timeline(&mut state, &TimelineId::from(room));
         let newest = shown.iter().rev().filter(|message| message.message.date >= since);
         for message in newest.clone().take(most) {
             let event_id = EventId::from(message.message.id.as_str());
@@ -408,19 +514,28 @@ impl ChatTimelines for DemoTimelines {
 
 impl ChatSending for DemoTimelines {
     /// A message with "fail" in it fails, to show the retry and discard actions.
-    async fn send_text(&self, room: &RoomId, text: &str, reply: Option<&MessageRef>) -> Result<(), BackendError> {
+    async fn send_text(
+        &self,
+        timeline: &TimelineId,
+        text: &str,
+        reply: Option<&MessageRef>,
+    ) -> Result<(), BackendError> {
+        let room = &timeline.room;
         let mut message = self.own_message(room, text);
         if text.contains("fail") {
             message.message.state = SendState::Failed;
         }
         if let Some(reply) = reply {
-            message.reply = self.quote(room, reply);
+            message.reply = self.quote(timeline, reply);
             message.message.is_reply = message.reply.is_some();
         }
-        self.state().drafts.remove(room);
+        self.state().drafts.remove(timeline);
         let date = message.message.date;
-        self.append(room, message);
-        if let Some(account) = &self.sent {
+        self.append(timeline, message);
+        // a thread's reply is not the chat's newest message in the list.
+        if let Some(account) = &self.sent
+            && timeline.thread.is_none()
+        {
             account.sent(room, text, date);
         }
         Ok(())
@@ -454,8 +569,8 @@ impl ChatSending for DemoTimelines {
     }
 
     async fn discard(&self, room: &RoomId, message: &MessageId) -> Result<(), BackendError> {
-        let (index, _) = self.find(room, message)?;
-        self.change(room, |messages| {
+        let (timeline, index, _) = self.find(room, message)?;
+        self.change(&timeline, |messages| {
             if index < messages.len() {
                 messages.remove(index);
             }
@@ -463,23 +578,44 @@ impl ChatSending for DemoTimelines {
         Ok(())
     }
 
+    /// Reacting "join thread" to a bridge's thread notice joins the thread: the bridge brings its
+    /// replies from the other network, as mautrix-discord does.
     async fn toggle_reaction(&self, room: &RoomId, message: &MessageId, key: &str) -> Result<(), BackendError> {
+        let mut joined = false;
         self.edit_message(room, message, |message| {
             toggle(&mut message.reactions, key);
             message.message.has_reactions = !message.reactions.is_empty();
-        })
+            joined = key == JOIN_THREAD
+                && message.message.body.starts_with(THREAD_NOTICE)
+                && message
+                    .reactions
+                    .iter()
+                    .any(|reaction| reaction.key == key && reaction.is_mine);
+        })?;
+        if joined && let Ok((timeline, _, _)) = self.find(room, message) {
+            for (index, body) in JOINED_REPLIES.iter().enumerate() {
+                let mut reply = self.own_message(room, body);
+                reply.message.sender = UserId::from(format!("@friend{index}:demo"));
+                PEOPLE[index % PEOPLE.len()].clone_into(&mut reply.sender_name);
+                reply.sender_avatar = Some(MediaId::from(format!("demo-@friend{index}:demo")));
+                reply.is_own = false;
+                reply.is_editable = false;
+                self.append(&timeline, reply);
+            }
+        }
+        Ok(())
     }
 
     /// Shows the attachment at once, sent; its upload goes on for a second a megabyte, at most
     /// five (`send_state`). Its picture is the file on the device.
     async fn send_attachment(
         &self,
-        room: &RoomId,
+        timeline: &TimelineId,
         attachment: &OutgoingAttachment,
         caption: Option<&str>,
         reply: Option<&MessageRef>,
     ) -> Result<Option<MessageId>, BackendError> {
-        let mut message = self.own_message(room, caption.unwrap_or_default());
+        let mut message = self.own_message(&timeline.room, caption.unwrap_or_default());
         let picture = |file: &Path, width, height| Picture {
             source: MediaId::from(file.to_string_lossy().into_owned()),
             width,
@@ -510,14 +646,14 @@ impl ChatSending for DemoTimelines {
         message.message.attachment = attachment_of(message.media.as_ref());
         message.is_editable = false;
         if let Some(reply) = reply {
-            message.reply = self.quote(room, reply);
+            message.reply = self.quote(timeline, reply);
             message.message.is_reply = message.reply.is_some();
         }
         let id = message.message.id.clone();
         self.state()
             .uploads
             .insert(id.clone(), (SystemTime::now(), attachment.size));
-        self.append(room, message);
+        self.append(timeline, message);
         Ok(Some(id))
     }
 
@@ -541,27 +677,33 @@ impl ChatSending for DemoTimelines {
     async fn forward(&self, room: &RoomId, message: &MessageId, target: &ChatId) -> Result<(), BackendError> {
         #[cfg(test)]
         tokio::time::sleep(Duration::from_millis(self.forward_millis.load(Ordering::Relaxed))).await;
-        let (_, message) = self.find(room, message)?;
+        let (_, _, message) = self.find(room, message)?;
         let target = match &self.sent {
             Some(account) => account.send_room(target),
             None => target.room().cloned(),
         }
         .ok_or_else(|| BackendError::UnknownChat(target.clone()))?;
-        self.send_text(&target, &message.message.body, None).await
+        self.send_text(&TimelineId::from(target), &message.message.body, None)
+            .await
     }
 
-    async fn draft(&self, room: &RoomId) -> Result<Option<Draft>, BackendError> {
-        Ok(self.state().drafts.get(room).cloned())
+    async fn draft(&self, timeline: &TimelineId) -> Result<Option<Draft>, BackendError> {
+        Ok(self.state().drafts.get(timeline).cloned())
     }
 
-    async fn save_draft(&self, room: &RoomId, text: &str, reply: Option<&MessageRef>) -> Result<(), BackendError> {
-        let reply = reply.and_then(|reply| self.quote(room, reply));
+    async fn save_draft(
+        &self,
+        timeline: &TimelineId,
+        text: &str,
+        reply: Option<&MessageRef>,
+    ) -> Result<(), BackendError> {
+        let reply = reply.and_then(|reply| self.quote(timeline, reply));
         let mut state = self.state();
         if text.is_empty() && reply.is_none() {
-            state.drafts.remove(room);
+            state.drafts.remove(timeline);
         } else {
             state.drafts.insert(
-                room.clone(),
+                timeline.clone(),
                 Draft {
                     text: text.to_owned(),
                     reply,
@@ -571,7 +713,7 @@ impl ChatSending for DemoTimelines {
         Ok(())
     }
 
-    async fn mark_read(&self, _room: &RoomId, _receipt: Receipt) -> Result<(), BackendError> {
+    async fn mark_read(&self, _timeline: &TimelineId, _receipt: Receipt) -> Result<(), BackendError> {
         Ok(())
     }
 
@@ -740,9 +882,160 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
                 reply,
                 readers,
                 shared,
+                thread: None,
+            })
+        })
+        .map(|message| {
+            if !is_thread_root(&message, count) {
+                return message;
+            }
+            let mut started = (*message).clone();
+            started.thread = Some(summary_of(&thread_replies(&started)));
+            Arc::new(started)
+        })
+        .collect()
+}
+
+/// What a bridge says in a thread it made from another network's (mautrix-discord's notice);
+/// reacting with [`JOIN_THREAD`] joins it there.
+const THREAD_NOTICE: &str = "Thread created.";
+
+/// The reaction that joins a bridged thread, the bridge's own already on its notice.
+const JOIN_THREAD: &str = "join thread";
+
+/// What the others wrote in a bridged thread before the user joined it.
+const JOINED_REPLIES: [&str; 2] = ["Welcome! We were just picking the date.", "Saturday works for me."];
+
+/// The made-up messages that start a thread: a text now and then, the newest a little before
+/// the end, so a thread shows on the first screen.
+fn is_thread_root(message: &TimelineMessage, count: usize) -> bool {
+    let index: usize = message
+        .message
+        .id
+        .as_str()
+        .rsplit('/')
+        .next()
+        .and_then(|index| index.parse().ok())
+        .unwrap_or(0);
+    message.media.is_none()
+        && message.shared.is_none()
+        && message.reply.is_none()
+        && (index % 25 == 11 || index + 8 == count)
+}
+
+/// A thread's made-up replies, oldest first, after its root: the others answering, the user
+/// among them now and then; the newest root's first reply is a bridge's notice, its join
+/// reaction waiting.
+fn thread_replies(root: &TimelineMessage) -> Vec<Arc<TimelineMessage>> {
+    let root_event = root
+        .event_id
+        .clone()
+        .unwrap_or_else(|| EventId::from(root.message.id.as_str()));
+    let seed = stable(root_event.as_str());
+    let count = 2 + usize::try_from(seed % 4).unwrap_or(0);
+    let bridged = seed.is_multiple_of(3);
+    (0..count)
+        .map(|index| {
+            let i = index as u64;
+            let id = MessageId::from(format!("{}/thread/{index}", root.message.id));
+            let notice = bridged && index == 0;
+            let is_own = !notice && (seed + i) % 4 == 3;
+            let friend = usize::try_from((seed + i) % 3).unwrap_or(0);
+            let sender = if notice {
+                "@discordbot:demo".to_owned()
+            } else if is_own {
+                OWN_USER.to_owned()
+            } else {
+                format!("@friend{friend}:demo")
+            };
+            let body = if notice {
+                format!("{THREAD_NOTICE} React to this message with \"{JOIN_THREAD}\" to join the thread on Discord.")
+            } else {
+                text(seed + i * 13)
+            };
+            let reactions = if notice {
+                vec![Reaction {
+                    key: JOIN_THREAD.to_owned(),
+                    count: 1,
+                    is_mine: false,
+                }]
+            } else {
+                Vec::new()
+            };
+            Arc::new(TimelineMessage {
+                message: Message {
+                    id: id.clone(),
+                    sender: UserId::from(sender.as_str()),
+                    room: root.message.room.clone(),
+                    date: root.message.date + Duration::from_secs(120 * (i + 1)),
+                    state: SendState::Sent,
+                    is_edited: false,
+                    attachment: None,
+                    is_reply: false,
+                    has_reactions: !reactions.is_empty(),
+                    links: message::links(&body, &[]),
+                    body,
+                },
+                event_id: Some(EventId::from(id.as_str())),
+                sender_name: if notice {
+                    "Discord bridge bot".to_owned()
+                } else if is_own {
+                    "Me".to_owned()
+                } else {
+                    PEOPLE[friend].to_owned()
+                },
+                sender_avatar: (!notice && !is_own).then(|| MediaId::from(format!("demo-{sender}"))),
+                is_own,
+                is_editable: is_own,
+                kind: MessageKind::Message,
+                media: None,
+                styles: Vec::new(),
+                reactions,
+                reply: None,
+                readers: Vec::new(),
+                shared: None,
+                thread: None,
             })
         })
         .collect()
+}
+
+/// A thread's summary, from its replies.
+fn summary_of(replies: &[Arc<TimelineMessage>]) -> ThreadSummary {
+    let participant = |message: &TimelineMessage| Participant {
+        user: message.message.sender.clone(),
+        name: message.sender_name.clone(),
+        avatar: message.sender_avatar.clone(),
+    };
+    let mut participants: Vec<Participant> = Vec::new();
+    for reply in replies.iter().rev() {
+        if !participants.iter().any(|known| known.user == reply.message.sender) {
+            participants.push(participant(reply));
+        }
+    }
+    ThreadSummary {
+        replies: u32::try_from(replies.len()).unwrap_or(u32::MAX),
+        latest: replies.last().map(|latest| ThreadReply {
+            sender: participant(latest),
+            kind: PreviewKind::from(Kind::Text(&latest.message.body)),
+            date: latest.message.date,
+        }),
+        participants,
+        unread: 0,
+    }
+}
+
+/// A thread's own timeline: its root (as the thread shows it, with an id of its own), then its
+/// replies.
+fn thread_history(root: &TimelineMessage) -> Vector<Arc<TimelineMessage>> {
+    let mut first = root.clone();
+    first.message.id = MessageId::from(format!("{}/thread", root.message.id));
+    first.thread = None;
+    first.readers.clear();
+    let mut messages = Vector::new();
+    messages.push_back(Arc::new(first));
+    messages.extend(thread_replies(root));
+    messages
 }
 
 /// A shared reel's caption, as long as such captions run.
@@ -793,10 +1086,10 @@ mod tests {
     #[tokio::test]
     async fn sending_reacting_and_deleting_show_as_diffs() {
         let demo = DemoTimelines::new(20);
-        let mut messages = demo.messages(&room()).await.expect("opens");
+        let mut messages = demo.messages(&room().into()).await.expect("opens");
         let first = messages.next().await.expect("a reset");
         assert!(matches!(first.as_slice(), [eyeball_im::VectorDiff::Reset { values }] if values.len() == 20));
-        demo.send_text(&room(), "hi", Some(&MessageRef::Local("!room1:demo/15".into())))
+        demo.send_text(&room().into(), "hi", Some(&MessageRef::Local("!room1:demo/15".into())))
             .await
             .expect("sends");
         let sent = messages.next().await.expect("a batch");
@@ -816,14 +1109,16 @@ mod tests {
     #[tokio::test]
     async fn a_failing_message_retries_and_the_first_unread_is_five_back() {
         let demo = DemoTimelines::new(20);
-        demo.send_text(&room(), "this will fail", None).await.expect("queued");
-        let (_, failed) = demo.find(&room(), &MessageId::from("demo-sent-0")).expect("there");
+        demo.send_text(&room().into(), "this will fail", None)
+            .await
+            .expect("queued");
+        let (_, _, failed) = demo.find(&room(), &MessageId::from("demo-sent-0")).expect("there");
         assert_eq!(failed.message.state, SendState::Failed);
         demo.retry(&room(), &failed.message.id).await.expect("retries");
-        let (_, sent) = demo.find(&room(), &failed.message.id).expect("there");
+        let (_, _, sent) = demo.find(&room(), &failed.message.id).expect("there");
         assert_eq!(sent.message.state, SendState::Sent);
         assert_eq!(
-            demo.first_unread(&room()).await.expect("known"),
+            demo.first_unread(&room().into()).await.expect("known"),
             Some(MessageId::from("!room1:demo/15"))
         );
     }

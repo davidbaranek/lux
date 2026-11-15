@@ -103,6 +103,40 @@ id!(
     ScheduledId
 );
 
+/// One of a room's timelines: the room's own (its main thread, where a thread's replies do not
+/// show), or the Matrix thread of one of its messages (the root, then its replies).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TimelineId {
+    /// The room.
+    pub room: RoomId,
+    /// The thread's root message; `None`: the room's own timeline.
+    pub thread: Option<EventId>,
+}
+
+impl TimelineId {
+    /// The thread of the message `started_by` in `room`.
+    #[must_use]
+    pub fn thread(room: RoomId, started_by: EventId) -> Self {
+        Self {
+            room,
+            thread: Some(started_by),
+        }
+    }
+}
+
+/// The room's own timeline.
+impl From<RoomId> for TimelineId {
+    fn from(room: RoomId) -> Self {
+        Self { room, thread: None }
+    }
+}
+
+impl From<&RoomId> for TimelineId {
+    fn from(room: &RoomId) -> Self {
+        Self::from(room.clone())
+    }
+}
+
 /// A row of the chat list: a room, or a merged chat (which names no room).
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ChatId {

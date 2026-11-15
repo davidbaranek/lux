@@ -51,6 +51,45 @@ pub struct TimelineMessage {
     /// The post it shares from another network (a reel, a post), shown as a card under its
     /// media instead of its address.
     pub shared: Option<SharedPost>,
+    /// The Matrix thread it is the root of, as the room's own timeline sums it up (a thread's
+    /// own timeline shows the replies instead: its root has none).
+    pub thread: Option<ThreadSummary>,
+}
+
+/// A Matrix thread under its root message: how many replied, the last reply, who took part.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ThreadSummary {
+    /// How many replies it has (the root not counted).
+    pub replies: u32,
+    /// The last reply, once it is known.
+    pub latest: Option<ThreadReply>,
+    /// Who replied, as far as the device knows the replies, the last to reply first; the last
+    /// reply's sender always.
+    pub participants: Vec<Participant>,
+    /// How many replies others sent after the account's read receipt in the thread.
+    pub unread: u32,
+}
+
+/// The last reply of a Matrix thread, as its summary shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadReply {
+    /// Its sender.
+    pub sender: Participant,
+    /// What it is (its text in one line, a photo), for the apps to word.
+    pub kind: PreviewKind,
+    /// When it was sent.
+    pub date: SystemTime,
+}
+
+/// Someone who replied in a Matrix thread.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Participant {
+    /// Who.
+    pub user: UserId,
+    /// Their name in the room; the user id's local part when the room does not say.
+    pub name: String,
+    /// Their picture.
+    pub avatar: Option<MediaId>,
 }
 
 /// A post shared from another network: its address, which the message's menu shows and copies,

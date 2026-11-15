@@ -288,6 +288,7 @@ pub(crate) mod tests {
             reactions: Vec::new(),
             reply: None,
             readers: Vec::new(),
+            thread: None,
             shared: None,
         })
     }

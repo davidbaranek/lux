@@ -1,7 +1,12 @@
 //! A chat's messages: reading its timeline, sending to it, and loading its media.
 //!
-//! The backend keeps one live timeline per chat opened, from the first call that names the room:
-//! those the apps hold (a chat on screen), and a few used last; the others close.
+//! The backend keeps one live timeline per room or Matrix thread opened ([`TimelineId`]), from
+//! the first call that names it: those the apps hold (a chat or a thread on screen), and a few
+//! used last; the others close. A room's own timeline does not show its threads' replies: their
+//! roots carry a [`ThreadSummary`](crate::timeline::ThreadSummary) instead.
+//!
+//! What is done to a message names its room alone: its id is unique among all timelines, and
+//! the backend finds the open timeline that shows it.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -11,7 +16,7 @@ use std::time::SystemTime;
 
 use futures_core::Stream;
 
-use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId};
+use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::message::SendState;
 use crate::timeline::{Draft, ImageSource, IndexHistory, OutgoingAttachment, Receipt, TimelineMessage, Typist};
 
@@ -58,42 +63,45 @@ pub trait ChatTimelines: Send + Sync {
     /// The rooms whose open timeline changes, from now on.
     fn changes(&self) -> RoomChanges;
 
-    /// Keeps the room's timeline open, once a call opens it, until the hold goes.
-    fn hold(&self, room: &RoomId) -> TimelineHold;
+    /// Keeps the timeline open, once a call opens it, until the hold goes.
+    fn hold(&self, timeline: &TimelineId) -> TimelineHold;
 
-    /// The room's messages, oldest first, as they change: a `Reset` with those the timeline has,
-    /// then each batch. No two messages share an id, in this room or any other.
+    /// The timeline's messages, oldest first, as they change: a `Reset` with those it has, then
+    /// each batch. No two messages share an id, in this timeline or any other.
     fn messages(
         &self,
-        room: &RoomId,
+        timeline: &TimelineId,
     ) -> impl Future<Output = Result<DiffStream<Arc<TimelineMessage>>, BackendError>> + Send;
 
-    /// Opens the room's timeline ahead of time (its first screen from the server if the device
-    /// has none), so the chat opens at once.
-    fn prefetch(&self, room: &RoomId) -> impl Future<Output = Result<(), BackendError>> + Send;
+    /// Opens the timeline ahead of time (its first screen from the server if the device has
+    /// none), so the chat opens at once.
+    fn prefetch(&self, timeline: &TimelineId) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// Returns once the opened chat's first screen is in, its server pages included.
-    fn wait_until_filled(&self, room: &RoomId) -> impl Future<Output = ()> + Send;
+    fn wait_until_filled(&self, timeline: &TimelineId) -> impl Future<Output = ()> + Send;
 
     /// Pages back on the server until the timeline holds `count` more messages than now, or the
-    /// room's first one. Which of them show is the thread's choice ([`Window`](crate::timeline::Window)).
-    fn load_older(&self, room: &RoomId, count: usize) -> impl Future<Output = Result<(), BackendError>> + Send;
+    /// timeline's first one. Which of them show is the thread's choice ([`Window`](crate::timeline::Window)).
+    fn load_older(&self, timeline: &TimelineId, count: usize) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// The timeline holds the room's first message, its first screen in: there is nothing older
-    /// on the server.
-    fn is_at_start(&self, room: &RoomId) -> impl Future<Output = Result<bool, BackendError>> + Send;
+    /// The timeline holds its first message (a thread's root), its first screen in: there is
+    /// nothing older on the server.
+    fn is_at_start(&self, timeline: &TimelineId) -> impl Future<Output = Result<bool, BackendError>> + Send;
 
     /// Pages back until the timeline holds the message of `event`; its id there, `None` when it
     /// cannot be found.
     fn show_event(
         &self,
-        room: &RoomId,
+        timeline: &TimelineId,
         event: &EventId,
     ) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
 
-    /// The first message after the account's read receipt, paging back a little when the
-    /// timeline does not hold it yet; `None` when the chat is read.
-    fn first_unread(&self, room: &RoomId) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
+    /// The first message after the account's read receipt (a thread's own receipt in a thread),
+    /// paging back a little when the timeline does not hold it yet; `None` when it is read.
+    fn first_unread(
+        &self,
+        timeline: &TimelineId,
+    ) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
 
     /// The room's text messages and photos, newest first, back to `since`, the room's start, or
     /// `max_pages` pages from the server: what the search index reads.
@@ -114,10 +122,11 @@ pub trait ChatTimelines: Send + Sync {
 /// Sending to a chat. Messages go through the room's send queue: the chat shows each at once,
 /// `Sending`, then `Sent` or `Failed`.
 pub trait ChatSending: Send + Sync {
-    /// Sends `text` (Markdown), answering `reply` if given.
+    /// Sends `text` (Markdown) to the timeline (in a thread, as its reply), answering `reply` if
+    /// given.
     fn send_text(
         &self,
-        room: &RoomId,
+        timeline: &TimelineId,
         text: &str,
         reply: Option<&MessageRef>,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
@@ -147,11 +156,12 @@ pub trait ChatSending: Send + Sync {
         key: &str,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// Puts a photo, video or file in the room's send queue; the chat shows it at once,
-    /// uploading. Its message's id, `None` if it did not show in time.
+    /// Puts a photo, video or file in the room's send queue, for the timeline (in a thread, as
+    /// its reply); the chat shows it at once, uploading. Its message's id, `None` if it did not
+    /// show in time.
     fn send_attachment(
         &self,
-        room: &RoomId,
+        timeline: &TimelineId,
         attachment: &OutgoingAttachment,
         caption: Option<&str>,
         reply: Option<&MessageRef>,
@@ -173,20 +183,25 @@ pub trait ChatSending: Send + Sync {
         target: &ChatId,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// The draft kept for the room.
-    fn draft(&self, room: &RoomId) -> impl Future<Output = Result<Option<Draft>, BackendError>> + Send;
+    /// The draft kept for the timeline (a room's, a thread's).
+    fn draft(&self, timeline: &TimelineId) -> impl Future<Output = Result<Option<Draft>, BackendError>> + Send;
 
-    /// Keeps the composer's `text` for the room, and the message it answers; an empty draft is
-    /// forgotten.
+    /// Keeps the composer's `text` for the timeline, and the message it answers; an empty draft
+    /// is forgotten.
     fn save_draft(
         &self,
-        room: &RoomId,
+        timeline: &TimelineId,
         text: &str,
         reply: Option<&MessageRef>,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// Marks the room read up to its newest message; `receipt` says who sees it.
-    fn mark_read(&self, room: &RoomId, receipt: Receipt) -> impl Future<Output = Result<(), BackendError>> + Send;
+    /// Marks the timeline read up to its newest message (a thread's receipt for a thread, the
+    /// room's own for the room); `receipt` says who sees it.
+    fn mark_read(
+        &self,
+        timeline: &TimelineId,
+        receipt: Receipt,
+    ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// Tells the room whether the account is typing.
     fn set_typing(&self, room: &RoomId, typing: bool) -> impl Future<Output = Result<(), BackendError>> + Send;
