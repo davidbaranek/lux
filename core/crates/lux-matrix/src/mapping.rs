@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::bridge_state::bridge_states;
-use lux_core::chat::{Chat, Folder, Request};
+use lux_core::chat::{Chat, Folder, NotificationMode, Request};
 use lux_core::ids::{ChatId, MediaId, RoomId};
 use lux_core::network::Network;
 use lux_core::preview::{Membership, Preview, PreviewKind, PreviewSource, Sender};
@@ -68,6 +68,7 @@ impl Mapper {
             is_marked_unread: room.is_marked_unread(),
             // the room list's push rules decide it (`ChatRows`): muted or mentions only.
             is_muted: false,
+            notifications: Some(NotificationMode::Default),
             network,
             avatar,
             member_avatars,

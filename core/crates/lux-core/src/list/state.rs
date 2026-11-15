@@ -12,7 +12,7 @@ use crate::chat::{Chat, Label, Request, ScheduledMessage, Snapshot, Space};
 use crate::diff;
 use crate::ids::ChatId;
 use crate::organizer::Organized;
-use crate::places::{self, Arrangement, ChatFilter, ChatOrder, InboxRule, ListedPlace, PlaceId, SectionId, Theme};
+use crate::places::{self, Arrangement, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, Theme};
 
 /// What the listener was last sent.
 #[derive(Debug, Default)]
@@ -24,7 +24,7 @@ struct Shown {
     reminders: Option<Vec<DueReminder>>,
     loading: Option<Loading>,
     theme: Option<Theme>,
-    chat_inbox: Option<HashMap<ChatId, InboxRule>>,
+    kept_out: Option<HashMap<ChatId, PlaceId>>,
 }
 
 /// The list's state.
@@ -128,6 +128,11 @@ impl ListState {
         self.snapshot.scheduled = scheduled.into_iter().map(Arc::new).collect();
     }
 
+    /// The account's chats and what it gathers, as the list last had them.
+    pub(crate) fn snapshot(&self) -> &Snapshot {
+        &self.snapshot
+    }
+
     /// The places' arrangement as shown: the user's newest, else the account's.
     pub(crate) fn arrangement(&self) -> &Arrangement {
         self.arranging.as_ref().unwrap_or(&self.organized.arrangement)
@@ -222,10 +227,10 @@ impl ListState {
         if theme.is_some() {
             self.shown.theme = theme;
         }
-        let chat_inbox =
-            (self.shown.chat_inbox.as_ref() != Some(&arrangement.chat_inbox)).then(|| arrangement.chat_inbox.clone());
-        if let Some(chat_inbox) = &chat_inbox {
-            self.shown.chat_inbox = Some(chat_inbox.clone());
+        let now_kept_out = places::kept_out(&self.snapshot, &arrangement);
+        let kept_out = (self.shown.kept_out.as_ref() != Some(&now_kept_out)).then_some(now_kept_out);
+        if let Some(kept_out) = &kept_out {
+            self.shown.kept_out = Some(kept_out.clone());
         }
         ListUpdate {
             place: self.place.clone(),
@@ -236,7 +241,7 @@ impl ListState {
             labels,
             reminders,
             loading,
-            chat_inbox,
+            kept_out,
         }
     }
 }

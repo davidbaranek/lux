@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::chat::{Chat, ChatRoom, Label};
+use crate::chat::{Chat, ChatRoom, Label, NotificationMode};
 use crate::ids::{ChatId, MergeId, RoomId};
 
 /// One person's chats on several networks, to show as one, as the user merged them.
@@ -132,6 +132,11 @@ pub fn fold(mut chats: Vec<Arc<Chat>>, merges: &[Merge]) -> Vec<Arc<Chat>> {
         let unread_mentions = members.iter().map(|&index| chats[index].unread_mentions).sum();
         let is_marked_unread = members.iter().any(|&index| chats[index].is_marked_unread);
         let is_muted = members.iter().all(|&index| chats[index].is_muted);
+        let notifications = members
+            .iter()
+            .map(|&index| chats[index].notifications)
+            .collect::<Option<Vec<_>>>()
+            .and_then(NotificationMode::common);
         let pinned = members.iter().filter_map(|&index| chats[index].pinned).reduce(f64::min);
         let reminder = members.iter().filter_map(|&index| chats[index].reminder).min();
         let mut folded = Chat::clone(&chats[newest]);
@@ -141,6 +146,7 @@ pub fn fold(mut chats: Vec<Arc<Chat>>, merges: &[Merge]) -> Vec<Arc<Chat>> {
         folded.unread_mentions = unread_mentions;
         folded.is_marked_unread = is_marked_unread;
         folded.is_muted = is_muted;
+        folded.notifications = notifications;
         folded.pinned = pinned;
         folded.reminder = reminder;
         folded.is_group = false;
@@ -201,6 +207,7 @@ mod tests {
             unread_mentions: 0,
             is_marked_unread: false,
             is_muted: true,
+            notifications: None,
             network: Network::from_id(network),
             avatar: None,
             member_avatars: Vec::new(),

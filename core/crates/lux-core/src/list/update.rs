@@ -8,7 +8,7 @@ use eyeball_im::VectorDiff;
 use super::{ListRow, Loading, SectionHeader};
 use crate::chat::Label;
 use crate::ids::ChatId;
-use crate::places::{InboxRule, ListedPlace, PlaceId, SectionId, Theme};
+use crate::places::{ListedPlace, PlaceId, SectionId, Theme};
 
 /// The rows of one section that changed, as diffs to apply in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -50,8 +50,9 @@ pub struct ListUpdate {
     pub reminders: Option<Vec<DueReminder>>,
     /// How far the list is loaded, when that changed.
     pub loading: Option<Loading>,
-    /// The chats that follow an inbox rule of their own, not their places', when they changed.
-    pub chat_inbox: Option<HashMap<ChatId, InboxRule>>,
+    /// The chats a place's rule keeps out of the inbox, into low priority, with that place, when
+    /// they changed: what a chat's details tell.
+    pub kept_out: Option<HashMap<ChatId, PlaceId>>,
 }
 
 impl ListUpdate {
@@ -65,6 +66,6 @@ impl ListUpdate {
             && self.labels.is_none()
             && self.reminders.is_none()
             && self.loading.is_none()
-            && self.chat_inbox.is_none()
+            && self.kept_out.is_none()
     }
 }

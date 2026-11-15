@@ -20,6 +20,37 @@ pub enum Folder {
     Archive,
 }
 
+/// When a room's messages notify the user.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum NotificationMode {
+    /// As the account's settings say for a chat of its kind.
+    #[default]
+    Default,
+    /// Every message.
+    All,
+    /// Only mentions of the account and its keywords.
+    Mentions,
+    /// Nothing (a mention still shows in the list).
+    Off,
+}
+
+impl NotificationMode {
+    /// Whether it keeps the chat quiet: off, or mentions only (bridges mute a chat muted on its
+    /// network that way).
+    #[must_use]
+    pub fn is_quiet(self) -> bool {
+        matches!(self, Self::Off | Self::Mentions)
+    }
+
+    /// The one mode all of `modes` are; `None` when they differ, or there is none.
+    #[must_use]
+    pub fn common(modes: impl IntoIterator<Item = Self>) -> Option<Self> {
+        let mut modes = modes.into_iter();
+        let first = modes.next()?;
+        modes.all(|mode| mode == first).then_some(first)
+    }
+}
+
 /// One network's room of a merged chat.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
@@ -46,8 +77,10 @@ pub struct Chat {
     pub unread_mentions: u32,
     /// The user marked it unread by hand.
     pub is_marked_unread: bool,
-    /// Its notifications are off.
+    /// Its notifications are off or mentions only: every room's, for a merged chat.
     pub is_muted: bool,
+    /// When its messages notify; `None` when a merged chat's rooms are set apart.
+    pub notifications: Option<NotificationMode>,
     /// Its network; a merged chat's is that of its newest message.
     pub network: Network,
     /// Its picture.

@@ -22,12 +22,8 @@ impl ChatDetails for MatrixAccount {
         let power = room.power_levels_or_default().await;
         let may = |state: StateEventType| power.user_can_send_state(own, state);
         let settings = self.client.notification_settings().await;
-        let notifications = match settings.get_user_defined_room_notification_mode(room.room_id()).await {
-            None => NotificationMode::Default,
-            Some(RoomNotificationMode::AllMessages) => NotificationMode::All,
-            Some(RoomNotificationMode::MentionsAndKeywordsOnly) => NotificationMode::Mentions,
-            Some(RoomNotificationMode::Mute) => NotificationMode::Off,
-        };
+        let notifications =
+            crate::actions::notification_mode(settings.get_user_defined_room_notification_mode(room.room_id()).await);
         Ok(RoomDetails {
             id: RoomId::from(room.room_id().as_str()),
             name: crate::mapping::display_name(&room),

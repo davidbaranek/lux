@@ -59,6 +59,7 @@ mod tests {
                     unread_mentions: 0,
                     is_marked_unread: false,
                     is_muted: false,
+                    notifications: None,
                     network: Network::Matrix,
                     avatar: None,
                     member_avatars: Vec::new(),

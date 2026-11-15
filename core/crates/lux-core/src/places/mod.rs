@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::chat::{Folder, Space};
-use crate::ids::{ChatId, LabelId, RoomId};
+use crate::ids::{LabelId, RoomId};
 use crate::network::Network;
 
 mod filter;
@@ -22,8 +22,8 @@ mod theme;
 pub use filter::ChatFilter;
 pub use inbox::InboxRule;
 pub(crate) use inbox::InboxRules;
-pub(crate) use list::compose;
 pub use list::{ChatOrder, ListedPlace, Row, Section, SectionId, SectionStyle};
+pub(crate) use list::{compose, kept_out, notified_rooms};
 pub use theme::Theme;
 
 /// A place's key, stable across launches and devices: `"network:whatsapp"`, `"space:!id"`.
@@ -110,10 +110,9 @@ pub struct Arrangement {
     pub themes: HashMap<PlaceKey, Theme>,
     /// The colour of the places without one of their own.
     pub theme: Theme,
-    /// How much of each network and space the inbox shows, for those that do not show all.
+    /// How much of each network and space the inbox shows, for those that do not show all; what
+    /// it keeps out is of low priority.
     pub inbox: HashMap<PlaceKey, InboxRule>,
-    /// The chats that follow a rule of their own, not their places'.
-    pub chat_inbox: HashMap<ChatId, InboxRule>,
 }
 
 impl Arrangement {
@@ -164,16 +163,6 @@ impl Arrangement {
         } else {
             self.inbox.insert(key, rule);
         }
-        self
-    }
-
-    /// A copy where `chat` follows `rule`, or (`None`) its places' again.
-    #[must_use]
-    pub fn with_chat_inbox(mut self, chat: ChatId, rule: Option<InboxRule>) -> Self {
-        match rule {
-            Some(rule) => self.chat_inbox.insert(chat, rule),
-            None => self.chat_inbox.remove(&chat),
-        };
         self
     }
 }

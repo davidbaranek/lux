@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lux_core::chat::{SavedKind, SavedMessage};
-use lux_core::ids::{ChatId, EventId, LabelId, RoomId, UserId};
+use lux_core::ids::{EventId, LabelId, RoomId, UserId};
 use lux_core::merge::Merge;
 use lux_core::organizer::{ChatMarks, LabelRecord, Reminder, Reminders, WholeLabel};
 use lux_core::places::{Arrangement, InboxRule, PlaceKey, Theme};
@@ -296,9 +296,9 @@ fn saved_kind_name(kind: SavedKind) -> &'static str {
 // MARK: the places' arrangement
 
 /// `{"order": ["network:whatsapp", …], "hidden": […], "themes": {"space:!s": "blue", …},
-/// "theme": "green", "inbox": {"network:discord": "mentions", …}, "chatInbox": {"!r": "all", …}}`;
-/// all but the order came later, and their absence hides nothing, colours nothing and keeps
-/// nothing out of the inbox. A colour or a rule this version does not know reads as none.
+/// "theme": "green", "inbox": {"network:discord": "mentions", …}}`; all but the order came
+/// later, and their absence hides nothing, colours nothing and keeps nothing out of the inbox. A
+/// colour or a rule this version does not know reads as none.
 pub(crate) fn arrangement(content: &Content) -> Arrangement {
     let keys = |key: &str| {
         content
@@ -313,31 +313,25 @@ pub(crate) fn arrangement(content: &Content) -> Arrangement {
         .flatten()
         .filter_map(|(key, theme)| Some((PlaceKey::from(key.as_str()), Theme::from_key(theme.as_str()?)?)))
         .collect();
-    let rules = |key: &str| {
-        object(content, key)
-            .into_iter()
-            .flatten()
-            .filter_map(|(key, rule)| Some((key.as_str(), InboxRule::from_key(rule.as_str()?)?)))
-    };
     Arrangement {
         order: keys("order").collect(),
         hidden: keys("hidden").collect(),
         themes,
         theme: text(content, "theme").and_then(Theme::from_key).unwrap_or_default(),
         // all is what the inbox shows unasked: a place keeps none.
-        inbox: rules(INBOX)
+        inbox: object(content, INBOX)
+            .into_iter()
+            .flatten()
+            .filter_map(|(key, rule)| Some((PlaceKey::from(key.as_str()), InboxRule::from_key(rule.as_str()?)?)))
             .filter(|&(_, rule)| rule != InboxRule::All)
-            .map(|(key, rule)| (PlaceKey::from(key), rule))
-            .collect(),
-        chat_inbox: rules(CHAT_INBOX)
-            .map(|(chat, rule)| (ChatId::from(chat), rule))
             .collect(),
     }
 }
 
 /// The arrangement's key for the places' inbox rules.
 const INBOX: &str = "inbox";
-/// The arrangement's key for the chats' own inbox rules.
+/// Where an earlier version kept the chats' own inbox rules, which low priority took over: this
+/// version drops it when it writes.
 const CHAT_INBOX: &str = "chatInbox";
 
 /// `content`'s map at `key` with `written` in place of the values this version knows; one it
@@ -371,21 +365,11 @@ pub(crate) fn with_arrangement(content: &Content, arrangement: &Arrangement) -> 
         |theme| Theme::from_key(theme).is_some(),
         (arrangement.themes.iter()).map(|(key, theme)| (key.as_str(), theme.as_str())),
     );
-    let known_rule = |rule: &str| InboxRule::from_key(rule).is_some();
     let inbox = kept_unknown(
         content,
         INBOX,
-        known_rule,
+        |rule| InboxRule::from_key(rule).is_some(),
         (arrangement.inbox.iter()).map(|(key, rule)| (key.as_str(), rule.as_str())),
-    );
-    let chat_ids: Vec<(String, InboxRule)> = (arrangement.chat_inbox.iter())
-        .map(|(chat, &rule)| (chat.to_string(), rule))
-        .collect();
-    let chat_inbox = kept_unknown(
-        content,
-        CHAT_INBOX,
-        known_rule,
-        chat_ids.iter().map(|(chat, rule)| (chat.as_str(), rule.as_str())),
     );
     let mut content = content.clone();
     content.insert(
@@ -400,7 +384,7 @@ pub(crate) fn with_arrangement(content: &Content, arrangement: &Arrangement) -> 
     content.insert("hidden".to_owned(), hidden.into());
     content.insert("themes".to_owned(), themes.into());
     content.insert(INBOX.to_owned(), inbox.into());
-    content.insert(CHAT_INBOX.to_owned(), chat_inbox.into());
+    content.remove(CHAT_INBOX);
     // an unknown colour for every place stays while this device keeps neutral.
     if arrangement.theme != Theme::Neutral || text(&content, "theme").and_then(Theme::from_key).is_some() {
         content.insert("theme".to_owned(), arrangement.theme.as_str().into());
@@ -642,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn the_inbox_rules_read_back_and_unknown_ones_stay() {
+    fn the_inbox_rules_read_back_unknown_ones_stay_and_the_chats_own_go() {
         let old = content(json!({
             "order": [],
             "inbox": {"network:discord": "mentions", "space:!s": "all", "space:!new": "weekends"},
@@ -652,20 +636,17 @@ mod tests {
         assert_eq!(read.inbox_of(&"network:discord".into()), InboxRule::Mentions);
         // all is what a place shows unasked; a rule this version does not know reads as none.
         assert_eq!(read.inbox.len(), 1);
-        assert_eq!(read.chat_inbox.get(&ChatId::from("!a:x")), Some(&InboxRule::Never));
         let changed = read
             .with_inbox("network:discord".into(), InboxRule::All)
-            .with_inbox("space:!guild".into(), InboxRule::Never)
-            .with_chat_inbox("!a:x".into(), None)
-            .with_chat_inbox("merge:m".into(), Some(InboxRule::All));
+            .with_inbox("space:!guild".into(), InboxRule::Never);
         let written = with_arrangement(&old, &changed);
         assert_eq!(
             written["inbox"],
             json!({"space:!new": "weekends", "space:!guild": "never"})
         );
-        assert_eq!(written["chatInbox"], json!({"merge:m": "all"}));
+        // a chat's own rule was low priority's work: it is dropped.
+        assert!(!written.contains_key("chatInbox"));
         assert_eq!(arrangement(&written), changed);
-        assert!(arrangement(&content(json!({"order": []}))).chat_inbox.is_empty());
     }
 
     #[test]

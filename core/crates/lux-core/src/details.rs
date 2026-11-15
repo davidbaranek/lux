@@ -34,8 +34,7 @@ pub fn find_members<'a>(members: &'a [Member], query: &str) -> impl Iterator<Ite
 /// whose rooms were set apart, here or on their networks).
 #[must_use]
 pub fn chat_notifications(rooms: &[RoomDetails]) -> Option<NotificationMode> {
-    let first = rooms.first()?.notifications;
-    rooms.iter().all(|room| room.notifications == first).then_some(first)
+    NotificationMode::common(rooms.iter().map(|room| room.notifications))
 }
 
 /// How many pages of history one [`SharedHistory::next`] reads at most, across the rooms: a chat

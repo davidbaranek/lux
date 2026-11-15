@@ -7,11 +7,11 @@
 //! places' arrangement in the app's own account data, which no bridge reads, so none of it reaches
 //! the chat's network.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use lux_core::chat::{Chat, Label, SavedKind, SavedMessage};
+use lux_core::chat::{Chat, Label, NotificationMode, SavedKind, SavedMessage};
 use lux_core::ids::{ChatId, EventId, LabelId, MergeId, RoomId};
 use lux_core::organizer::pins::{self, NewPin};
 use lux_core::organizer::{ChatMarks, Organized, Reminder};
@@ -234,20 +234,28 @@ impl MentionRule {
     }
 }
 
-/// The rooms whose notifications are off: muted, or left to mentions only (bridges mute a chat
-/// muted on its network that way).
-pub(crate) async fn quiet_rooms(settings: &NotificationSettings) -> HashSet<OwnedRoomId> {
-    let mut quiet = HashSet::new();
+/// The rooms whose notifications the user set, and how: the others are as the account's
+/// settings say for a room of their kind.
+pub(crate) async fn room_notifications(settings: &NotificationSettings) -> HashMap<OwnedRoomId, NotificationMode> {
+    let mut modes = HashMap::new();
     for room in settings.get_rooms_with_user_defined_rules(Some(true)).await {
         let Ok(id) = OwnedRoomId::try_from(room) else { continue };
-        if matches!(
-            settings.get_user_defined_room_notification_mode(&id).await,
-            Some(RoomNotificationMode::Mute | RoomNotificationMode::MentionsAndKeywordsOnly)
-        ) {
-            quiet.insert(id);
+        let mode = notification_mode(settings.get_user_defined_room_notification_mode(&id).await);
+        if mode != NotificationMode::Default {
+            modes.insert(id, mode);
         }
     }
-    quiet
+    modes
+}
+
+/// The app's mode for a room's push rules, as the SDK reads them; `None`: the user set none.
+pub(crate) fn notification_mode(mode: Option<RoomNotificationMode>) -> NotificationMode {
+    match mode {
+        None => NotificationMode::Default,
+        Some(RoomNotificationMode::AllMessages) => NotificationMode::All,
+        Some(RoomNotificationMode::MentionsAndKeywordsOnly) => NotificationMode::Mentions,
+        Some(RoomNotificationMode::Mute) => NotificationMode::Off,
+    }
 }
 
 fn ids(rooms: &[Room]) -> HashSet<RoomId> {
