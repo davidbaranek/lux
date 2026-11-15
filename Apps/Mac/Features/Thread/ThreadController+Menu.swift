@@ -36,7 +36,7 @@ extension ThreadController {
             address.toolTip = link
             menu.addItem(address)
         }
-        for action in MessageAction.available(for: message) {
+        for action in MessageAction.available(for: message, inThread: model.thread != nil) {
             if action.isDestructive { menu.addItem(.separator()) }
             let item = NSMenuItem(title: action.title, action: #selector(performAction(_:)), keyEquivalent: "")
             item.target = self
@@ -59,6 +59,7 @@ extension ThreadController {
         let message = chosen.message
         switch chosen.action {
         case .reply: model.reply(to: message)
+        case .replyInThread: openThread(of: message)
         case .edit: model.edit(message)
         case .copy:
             NSPasteboard.general.clearContents()

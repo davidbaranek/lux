@@ -53,12 +53,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.toolbarStyle = .unified
             // the toolbar shows the open chat's picture and name itself (`ChatTitleView`).
             window.titleVisibility = .hidden
-            notifications?.openChat = { [weak self, weak split] room in
+            notifications?.openChat = { [weak self, weak split] room, thread in
                 self?.window.makeKeyAndOrderFront(nil)
-                split?.openChat(roomId: room)
+                split?.openChat(roomId: room, thread: thread)
             }
-            notifications?.isShowing = { [weak self, session] room in
-                self?.window.isKeyWindow == true && session.roomsOnScreen.contains(room)
+            notifications?.isShowing = { [weak self, session] room, thread in
+                self?.window.isKeyWindow == true && session.showsMessage(of: room, thread: thread)
             }
             // the demo has no server: nothing to notify.
             if !LaunchOptions.isDemo { notifications?.start() }

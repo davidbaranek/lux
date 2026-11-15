@@ -36,7 +36,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         sidebarController.onPlaceTitle = { [weak self] title in self?.placeLabel.stringValue = title }
         sidebarController.onTheme = { [weak self] theme in
             self?.detail.theme = theme
-            self?.openThread?.theme = theme
+            self?.openSplit?.theme = theme
         }
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -65,12 +65,16 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             let thread = ThreadController(session: session, row: row, theme: listModel.theme, focusEvent: focusEvent)
             thread.onShownRoom = { [weak self] in self?.updateNetworks() }
             openThread = thread
-            detail.show(thread)
+            // its Matrix threads open in a panel beside it.
+            let split = ChatSplitController(session: session, row: row, chat: thread)
+            openSplit = split
+            detail.show(split)
             view.window?.title = row.name
             chatTitle.show(row, images: session.images)
             alignTitle()
         } else {
             openThread = nil
+            openSplit = nil
             detail.show(Self.emptyState())
             view.window?.title = "Lux"
             chatTitle.show(nil, images: nil)
@@ -97,6 +101,10 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             view.window?.title = row.name
         }
         controller.onLeave = { [weak self] in self?.open(nil) }
+        controller.onOpenThread = { [weak self] thread in
+            self?.details?.close()
+            self?.openSplit?.open(thread)
+        }
         let popover = NSPopover()
         popover.contentViewController = controller
         popover.behavior = .transient
@@ -105,14 +113,15 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     }
 
     /// Opens the chat of a notification the user clicked: the merged chat its room is part of,
-    /// else the room's own. Right after launch the account's chats may not have come yet: it
-    /// waits for them a few seconds.
-    func openChat(roomId: String) {
+    /// else the room's own; a thread's reply, with the thread beside it. Right after launch the
+    /// account's chats may not have come yet: it waits for them a few seconds.
+    func openChat(roomId: String, thread: String? = nil) {
         Task { [weak self] in
             for _ in 0..<20 {
                 guard let self, session.isSignedIn else { return }
                 if let row = await session.chat(ofRoom: roomId) {
-                    open(row)
+                    if openRow?.id != row.id { open(row) }
+                    if let thread { openSplit?.open(MatrixThread(roomId: roomId, rootEventId: thread)) }
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(250))
@@ -198,6 +207,8 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     // MARK: A merged chat's networks
 
     private weak var openThread: ThreadController?
+    /// The open chat with its thread's panel.
+    private weak var openSplit: ChatSplitController?
     private weak var networksItem: NSMenuToolbarItem?
 
     /// The button shows for a merged chat only; the window's subtitle names its networks, or the

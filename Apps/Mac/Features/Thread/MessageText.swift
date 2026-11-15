@@ -34,6 +34,7 @@ struct MessageText: TextMeasuring, @unchecked Sendable {
         case .postTitle: postTitle
         case .postText: postText
         case .postMore: postMore
+        case .thread: quote
         }
     }
 
@@ -45,7 +46,7 @@ struct MessageText: TextMeasuring, @unchecked Sendable {
         // a quote and a post's title show at most two lines; a file's name and a reply's line, one (they truncate).
         let height = switch role {
         case .quote, .postTitle: min(rect.height, lineHeight * 2)
-        case .fileName, .reply: lineHeight
+        case .fileName, .reply, .thread: lineHeight
         default: rect.height
         }
         return CGSize(width: ceil(rect.width), height: ceil(height))

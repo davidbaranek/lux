@@ -4,7 +4,8 @@ import LuxCore
 /// A chat's details, in a popover from its title in the toolbar, as Messages shows a
 /// conversation's: its picture, name and topic, its networks (a merged chat's rooms), its
 /// notifications and encryption, marking it read and leaving it; under them its members and what
-/// it shared, one at a time. Edit… (for who may) changes its name, topic and picture.
+/// it shared and its Matrix threads, one at a time. Edit… (for who may) changes its name, topic and
+/// picture.
 final class ChatDetailsController: NSViewController {
     private let session: Session
     private let model: ChatDetailsModel
@@ -13,6 +14,8 @@ final class ChatDetailsController: NSViewController {
     var onChange: ((ChatRow) -> Void)?
     /// The chat was left: the window shows no chat.
     var onLeave: (() -> Void)?
+    /// A thread was picked from the chat's threads: it opens beside the chat.
+    var onOpenThread: ((MatrixThread) -> Void)?
 
     private let avatar = AvatarView(side: 72)
     private let name = NSTextField(labelWithString: "")
@@ -36,6 +39,7 @@ final class ChatDetailsController: NSViewController {
     private enum Tab: Equatable {
         /// A group room's, by its id and network.
         case members(String, network: String)
+        case threads
         case shared(SharedKind)
     }
 
@@ -198,7 +202,7 @@ final class ChatDetailsController: NSViewController {
         // once the rooms are known: a group opens on its members.
         guard let info = model.info else { return }
         let groups = info.rooms.filter { !$0.isDirect }
-        let kinds = groups.map { Tab.members($0.id, network: $0.network) } + SharedKind.allCases.map(Tab.shared)
+        let kinds = groups.map { Tab.members($0.id, network: $0.network) } + [.threads] + SharedKind.allCases.map(Tab.shared)
         guard kinds != tabKinds else { return }
         let selected = tabs.selectedSegment >= 0 ? tabKinds[safe: tabs.selectedSegment] : nil
         tabKinds = kinds
@@ -207,6 +211,8 @@ final class ChatDetailsController: NSViewController {
             switch kind {
             case .members(_, let network):
                 tabs.setLabel(groups.count > 1 ? Networks.name(network) : String(localized: "Members"), forSegment: index)
+            case .threads:
+                tabs.setLabel(String(localized: "Threads"), forSegment: index)
             case .shared(let kind):
                 tabs.setLabel(kind.title, forSegment: index)
             }
@@ -221,6 +227,10 @@ final class ChatDetailsController: NSViewController {
         case .members(let id, _):
             guard let room = model.info?.rooms.first(where: { $0.id == id }) else { return }
             controller = MembersPane(model: model.members(of: room), images: session.images)
+        case .threads:
+            let threads = ThreadsPane(model: model.threads(), images: session.images)
+            threads.onOpen = { [weak self] thread in self?.onOpenThread?(thread) }
+            controller = threads
         case .shared(let kind):
             controller = SharedPane(model: model.shared(kind), images: session.images)
         case nil:

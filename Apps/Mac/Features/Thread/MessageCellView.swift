@@ -39,6 +39,8 @@ final class MessageCellView: NSTableCellView {
     private let day = TextView()
     private let unreadMarker = UnreadMarkerView()
     private let readers = TextView()
+    /// Under a Matrix thread's root: its summary, which opens the thread.
+    private let thread = ThreadSummaryView()
     private let detail = TextView()
     /// A red mark beside a message that did not go out (as Messages shows one).
     private let failed = NSImageView(image: NSImage.symbol("exclamationmark.circle.fill", label: String(localized: "Not sent")))
@@ -57,6 +59,11 @@ final class MessageCellView: NSTableCellView {
     var onBubbleTap: (() -> Void)?
     /// The photo, the video, the file or an album's tile (its index) was clicked: it opens.
     var onMediaTap: ((Int) -> Void)?
+    /// The thread's summary under a root was clicked: the thread opens beside the chat.
+    var onThreadTap: (() -> Void)? {
+        get { thread.onClick }
+        set { thread.onClick = newValue }
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
     private var source: (MessageText, ImagePipeline?, Bool)?
@@ -115,7 +122,7 @@ final class MessageCellView: NSTableCellView {
         band.layer?.cornerCurve = .continuous
         replyLine.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(quoteClicked)))
         for view in [band, day, unreadMarker, avatar, plainAvatar, sender, time, replyLink, replyAvatar, replyLine, bubble,
-                     reactionsBackground, readers, detail, failed] as [NSView] {
+                     reactionsBackground, thread, readers, detail, failed] as [NSView] {
             addSubview(view)
         }
         bubble.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(bubbleClicked)))
@@ -258,6 +265,12 @@ final class MessageCellView: NSTableCellView {
         if let frame = layout.unreadMarker { unreadMarker.frame = frame }
         place(readers, layout.readers, message.readersText(inGroup: isGroup), text.footer, .secondaryLabelColor)
         place(detail, layout.detail, message.detailText, text.footer, .secondaryLabelColor)
+        thread.isHidden = layout.thread == nil
+        if let frame = layout.thread {
+            thread.frame = frame
+            thread.accent = accent
+            thread.show(message, layout: layout, font: text.quote, images: images)
+        }
         // a message that did not go out is marked as such.
         bubble.alphaValue = message.state == .failed ? 0.6 : 1
         // a plain group's name: one's own in the place's colour, others' in the text's.
@@ -338,7 +351,8 @@ final class MessageCellView: NSTableCellView {
         setAccessibilityLabel([layout.sender == nil ? nil : message.senderName, message.quoteText,
                                message.video != nil ? String(localized: "Video") : message.photo == nil ? nil : String(localized: "Photo"),
                                message.file.map { "\($0.name), \($0.detailText)" }, message.postCard?.title,
-                               message.postCard?.description, message.body, message.footerText, message.reactionsText].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", "))
+                               message.postCard?.description, message.body, message.footerText, message.reactionsText,
+                               message.threadText].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", "))
     }
 
     /// A plain reply's line, as Discord draws one: the quoted sender's picture and name, then

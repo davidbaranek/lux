@@ -3,7 +3,9 @@ import LuxCore
 
 /// One chat: a table of recycled message rows over a diffable data source, a glass composer, and a
 /// right-click menu with reactions. Every row is measured off the main thread before it shows
-/// (`MessageLayoutCache`); the table gets exact heights and the rows only place their parts.
+/// (`MessageLayoutCache`); the table gets exact heights and the rows only place their parts. A
+/// Matrix thread of the chat shows the same way, in a panel beside the chat (`ChatSplitController`):
+/// its root, its replies, the composer replying there.
 final class ThreadController: NSViewController, NSTableViewDelegate, NSTextFieldDelegate, NSMenuItemValidation {
     let session: Session
     private let row: ChatRow
@@ -18,6 +20,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     var onReady: (() -> Void)?
     /// A merged chat now shows another of its rooms, or all.
     var onShownRoom: (() -> Void)?
+    /// A thread's summary or "Reply in Thread" asks for the Matrix thread a message starts.
+    var onOpenThread: ((MatrixThread) -> Void)?
     var rooms: [ChatRoom] { model.rooms }
     var shownRoom: String? { model.shownRoom }
     var sendRoom: String { model.sendRoom }
@@ -130,13 +134,21 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     }
     private var accent: NSColor { theme.color ?? .controlAccentColor }
 
-    init(session: Session, row: ChatRow, theme: PlaceTheme, focusEvent: String? = nil) {
+    /// The chat of `row`, or its Matrix thread `thread`.
+    init(session: Session, row: ChatRow, theme: PlaceTheme, focusEvent: String? = nil, thread: MatrixThread? = nil) {
         self.session = session
         self.row = row
         self.theme = theme
         self.focusEvent = focusEvent
-        model = ThreadModel(session: session, row: row)
+        model = ThreadModel(session: session, row: row, thread: thread)
         super.init(nibName: nil, bundle: nil)
+    }
+
+    /// The Matrix thread `message` starts (a new one, to reply in, if it starts none), beside the
+    /// chat.
+    func openThread(of message: MessageItem) {
+        guard model.thread == nil, !message.eventId.isEmpty else { return }
+        onOpenThread?(MatrixThread(roomId: message.roomId, rootEventId: message.eventId))
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
@@ -164,7 +176,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         // a two-finger swipe to the right answers a message.
         table.canReply = { [weak self] row in
             guard let self, row < order.count, let message = messages[order[row]] else { return false }
-            return MessageAction.available(for: message).contains(.reply)
+            return MessageAction.available(for: message, inThread: model.thread != nil).contains(.reply)
         }
         table.reply = { [weak self] row in
             guard let self, row < order.count, let message = messages[order[row]] else { return }
@@ -179,7 +191,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 
         let glass = composer
         glass.cornerRadius = 18
-        field.placeholderString = String(localized: "Message")
+        field.placeholderString = model.thread == nil ? String(localized: "Message") : String(localized: "Reply in Thread")
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -311,6 +323,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             } : nil
             cell.menuProvider = { [weak self] in self?.menu(for: id) }
             cell.onQuoteTap = self?.messages[id]?.quote == nil ? nil : { [weak self] in self?.jump(toRepliedMessageOf: id) }
+            cell.onThreadTap = self?.messages[id]?.thread == nil ? nil : { [weak self] in
+                guard let self, let message = messages[id] else { return }
+                openThread(of: message)
+            }
             return cell
         }
         dataSource.defaultRowAnimation = []
@@ -357,7 +373,11 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        if session.roomsOnScreen == notifiedRooms { session.roomsOnScreen = [] }
+        if let thread = model.thread {
+            session.threadsOnScreen.remove(thread.rootEventId)
+        } else if session.roomsOnScreen == notifiedRooms {
+            session.roomsOnScreen = []
+        }
         model.stopWatchingTyping()
         model.saveDraft(field.stringValue)
     }
@@ -420,9 +440,13 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     override func viewDidAppear() {
         super.viewDidAppear()
         // on screen: no notifications for it while its window has the focus, and what it
-        // notified is seen.
-        session.roomsOnScreen = notifiedRooms
-        Task { [notifiedRooms] in await PushNotifications.removeDelivered(rooms: notifiedRooms) }
+        // notified is seen. A thread's panel shows beside its chat: both are on screen.
+        if let thread = model.thread {
+            session.threadsOnScreen.insert(thread.rootEventId)
+        } else {
+            session.roomsOnScreen = notifiedRooms
+            Task { [notifiedRooms] in await PushNotifications.removeDelivered(rooms: notifiedRooms) }
+        }
         model.watchTyping()
         view.window?.makeFirstResponder(field)
     }
