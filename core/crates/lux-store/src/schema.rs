@@ -29,6 +29,31 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE chats(room_id TEXT PRIMARY KEY, newest INTEGER NOT NULL, complete INTEGER NOT NULL);
     CREATE TABLE kept(key TEXT PRIMARY KEY, value BLOB NOT NULL);
     ",
+    // 2: the photos: who sent them and their captions, from the history; what the apps read in
+    // them (their words, their embedding) once photo search is on, and by which reader.
+    "
+    CREATE TABLE images(
+        id INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, room_id TEXT NOT NULL,
+        sender TEXT NOT NULL, caption TEXT NOT NULL, ts INTEGER NOT NULL, own INTEGER NOT NULL,
+        words TEXT NOT NULL DEFAULT '', embedding BLOB, reader TEXT, tries INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX images_by_room ON images(room_id, ts);
+    CREATE VIRTUAL TABLE images_fts USING fts5(
+        caption, words, content='images', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2', prefix='2 3');
+    CREATE TRIGGER images_added AFTER INSERT ON images BEGIN
+        INSERT INTO images_fts(rowid, caption, words) VALUES (new.id, new.caption, new.words);
+    END;
+    CREATE TRIGGER images_removed AFTER DELETE ON images BEGIN
+        INSERT INTO images_fts(images_fts, rowid, caption, words) VALUES ('delete', old.id, old.caption, old.words);
+    END;
+    CREATE TRIGGER images_changed AFTER UPDATE OF caption, words ON images BEGIN
+        INSERT INTO images_fts(images_fts, rowid, caption, words) VALUES ('delete', old.id, old.caption, old.words);
+        INSERT INTO images_fts(rowid, caption, words) VALUES (new.id, new.caption, new.words);
+    END;
+    -- the chats were read without their photos: read again (their messages, unchanged, write
+    -- nothing).
+    DELETE FROM chats;
+    ",
 ];
 
 /// Brings the file's schema up to this version's, each migration in its own transaction.

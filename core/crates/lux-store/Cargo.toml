@@ -12,7 +12,7 @@ lux-core.workspace = true
 # SQLCipher, bundled: features unify, so the sdk's own stores (rusqlite with `bundled`) link the
 # same SQLCipher and open their unkeyed files as plain SQLite. On Apple platforms it encrypts with
 # CommonCrypto (no OpenSSL).
-rusqlite = { workspace = true, features = ["bundled-sqlcipher", "cache"] }
+rusqlite = { workspace = true, features = ["bundled-sqlcipher", "cache", "functions"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 
