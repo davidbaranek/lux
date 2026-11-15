@@ -20,7 +20,7 @@ use lux_core::ports::{BackendError, SecretStore, StoreKey, UnusableStore};
 use matrix_sdk::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk::encryption::{BackupDownloadStrategy, EncryptionSettings};
 use matrix_sdk::sliding_sync::VersionBuilder;
-use matrix_sdk::{Client, ClientBuilder, SqliteStoreConfig};
+use matrix_sdk::{Client, ClientBuilder, SqliteStoreConfig, ThreadingSupport};
 use matrix_sdk_base::crypto::{DecryptionSettings, TrustRequirement};
 use tracing::{info, warn};
 
@@ -138,6 +138,11 @@ impl StoreFolder {
                 holder_name: process.lock_holder().to_owned(),
             })
             .sliding_sync_version_builder(sliding_sync)
+            // Matrix threads: a thread's replies are its own (its timeline, its receipts, its
+            // unread count), the room's own unread count leaves them out, roots carry summaries.
+            .with_threading_support(ThreadingSupport::Enabled {
+                with_subscriptions: false,
+            })
             .handle_refresh_tokens()
             .with_encryption_settings(EncryptionSettings {
                 auto_enable_cross_signing: false,

@@ -103,7 +103,7 @@ impl ChatActions for MatrixAccount {
             ChatChange::Read => {
                 for room in &rooms {
                     let id = RoomId::from(room.room_id().as_str());
-                    self.timelines.mark_read(&id, Receipt::Public).await?;
+                    self.timelines.mark_read(&id.into(), Receipt::Public).await?;
                 }
                 Ok(())
             }

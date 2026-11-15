@@ -1,7 +1,9 @@
-//! One open room's live timeline: the SDK's `Timeline`, and the task that maps its items to the
-//! core's messages (the only writer of the list), and the opening fill. Which of them show is
-//! the thread's choice (`lux_core::thread`).
+//! One open timeline: a room's own (live, its Matrix threads' replies hidden behind their roots'
+//! summaries) or a Matrix thread's (the SDK's thread focus: the root, then the replies). The
+//! SDK's `Timeline`, the task that maps its items to the core's messages (the only writer of the
+//! list), and the opening fill. Which of them show is the thread's choice (`lux_core::thread`).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -12,12 +14,14 @@ use lux_core::organizer::Organized;
 use lux_core::ports::BackendError;
 use lux_core::timeline::{Filtered, TimelineMessage};
 use matrix_sdk::Room;
-use matrix_sdk::ruma::{EventId, OwnedEventId};
+use matrix_sdk::ruma::events::receipt::{Receipt, ReceiptThread, ReceiptType};
+use matrix_sdk::ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use matrix_sdk_ui::Timeline;
 use matrix_sdk_ui::timeline::{
-    EventTimelineItem, RoomExt, TimelineEventItemId, TimelineItem, TimelineReadReceiptTracking, VirtualTimelineItem,
+    EventTimelineItem, RoomExt, TimelineEventItemId, TimelineFocus, TimelineItem, TimelineReadReceiptTracking,
+    VirtualTimelineItem,
 };
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tracing::warn;
 
@@ -41,9 +45,11 @@ const UNREAD_PAGES: usize = 10;
 /// How long a page back waits for its messages to be mapped (a page of state events brings none).
 const PAGE_CATCH_UP: Duration = Duration::from_secs(1);
 
-/// A room's live timeline, open until the account closes.
+/// A room's or a Matrix thread's live timeline, open until the account closes.
 pub(crate) struct RoomTimeline {
     pub(crate) room: Room,
+    /// The Matrix thread's root; `None`: the room's own timeline.
+    pub(crate) thread: Option<OwnedEventId>,
     pub(crate) timeline: Arc<Timeline>,
     messages: LiveList<Arc<TimelineMessage>>,
     at_start: watch::Receiver<bool>,
@@ -60,18 +66,37 @@ impl Drop for RoomTimeline {
 }
 
 impl RoomTimeline {
-    /// Opens the room's live timeline, and starts filling its first screen.
+    /// Opens the room's live timeline (the Matrix thread of `thread` instead, if given), and
+    /// starts filling its first screen.
     pub(crate) async fn open(
         room: Room,
+        thread: Option<OwnedEventId>,
         changes: broadcast::Sender<RoomId>,
         mut cuts: watch::Receiver<Arc<Organized>>,
         previews: LinkPreviews,
     ) -> Result<Self, BackendError> {
+        let (focus, prefix) = match &thread {
+            Some(started_by) => (
+                TimelineFocus::Thread {
+                    thread_id: started_by.clone(),
+                },
+                format!("{}/{started_by}/", room.room_id()),
+            ),
+            // a thread's replies show in its own timeline; the room's shows its root, summed up.
+            None => (
+                TimelineFocus::Live {
+                    hide_threaded_events: true,
+                },
+                format!("{}/", room.room_id()),
+            ),
+        };
         let timeline = Arc::new(
             room.timeline_builder()
-                // the SDK numbers each timeline's items from 0: the room makes a message's id
-                // unique among all rooms' (a merged chat shows several timelines as one thread).
-                .with_internal_id_prefix(format!("{}/", room.room_id()))
+                .with_focus(focus)
+                // the SDK numbers each timeline's items from 0: the room (and the thread) makes a
+                // message's id unique among all timelines' (a merged chat shows several as one
+                // thread, a thread's root shows in the room's and in the thread's).
+                .with_internal_id_prefix(prefix)
                 .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
                 .build()
                 .await
@@ -85,9 +110,17 @@ impl RoomTimeline {
         let (filled_sender, filled) = watch::channel(false);
         // the first items are in once `subscribe` answers: the task maps them before anything else.
         let (items, stream) = timeline.subscribe().await;
+        let (stale_roots, mut stale) = mpsc::unbounded_channel();
         let mut follower = Follower {
+            follows_roots: thread.is_none(),
+            followed_roots: HashSet::new(),
+            root_followers: JoinSet::new(),
+            stale_roots,
             timeline: Arc::clone(&timeline),
-            mapper: ItemMapper::new(room.clone(), previews.clone()),
+            mapper: match thread {
+                Some(_) => ItemMapper::new(room.clone(), previews.clone()).in_thread(),
+                None => ItemMapper::new(room.clone(), previews.clone()),
+            },
             filter: Filtered::new(),
             messages: messages.clone(),
             at_start: at_start_sender,
@@ -110,6 +143,8 @@ impl RoomTimeline {
                         follower.apply(batch).await;
                     }
                     // a shared post's preview came: its message says the post's title now.
+                    // a thread's replies or read state changed: its root's summary shows it.
+                    Some(stale_root) = stale.recv() => follower.map_root_again(&stale_root).await,
                     learned_more = learned.changed(), if previews_open => {
                         previews_open = learned_more.is_ok();
                         let items = follower.items.clone();
@@ -136,6 +171,7 @@ impl RoomTimeline {
         });
         Ok(Self {
             room,
+            thread,
             timeline,
             messages,
             at_start,
@@ -209,6 +245,37 @@ impl RoomTimeline {
             self.until(PAGE_CATCH_UP, |messages| messages.len() > before).await;
         }
         Ok(None)
+    }
+
+    /// When the latest of `events` was sent, of those the device holds.
+    async fn latest_time_of(&self, events: impl Iterator<Item = &EventId>) -> Option<MilliSecondsSinceUnixEpoch> {
+        let cache = self.room.client().event_cache().cloned()?;
+        let (events_of_room, _handles) = cache.room(self.room.room_id()).await.ok()?;
+        let mut latest = None;
+        for event in events {
+            if let Ok(Some(found)) = events_of_room.find_event(event).await {
+                latest = latest.max(found.timestamp());
+            }
+        }
+        latest
+    }
+
+    /// The account's read receipts this timeline counts from: its own thread's as the timeline
+    /// knows it (public or private), and the room's unthreaded ones.
+    async fn own_receipts(&self) -> Vec<(OwnedEventId, Receipt)> {
+        let own = self.room.own_user_id().to_owned();
+        let mut receipts: Vec<(OwnedEventId, Receipt)> =
+            self.timeline.latest_user_read_receipt(&own).await.into_iter().collect();
+        for kind in [ReceiptType::Read, ReceiptType::ReadPrivate] {
+            if let Ok(Some(receipt)) = self
+                .room
+                .load_user_receipt(kind, &ReceiptThread::Unthreaded, &own)
+                .await
+            {
+                receipts.push(receipt);
+            }
+        }
+        receipts
     }
 
     /// Waits until the mapped messages satisfy `done`, at most `patience`; `Some` once they do.
@@ -295,26 +362,46 @@ impl RoomTimeline {
         Some(id)
     }
 
-    /// The first message after the account's read receipt that another sent. When the
-    /// timeline does not hold the receipt's event, it pages back for it, at most `UNREAD_PAGES`
-    /// pages; then the oldest message another sent of those it holds.
+    /// The first message after the account's read receipt that another sent. The receipt is the
+    /// later of the timeline's own (the main thread's for the room's own timeline, the thread's
+    /// for a thread) and the room's unthreaded one, which covers every thread (what clients that
+    /// know no threads send, this app's earlier versions among them). When the timeline holds
+    /// neither receipt's event, it pages back for it, at most `UNREAD_PAGES` pages, or until it
+    /// reaches the time of the receipt's event as the device knows it (a thread's reply the room's
+    /// own timeline does not show): what came after it is unread. Then the oldest message another
+    /// sent of those it holds.
     pub(crate) async fn first_unread(&self) -> Result<Option<MessageId>, BackendError> {
-        let own = self.room.own_user_id().to_owned();
-        // the receipt as the room knows it, held by the timeline or not; none: never read.
-        if self.timeline.latest_user_read_receipt(&own).await.is_none() {
+        let receipts = self.own_receipts().await;
+        // never read.
+        if receipts.is_empty() {
             return Ok(None);
         }
+        let read_at = self.latest_time_of(receipts.iter().map(|(event, _)| &**event)).await;
         let mut pages = 0;
         let (items, after) = loop {
-            let receipt = self.timeline.latest_user_read_receipt_timeline_event_id(&own).await;
             let items = self.timeline.items().await;
-            let read = receipt.and_then(|receipt| {
-                items
-                    .iter()
-                    .position(|item| item.as_event().and_then(EventTimelineItem::event_id) == Some(&*receipt))
-            });
+            let read = receipts
+                .iter()
+                .filter_map(|(event, _)| {
+                    items
+                        .iter()
+                        .position(|item| item.as_event().and_then(EventTimelineItem::event_id) == Some(&**event))
+                })
+                .max();
             if let Some(read) = read {
                 break (items, read + 1);
+            }
+            let oldest = items
+                .iter()
+                .find_map(|item| item.as_event().map(EventTimelineItem::timestamp));
+            if let Some(read_at) = read_at
+                && (oldest.is_some_and(|oldest| oldest <= read_at) || *self.at_start.borrow())
+            {
+                let after = items
+                    .iter()
+                    .position(|item| item.as_event().is_some_and(|event| event.timestamp() > read_at))
+                    .unwrap_or(items.len());
+                break (items, after);
             }
             if pages >= UNREAD_PAGES || *self.at_start.borrow() {
                 break (items, 0);
@@ -362,6 +449,13 @@ impl RoomTimeline {
 
 /// Maps the SDK's batches into the room's messages; the only writer of the list.
 struct Follower {
+    /// The room's own timeline: its roots' summaries follow their threads.
+    follows_roots: bool,
+    /// The roots whose thread is followed.
+    followed_roots: HashSet<OwnedEventId>,
+    /// One task each, telling `stale_roots` when its thread changes; they end with the follower.
+    root_followers: JoinSet<()>,
+    stale_roots: mpsc::UnboundedSender<OwnedEventId>,
     timeline: Arc<Timeline>,
     mapper: ItemMapper,
     filter: Filtered,
@@ -395,6 +489,9 @@ impl Follower {
             .is_some_and(|item| matches!(item.as_virtual(), Some(VirtualTimelineItem::TimelineStart)));
         self.at_start.send_replace(at_start);
         while self.quotes.try_join_next().is_some() {}
+        if self.follows_roots {
+            self.follow_roots(&mapped);
+        }
         for event in fetch {
             let timeline = Arc::clone(&self.timeline);
             self.quotes.spawn(async move {
@@ -407,6 +504,63 @@ impl Follower {
             self.messages.apply(mapped);
             // nobody listening is no error.
             let _ = self.changes.send(self.room_id.clone());
+        }
+    }
+
+    /// Follows the threads of the roots among `mapped`, those not followed yet: each change of a
+    /// thread's replies or read state (the device's event cache's) maps its root again.
+    fn follow_roots(&mut self, mapped: &[VectorDiff<Arc<TimelineMessage>>]) {
+        let mut roots = Vec::new();
+        for diff in mapped {
+            let mut note = |message: &Arc<TimelineMessage>| {
+                if message.thread.is_some()
+                    && let Some(event) = &message.event_id
+                    && let Ok(root) = OwnedEventId::try_from(event.as_str())
+                {
+                    roots.push(root);
+                }
+            };
+            match diff {
+                VectorDiff::Append { values } | VectorDiff::Reset { values } => values.iter().for_each(&mut note),
+                VectorDiff::PushFront { value }
+                | VectorDiff::PushBack { value }
+                | VectorDiff::Insert { value, .. }
+                | VectorDiff::Set { value, .. } => note(value),
+                _ => {}
+            }
+        }
+        for root in roots {
+            if !self.followed_roots.insert(root.clone()) {
+                continue;
+            }
+            let (room, stale) = (self.timeline.room().clone(), self.stale_roots.clone());
+            self.root_followers.spawn(async move {
+                let Some(cache) = room.client().event_cache().cloned() else {
+                    return;
+                };
+                // the handles keep the thread's cache while it is followed.
+                let Ok((thread, _handles)) = cache.thread(room.room_id(), &root).await else {
+                    return;
+                };
+                let Ok(mut info) = thread.subscribe_to_thread_info().await else {
+                    return;
+                };
+                while info.next().await.is_some() {
+                    if stale.send(root.clone()).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
+    /// Maps the item of `root` again: its thread changed.
+    async fn map_root_again(&mut self, root: &EventId) {
+        let found = self.items.iter().enumerate().find_map(|(index, item)| {
+            (item.as_event().and_then(EventTimelineItem::event_id) == Some(root)).then(|| (index, Arc::clone(item)))
+        });
+        if let Some((index, item)) = found {
+            self.apply(vec![VectorDiff::Set { index, value: item }]).await;
         }
     }
 

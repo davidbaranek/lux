@@ -670,9 +670,12 @@ async fn a_send_that_failed_for_a_moment_goes_out_by_itself_while_the_sync_runs(
         .unwrap();
     let room = RoomId::from("!anna:matrix.org");
     let timelines = account.timelines();
-    let mut messages = timelines.messages(&room).await.unwrap();
+    let mut messages = timelines.messages(&room.clone().into()).await.unwrap();
 
-    timelines.send_text(&room, "are you there?", None).await.unwrap();
+    timelines
+        .send_text(&room.clone().into(), "are you there?", None)
+        .await
+        .unwrap();
     let mut rows = eyeball_im::Vector::new();
     let mut failed = false;
     // no retry: the queue sends again once the failure has passed.

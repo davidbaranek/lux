@@ -1,5 +1,6 @@
 //! The SDK's timeline items as the core's messages: a message, a sticker, a poll's question, a
-//! deleted or undecryptable message. Day dividers, state events and the like map to nothing.
+//! deleted or undecryptable message, a Matrix thread's root with its summary. Day dividers, state
+//! events and the like map to nothing.
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
@@ -9,17 +10,19 @@ use lux_core::ids::{EventId, MediaId, MessageId, RoomId, UserId};
 use lux_core::message::{self, Attachment, Message, SendState};
 use lux_core::preview::{PreviewKind, PreviewSource as QuotedKind};
 use lux_core::timeline::{
-    FileKind, Media, MessageKind, Picture, Quote, Reaction, Reader, SharedPost, TextStyle, TimelineMessage, html,
+    FileKind, Media, MessageKind, Participant, Picture, Quote, Reaction, Reader, SharedPost, TextStyle, ThreadReply,
+    ThreadSummary, TimelineMessage, html,
 };
 use matrix_sdk::Room;
 use matrix_sdk::ruma::events::AnySyncTimelineEvent;
+use matrix_sdk::ruma::events::relation::RelationType;
 use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::ruma::events::room::message::{FormattedBody, MessageFormat, MessageType};
 use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UInt};
 use matrix_sdk_ui::timeline::{
-    EventSendState, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, Profile, TimelineDetails,
-    TimelineItem, TimelineItemContent,
+    EventSendState, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, Profile,
+    ThreadSummary as SdkSummary, TimelineDetails, TimelineItem, TimelineItemContent,
 };
 
 use super::previews::{LinkPreview, LinkPreviews};
@@ -34,6 +37,11 @@ pub(crate) struct ItemMapper {
     room_id: RoomId,
     own: OwnedUserId,
     names: HashMap<OwnedUserId, String>,
+    /// The pictures of the people met in threads' summaries.
+    avatars: HashMap<OwnedUserId, Option<MediaId>>,
+    /// The room's own timeline: a thread's root carries its summary (a thread's timeline shows
+    /// the replies themselves).
+    sums_threads: bool,
     asked: HashSet<OwnedEventId>,
 }
 
@@ -53,8 +61,16 @@ impl ItemMapper {
             room_id,
             own,
             names: HashMap::new(),
+            avatars: HashMap::new(),
+            sums_threads: true,
             asked: HashSet::new(),
         }
+    }
+
+    /// The mapper of a Matrix thread's own timeline: its root carries no summary.
+    pub(crate) fn in_thread(mut self) -> Self {
+        self.sums_threads = false;
+        self
     }
 
     /// The message an item shows, if it is one.
@@ -104,6 +120,10 @@ impl ItemMapper {
             })
             .collect();
         let links = message::links(&shown.body, &shown.styles);
+        let thread = match (&content.thread_summary, event.event_id()) {
+            (Some(summary), Some(root)) if self.sums_threads => Some(self.thread_summary(root, summary).await),
+            _ => None,
+        };
         let message = TimelineMessage {
             message: Message {
                 id: MessageId::from(item.unique_id().0.as_str()),
@@ -130,6 +150,7 @@ impl ItemMapper {
             reply,
             readers,
             shared,
+            thread,
         };
         Mapped {
             message: Some(Arc::new(message)),
@@ -165,6 +186,56 @@ impl ItemMapper {
         readers
     }
 
+    /// The summary of the Matrix thread `root` starts: the SDK's count and last reply, who took
+    /// part (as far as the device holds the replies), and how many replies are unread there.
+    async fn thread_summary(&mut self, root: &matrix_sdk::ruma::EventId, summary: &SdkSummary) -> ThreadSummary {
+        let latest = match &summary.latest_event {
+            TimelineDetails::Ready(latest) => Some((
+                latest.sender.clone(),
+                ThreadReply {
+                    sender: self.participant(&latest.sender).await,
+                    kind: quoted_kind(&latest.content),
+                    date: system_time(latest.timestamp),
+                },
+            )),
+            _ => None,
+        };
+        let (repliers, unread) = thread_activity(&self.room, root).await;
+        let mut participants: Vec<Participant> = Vec::new();
+        let senders = latest.iter().map(|(sender, _)| sender.clone()).chain(repliers);
+        for sender in senders {
+            if participants.iter().all(|known| known.user.as_str() != sender.as_str()) {
+                participants.push(self.participant(&sender).await);
+            }
+        }
+        ThreadSummary {
+            replies: summary.num_replies,
+            latest: latest.map(|(_, reply)| reply),
+            participants,
+            unread,
+        }
+    }
+
+    /// Someone in a thread: their name and picture in the room.
+    async fn participant(&mut self, user: &OwnedUserId) -> Participant {
+        let name = self.name_of(user).await;
+        let avatar = if let Some(avatar) = self.avatars.get(user) {
+            avatar.clone()
+        } else {
+            let avatar = match self.room.get_member_no_sync(user).await {
+                Ok(Some(member)) => member.avatar_url().map(|url| MediaId::from(url.as_str())),
+                _ => None,
+            };
+            self.avatars.insert(user.clone(), avatar.clone());
+            avatar
+        };
+        Participant {
+            user: UserId::from(user.as_str()),
+            name,
+            avatar,
+        }
+    }
+
     /// A member's name, from the people met or the room's members.
     async fn name_of(&mut self, user: &OwnedUserId) -> String {
         if let Some(name) = self.names.get(user) {
@@ -174,6 +245,35 @@ impl ItemMapper {
         self.names.insert(user.clone(), name.clone());
         name
     }
+}
+
+/// Who replied in the Matrix thread started by `thread`, the last first, as far as the device holds its
+/// replies; and how many of them are unread by the thread's own receipt.
+pub(crate) async fn thread_activity(room: &Room, thread: &matrix_sdk::ruma::EventId) -> (Vec<OwnedUserId>, u32) {
+    let Some(cache) = room.client().event_cache().cloned() else {
+        return (Vec::new(), 0);
+    };
+    let mut replies = match cache.room(room.room_id()).await {
+        Ok((events, _handles)) => events
+            .find_event_relations(thread, Some(vec![RelationType::Thread]))
+            .await
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    replies.sort_by_key(|reply| std::cmp::Reverse(reply.timestamp_raw()));
+    let mut senders: Vec<OwnedUserId> = Vec::new();
+    for reply in &replies {
+        if let Ok(Some(sender)) = reply.raw().get_field::<OwnedUserId>("sender")
+            && !senders.contains(&sender)
+        {
+            senders.push(sender);
+        }
+    }
+    let unread = match cache.thread(room.room_id(), thread).await {
+        Ok((thread, _handles)) => thread.num_unread_messages().await.unwrap_or_default(),
+        Err(_) => 0,
+    };
+    (senders, u32::try_from(unread).unwrap_or(u32::MAX))
 }
 
 /// What a message-like item shows.
