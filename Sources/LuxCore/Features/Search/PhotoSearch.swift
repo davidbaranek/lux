@@ -23,7 +23,7 @@ public final class PhotoSearch {
         return .on(hasModel: model != nil)
     }
     /// The photos read by the current reader, of all, and whether the reading is under way.
-    private(set) var progress = PhotoIndexer.Progress() {
+    public private(set) var progress = PhotoIndexer.Progress() {
         didSet { changes.send() }
     }
     public let changes = Broadcast()
@@ -86,13 +86,28 @@ public final class PhotoSearch {
         Task(priority: .utility) { [indexer] in await indexer.read(limit: Self.foregroundLimit) }
     }
 
-    /// Reads every photo not read yet (the iPhone's background task); true when none is left.
+    /// Photos are being read now.
+    public var isReading: Bool { progress.isReading }
+    /// Some photos wait to be read.
+    public var hasUnread: Bool { progress.read < progress.total }
+
+    /// Set by the iPhone app: reading every photo now runs as a continued processing task, which
+    /// the system shows as a Live Activity and keeps going when the user leaves the app.
+    public var onReadNow: (() -> Void)?
+
+    /// Reads every photo not read yet, now (the user asked).
+    public func readNow() {
+        if let onReadNow { onReadNow() } else { Task(priority: .utility) { await readAll() } }
+    }
+
+    /// Reads every photo not read yet (the iPhone's background tasks); true when none is left.
     public func readAll() async -> Bool {
         await loading?.value
         return await indexer.read(limit: nil)
     }
 
-    /// Stops the reading (the system ends the background task, or the account closes).
+    /// Stops the reading (the user, the system ending a background task, or the account closing);
+    /// what was read stays, and the rest is read the next time the app opens or charges.
     public func stop() async {
         await indexer.stop()
     }

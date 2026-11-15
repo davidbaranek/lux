@@ -55,6 +55,22 @@ public final class SettingsModel {
             : String(localized: "\(read.formatted(.number)) of \(total.formatted(.number)) photos read")
     }
 
+    /// Photos are being read now: Settings offers to stop.
+    public var isReadingPhotos: Bool { session.search?.photos.isReading ?? false }
+    /// Some photos wait to be read: Settings offers to read them now.
+    public var hasUnreadPhotos: Bool { session.search?.photos.hasUnread ?? false }
+
+    /// Reads every photo not read yet, now; on the iPhone in a task the system shows as a Live
+    /// Activity, which goes on when the user leaves the app.
+    public func readPhotosNow() {
+        session.search?.photos.readNow()
+    }
+
+    /// Stops the reading; the rest is read the next time the app opens, or while it charges.
+    public func stopReadingPhotos() async {
+        await session.search?.photos.stop()
+    }
+
     /// Turns the search by how photos look on (the model downloads; the photos are read again
     /// while the device charges) or off (the model and what it read go).
     public func setSearchesPhotosByLook(_ on: Bool) async {

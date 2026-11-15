@@ -3,17 +3,17 @@ import Foundation
 /// Reads the photos the search index keeps, the newest first, once photo search is on: each
 /// photo downloads (decrypted) into a folder of its own, its words and look are read on the
 /// device, and the file goes. One photo at a time, off the main thread.
-actor PhotoIndexer {
-    /// How far the reading is, for Settings.
-    struct Progress: Sendable, Equatable {
-        var total = 0
+public actor PhotoIndexer {
+    /// How far the reading is, for Settings and the reading's Live Activity.
+    public struct Progress: Sendable, Equatable {
+        public var total = 0
         /// Read by the current reader; the others wait for it.
-        var read = 0
+        public var read = 0
         /// Their words read (the basic index).
-        var withWords = 0
+        public var withWords = 0
         /// With an embedding (search by look).
-        var withEmbedding = 0
-        var isReading = false
+        public var withEmbedding = 0
+        public var isReading = false
     }
 
     /// Kept together: few writes, and little lost when the system ends the work.
@@ -25,6 +25,9 @@ actor PhotoIndexer {
     private let report: @Sendable (Progress) -> Void
     private var reader: PhotoReader
     private var running: Task<Bool, Never>?
+    /// How many times the reading was stopped: a reading waiting for another does not start
+    /// after a stop.
+    private var stops = 0
 
     init(store: LocalStore, account: Task<RustAccount, any Error>, directory: URL, model: PhotoSearchModel?,
          report: @escaping @Sendable (Progress) -> Void) {
@@ -41,19 +44,27 @@ actor PhotoIndexer {
     }
 
     /// Reads the photos not read yet, the newest first: at most `limit` (nil: all of them).
-    /// True when none is left. A run under way goes on; this one waits for it.
+    /// True when none is left. A run under way goes on, and this one after it if it reads more;
+    /// a stop ends both.
     @discardableResult
     func read(limit: Int?) async -> Bool {
-        if let running { return await running.value }
+        let asked = stops
+        if let running {
+            let done = await running.value
+            guard limit == nil, !done, stops == asked, self.running == nil else { return done }
+        }
         let run = Task { await readUnread(limit: limit) }
         running = run
+        report(await progress())
         let done = await run.value
         running = nil
+        report(await progress())
         return done
     }
 
-    /// Stops the reading where it is (what was read is kept).
+    /// Stops the reading where it is (what was read is kept), and the reading waiting for it.
     func stop() {
+        stops += 1
         running?.cancel()
     }
 

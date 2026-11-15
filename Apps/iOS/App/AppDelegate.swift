@@ -14,11 +14,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     static let refresh: BackgroundRefresh? = LaunchOptions.isDemo ? nil : BackgroundRefresh(session: session)
     /// Photo search's reading at night; registered as `refresh` is.
     static let photoReading: PhotoReading? = LaunchOptions.isDemo ? nil : PhotoReading(session: session)
+    /// Photo search's reading now, when the user asks (a continued task, its Live Activity).
+    static let photoReadingNow = PhotoReadingNow(session: session)
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         _ = Self.notifications
         _ = Self.refresh
         _ = Self.photoReading
+        _ = Self.photoReadingNow
         return true
     }
 

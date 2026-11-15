@@ -5,7 +5,7 @@ import UIKit
 /// signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
-    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoWords, photoLooks, photoModel, photoLooksState, signOut }
+    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoWords, photoLooks, photoModel, photoLooksState, readPhotos, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -127,6 +127,16 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                     Task { await self?.model.setSearchesPhotosByLook(on) }
                 }, for: .valueChanged)
                 cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
+            case .readPhotos:
+                content = .cell()
+                let model = model
+                content.text = model.isReadingPhotos ? String(localized: "Stop Reading Photos")
+                    : model.hasUnreadPhotos ? String(localized: "Read Photos Now") : String(localized: "All Photos Read")
+                content.textProperties.color = model.isReadingPhotos || model.hasUnreadPhotos ? .tintColor : .secondaryLabel
+                content.secondaryText = model.isReadingPhotos
+                    ? String(localized: "Stopped, the reading goes on the next time Lux opens, or while the iPhone charges.")
+                    : String(localized: "Reads them now instead of while the iPhone charges; the Lock Screen shows how far it is.")
+                content.secondaryTextProperties.color = .secondaryLabel
             case .signOut:
                 content = .cell()
                 content.text = String(localized: "Sign Out")
@@ -144,7 +154,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendItems([.theme], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts], toSection: .privacy)
-        snapshot.appendItems([.searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState], toSection: .search)
+        snapshot.appendItems([.searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos], toSection: .search)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
 
@@ -152,7 +162,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState])
+            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos])
             dataSource.apply(snapshot)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in
@@ -187,6 +197,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             navigationController?.pushViewController(RecoverySetupViewController(security: security), animated: true)
         case .recovery?:
             navigationController?.pushViewController(RecoveryKeyViewController(model: model), animated: true)
+        case .readPhotos? where model.isReadingPhotos:
+            Task { await model.stopReadingPhotos() }
+        case .readPhotos? where model.hasUnreadPhotos:
+            model.readPhotosNow()
         case .signOut?:
             confirmSignOut(from: collectionView.cellForItem(at: indexPath))
         default:

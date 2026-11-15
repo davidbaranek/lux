@@ -76,7 +76,7 @@ targets:
         LuxAppGroup: $(LUX_APP_GROUP)
         LuxPushGateway: $(LUX_PUSH_GATEWAY)
         LuxOAuthClientURI: $(LUX_OAUTH_CLIENT_URI)
-        BGTaskSchedulerPermittedIdentifiers: [$(LUX_BUNDLE_ID).uploads, $(LUX_BUNDLE_ID).refresh, $(LUX_BUNDLE_ID).photos]
+        BGTaskSchedulerPermittedIdentifiers: [$(LUX_BUNDLE_ID).uploads, $(LUX_BUNDLE_ID).refresh, $(LUX_BUNDLE_ID).photos, $(LUX_BUNDLE_ID).photos-now]
         # photo search reads photos at night: a processing task needs the processing mode.
         UIBackgroundModes: [fetch, processing]
         # the chats the user writes in, donated as conversations: the share sheet suggests them.
