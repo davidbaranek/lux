@@ -13,9 +13,9 @@ final class ChatTitleView: UIView {
     init(row: ChatRow, images: ImagePipeline?) {
         super.init(frame: .zero)
         glass.cornerConfiguration = .capsule()
+        // the title takes the tap itself, not the glass in it.
+        glass.isUserInteractionEnabled = false
         picture.side = Self.pictureSide
-        picture.show(row.avatar, name: row.name, members: row.memberAvatars, images: images)
-        name.text = row.name
         name.font = .preferredFont(forTextStyle: .subheadline).bold
         name.adjustsFontForContentSizeCategory = true
         detail.font = .preferredFont(forTextStyle: .caption1)
@@ -44,7 +44,16 @@ final class ChatTitleView: UIView {
             stack.centerYAnchor.constraint(equalTo: glass.contentView.centerYAnchor),
         ])
         isAccessibilityElement = true
-        accessibilityTraits = .header
+        // a tap opens the chat's details.
+        accessibilityTraits = [.header, .button]
+        accessibilityHint = String(localized: "Shows the chat's details")
+        show(row, images: images)
+    }
+
+    /// Shows `row`'s picture and name (the chat renamed or repictured).
+    func show(_ row: ChatRow, images: ImagePipeline?) {
+        picture.show(row.avatar, name: row.name, members: row.memberAvatars, images: images)
+        name.text = row.name
         updateAccessibility()
     }
 

@@ -12,6 +12,7 @@
 mod account;
 mod bridges;
 mod chat;
+mod details;
 mod list;
 mod markdown;
 mod message;

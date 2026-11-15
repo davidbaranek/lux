@@ -679,6 +679,7 @@ impl CoreOAuth {
 }
 
 /// What an account runs on.
+#[derive(Clone)]
 pub(crate) enum Backend {
     /// A Matrix account.
     Matrix(Arc<MatrixAccount>),
@@ -726,7 +727,7 @@ impl CoreAccount {
     }
 
     /// The chats as they are now: the list's first batch, a `Reset` of the whole list.
-    async fn current_chats(&self) -> Vector<Arc<Chat>> {
+    pub(crate) async fn current_chats(&self) -> Vector<Arc<Chat>> {
         let mut chats = Vector::new();
         let mut stream = with_account!(&self.backend, account => account.chats());
         for diff in stream.next().await.unwrap_or_default() {

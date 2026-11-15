@@ -5,10 +5,12 @@ use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
 
 use super::seeded::text;
+use super::timeline::OWN_USER;
 use crate::chat::{Chat, Folder, Label, Request, Space};
-use crate::ids::{ChatId, MediaId, RoomId};
+use crate::ids::{ChatId, MediaId, RoomId, UserId};
 use crate::merge::Merge;
 use crate::network::Network;
+use crate::ports::{Member, NotificationMode, Role, RoomDetails, RoomPermissions};
 use crate::preview::{Preview, PreviewSource, Sender};
 
 const NAMES: [&str; 12] = [
@@ -57,6 +59,32 @@ pub(crate) struct ChatState {
     pub(crate) unread: Option<bool>,
     pub(crate) pinned: Option<f64>,
     pub(crate) deleted: bool,
+    /// Renamed from its details.
+    pub(crate) name: Option<String>,
+    /// Its picture changed from its details.
+    pub(crate) avatar: Option<PictureChange>,
+    /// Its topic changed from its details (empty removed it).
+    pub(crate) topic: Option<String>,
+    /// Its notifications set from its details; `None` follows `muted`.
+    pub(crate) notifications: Option<NotificationMode>,
+}
+
+/// A room's picture as the user changed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PictureChange {
+    /// A new one.
+    Set(MediaId),
+    /// None.
+    Removed,
+}
+
+/// Room `index`'s picture, as made up or as the user changed it.
+fn avatar(index: usize, changed: &ChatState) -> Option<MediaId> {
+    match &changed.avatar {
+        Some(PictureChange::Set(avatar)) => Some(avatar.clone()),
+        Some(PictureChange::Removed) => None,
+        None => (index % 4 != 3).then(|| MediaId::from(PICTURE)),
+    }
 }
 
 /// Room `index`'s chat as made up, with what the user changed (`state`, `None` when nothing):
@@ -67,13 +95,9 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
     if changed.deleted {
         return None;
     }
-    let name = if index < NAMES.len() {
-        NAMES[index].to_owned()
-    } else {
-        format!("{} {index}", NAMES[index % NAMES.len()])
-    };
-    let is_group = [2, 3, 6, 9].contains(&(index % NAMES.len()));
-    let avatar = (index % 4 != 3).then(|| MediaId::from(PICTURE));
+    let name = changed.name.clone().unwrap_or_else(|| made_name(index));
+    let is_group = is_group(index);
+    let avatar = avatar(index, changed);
     let folder_by_default = if index % 11 == 10 {
         Folder::Archive
     } else if index % 13 == 12 {
@@ -119,7 +143,11 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
         // some unread groups mention the user.
         unread_mentions: u32::from(is_group && unread_count > 0 && index.is_multiple_of(3)),
         is_marked_unread,
-        is_muted: changed.muted.unwrap_or(index % 17 == 16),
+        is_muted: match changed.notifications {
+            Some(NotificationMode::Off | NotificationMode::Mentions) => true,
+            Some(NotificationMode::All | NotificationMode::Default) => false,
+            None => changed.muted.unwrap_or(index % 17 == 16),
+        },
         network: NETWORKS[index % NETWORKS.len()].clone(),
         // a group with no picture shows two members' pictures.
         member_avatars: if is_group && avatar.is_none() {
@@ -135,6 +163,150 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
         rooms: Vec::new(),
         default_room: None,
     })
+}
+
+fn made_name(index: usize) -> String {
+    if index < NAMES.len() {
+        NAMES[index].to_owned()
+    } else {
+        format!("{} {index}", NAMES[index % NAMES.len()])
+    }
+}
+
+fn is_group(index: usize) -> bool {
+    [2, 3, 6, 9].contains(&(index % NAMES.len()))
+}
+
+/// How many have joined room `index`: two in a conversation; a work group has hundreds, to search.
+fn member_count(index: usize) -> usize {
+    match index % NAMES.len() {
+        2 => 6,
+        3 => 18,
+        6 => 240,
+        9 => 9,
+        _ => 2,
+    }
+}
+
+/// Whether the user is an admin of room `index`: of the family and the climbing crew, not of work
+/// or the book club, which others run.
+fn is_own_admin(index: usize) -> bool {
+    matches!(index % NAMES.len(), 2 | 3)
+}
+
+const FIRST_NAMES: [&str; 16] = [
+    "Adam", "Barbora", "Cyril", "Dana", "Emil", "Filip", "Gabriela", "Hana", "Ivan", "Jitka", "Karel", "Lenka",
+    "Marek", "Nikola", "Oskar", "Pavla",
+];
+
+const LAST_NAMES: [&str; 15] = [
+    "Novák",
+    "Kučera",
+    "Veselý",
+    "Horáková",
+    "Němec",
+    "Marek",
+    "Pospíšilová",
+    "Hájek",
+    "Jelínek",
+    "Král",
+    "Růžička",
+    "Beneš",
+    "Fiala",
+    "Sedláčková",
+    "Doležal",
+];
+
+/// Room `index`'s details, with what the user changed (`state`).
+pub(crate) fn details(index: usize, state: Option<&ChatState>) -> RoomDetails {
+    let default = ChatState::default();
+    let changed = state.unwrap_or(&default);
+    let group = is_group(index);
+    let admin = group && is_own_admin(index);
+    let made_topic = group.then(|| match index % NAMES.len() {
+        2 => "Sunday lunches, birthdays and photos of the kids".to_owned(),
+        3 => "Wednesdays at the wall, weekends on the rock. Bring your own chalk.".to_owned(),
+        6 => "Announcements and questions for the whole company".to_owned(),
+        _ => "One book a month; we meet on the last Thursday".to_owned(),
+    });
+    let topic = match &changed.topic {
+        Some(topic) if topic.is_empty() => None,
+        Some(topic) => Some(topic.clone()),
+        None => made_topic,
+    };
+    let muted = changed.muted.unwrap_or(index % 17 == 16);
+    RoomDetails {
+        id: room_id(index),
+        name: changed.name.clone().unwrap_or_else(|| made_name(index)),
+        topic,
+        avatar: avatar(index, changed),
+        address: (group && index % NAMES.len() == 3).then(|| "#climbing:demo".to_owned()),
+        is_encrypted: index % 5 != 4,
+        is_direct: !group,
+        joined_members: u64::try_from(member_count(index)).unwrap_or(u64::MAX),
+        notifications: changed.notifications.unwrap_or(if muted {
+            NotificationMode::Off
+        } else {
+            NotificationMode::Default
+        }),
+        may: RoomPermissions {
+            rename: admin,
+            change_topic: admin,
+            change_avatar: admin,
+        },
+    }
+}
+
+/// Room `index`'s members, the user first: the person of a conversation, a group's made-up people.
+pub(crate) fn members(index: usize, state: Option<&ChatState>) -> Vec<Member> {
+    let own = Member {
+        user: UserId::from(OWN_USER),
+        name: "Me".to_owned(),
+        avatar: None,
+        role: if is_group(index) && is_own_admin(index) {
+            Role::Admin
+        } else {
+            Role::Member
+        },
+        is_own: true,
+    };
+    if !is_group(index) {
+        let name = state
+            .and_then(|state| state.name.clone())
+            .unwrap_or_else(|| made_name(index));
+        let user = format!("@friend{index}:demo");
+        return vec![
+            own,
+            Member {
+                avatar: (index % 4 != 3).then(|| MediaId::from(format!("demo-{user}"))),
+                user: UserId::from(user),
+                name,
+                role: Role::Member,
+                is_own: false,
+            },
+        ];
+    }
+    let mut members = vec![own];
+    members.extend((1..member_count(index)).map(|number| {
+        let user = format!("@member{number}-{index}:demo");
+        Member {
+            name: format!(
+                "{} {}",
+                FIRST_NAMES[(number * 7 + index) % FIRST_NAMES.len()],
+                LAST_NAMES[(number * 11 + index / 2) % LAST_NAMES.len()]
+            ),
+            avatar: (number % 3 != 0).then(|| MediaId::from(format!("demo-{user}"))),
+            user: UserId::from(user),
+            // the groups others run have one admin and a few moderators.
+            role: match (number, is_own_admin(index)) {
+                (1, false) => Role::Admin,
+                (2..=3, _) => Role::Moderator,
+                _ => Role::Member,
+            },
+            is_own: false,
+        }
+    }));
+    members
 }
 
 /// Jana's chats on two networks, merged.

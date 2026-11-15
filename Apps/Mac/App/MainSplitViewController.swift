@@ -40,6 +40,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         }
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
+        chatTitle.onClick = { [weak self] in self?.showDetails(nil) }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
@@ -58,6 +59,8 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     }
 
     private func open(_ row: ChatRow?, focusEvent: String? = nil) {
+        details?.close()
+        openRow = row
         if let row {
             let thread = ThreadController(session: session, row: row, theme: listModel.theme, focusEvent: focusEvent)
             thread.onShownRoom = { [weak self] in self?.updateNetworks() }
@@ -73,6 +76,32 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             chatTitle.show(nil, images: nil)
         }
         updateNetworks()
+    }
+
+    // MARK: The open chat's details
+
+    private var openRow: ChatRow?
+    private var details: NSPopover?
+
+    /// The open chat's details, in a popover from its title (a click on it, View › Chat Details, ⌘I).
+    @objc func showDetails(_ sender: Any?) {
+        guard let row = openRow else { return }
+        if let details, details.isShown {
+            details.close()
+            return
+        }
+        let controller = ChatDetailsController(session: session, row: row)
+        controller.onChange = { [weak self] row in
+            guard let self, openRow?.id == row.id else { return }
+            chatTitle.show(row, images: session.images)
+            view.window?.title = row.name
+        }
+        controller.onLeave = { [weak self] in self?.open(nil) }
+        let popover = NSPopover()
+        popover.contentViewController = controller
+        popover.behavior = .transient
+        popover.show(relativeTo: chatTitle.bounds, of: chatTitle, preferredEdge: .maxY)
+        details = popover
     }
 
     /// Opens the chat of a notification the user clicked: the merged chat its room is part of,

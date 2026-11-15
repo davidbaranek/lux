@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		006D727147C8FC2B8B907C40 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A0879E00055D31BFA4E16B /* ShareViewController.swift */; };
+		0081153BE394BC6DC28D5B7F /* ChatDetailsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F5A52224B0B6D81147524A /* ChatDetailsController.swift */; };
 		01C3E40E77DF50004F0F91BC /* ThemeBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3486FEA9B7E75C0C0CF63B7 /* ThemeBand.swift */; };
 		021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3129E33F5CAAED4C0B82EB92 /* SignInController.swift */; };
 		02A6600AB83B5B16B1B38D90 /* TypingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC0D1B214F00F8C6A3313FD /* TypingView.swift */; };
@@ -26,6 +27,7 @@
 		1BCA865F8FF6EF1EE6695A87 /* SearchResultsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */; };
 		1C9F5F75836DD643D24F1AA2 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38EB133AC22139BB66D39275 /* main.swift */; };
 		1D909DDF5C83BC9399F987E2 /* ChatStylePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CAAA103DF399F24DF658ED /* ChatStylePicker.swift */; };
+		1F56A7740537C8A360EE3B04 /* SharedViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */; };
 		252EDCA93CE5B2A96E8E349D /* BadgeLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */; };
 		27B057F73D3889A613A56B2E /* RailController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4104CEA496E32C0FC3DCF04 /* RailController.swift */; };
 		28CC9919B31369F7B26DB854 /* ThemeTint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26B64CD6E66347DCB8E7F15 /* ThemeTint.swift */; };
@@ -51,6 +53,7 @@
 		4EFA5B4CA1489AFEE7C64002 /* ConversationDonation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */; };
 		50F5F40E8F91A5F6C64854BD /* ChatStylePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE43DFD6C4B1FDD6D4D93D33 /* ChatStylePicker.swift */; };
 		5470DEAD78BA1CDEAFDBA5CF /* NSImage+Symbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861B6215E0535216006F41DA /* NSImage+Symbol.swift */; };
+		58C2E873FD564CCAC91B8BF3 /* EditChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA5C750269A65579B132470 /* EditChatViewController.swift */; };
 		5F25ADA8CB7A06BAEC4A88A1 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */; };
 		6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */; };
 		657C45CA956C202D41ADF97C /* DevicesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D38CDE5B816C247508144E /* DevicesViewController.swift */; };
@@ -76,8 +79,10 @@
 		967349FF9CFE2A315B06B48A /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60079532E50D716748C497E7 /* AvatarView.swift */; };
 		99746989F9BF6DCCE165A6AD /* PlacesSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5533F0994A20C1A1D7C4D369 /* PlacesSheetViewController.swift */; };
 		9C07EBB6628BB81A3CE6B539 /* FileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D1A30D2DF3D718DA2A4B81F /* FileRowView.swift */; };
+		9D0FFDEEFE4F3E82502A4DAB /* SharedPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47371175077B06DD93D8E819 /* SharedPane.swift */; };
 		9DB35B0612E722C0127644BC /* EmojiImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */; };
 		9F072E62A5C4445EEBB245C0 /* Lux-iOS-Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A159AD2F5FD5649235134D50 /* MembersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D737288FA31CA350724D718 /* MembersViewController.swift */; };
 		A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */; };
 		A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */; };
 		A5A6DC777A0A6BB0CC734E9E /* NetworkImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */; };
@@ -93,8 +98,10 @@
 		B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2180360AB5C0E986ABBBF07D /* ChatListController.swift */; };
 		B653F26A44AE4D274DB849D7 /* UIFont+Bold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */; };
 		B7AEA23C2F785A725402F3AF /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E4FC640AD4BBC4E431346A /* Notifications.swift */; };
+		B7FABBAC58BE66304CF664FE /* MembersPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4131CD8140B7AEF0964D274B /* MembersPane.swift */; };
 		BC0306C758185E08AECE4715 /* SendLaterMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3044FCBF32576720D8DB5A1 /* SendLaterMenu.swift */; };
 		BC9F0E1D1E882AE86E84B643 /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = 587B21A79B35B390D241914E /* LuxCore */; };
+		BCC7AFFF52283FE7CFFA26FD /* EditChatController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE318413E2F507F57F29C300 /* EditChatController.swift */; };
 		BD62BA28B3BEC0CE0DA7413B /* ConversationDonation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */; };
 		BEBADB4F59591F45FB7A35F4 /* Lux-iOS-Notifications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E3280A12939AF3F7D291E91C /* Lux-iOS-Notifications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BED26E2D602865890B92AF7C /* Networks.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7175CD37D14C455234289062 /* Networks.xcassets */; };
@@ -124,6 +131,7 @@
 		F098D0BF74E1B8204F19E52D /* FileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1237884D199F603C323809F /* FileRowView.swift */; };
 		F399A2C7D0F4FE57850A39CF /* ChatPickerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4568CFB0703D28EFF82DF4 /* ChatPickerViewController.swift */; };
 		F5715C81C2E275785AD988B6 /* VerificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC9E7CDBFC3557241A8B83D /* VerificationViewController.swift */; };
+		F67E6EEC5509FA21A54E0036 /* ChatDetailsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E52BD339D5DB34B2B0EBB0 /* ChatDetailsViewController.swift */; };
 		F91924DF587B1C2B946408C7 /* ConfirmIdentityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B8C9E1BC81A5D35C0C13AC /* ConfirmIdentityController.swift */; };
 		FA7B9102187DE1BB0B565AF4 /* ScrollBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1797AF77AA495AC53B1A7899 /* ScrollBenchmark.swift */; };
 		FA8C719FA0213F63F8924662 /* ThreadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83A756DC00736E9731ED03F4 /* ThreadController.swift */; };
@@ -178,6 +186,7 @@
 		06C63259781CAA212711C097 /* ChatListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListViewController.swift; sourceTree = "<group>"; };
 		0AD2A43CC3D6B685EA440146 /* Lux-iOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lux-iOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceViewController.swift; sourceTree = "<group>"; };
+		0CA5C750269A65579B132470 /* EditChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditChatViewController.swift; sourceTree = "<group>"; };
 		0D98930FAB5212EFBE46E3F0 /* AppearanceSettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsController.swift; sourceTree = "<group>"; };
 		0EC71AE3DBF5977DA99DC7E8 /* NewConversationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationController.swift; sourceTree = "<group>"; };
 		1019436DD5B08FB56BEDB051 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -202,8 +211,10 @@
 		32CF52CA6CC877D4E596211C /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		33C446B1137E156D69E519EF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		38EB133AC22139BB66D39275 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		4131CD8140B7AEF0964D274B /* MembersPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembersPane.swift; sourceTree = "<group>"; };
 		4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
 		45E4FC640AD4BBC4E431346A /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
+		47371175077B06DD93D8E819 /* SharedPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedPane.swift; sourceTree = "<group>"; };
 		49761B942919CA84E69B8699 /* SectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionHeader.swift; sourceTree = "<group>"; };
 		4C2C0133C1B24AE10B6EC954 /* PinnedGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedGridView.swift; sourceTree = "<group>"; };
 		4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationViewController.swift; sourceTree = "<group>"; };
@@ -215,6 +226,7 @@
 		5533F0994A20C1A1D7C4D369 /* PlacesSheetViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacesSheetViewController.swift; sourceTree = "<group>"; };
 		55B8912DEE95A1DF6B9FE55F /* PinnedChatCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedChatCell.swift; sourceTree = "<group>"; };
 		55ECACEB4D6B6207F111193F /* LoadingBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingBubble.swift; sourceTree = "<group>"; };
+		5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViewController.swift; sourceTree = "<group>"; };
 		585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeLabel.swift; sourceTree = "<group>"; };
 		5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
 		5F2C98214DB4409B4C68E2DF /* InboxMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxMenu.swift; sourceTree = "<group>"; };
@@ -223,6 +235,7 @@
 		62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadViewController+Menu.swift"; sourceTree = "<group>"; };
 		BB39620C0DF9FF91919295A9 /* lux-native-verify */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-verify"; path = .; sourceTree = SOURCE_ROOT; };
 		6A3A3C976B72208FEFA37889 /* MessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCell.swift; sourceTree = "<group>"; };
+		6D737288FA31CA350724D718 /* MembersViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembersViewController.swift; sourceTree = "<group>"; };
 		6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		70CDAD96292E9567EEE87F30 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7175CD37D14C455234289062 /* Networks.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Networks.xcassets; sourceTree = "<group>"; };
@@ -236,6 +249,7 @@
 		8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTests.swift; sourceTree = "<group>"; };
 		8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIFont+Bold.swift"; sourceTree = "<group>"; };
 		83A756DC00736E9731ED03F4 /* ThreadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadController.swift; sourceTree = "<group>"; };
+		84F5A52224B0B6D81147524A /* ChatDetailsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailsController.swift; sourceTree = "<group>"; };
 		852B16F659B28F03F4478AB8 /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsController.swift; sourceTree = "<group>"; };
 		861B6215E0535216006F41DA /* NSImage+Symbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImage+Symbol.swift"; sourceTree = "<group>"; };
@@ -253,6 +267,7 @@
 		9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeToReply.swift; sourceTree = "<group>"; };
 		9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDonation.swift; sourceTree = "<group>"; };
 		A0850A0FA71DC099A8C3DFE2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A0E52BD339D5DB34B2B0EBB0 /* ChatDetailsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailsViewController.swift; sourceTree = "<group>"; };
 		A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainSplitViewController.swift; sourceTree = "<group>"; };
 		A687CC44CAFA193D4DE1B964 /* BadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeView.swift; sourceTree = "<group>"; };
 		A688E800048B078A52B754C7 /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
@@ -296,6 +311,7 @@
 		F7AE0A9E340C58E1A40417BD /* ProfileViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewController.swift; sourceTree = "<group>"; };
 		FADF248706333E9027B678F9 /* SharedItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedItems.swift; sourceTree = "<group>"; };
 		FBC0E1EB28C8C6C1DD1F4A0C /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
+		FE318413E2F507F57F29C300 /* EditChatController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditChatController.swift; sourceTree = "<group>"; };
 		FF01EEA04AB3C27BFD91EAED /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -335,6 +351,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		11633DB7CEF78B6E6EEA2923 /* ChatDetails */ = {
+			isa = PBXGroup;
+			children = (
+				A0E52BD339D5DB34B2B0EBB0 /* ChatDetailsViewController.swift */,
+				0CA5C750269A65579B132470 /* EditChatViewController.swift */,
+				6D737288FA31CA350724D718 /* MembersViewController.swift */,
+				5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */,
+			);
+			path = ChatDetails;
+			sourceTree = "<group>";
+		};
 		1604B5528F8ED70EA85F1A5F /* UITests */ = {
 			isa = PBXGroup;
 			children = (
@@ -447,6 +474,7 @@
 		37B4F8157526AD123F445F75 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				520BA988C10EA361BC936182 /* ChatDetails */,
 				29582B4235ACDB6E35204751 /* ChatList */,
 				348AF6D218FBD128B329648E /* ChatPicker */,
 				E32904AB3D606D9F92907FAD /* Networks */,
@@ -528,6 +556,17 @@
 			);
 			sourceTree = "<group>";
 		};
+		520BA988C10EA361BC936182 /* ChatDetails */ = {
+			isa = PBXGroup;
+			children = (
+				84F5A52224B0B6D81147524A /* ChatDetailsController.swift */,
+				FE318413E2F507F57F29C300 /* EditChatController.swift */,
+				4131CD8140B7AEF0964D274B /* MembersPane.swift */,
+				47371175077B06DD93D8E819 /* SharedPane.swift */,
+			);
+			path = ChatDetails;
+			sourceTree = "<group>";
+		};
 		5D1F1245E78BBAE39D11B79A /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -555,6 +594,7 @@
 		7967AE4D657820EFADDB8B53 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				11633DB7CEF78B6E6EEA2923 /* ChatDetails */,
 				DE7635E7D1F598DD9C19DD0D /* ChatList */,
 				E11AB3CCB79C352C097FFB32 /* ChatPicker */,
 				8D5937B1167AC2509251DF27 /* Networks */,
@@ -987,12 +1027,14 @@
 				AC921B6B1767C8E9179FFB7B /* BadgeView.swift in Sources */,
 				3993F4C23B1133F5BE7127E8 /* ChatCellView.swift in Sources */,
 				CFDD81976E553FAE1C1F0BA1 /* ChatContainerController.swift in Sources */,
+				0081153BE394BC6DC28D5B7F /* ChatDetailsController.swift in Sources */,
 				B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */,
 				EAA215B7DC7259486BC719F0 /* ChatPickerController.swift in Sources */,
 				1D909DDF5C83BC9399F987E2 /* ChatStylePicker.swift in Sources */,
 				C49CF522A44DCFC69D5B38C5 /* ChatTitleView.swift in Sources */,
 				EA5D02631FE7BFF04D17AAFC /* ComposerModeBar.swift in Sources */,
 				F91924DF587B1C2B946408C7 /* ConfirmIdentityController.swift in Sources */,
+				BCC7AFFF52283FE7CFFA26FD /* EditChatController.swift in Sources */,
 				9DB35B0612E722C0127644BC /* EmojiImage.swift in Sources */,
 				316952910C4EE229C71D7C06 /* EmojiPicker.swift in Sources */,
 				16C4E2E4903056B6CAF6CC26 /* EncryptionSettingsController.swift in Sources */,
@@ -1002,6 +1044,7 @@
 				ED1DBD72CF9220FA4A9C1D3D /* LoadingBubble.swift in Sources */,
 				D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */,
 				0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */,
+				B7FABBAC58BE66304CF664FE /* MembersPane.swift in Sources */,
 				86F3B8A8B9B968FE806D03B6 /* MessageCellView.swift in Sources */,
 				AC04B40A9B0BD096A2350FF7 /* MessageStyling.swift in Sources */,
 				6D6DE0711C0CCA3EBF31A88B /* MessageTableView.swift in Sources */,
@@ -1022,6 +1065,7 @@
 				33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */,
 				BC0306C758185E08AECE4715 /* SendLaterMenu.swift in Sources */,
 				39E0ADF22084E1A99A293F55 /* SettingsWindowController.swift in Sources */,
+				9D0FFDEEFE4F3E82502A4DAB /* SharedPane.swift in Sources */,
 				CCED9DD67B5C2015BE31E9D2 /* SidebarController.swift in Sources */,
 				021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */,
 				41F959329248BEFE43FF98F9 /* TextView.swift in Sources */,
@@ -1056,6 +1100,7 @@
 				6B251BC0D10032002FAB5EE0 /* BackgroundRefresh.swift in Sources */,
 				8E5744CB69A12FAA9AC0B18C /* BackgroundUploads.swift in Sources */,
 				252EDCA93CE5B2A96E8E349D /* BadgeLabel.swift in Sources */,
+				F67E6EEC5509FA21A54E0036 /* ChatDetailsViewController.swift in Sources */,
 				AC381B9C24B9B2C84C704569 /* ChatListViewController+Places.swift in Sources */,
 				683DD25022320CAE2D32D91F /* ChatListViewController.swift in Sources */,
 				F399A2C7D0F4FE57850A39CF /* ChatPickerViewController.swift in Sources */,
@@ -1066,6 +1111,7 @@
 				FCC55AB5A2F19938C4179CC4 /* ConfirmIdentityViewController.swift in Sources */,
 				BD62BA28B3BEC0CE0DA7413B /* ConversationDonation.swift in Sources */,
 				657C45CA956C202D41ADF97C /* DevicesViewController.swift in Sources */,
+				58C2E873FD564CCAC91B8BF3 /* EditChatViewController.swift in Sources */,
 				155CC3FC8242AA590FAC279E /* EmojiImage.swift in Sources */,
 				FFF3696333526B49D846EA30 /* EmojiPicker.swift in Sources */,
 				F098D0BF74E1B8204F19E52D /* FileRowView.swift in Sources */,
@@ -1073,6 +1119,7 @@
 				39CD14F35D269EBEBCB3D708 /* InboxMenu.swift in Sources */,
 				8DA6D64EC74046B5C76ADBB2 /* LoadingBubble.swift in Sources */,
 				6E20173C1191E7CBAC802DC0 /* MediaPresenter.swift in Sources */,
+				A159AD2F5FD5649235134D50 /* MembersViewController.swift in Sources */,
 				3E9B8D495332F28E9D29D253 /* MessageCell.swift in Sources */,
 				83EE1721774FE5F58AD12DE3 /* MessageStyling.swift in Sources */,
 				0EB1E2C25071B08EA917D05A /* MessageText.swift in Sources */,
@@ -1089,6 +1136,7 @@
 				4A7B4DEEA8CBD32189398BF5 /* ScrollBenchmark.swift in Sources */,
 				1BCA865F8FF6EF1EE6695A87 /* SearchResultsViewController.swift in Sources */,
 				A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */,
+				1F56A7740537C8A360EE3B04 /* SharedViewController.swift in Sources */,
 				328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */,
 				39A051D7618EECD53E44045D /* SwipeToReply.swift in Sources */,
 				01C3E40E77DF50004F0F91BC /* ThemeBand.swift in Sources */,

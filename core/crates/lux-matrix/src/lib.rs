@@ -23,6 +23,7 @@ mod actions;
 mod bridge_state;
 mod bridges;
 mod convert;
+mod details;
 mod errors;
 mod kept;
 mod latest;
