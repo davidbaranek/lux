@@ -1,9 +1,10 @@
 import AppKit
 import LuxCore
 
-/// What a search found, under "Conversations" and "Messages", in the chat list's own row view.
+/// What a search found, under "Conversations", "Photos" (when photo search is on) and
+/// "Messages", in the chat list's own row view.
 final class SearchResultsController: NSViewController, NSTableViewDelegate {
-    enum Section: Int { case chats, messages }
+    enum Section: Int { case chats, photos, messages }
 
     /// A chat to open (a found message opens its chat).
     /// Opens a chat; at the message found, for a found message.
@@ -72,7 +73,11 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
         table.selectionHighlightStyle = .regular
         dataSource.sectionHeaderViewProvider = { table, _, section in
             let header = table.makeView(withIdentifier: SectionHeader.reuse, owner: nil) as? SectionHeader ?? SectionHeader()
-            header.title = section == .chats ? String(localized: "Conversations") : String(localized: "Messages")
+            header.title = switch section {
+            case .chats: String(localized: "Conversations")
+            case .photos: String(localized: "Photos")
+            case .messages: String(localized: "Messages")
+            }
             return header
         }
     }
@@ -85,12 +90,19 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
 
     func show(_ hits: SearchHits) {
         let found = hits.messages.map(\.row)
-        rows = Dictionary((hits.chats + found).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        chats = Dictionary(hits.messages.map { ($0.id, $0.chat) }, uniquingKeysWith: { first, _ in first })
+        let photos = hits.photos.map(\.row)
+        rows = Dictionary((hits.chats + photos + found).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // a found message's or photo's chat, by its event's id.
+        chats = Dictionary(hits.messages.map { ($0.id, $0.chat) } + hits.photos.map { ($0.id, $0.chat) },
+                           uniquingKeysWith: { first, _ in first })
         var snapshot = NSDiffableDataSourceSnapshot<Section, String>()
         if !hits.chats.isEmpty {
             snapshot.appendSections([.chats])
             snapshot.appendItems(hits.chats.map(\.id), toSection: .chats)
+        }
+        if !photos.isEmpty {
+            snapshot.appendSections([.photos])
+            snapshot.appendItems(photos.map(\.id).filter { !snapshot.itemIdentifiers.contains($0) }, toSection: .photos)
         }
         if !found.isEmpty {
             snapshot.appendSections([.messages])

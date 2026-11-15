@@ -5,7 +5,7 @@ import UIKit
 /// inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, session }
-    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, signOut }
+    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoSearch, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -99,6 +99,19 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.text = String(localized: "Search Index")
                 content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
+            case .photoSearch:
+                content = .cell()
+                content.text = String(localized: "Search in Photos")
+                content.secondaryText = model.photoSearchStatus
+                    ?? String(localized: "Find photos by what they show and the words in them. Read on this iPhone, mostly at night while it charges; the model takes about 450 MB.")
+                content.secondaryTextProperties.color = .secondaryLabel
+                let toggle = UISwitch()
+                toggle.isOn = model.searchesPhotos
+                toggle.addAction(UIAction { [weak self, weak toggle] _ in
+                    let on = toggle?.isOn ?? false
+                    Task { await self?.model.setSearchesPhotos(on) }
+                }, for: .valueChanged)
+                cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
             case .signOut:
                 content = .cell()
                 content.text = String(localized: "Sign Out")
@@ -115,7 +128,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendItems([.networks], toSection: .networks)
         snapshot.appendItems([.theme], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
-        snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
+        snapshot.appendItems([.readReceipts, .searchIndex, .photoSearch], toSection: .privacy)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
 
@@ -123,7 +136,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex])
+            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoSearch])
             dataSource.apply(snapshot)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in

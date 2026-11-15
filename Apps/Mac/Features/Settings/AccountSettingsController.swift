@@ -19,6 +19,10 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
     private let saving = NSProgressIndicator()
     private let searchIndex = NSTextField(labelWithString: "")
     private lazy var receipts = NSButton(checkboxWithTitle: String(localized: "Send read receipts"), target: self, action: #selector(receiptsChanged))
+    private lazy var photoSearch = NSButton(checkboxWithTitle: String(localized: "Search in photos"), target: self,
+                                            action: #selector(photoSearchChanged))
+    private lazy var photoSearchNote = note(Self.photoSearchAbout)
+    private static let photoSearchAbout = String(localized: "Find photos by what they show and the words in them. Read on this Mac; the model takes about 450 MB.")
 
     init(model: SettingsModel, profile: ProfileModel?, images: ImagePipeline?, signOut: @escaping () -> Void) {
         self.model = model
@@ -68,6 +72,8 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
             [NSTextField(labelWithString: String(localized: "Privacy:")), receipts],
             [NSGridCell.emptyContentView, note(String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too."))],
             [NSTextField(labelWithString: String(localized: "Search index:")), searchIndex],
+            [NSGridCell.emptyContentView, photoSearch],
+            [NSGridCell.emptyContentView, photoSearchNote],
             [NSGridCell.emptyContentView, signOutButton],
         ])
         observation = model.changes.observe { [weak self] in self?.update() }
@@ -94,6 +100,8 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
         removePicture.isEnabled = shown?.canChangeAvatar == true && shown?.avatar != nil && !saving
         saving ? self.saving.startAnimation(nil) : self.saving.stopAnimation(nil)
         searchIndex.stringValue = model.searchIndex ?? String(localized: "Opening…")
+        photoSearch.state = model.searchesPhotos ? .on : .off
+        photoSearchNote.stringValue = model.photoSearchStatus ?? Self.photoSearchAbout
         avatar.show(shown?.avatar, name: shown?.name ?? "", images: images)
     }
 
@@ -160,6 +168,11 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
     }
 
     // MARK: Account
+
+    @objc private func photoSearchChanged() {
+        let on = photoSearch.state == .on
+        Task { await model.setSearchesPhotos(on) }
+    }
 
     @objc private func receiptsChanged() {
         model.sendsReadReceipts = receipts.state == .on

@@ -2,8 +2,9 @@ import Foundation
 import LuxBindings
 
 /// The account's own store on this device, kept by the Rust core (`lux-store`): one SQLite
-/// database encrypted with SQLCipher (the key in the Keychain), holding the message search index
-/// and a few kept values (the last chat list, drawn at launch). One file per account. A word
+/// database encrypted with SQLCipher (the key in the Keychain), holding the message search index,
+/// the photos photo search reads (their words and embeddings), and a few kept values (the last
+/// chat list, drawn at launch). One file per account. A word
 /// matches by its start and without accents ("zit" finds "Zítra"); the newest messages first.
 /// The core runs each call on the store's own thread, so none blocks the caller's.
 public final class LocalStore: Sendable {
@@ -51,6 +52,62 @@ public final class LocalStore: Sendable {
         try await store.setChat(chat: CoreStoreChat(roomId: roomId, newest: chat.newest, complete: chat.complete))
     }
 
+    // MARK: Photos
+
+    /// Adds photos from a chat's history, or changes their captions.
+    public func addImages(_ images: [IndexedImage]) async throws {
+        guard !images.isEmpty else { return }
+        try await store.addImages(images: images.map {
+            CoreStoreImage(eventId: $0.eventId, roomId: $0.roomId, senderName: $0.senderName, caption: $0.caption,
+                           date: $0.date, isOwn: $0.isOwn)
+        })
+    }
+
+    /// The photos `reader` has not read yet, the newest first: each one's event and room.
+    public func imagesToRead(by reader: String, limit: Int) async throws -> [(eventId: String, roomId: String)] {
+        try await store.imagesToRead(reader: reader, limit: UInt32(clamping: limit)).map { ($0.eventId, $0.roomId) }
+    }
+
+    /// Keeps what was read in photos.
+    public func setImagesRead(_ reads: [PhotoRead]) async throws {
+        guard !reads.isEmpty else { return }
+        try await store.setImagesRead(reads: reads.map {
+            CoreImageRead(eventId: $0.eventId, reader: $0.reader, words: $0.words, embedding: $0.embedding)
+        })
+    }
+
+    /// A photo could not be read (not loaded, not decrypted); after a few tries it is left.
+    public func imageUnread(_ eventId: String) async throws {
+        try await store.imageUnread(eventId: eventId)
+    }
+
+    /// Forgets what was read in every photo: photo search was turned off.
+    public func forgetImageReads() async throws {
+        try await store.forgetImageReads()
+    }
+
+    /// How many photos the index has, and how many `reader` has read.
+    public func imageCounts(reader: String) async throws -> (total: Int, read: Int) {
+        let counts = try await store.imageCounts(reader: reader)
+        return (Int(clamping: counts.total), Int(clamping: counts.read))
+    }
+
+    /// The photos that match `text`: by their caption and the words in them, the messages sent
+    /// near them, and how they look (`embedding`, the words' in the photos' space); the best first.
+    public func searchImages(_ text: String, embedding: [Float]?, minSimilarity: Float, limit: Int = 30) async throws -> [ImageHit] {
+        let hits = try await store.searchImages(search: CoreImageSearch(
+            text: text, embedding: embedding, minSimilarity: minSimilarity, roomId: nil, limit: UInt32(clamping: limit)))
+        return hits.map { hit in
+            let reason: PhotoReason = switch hit.reason {
+            case .words(let excerpt, let matches): .words(excerpt, matches: matches.map(\.range))
+            case .nearby(let excerpt, let matches): .nearby(excerpt, matches: matches.map(\.range))
+            case .looks: .looks
+            }
+            return ImageHit(eventId: hit.eventId, roomId: hit.roomId, senderName: hit.senderName, date: hit.date,
+                            isOwn: hit.isOwn, reason: reason)
+        }
+    }
+
     // MARK: Reading
 
     /// How far each chat is indexed.
@@ -70,8 +127,12 @@ public final class LocalStore: Sendable {
         let hits = try await store.search(text: text, roomId: roomId, limit: UInt32(clamping: limit))
         return hits.map { hit in
             IndexHit(eventId: hit.eventId, roomId: hit.roomId, senderName: hit.senderName, excerpt: hit.excerpt,
-                     matches: hit.matches.map { NSRange(location: Int($0.start), length: Int($0.length)) },
+                     matches: hit.matches.map(\.range),
                      date: hit.date, isOwn: hit.isOwn)
         }
     }
+}
+
+private extension CoreStoreMatch {
+    var range: NSRange { NSRange(location: Int(start), length: Int(length)) }
 }

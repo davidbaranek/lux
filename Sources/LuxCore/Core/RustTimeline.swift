@@ -10,12 +10,12 @@ extension RustAccount {
     /// none), so the chat opens at once.
     func prefetch(roomId: String) async { try? await account.prefetchThread(roomId: roomId) }
 
-    /// A chat's text messages, the newest first, back to `since`, the chat's start, or `maxPages`
-    /// pages: what the search index reads (`SearchIndexer`).
-    func textHistory(roomId: String, since: Date, maxPages: Int) async throws -> TextHistoryPage {
+    /// A chat's text messages and photos, the newest first, back to `since`, the chat's start, or
+    /// `maxPages` pages: what the search index reads (`SearchIndexer`).
+    func indexHistory(roomId: String, since: Date, maxPages: Int) async throws -> IndexHistoryPage {
         let since = max(since, Date(timeIntervalSince1970: 0))
-        return TextHistoryPage(try await worded {
-            try await account.textHistory(roomId: roomId, since: since, maxPages: UInt32(clamping: maxPages))
+        return IndexHistoryPage(try await worded {
+            try await account.indexHistory(roomId: roomId, since: since, maxPages: UInt32(clamping: maxPages))
         })
     }
 
@@ -50,6 +50,7 @@ extension RustAccount {
         case .person(let url): .person(url: url)
         case .photo(let roomId, let messageId, _): .photo(roomId: roomId, messageId: messageId)
         case .poster(let roomId, let messageId, _): .poster(roomId: roomId, messageId: messageId)
+        case .found(let roomId, let eventId): .found(roomId: roomId, eventId: eventId)
         }
         return try await worded { try await account.imageFile(image: image, folder: directory.path) }.map { URL(fileURLWithPath: $0) }
     }
@@ -58,6 +59,15 @@ extension RustAccount {
     func mediaFile(roomId: String, messageId: String, directory: URL) async throws -> URL {
         if let demo { return try demo.mediaFile(roomId: roomId, messageId: messageId, directory: directory) }
         return URL(fileURLWithPath: try await worded { try await account.mediaFile(roomId: roomId, messageId: messageId, folder: directory.path) })
+    }
+
+    /// A photo's original by its event, downloaded into `directory` for photo search to read; nil
+    /// when the event is no photo.
+    func foundPhotoFile(roomId: String, eventId: String, directory: URL) async throws -> URL? {
+        // the demo's events are its messages.
+        if let demo { return try demo.mediaFile(roomId: roomId, messageId: eventId, directory: directory) }
+        return try await worded { try await account.foundPhotoFile(roomId: roomId, eventId: eventId, folder: directory.path) }
+            .map { URL(fileURLWithPath: $0) }
     }
 
     /// The largest file the server takes, in bytes.

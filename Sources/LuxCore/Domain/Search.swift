@@ -4,7 +4,97 @@ import Foundation
 public struct SearchHits: Sendable, Equatable {
     public var chats: [ChatRow]
     public var messages: [FoundItem]
-    public init(chats: [ChatRow] = [], messages: [FoundItem] = []) { self.chats = chats; self.messages = messages }
+    /// Photos, when photo search is on: the best first.
+    public var photos: [FoundPhoto]
+    public init(chats: [ChatRow] = [], messages: [FoundItem] = [], photos: [FoundPhoto] = []) {
+        self.chats = chats; self.messages = messages; self.photos = photos
+    }
+}
+
+/// A photo a search found, with its chat and why.
+public struct FoundPhoto: Sendable, Hashable, Identifiable {
+    /// Its event's id.
+    public var id: String
+    /// Its room (one of a merged chat's).
+    public var roomId: String
+    public var chat: ChatRow
+    public var senderName: String
+    public var date: Date
+    public var isOwn: Bool
+    public var reason: PhotoReason
+
+    public init(id: String, roomId: String, chat: ChatRow, senderName: String, date: Date, isOwn: Bool, reason: PhotoReason) {
+        self.id = id; self.roomId = roomId; self.chat = chat; self.senderName = senderName; self.date = date; self.isOwn = isOwn
+        self.reason = reason
+    }
+
+    /// Its thumbnail.
+    public var image: ImageRef { .found(roomId: roomId, eventId: id) }
+}
+
+extension FoundPhoto {
+    /// The found photo as a chat-list row: its chat's name and picture, and why it was found as
+    /// the preview ("Photo · Celkem 1 250 Kč").
+    public var row: ChatRow {
+        var row = chat
+        row.id = id
+        let photo = String(localized: "Photo")
+        row.preview = switch reason {
+        case .words(let excerpt, _), .nearby(let excerpt, _): "\(photo) · \(excerpt)"
+        case .looks: photo
+        }
+        row.date = date
+        row.unreadCount = 0
+        row.isMarkedUnread = false
+        return row
+    }
+}
+
+/// Why a search found a photo.
+public enum PhotoReason: Sendable, Hashable {
+    /// Its caption or the words in it: those around the found ones, and where they are (UTF-16).
+    case words(String, matches: [NSRange])
+    /// A message sent near it: its words around the found ones.
+    case nearby(String, matches: [NSRange])
+    /// It looks like what the words say.
+    case looks
+}
+
+/// A photo the search index keeps: where it is and who sent it.
+public struct IndexedImage: Sendable, Equatable {
+    public var eventId: String
+    public var roomId: String
+    public var senderName: String
+    /// The words sent with it; empty when none.
+    public var caption: String
+    public var date: Date
+    public var isOwn: Bool
+
+    public init(eventId: String, roomId: String, senderName: String, caption: String, date: Date, isOwn: Bool) {
+        self.eventId = eventId; self.roomId = roomId; self.senderName = senderName
+        self.caption = caption; self.date = date; self.isOwn = isOwn
+    }
+}
+
+/// A photo the search index found: its event, chat and why.
+public struct ImageHit: Sendable, Equatable {
+    public var eventId: String
+    public var roomId: String
+    public var senderName: String
+    public var date: Date
+    public var isOwn: Bool
+    public var reason: PhotoReason
+}
+
+/// What was read in a photo, for the index.
+public struct PhotoRead: Sendable, Equatable {
+    public var eventId: String
+    /// Who read it, with the readers' versions: a newer reader reads it again.
+    public var reader: String
+    /// The words in it.
+    public var words: String
+    /// Its unit embedding; nil when the reader has no model.
+    public var embedding: [Float]?
 }
 
 /// A message a search found, with its chat.
@@ -23,9 +113,10 @@ public struct FoundItem: Sendable, Hashable, Identifiable {
     }
 }
 
-/// One walk back through a chat's text messages, for the search index.
-public struct TextHistoryPage: Sendable {
+/// One walk back through a chat's text messages and photos, for the search index.
+public struct IndexHistoryPage: Sendable {
     public var messages: [IndexedMessage]
+    public var images: [IndexedImage]
     /// The chat has no older messages.
     public var reachedStart: Bool
     /// The event ids of the messages deleted meanwhile, which the index may hold from before.
@@ -33,8 +124,10 @@ public struct TextHistoryPage: Sendable {
     /// The chat was deleted when its newest message was this one's: the index forgets what it
     /// holds up to it (none of it is among `messages`).
     public var deletedUntil: Date?
-    public init(messages: [IndexedMessage], reachedStart: Bool, removed: [String] = [], deletedUntil: Date? = nil) {
-        self.messages = messages; self.reachedStart = reachedStart; self.removed = removed; self.deletedUntil = deletedUntil
+    public init(messages: [IndexedMessage], images: [IndexedImage] = [], reachedStart: Bool, removed: [String] = [],
+                deletedUntil: Date? = nil) {
+        self.messages = messages; self.images = images; self.reachedStart = reachedStart; self.removed = removed
+        self.deletedUntil = deletedUntil
     }
 }
 

@@ -1,9 +1,10 @@
 import LuxCore
 import UIKit
 
-/// What a search found: "Conversations", then "Messages", in the chat list's own row.
+/// What a search found: "Conversations", "Photos" (a strip of thumbnails, when photo search is
+/// on), then "Messages", in the chat list's own row.
 final class SearchResultsViewController: UIViewController, UICollectionViewDelegate {
-    enum Section: Int { case chats, messages }
+    enum Section: Int { case chats, photos, messages }
 
     private let images: ImagePipeline?
     /// Opens a chat; at the message found, for a found message.
@@ -11,6 +12,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
     private var rows: [String: ChatRow] = [:]
     private var chats: [String: ChatRow] = [:]
     private var highlights: [String: [NSRange]] = [:]
+    private var photos: [String: FoundPhoto] = [:]
     /// While the index is still reading chats, one small line over the results: they are what it
     /// has so far. (The search field is at the bottom, so the line is at the top.)
     private let status = UILabel()
@@ -30,7 +32,13 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         super.viewDidLoad()
         var list = UICollectionLayoutListConfiguration(appearance: .plain)
         list.headerMode = .supplementary
-        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: list))
+        let layout = UICollectionViewCompositionalLayout { [weak self] index, environment in
+            guard self?.dataSource.sectionIdentifier(for: index) == .photos else {
+                return NSCollectionLayoutSection.list(using: list, layoutEnvironment: environment)
+            }
+            return Self.photoStrip()
+        }
+        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.keyboardDismissMode = .onDrag
         collectionView.delegate = self
@@ -56,15 +64,24 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
             guard let row = self?.rows[id] else { return }
             cell.contentConfiguration = ChatRowConfiguration(row: row, images: images, highlights: self?.highlights[id] ?? [])
         }
+        let photo = UICollectionView.CellRegistration<PhotoCell, String> { [weak self] cell, _, id in
+            guard let found = self?.photos[id] else { return }
+            cell.show(found, images: images)
+        }
         let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionHeader) {
             [weak self] header, _, indexPath in
             var content = header.defaultContentConfiguration()
-            content.text = self?.dataSource.sectionIdentifier(for: indexPath.section) == .chats
-                ? String(localized: "Conversations") : String(localized: "Messages")
+            content.text = switch self?.dataSource.sectionIdentifier(for: indexPath.section) {
+            case .chats: String(localized: "Conversations")
+            case .photos: String(localized: "Photos")
+            case .messages, nil: String(localized: "Messages")
+            }
             header.contentConfiguration = content
         }
-        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, id in
-            collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: id)
+        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] collectionView, indexPath, id in
+            self?.dataSource.sectionIdentifier(for: indexPath.section) == .photos
+                ? collectionView.dequeueConfiguredReusableCell(using: photo, for: indexPath, item: id)
+                : collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: id)
         }
         dataSource.supplementaryViewProvider = { collectionView, _, indexPath in
             collectionView.dequeueConfiguredReusableSupplementary(using: header, for: indexPath)
@@ -78,10 +95,17 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         rows = Dictionary((hits.chats + found).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         chats = Dictionary(hits.messages.map { ($0.id, $0.chat) }, uniquingKeysWith: { first, _ in first })
         highlights = Dictionary(hits.messages.map { ($0.id, $0.previewMatches) }, uniquingKeysWith: { first, _ in first })
+        photos = Dictionary(hits.photos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var snapshot = NSDiffableDataSourceSnapshot<Section, String>()
         if !hits.chats.isEmpty {
             snapshot.appendSections([.chats])
             snapshot.appendItems(hits.chats.map(\.id), toSection: .chats)
+        }
+        // a photo's id is its event's, which no chat or message row has.
+        let shownPhotos = hits.photos.map(\.id).filter { rows[$0] == nil }
+        if !shownPhotos.isEmpty {
+            snapshot.appendSections([.photos])
+            snapshot.appendItems(shownPhotos, toSection: .photos)
         }
         let messages = found.map(\.id).filter { !hits.chats.map(\.id).contains($0) }
         if !messages.isEmpty {
@@ -103,14 +127,70 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         if collectionView.contentInset.top != top { collectionView.contentInset.top = top }
     }
 
+    /// One row of square thumbnails that scrolls sideways.
+    private static func photoStrip() -> NSCollectionLayoutSection {
+        let side: CGFloat = 96
+        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .fractionalHeight(1)))
+        let group = NSCollectionLayoutGroup.horizontal(layoutSize: .init(widthDimension: .absolute(side), heightDimension: .absolute(side)),
+                                                       subitems: [item])
+        let section = NSCollectionLayoutSection(group: group)
+        section.orthogonalScrollingBehavior = .continuous
+        section.interGroupSpacing = 6
+        section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 12, trailing: 16)
+        section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+            layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(36)),
+            elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)]
+        return section
+    }
+
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
-        // a found message's id is its event's: its chat opens there.
-        if let chat = chats[id] {
+        // a found message's or photo's id is its event's: its chat opens there.
+        if let photo = photos[id] {
+            open(photo.chat, id)
+        } else if let chat = chats[id] {
             open(chat, id)
         } else if let chat = rows[id] {
             open(chat, nil)
+        }
+    }
+}
+
+/// A found photo's thumbnail, square, its corners rounded.
+private final class PhotoCell: UICollectionViewCell {
+    private let picture = UIImageView()
+    private var shown: ImageRef?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        picture.contentMode = .scaleAspectFill
+        picture.clipsToBounds = true
+        picture.backgroundColor = .secondarySystemFill
+        picture.layer.cornerRadius = 10
+        picture.layer.cornerCurve = .continuous
+        picture.frame = contentView.bounds
+        picture.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        contentView.addSubview(picture)
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    func show(_ photo: FoundPhoto, images: ImagePipeline?) {
+        let ref = photo.image
+        shown = ref
+        accessibilityLabel = String(localized: "Photo from \(photo.isOwn ? String(localized: "you") : photo.senderName) in \(photo.chat.name)")
+        let pixels = Int(bounds.width * traitCollection.displayScale)
+        if let cached = images?.cached(ref, pixels: pixels) {
+            picture.image = UIImage(cgImage: cached)
+            return
+        }
+        picture.image = nil
+        Task { [weak self] in
+            guard let image = await images?.image(ref, pixels: pixels), self?.shown == ref else { return }
+            self?.picture.image = UIImage(cgImage: image)
         }
     }
 }

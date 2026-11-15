@@ -53,6 +53,7 @@ targets:
         product: LuxCore
       - target: Lux-iOS-Notifications
       - target: Lux-iOS-Share
+      - target: Lux-iOS-Assets
     settings:
       base:
         PRODUCT_NAME: Lux
@@ -62,8 +63,8 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         CODE_SIGN_STYLE: Automatic
-    # merged with the generated Info.plist: the background tasks that keep uploads going and
-    # refresh the chats (an app refresh task needs the background fetch mode).
+    # merged with the generated Info.plist: the background tasks that keep uploads going, refresh
+    # the chats (an app refresh task needs the background fetch mode) and read photos at night.
     info:
       path: Apps/iOS/Info.plist
       properties:
@@ -75,13 +76,43 @@ targets:
         LuxAppGroup: $(LUX_APP_GROUP)
         LuxPushGateway: $(LUX_PUSH_GATEWAY)
         LuxOAuthClientURI: $(LUX_OAUTH_CLIENT_URI)
-        BGTaskSchedulerPermittedIdentifiers: [$(LUX_BUNDLE_ID).uploads, $(LUX_BUNDLE_ID).refresh]
-        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [$(LUX_BUNDLE_ID).uploads, $(LUX_BUNDLE_ID).refresh, $(LUX_BUNDLE_ID).photos]
+        # photo search reads photos at night: a processing task needs the processing mode.
+        UIBackgroundModes: [fetch, processing]
         # the chats the user writes in, donated as conversations: the share sheet suggests them.
         NSUserActivityTypes: [INSendMessageIntent]
+        # photo search's model, an Apple-hosted asset pack (Lux-iOS-Assets downloads it).
+        BAAppGroupID: $(LUX_APP_GROUP)
+        BAHasManagedAssetPacks: true
+        BAUsesAppleHosting: true
         # export compliance: only standard encryption (Matrix's Olm and Megolm, TLS) in a
         # mass-market messenger, exempt; App Store Connect asks nothing for each build (as Element X).
         ITSAppUsesNonExemptEncryption: false
+  # downloads photo search's model (an Apple-hosted asset pack) when the system schedules it.
+  Lux-iOS-Assets:
+    type: extensionkit-extension
+    platform: iOS
+    sources: [Apps/AssetDownloader]
+    info:
+      path: Apps/AssetDownloader/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: Lux Downloads
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.background-asset-downloader-extension
+    entitlements:
+      path: Apps/AssetDownloader/AssetDownloader-iOS.entitlements
+      properties:
+        # Background Assets coordinates the app and its downloader through their group.
+        com.apple.security.application-groups: [$(LUX_APP_GROUP)]
+    settings:
+      base:
+        PRODUCT_NAME: LuxAssets
+        PRODUCT_BUNDLE_IDENTIFIER: $(LUX_BUNDLE_ID).assets
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
   # sends what another app shares to one chat, from the account's store shared with the app.
   Lux-iOS-Share:
     type: app-extension
@@ -188,6 +219,8 @@ targets:
         com.apple.security.network.client: true
         # files the user picks in the open panel (attachments).
         com.apple.security.files.user-selected.read-only: true
+        # shared with the downloader of photo search's model (Lux-Mac-Assets).
+        com.apple.security.application-groups: [$(LUX_APP_GROUP)]
     # merged with the generated Info.plist.
     info:
       path: Apps/Mac/Info.plist
@@ -198,12 +231,17 @@ targets:
         LuxBundleID: $(LUX_BUNDLE_ID)
         LuxPushGateway: $(LUX_PUSH_GATEWAY)
         LuxOAuthClientURI: $(LUX_OAUTH_CLIENT_URI)
+        # photo search's model, an Apple-hosted asset pack (Lux-Mac-Assets downloads it).
+        BAAppGroupID: $(LUX_APP_GROUP)
+        BAHasManagedAssetPacks: true
+        BAUsesAppleHosting: true
         # export compliance: only standard encryption (Matrix's Olm and Megolm, TLS) in a
         # mass-market messenger, exempt; App Store Connect asks nothing for each build (as Element X).
         ITSAppUsesNonExemptEncryption: false
     dependencies:
       - package: LuxKit
         product: LuxCore
+      - target: Lux-Mac-Assets
     settings:
       base:
         PRODUCT_NAME: Lux
@@ -215,6 +253,33 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "Apple Development"
         ENABLE_HARDENED_RUNTIME: YES
+  # downloads photo search's model on the Mac, as Lux-iOS-Assets does on the iPhone.
+  Lux-Mac-Assets:
+    type: extensionkit-extension
+    platform: macOS
+    sources: [Apps/AssetDownloader]
+    info:
+      path: Apps/AssetDownloader/Info-Mac.plist
+      properties:
+        CFBundleDisplayName: Lux Downloads
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.background-asset-downloader-extension
+    entitlements:
+      path: Apps/AssetDownloader/AssetDownloader-Mac.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.application-groups: [$(LUX_APP_GROUP)]
+    settings:
+      base:
+        PRODUCT_NAME: LuxAssets
+        PRODUCT_BUNDLE_IDENTIFIER: $(LUX_BUNDLE_ID).assets
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: NO
   Lux-iOS-UITests:
     type: bundle.ui-testing
     platform: iOS

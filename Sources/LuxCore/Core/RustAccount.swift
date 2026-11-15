@@ -116,6 +116,9 @@ final class RustAccount: Sendable {
 
     func pauseSync() async { await account.pauseSync() }
     func resumeSync() async { await account.resumeSync() }
+    /// Opens the stores for work in the background without the sync (reading photos);
+    /// `pauseSync` closes them when it is done.
+    func beginBackgroundWork() async { await account.beginBackgroundWork() }
     /// Signs out, removing this device's pusher first.
     func signOut() async throws { try await worded { try await account.signOut() } }
 

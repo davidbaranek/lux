@@ -15,9 +15,35 @@ public final class SettingsModel {
     /// The search index on this device: how many messages, and whether it is still reading.
     public private(set) var searchIndex: String?
 
+    /// Search finds photos too (read on this device); off until the user turns it on.
+    public var searchesPhotos: Bool { session.search?.photos.isOn ?? Preferences.shared.searchesPhotos }
+
+    /// Where photo search is, in words: "Downloading the model · 40 %", "1 200 of 5 000 photos
+    /// read"; nil while it is off.
+    public var photoSearchStatus: String? {
+        switch session.search?.photos.state {
+        case nil, .off: nil
+        case .downloading(let fraction):
+            String(localized: "Downloading the model · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
+        case .on(let read, let total, _, let hasModel):
+            hasModel || total == 0
+                ? String(localized: "\(read.formatted(.number)) of \(total.formatted(.number)) photos read")
+                : String(localized: "The model is not on this device: only the words in photos are read")
+        }
+    }
+
+    /// Turns photo search on (the model downloads, the photos are read on this device) or off
+    /// (what was read and the model go).
+    public func setSearchesPhotos(_ on: Bool) async {
+        guard let photos = session.search?.photos else { return }
+        if on { photos.turnOn() } else { await photos.turnOff() }
+        changes.send()
+    }
+
     private let account: Task<RustAccount, any Error>
     private let session: Session
     private var indexProgress: AnyObject?
+    private var photoProgress: AnyObject?
     private var securityChanges: AnyObject?
     private var profileChanges: AnyObject?
 
@@ -47,6 +73,7 @@ public final class SettingsModel {
         indexProgress = session.search?.progressChanges.observe { [weak self] in
             Task { await self?.loadSearchIndex() }
         }
+        photoProgress = session.search?.photos.changes.observe { [weak self] in self?.changes.send() }
         await loadSearchIndex()
     }
 

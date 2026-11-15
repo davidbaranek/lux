@@ -13,6 +13,13 @@ public final class Preferences {
         set { defaults.set(newValue, forKey: "sendsReadReceipts") }
     }
 
+    /// Search finds photos too: by the words in them, the messages sent near them and how they
+    /// look, read on this device. Off by default: it downloads a model and reads every photo.
+    public var searchesPhotos: Bool {
+        get { defaults.bool(forKey: "searchesPhotos") }
+        set { defaults.set(newValue, forKey: "searchesPhotos") }
+    }
+
     /// The places pinned on the iPhone (place keys), in order: the first `toolbarPlaces` of them
     /// show in the bottom toolbar. The inbox and the archive until the user changes them.
     public var pinnedPlaces: [String] {
