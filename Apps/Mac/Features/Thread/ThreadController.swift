@@ -122,15 +122,30 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     let emojiPicker = EmojiPicker()
 
     /// `focusEvent`: a message to scroll to once the chat shows (a saved one).
-    init(session: Session, row: ChatRow, focusEvent: String? = nil) {
+    /// The shown place's colour, for one's own bubbles (the pane behind the chat washes in it too).
+    /// Neutral keeps the system's accent.
+    var theme: PlaceTheme {
+        didSet { if theme != oldValue, isViewLoaded { updateTheme() } }
+    }
+    private var accent: NSColor { theme.color ?? .controlAccentColor }
+
+    init(session: Session, row: ChatRow, theme: PlaceTheme, focusEvent: String? = nil) {
         self.session = session
         self.row = row
+        self.theme = theme
         self.focusEvent = focusEvent
         model = ThreadModel(session: session, row: row)
         super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    private func updateTheme() {
+        modeBar.accent = accent
+        table.enumerateAvailableRowViews { rowView, _ in
+            (rowView.view(atColumn: 0) as? MessageCellView)?.accent = accent
+        }
+    }
 
     override func loadView() {
         let column = NSTableColumn(identifier: .init("message"))
@@ -272,10 +287,12 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             empty.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
         view = container
+        updateTheme()
 
         let images = session.images
         dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, _, id in
             let cell = table.makeView(withIdentifier: MessageCellView.reuse, owner: nil) as? MessageCellView ?? MessageCellView()
+            if let self { cell.accent = accent }
             if let self, let message = messages[id], let layout = layouts[id] {
                 cell.show(message, layout: layout, isGroup: row.isGroup, text: text, images: images)
             }

@@ -34,6 +34,10 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         addSplitViewItem(content)
         sidebarController.onOpen = { [weak self] row, focusEvent in self?.open(row, focusEvent: focusEvent) }
         sidebarController.onPlaceTitle = { [weak self] title in self?.placeLabel.stringValue = title }
+        sidebarController.onTheme = { [weak self] theme in
+            self?.detail.theme = theme
+            self?.openThread?.theme = theme
+        }
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
     }
@@ -55,7 +59,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
 
     private func open(_ row: ChatRow?, focusEvent: String? = nil) {
         if let row {
-            let thread = ThreadController(session: session, row: row, focusEvent: focusEvent)
+            let thread = ThreadController(session: session, row: row, theme: listModel.theme, focusEvent: focusEvent)
             thread.onShownRoom = { [weak self] in self?.updateNetworks() }
             openThread = thread
             detail.show(thread)

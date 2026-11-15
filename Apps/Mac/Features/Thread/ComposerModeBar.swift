@@ -7,12 +7,19 @@ final class ComposerModeBar: NSStackView {
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
+    /// The place's colour, for the icon and the title.
+    var accent = NSColor.controlAccentColor {
+        didSet {
+            icon.contentTintColor = accent
+            title.textColor = accent
+        }
+    }
 
     init() {
         super.init(frame: .zero)
-        icon.contentTintColor = .controlAccentColor
+        icon.contentTintColor = accent
         title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
-        title.textColor = .controlAccentColor
+        title.textColor = accent
         detail.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         detail.textColor = .secondaryLabelColor
         detail.lineBreakMode = .byTruncatingTail
