@@ -209,30 +209,24 @@ impl ChatSending for MatrixTimelines {
     /// timeline knows its newest message best (and a thread's receipt is the thread's, the room's
     /// own the main thread's: reading one leaves the other unread); a chat not open reads up to the
     /// newest event of the room's own timeline, without opening it, its threads up to there with
-    /// it. Either takes the unread mark away.
+    /// it. Either takes the user's unread mark away.
     async fn mark_read(&self, of: &TimelineId, receipt: Receipt) -> Result<(), BackendError> {
         let receipt = match receipt {
             Receipt::Public => ReceiptType::Read,
             Receipt::Private => ReceiptType::ReadPrivate,
         };
-        if let Some(timeline) = self.opened(of).await {
-            return timeline
-                .timeline
-                .mark_as_read(receipt)
-                .await
-                .map(drop)
-                .map_err(from_sdk);
-        }
         let room = self.room(&of.room)?;
-        let newest = newest_outside_threads(&room).await?;
-        match newest {
-            Some(event) => {
-                room.send_single_receipt(receipt, ReceiptThread::Unthreaded, event)
-                    .await
-            }
-            None => room.set_unread_flag(false).await,
+        if let Some(timeline) = self.opened(of).await {
+            timeline.timeline.mark_as_read(receipt).await.map_err(from_sdk)?;
+        } else if let Some(event) = newest_outside_threads(&room).await? {
+            room.send_single_receipt(receipt, ReceiptThread::Unthreaded, event)
+                .await
+                .map_err(from_sdk)?;
         }
-        .map_err(from_sdk)
+        // read is read: the user's own unread mark goes too. The SDK takes it away only with an
+        // unthreaded receipt, and with threads on an open timeline's receipt is the main
+        // thread's: a chat marked unread would stay so however it is read.
+        room.set_unread_flag(false).await.map_err(from_sdk)
     }
 
     async fn set_typing(&self, room: &RoomId, typing: bool) -> Result<(), BackendError> {
