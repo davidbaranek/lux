@@ -84,19 +84,20 @@ impl BridgeLink {
         Ok(response.access_token)
     }
 
-    /// Calls `path` of `offer`'s provisioning API as the account.
-    async fn call(
+    /// Calls `path` of `offer`'s provisioning API as the account, with `query` besides the user.
+    pub(crate) async fn call(
         &self,
         offer: &BridgeOffer,
         method: Method,
         path: &str,
+        query: &[(&str, &str)],
         body: Option<Value>,
     ) -> Result<Value, BackendError> {
         let user = self.client.user_id().ok_or(BackendError::SignedOut)?;
         let token = self.openid().await?;
         let url = Url::parse_with_params(
             &format!("{}/_matrix/provision/v3/{path}", offer.provisioning),
-            [("user_id", user.as_str())],
+            std::iter::once(("user_id", user.as_str())).chain(query.iter().copied()),
         )
         .map_err(BackendError::refused)?;
         let mut request = self
@@ -233,7 +234,7 @@ impl Bridges for crate::MatrixAccount {
     }
 
     async fn bridge_account(&self, offer: &BridgeOffer) -> Result<BridgeAccount, BackendError> {
-        let whoami = self.bridges.call(offer, Method::GET, "whoami", None).await?;
+        let whoami = self.bridges.call(offer, Method::GET, "whoami", &[], None).await?;
         Ok(account(offer, &whoami))
     }
 
@@ -245,6 +246,7 @@ impl Bridges for crate::MatrixAccount {
                 offer,
                 Method::POST,
                 &path,
+                &[],
                 Some(Value::Object(serde_json::Map::default())),
             )
             .await?;
@@ -267,7 +269,7 @@ impl Bridges for crate::MatrixAccount {
             StepAnswer::Values(values) => serde_json::to_value(values).unwrap_or_default(),
             StepAnswer::Wait => Value::Object(serde_json::Map::default()),
         };
-        let next = self.bridges.call(offer, Method::POST, &path, Some(body)).await?;
+        let next = self.bridges.call(offer, Method::POST, &path, &[], Some(body)).await?;
         Ok(login_step(&next))
     }
 
@@ -279,6 +281,7 @@ impl Bridges for crate::MatrixAccount {
                 offer,
                 Method::POST,
                 &path,
+                &[],
                 Some(Value::Object(serde_json::Map::default())),
             )
             .await
@@ -294,6 +297,7 @@ impl Bridges for crate::MatrixAccount {
                 offer,
                 Method::POST,
                 &path,
+                &[],
                 Some(Value::Object(serde_json::Map::default())),
             )
             .await?;
@@ -326,7 +330,7 @@ fn network(error: reqwest::Error) -> BackendError {
 }
 
 /// An id as one segment of a path.
-fn segment(id: &str) -> String {
+pub(crate) fn segment(id: &str) -> String {
     id.bytes()
         .map(|byte| match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => char::from(byte).to_string(),
