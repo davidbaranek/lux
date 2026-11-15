@@ -6,8 +6,11 @@ public struct SearchHits: Sendable, Equatable {
     public var messages: [FoundItem]
     /// Photos, when photo search is on: the best first.
     public var photos: [FoundPhoto]
-    public init(chats: [ChatRow] = [], messages: [FoundItem] = [], photos: [FoundPhoto] = []) {
-        self.chats = chats; self.messages = messages; self.photos = photos
+    /// Why photos may be missing from these results, in words: the model downloads, photos wait
+    /// to be read, the look is still being looked for; nil when the photos found are all there are.
+    public var photoNote: String?
+    public init(chats: [ChatRow] = [], messages: [FoundItem] = [], photos: [FoundPhoto] = [], photoNote: String? = nil) {
+        self.chats = chats; self.messages = messages; self.photos = photos; self.photoNote = photoNote
     }
 }
 
@@ -27,11 +30,18 @@ public enum SearchScope: Int, CaseIterable, Sendable {
 
 extension SearchHits {
     /// The hits the scope shows.
+    /// What the status line under the results says: how far the message index is, and why photos
+    /// may be missing (not under Text, which shows none).
+    public func note(index: SearchIndexer.Progress?, scope: SearchScope) -> String? {
+        let notes = [index?.note, scope == .text ? nil : photoNote].compactMap(\.self)
+        return notes.isEmpty ? nil : notes.joined(separator: "\n")
+    }
+
     public func scoped(_ scope: SearchScope) -> SearchHits {
         switch scope {
         case .all: self
         case .text: SearchHits(chats: chats, messages: messages)
-        case .images: SearchHits(photos: photos)
+        case .images: SearchHits(photos: photos, photoNote: photoNote)
         }
     }
 }

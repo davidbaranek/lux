@@ -48,6 +48,8 @@ public final class PhotoSearch {
     private var model: PhotoSearchModel?
     private var loading: Task<Void, Never>?
     private var saving: AnyObject?
+    /// The system's memory pressure: the text encoder goes when memory runs short.
+    private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
 
     init(store: LocalStore, account: Task<RustAccount, any Error>, directory: URL) {
         self.store = store
@@ -63,7 +65,13 @@ public final class PhotoSearch {
             self?.update()
         }
         if searchesByLook { loadModel() }
+        pressure.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.releaseMemory() }
+        }
+        pressure.activate()
     }
+
+    deinit { pressure.cancel() }
 
     /// Turns the search by how photos look on (the model downloads, every photo is read again
     /// with it) or off (the model and the photos' embeddings go; their words stay).
@@ -124,6 +132,53 @@ public final class PhotoSearch {
     /// what was read stays, and the rest is read the next time the app opens or charges.
     public func stop() async {
         await indexer.stop()
+    }
+
+    /// Someone is about to search: the text encoder loads now, off the main actor, so the first
+    /// query finds photos by their look too. It loads in about a second once Core ML has compiled
+    /// it on this device (some 20 s the first time), and is kept only from the first search on.
+    public func prepareForSearch() {
+        Task { await model?.prepareTextEncoder() }
+    }
+
+    /// The model is on the device but its text encoder still loads: searches find photos by
+    /// their words only for now.
+    public var isLookPending: Bool {
+        get async {
+            guard let model else { return false }
+            return await !model.isTextEncoderReady
+        }
+    }
+
+    /// Why a search's photos may be incomplete, in words; nil when nothing is missing.
+    /// `lookPending`: the text encoder still loads.
+    public func searchNote(lookPending: Bool) -> String? {
+        switch looks {
+        case .off:
+            return nil
+        case .downloading(let fraction):
+            return String(localized: "Photos by what they show: the model is downloading · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
+        case .on(hasModel: false):
+            return String(localized: "Photos are found by their words only: the model is not available.")
+        case .on(hasModel: true):
+            if lookPending { return String(localized: "Looking for photos by what they show…") }
+            guard hasUnread else { return nil }
+            let left = max(progress.total - progress.read, 0)
+            return String(localized: "\(left.formatted(.number)) photos not read yet: some may be missing.")
+        }
+    }
+
+    /// Waits while the text encoder loads; true when it was loading and is ready now, so a search
+    /// made meanwhile (which found photos by their words only) is worth making again.
+    public func waitForLook() async -> Bool {
+        guard let model, await !model.isTextEncoderReady else { return false }
+        await model.textEncoderLoaded()
+        return await model.isTextEncoderReady
+    }
+
+    /// The system is short of memory: the text encoder goes until the next search.
+    public func releaseMemory() {
+        Task { await model?.releaseTextEncoder() }
     }
 
     /// The photos that match `text`, the best first; `roomIds` keeps those rooms' (a chat's

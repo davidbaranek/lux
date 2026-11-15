@@ -55,6 +55,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         status.adjustsFontForContentSizeCategory = true
         status.textColor = .tertiaryLabel
         status.textAlignment = .center
+        status.numberOfLines = 0
         status.isHidden = true
         status.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(status)
@@ -63,6 +64,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
             guard let self, let scope = SearchScope(rawValue: scopes.selectedSegmentIndex) else { return }
             self.scope = scope
             render()
+            showProgress(progress)
         }, for: .valueChanged)
         scopes.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scopes)
@@ -108,6 +110,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
     func show(_ hits: SearchHits) {
         self.hits = hits
         render()
+        showProgress(progress)
     }
 
     /// The hits the scope shows.
@@ -143,7 +146,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         // kept for when the results first show: the index may report before search opens.
         self.progress = progress
         guard isViewLoaded else { return }
-        let note = progress?.note
+        let note = hits.note(index: progress, scope: scope)
         status.text = note
         status.isHidden = note == nil
         updateInset()

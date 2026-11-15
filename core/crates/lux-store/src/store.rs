@@ -8,6 +8,7 @@ use std::time::SystemTime;
 
 use lux_core::ids::{EventId, RoomId};
 use lux_core::timeline::{IndexedImage, IndexedMessage};
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::connection::Worker;
@@ -189,7 +190,8 @@ impl Store {
     }
 
     /// The photos `reader` has not read yet, the newest first, at most `limit`: each with its
-    /// chat. A photo whose reading failed too often is left out.
+    /// chat. A photo whose reading failed too often is left out, and so is one a reader that
+    /// does more read (`covers`): the words-only reader leaves the model's photos as they are.
     ///
     /// # Errors
     /// SQLite's, or [`Error::Closed`].
@@ -197,10 +199,14 @@ impl Store {
         self.worker
             .run(move |connection| {
                 let mut statement = connection.prepare_cached(
-                    "SELECT event_id, room_id FROM images WHERE reader IS NOT ?1 AND tries < ?2 ORDER BY ts DESC LIMIT ?3",
+                    "SELECT event_id, room_id FROM images WHERE NOT covers(?1, reader) AND tries < ?2 \
+                     ORDER BY ts DESC LIMIT ?3",
                 )?;
                 let rows = statement.query_map(params![reader, MAX_TRIES, limit], |row| {
-                    Ok((EventId::from(row.get::<_, String>(0)?), RoomId::from(row.get::<_, String>(1)?)))
+                    Ok((
+                        EventId::from(row.get::<_, String>(0)?),
+                        RoomId::from(row.get::<_, String>(1)?),
+                    ))
                 })?;
                 Ok(rows.collect::<rusqlite::Result<_>>()?)
             })
@@ -294,10 +300,12 @@ impl Store {
             .run(move |connection| {
                 let counts: [i64; 4] = connection
                     .prepare_cached(
-                        "SELECT count(*), count(*) FILTER (WHERE reader = ?1 OR tries >= ?2), count(reader), count(embedding) \
-                         FROM images",
+                        "SELECT count(*), count(*) FILTER (WHERE covers(?1, reader) OR tries >= ?2), count(reader), \
+                         count(embedding) FROM images",
                     )?
-                    .query_row(params![reader, MAX_TRIES], |row| Ok([row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?]))?;
+                    .query_row(params![reader, MAX_TRIES], |row| {
+                        Ok([row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?])
+                    })?;
                 let [total, read, with_words, with_embedding] = counts.map(i64::unsigned_abs);
                 Ok(ImageCounts {
                     total,
@@ -550,6 +558,7 @@ fn connect(path: &Path, key: &Key) -> Result<Connection> {
     connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
     schema::migrate(&mut connection)?;
     embedding::register(&connection)?;
+    register_covers(&connection)?;
     Ok(connection)
 }
 
@@ -576,6 +585,29 @@ fn image_hits(
         hits.push((event_id, hit));
     }
     Ok(hits)
+}
+
+/// The SQL function `covers(asked, reader)`: whether what `reader` read of a photo is all that
+/// `asked` would read. A reader is named by what it does, the words' reader first and each further
+/// reading after a `+` ("vision-text-1+siglip2@256"), so a reader covers itself and every reader
+/// that extends it; NULL (never read) covers nothing.
+fn register_covers(connection: &Connection) -> rusqlite::Result<()> {
+    connection.create_scalar_function(
+        "covers",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let asked: String = context.get(0)?;
+            let Some(reader) = context.get::<Option<String>>(1)? else {
+                return Ok(false);
+            };
+            Ok(covers(&asked, &reader))
+        },
+    )
+}
+
+fn covers(asked: &str, reader: &str) -> bool {
+    reader == asked || reader.strip_prefix(asked).is_some_and(|rest| rest.starts_with('+'))
 }
 
 /// Removes a database and its journal files.

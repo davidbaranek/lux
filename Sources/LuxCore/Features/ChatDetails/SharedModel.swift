@@ -118,8 +118,17 @@ public final class SharedModel {
             rooms = info.rooms.map(\.id)
             self.rooms = rooms
         }
-        let hits = await photos.search(query, in: rooms)
+        var hits = await photos.search(query, in: rooms)
         guard generation == self.generation else { return }
+        show(hits)
+        // the photos found by their look follow once the text encoder has loaded.
+        guard await photos.waitForLook(), generation == self.generation else { return }
+        hits = await photos.search(query, in: rooms)
+        guard generation == self.generation else { return }
+        show(hits)
+    }
+
+    private func show(_ hits: [ImageHit]) {
         indexed = hits.map { hit in
             SharedItem(id: "index|\(hit.eventId)", eventId: hit.eventId, roomId: hit.roomId, senderName: hit.senderName, date: hit.date,
                        content: .photo(MessageItem.Photo(ref: .foundPhoto(roomId: hit.roomId, eventId: hit.eventId), width: 0, height: 0)))

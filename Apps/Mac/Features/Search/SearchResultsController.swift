@@ -52,7 +52,9 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize - 1)
         status.textColor = .tertiaryLabelColor
         status.alignment = .center
-        status.lineBreakMode = .byTruncatingTail
+        status.lineBreakMode = .byWordWrapping
+        status.maximumNumberOfLines = 3
+        status.cell?.wraps = true
         status.isHidden = true
         let container = NSView()
         scopes.selectedSegment = scope.rawValue
@@ -124,12 +126,14 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     func show(_ hits: SearchHits) {
         self.hits = hits
         render()
+        showProgress(progress)
     }
 
     @objc private func scopeChanged() {
         guard let scope = SearchScope(rawValue: scopes.selectedSegment) else { return }
         self.scope = scope
         render()
+        showProgress(progress)
     }
 
     /// The hits the scope shows.
@@ -164,7 +168,7 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     func showProgress(_ progress: SearchIndexer.Progress?) {
         self.progress = progress
         guard isViewLoaded else { return }
-        let note = progress?.note
+        let note = hits.note(index: progress, scope: scope)
         status.stringValue = note ?? ""
         status.isHidden = note == nil
         // the results end above the line while it shows.
