@@ -268,19 +268,25 @@ impl Store {
             .await
     }
 
-    /// How many photos the index has, and how many `reader` has read.
+    /// How many photos the index has, how many `reader` has read, how many had their words read
+    /// and how many have an embedding.
     ///
     /// # Errors
     /// SQLite's, or [`Error::Closed`].
     pub async fn image_counts(&self, reader: String) -> Result<ImageCounts> {
         self.worker
             .run(move |connection| {
-                let (total, read): (i64, i64) = connection
-                    .prepare_cached("SELECT count(*), count(*) FILTER (WHERE reader = ?1) FROM images")?
-                    .query_row([reader], |row| Ok((row.get(0)?, row.get(1)?)))?;
+                let counts: [i64; 4] = connection
+                    .prepare_cached(
+                        "SELECT count(*), count(*) FILTER (WHERE reader = ?1), count(reader), count(embedding) FROM images",
+                    )?
+                    .query_row([reader], |row| Ok([row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?]))?;
+                let [total, read, with_words, with_embedding] = counts.map(i64::unsigned_abs);
                 Ok(ImageCounts {
-                    total: total.unsigned_abs(),
-                    read: read.unsigned_abs(),
+                    total,
+                    read,
+                    with_words,
+                    with_embedding,
                 })
             })
             .await

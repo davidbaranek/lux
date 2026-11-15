@@ -102,13 +102,17 @@ pub struct ImageRead {
     pub embedding: Option<Vec<f32>>,
 }
 
-/// How many photos the index has, and how many of them were read.
+/// How many photos the index has, and how far they were read.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ImageCounts {
     /// The photos.
     pub total: u64,
-    /// The photos read by the reader asked about.
+    /// The photos the reader asked about has read (the others wait for it).
     pub read: u64,
+    /// The photos whose words were read, by any reader.
+    pub with_words: u64,
+    /// The photos with an embedding.
+    pub with_embedding: u64,
 }
 
 /// A time as the store keeps it: milliseconds since 1970 (before it, negative).

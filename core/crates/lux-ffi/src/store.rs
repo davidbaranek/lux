@@ -193,6 +193,10 @@ pub struct CoreImageCounts {
     pub total: u64,
     /// Those the reader asked about has read.
     pub read: u64,
+    /// Those whose words were read, by any reader.
+    pub with_words: u64,
+    /// Those with an embedding.
+    pub with_embedding: u64,
 }
 
 /// The account's encrypted store on this device: the message search index and kept values.
@@ -343,6 +347,8 @@ impl CoreStore {
         Ok(CoreImageCounts {
             total: counts.total,
             read: counts.read,
+            with_words: counts.with_words,
+            with_embedding: counts.with_embedding,
         })
     }
 

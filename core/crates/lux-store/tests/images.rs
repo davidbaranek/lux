@@ -76,7 +76,12 @@ async fn photos_wait_to_be_read_newest_first_and_a_newer_reader_reads_them_again
     assert_eq!(store.images_to_read(READER.into(), 10).await.unwrap().len(), 1);
     assert_eq!(
         store.image_counts(READER.into()).await.unwrap(),
-        ImageCounts { total: 2, read: 1 }
+        ImageCounts {
+            total: 2,
+            read: 1,
+            with_words: 1,
+            with_embedding: 0
+        }
     );
     // a newer reader has read none.
     assert_eq!(store.images_to_read("test-reader-2".into(), 10).await.unwrap().len(), 2);
@@ -172,6 +177,8 @@ async fn finds_a_photo_by_its_look_and_ranks_one_found_both_ways_first() {
         ])
         .await
         .unwrap();
+    let counts = store.image_counts(READER.into()).await.unwrap();
+    assert_eq!((counts.with_words, counts.with_embedding), (3, 3));
     // by look alone: the most alike first, the unlike left out.
     assert_eq!(
         found(&store, search("", Some(vec![1.0, 0.0, 0.0]))).await,
@@ -212,7 +219,12 @@ async fn turned_off_the_embeddings_go_the_words_stay_and_a_deleted_photo_goes() 
     assert!(found(&store, search("", Some(vec![1.0, 0.0]))).await.is_empty());
     assert_eq!(
         store.image_counts("words-only".into()).await.unwrap(),
-        ImageCounts { total: 1, read: 1 }
+        ImageCounts {
+            total: 1,
+            read: 1,
+            with_words: 1,
+            with_embedding: 0
+        }
     );
     // a forgotten chat's photos go with its messages.
     store.forget_chat("!a".into(), None).await.unwrap();
