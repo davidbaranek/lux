@@ -505,8 +505,15 @@ fn connect(path: &Path, key: &Key) -> Result<Connection> {
         fs::create_dir_all(folder)?;
     }
     let mut connection = Connection::open(path)?;
-    // the raw key (`x'…'`, hex digits only): no passphrase derivation, the key is already random.
-    connection.execute_batch(&format!("PRAGMA key = \"{}\";", key.pragma_value()))?;
+    // the raw key and salt (`x'…'`, hex digits only): no passphrase derivation, the key is already
+    // random. The file's first 32 bytes stay plain ("SQLite format 3" and the page size): iOS knows
+    // the file for a WAL database by them and lets a suspended app keep its lock in the shared
+    // App Group folder; an encrypted header gets the app killed there (0xdead10cc), as Signal found.
+    // A file written with an encrypted header no longer opens, and `open_or_replace` makes it anew.
+    connection.execute_batch(&format!(
+        "PRAGMA key = \"{}\"; PRAGMA cipher_plaintext_header_size = 32;",
+        key.pragma_value()
+    ))?;
     // plain SQLite ignores the key and would write the file in the clear; SQLCipher names itself.
     let cipher: Option<String> = connection
         .query_row("PRAGMA cipher_version", [], |row| row.get(0))
@@ -514,10 +521,15 @@ fn connect(path: &Path, key: &Key) -> Result<Connection> {
     if cipher.is_none() {
         return Err(Error::NotEncrypted);
     }
-    // a wrong key fails here, on the first read.
+    // a wrong key fails here, on the first read. With the header plain, SQLite reads it as a
+    // database's and only the first page's check fails, which SQLCipher reports as SQLITE_NOMEM;
+    // a file with an encrypted header (or none at all) fails as SQLITE_NOTADB.
     connection
         .query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
-        .map_err(Error::from_sqlite)?;
+        .map_err(|error| match error.sqlite_error_code() {
+            Some(rusqlite::ErrorCode::OutOfMemory) => Error::Unreadable,
+            _ => Error::from_sqlite(error),
+        })?;
     connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
     schema::migrate(&mut connection)?;
     embedding::register(&connection)?;

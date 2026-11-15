@@ -4,6 +4,11 @@ use std::fmt;
 
 use crate::Error;
 
+/// The salt SQLCipher would otherwise keep in the file's first 16 bytes, which stay plain (see
+/// `connect`). It only derives the pages' HMAC key from the raw key, which is random per store, so
+/// one fixed salt costs nothing.
+const SALT: [u8; 16] = *b"lux-store.salt.1";
+
 /// The store's raw AES-256 key: 32 random bytes, so SQLCipher derives nothing from it.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Key([u8; 32]);
@@ -25,13 +30,13 @@ impl Key {
         Ok(Self(bytes))
     }
 
-    /// The key as the `key` pragma takes it raw: `x'…'`, lowercase hex digits only, so it can be
-    /// written into the statement.
+    /// The key as the `key` pragma takes it raw, with the file's salt after it: `x'…'`, lowercase
+    /// hex digits only, so it can be written into the statement.
     pub(crate) fn pragma_value(&self) -> String {
         use fmt::Write as _;
-        let mut value = String::with_capacity(67);
+        let mut value = String::with_capacity(99);
         value.push_str("x'");
-        for byte in self.0 {
+        for byte in self.0.iter().chain(&SALT) {
             let _ = write!(value, "{byte:02x}");
         }
         value.push('\'');
@@ -61,7 +66,10 @@ mod tests {
     #[test]
     fn reads_hex_and_writes_the_pragma_value() {
         let key = Key::from_hex(&"aB".repeat(32)).unwrap();
-        assert_eq!(key.pragma_value(), format!("x'{}'", "ab".repeat(32)));
+        assert_eq!(
+            key.pragma_value(),
+            format!("x'{}{}'", "ab".repeat(32), "6c75782d73746f72652e73616c742e31")
+        );
         assert_eq!(format!("{key:?}"), "Key(…)");
     }
 
