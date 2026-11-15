@@ -10,6 +10,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     var onAccount: (() -> Void)?
 
     private let session: Session
+    /// The shown place's colour changed: the open chat takes it too.
+    var onTheme: ((PlaceTheme) -> Void)?
     /// The current place's name changed (another place, or the places came): the window shows it.
     var onPlaceTitle: ((String) -> Void)?
     /// The inbox's unread chats changed: the Dock's badge.
@@ -25,7 +27,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     private let search = NSSearchField()
     private let content = NSView()
     /// The shown place's colour over the whole sidebar.
-    private let tint = ThemeTint()
+    private let tint = ThemeTint(strength: ThemeTint.sidebar)
 
     init(session: Session) {
         self.session = session
@@ -124,6 +126,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         let theme = listModel.theme
         tint.theme = theme
         list.accent = theme.color ?? .controlAccentColor
+        onTheme?(theme)
     }
 
     /// Cmd-F: the search field.

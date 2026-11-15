@@ -28,6 +28,11 @@ final class MessageCell: UICollectionViewCell {
     private let failed = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     /// The arrow a swipe to reply uncovers at the leading edge (outside the content, which moves).
     private let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill"))
+    /// One's own bubbles: the place's colour, else the system's blue. A fixed colour, not
+    /// .tintColor: the tint dims while a menu is open, and the lifted bubble with it.
+    var ownFill = UIColor.systemBlue {
+        didSet { if ownFill != oldValue, let message = shown?.0 { fillBubble(message) } }
+    }
     private var shown: (MessageItem, MessageLayout)?
     /// The quote of the message this one answers was tapped.
     var onQuoteTap: (() -> Void)?
@@ -182,11 +187,7 @@ final class MessageCell: UICollectionViewCell {
         if let frame = layout.unreadMarker { unreadMarker.frame = frame }
         place(sender, layout.sender, message.senderName, text.sender)
         bubble.frame = layout.bubble
-        // a fixed blue, not .tintColor: the tint dims while a menu is open, and the lifted bubble with it.
-        // a tapped message darkens while its details show.
-        bubble.backgroundColor = message.isMediaOnly ? .clear
-            : own ? (message.showsDetail ? Self.ownSelected : .systemBlue)
-            : (message.showsDetail ? .systemGray4 : .systemGray5)
+        fillBubble(message)
         // a message that did not go out is marked as such.
         bubble.alpha = message.state == .failed ? 0.6 : 1
         place(quote, layout.quote, message.quoteText, text.quote)
@@ -291,9 +292,12 @@ final class MessageCell: UICollectionViewCell {
         body.attributedText = text.bodyText(message, ink: ink, link: message.isOwn ? ink : .link)
     }
 
-    /// The own bubble while its details show: the blue, darker.
-    private static let ownSelected = UIColor { traits in
-        UIColor.systemBlue.resolvedColor(with: traits).darkened(by: 0.22)
+    /// The bubble's colour; a tapped message darkens while its details show.
+    private func fillBubble(_ message: MessageItem) {
+        let own = ownFill
+        bubble.backgroundColor = message.isMediaOnly ? .clear
+            : message.isOwn ? (message.showsDetail ? UIColor { own.resolvedColor(with: $0).darkened(by: 0.22) } : own)
+            : (message.showsDetail ? .systemGray4 : .systemGray5)
     }
 
     private func place(_ label: UILabel, _ frame: CGRect?, _ text: String?, _ font: UIFont) {
