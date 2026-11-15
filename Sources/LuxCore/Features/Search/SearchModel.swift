@@ -40,11 +40,20 @@ public final class SearchModel {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled, let search = session.search else { return }
             let state = Signposts.list.beginInterval("search")
-            let found = await search.search(text)
+            var found = await search.search(text)
             Signposts.list.endInterval("search", state, "\(found.chats.count) chats, \(found.messages.count) messages")
             guard !Task.isCancelled, text == query else { return }
+            found.photoNote = search.photos.searchNote(lookPending: await search.photos.isLookPending)
             hits = found
             onUpdate?(found)
+            // the words' hits show at once; the photos found by their look follow once the text
+            // encoder has loaded (a second, or some 20 s the first time on a device).
+            guard await search.photos.waitForLook(), !Task.isCancelled, text == query else { return }
+            var again = await search.search(text)
+            guard !Task.isCancelled, text == query else { return }
+            again.photoNote = search.photos.searchNote(lookPending: false)
+            hits = again
+            onUpdate?(again)
         }
     }
 }

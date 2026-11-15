@@ -107,6 +107,17 @@ actor PhotoSearchModel {
         return try floats(output)
     }
 
+    /// The text encoder is loaded: a search finds photos by their look at once.
+    var isTextEncoderReady: Bool { textEncoder != nil }
+
+    /// Lets the text encoder go (the system is short of memory); the next search loads it again.
+    func releaseTextEncoder() {
+        preparing?.cancel()
+        preparing = nil
+        textEncoder = nil
+        tokenizer = nil
+    }
+
     /// Lets the image encoder go (the photos are read): its memory is the app's again.
     func releaseImageEncoder() {
         imageEncoder = nil
