@@ -155,6 +155,9 @@ private final class SharedTileItem: NSCollectionViewItem {
         let container = NSView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        container.layer?.cornerRadius = 6
+        container.layer?.cornerCurve = .continuous
+        container.layer?.masksToBounds = true
         picture.frame = container.bounds
         picture.autoresizingMask = [.width, .height]
         container.addSubview(picture)
