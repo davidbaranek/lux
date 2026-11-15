@@ -283,11 +283,14 @@ extension CoreOutgoingAttachment {
     }
 }
 
-extension TextHistoryPage {
-    init(_ history: CoreTextHistory) {
+extension IndexHistoryPage {
+    init(_ history: CoreIndexHistory) {
         self.init(messages: history.messages.map { message in
             IndexedMessage(eventId: message.eventId, roomId: message.roomId, senderName: message.senderName, body: message.body,
                            date: message.date, isOwn: message.isOwn)
+        }, images: history.images.map { image in
+            IndexedImage(eventId: image.eventId, roomId: image.roomId, senderName: image.senderName, caption: image.caption,
+                         date: image.date, isOwn: image.isOwn)
         }, reachedStart: history.reachedStart, removed: history.removed, deletedUntil: history.deletedUntil)
     }
 }

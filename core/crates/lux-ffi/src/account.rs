@@ -854,6 +854,14 @@ impl CoreAccount {
         with_account!(&self.backend, account => account.pause_sync().await);
     }
 
+    /// Opens the stores for work in the background without the sync (reading photos for photo
+    /// search), if they are closed; `pause_sync` closes them again when the work is done.
+    pub async fn begin_background_work(&self) {
+        if let Backend::Matrix(account) = &self.backend {
+            account.begin_background_work().await;
+        }
+    }
+
     /// Starts the sync again.
     pub async fn resume_sync(&self) {
         with_account!(&self.backend, account => account.resume_sync().await);

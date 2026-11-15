@@ -40,3 +40,20 @@ In Xcode: Product › Xcode Cloud › Create Workflow, for the `Lux-iOS` scheme:
 - **Actions:** Archive `Lux-iOS` (iOS) and Archive `Lux-Mac` (macOS), deployment preparation
   TestFlight (Internal Testing Only).
 - **Post-action:** TestFlight Internal Testing, the internal group.
+
+## Photo search's model
+
+Photo search downloads its model as an Apple-hosted asset pack (`PhotoSearch`, on-demand), which
+App Store Connect hosts apart from the builds. Build it from the official SigLIP 2 weights, then
+upload `PhotoSearch.aar` with Transporter and submit it with the build that first uses it; a new
+pack only when the model changes (the app reads every photo again with a new one).
+
+```sh
+uv run scripts/image-search/convert.py build/image-search/model
+scripts/image-search/package.sh build/image-search/model build/image-search
+```
+
+Until App Store Connect has the pack, the app reads only the words in photos. To test the model
+locally, serve the pack with `xcrun ba-serve` and set the URL override (Background Assets'
+"Testing asset packs locally"); `LUX_PHOTO_MODEL=build/image-search/PhotoSearch swift test` runs
+the model's own test.

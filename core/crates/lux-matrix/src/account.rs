@@ -113,9 +113,9 @@ impl MatrixAccount {
         self.lifecycle.refresh_within(within).await
     }
 
-    /// Opens the stores for work in the background (a notification's action), if they are
-    /// closed. The app pauses the account again when the work is done.
-    pub(crate) async fn begin_background_work(&self) {
+    /// Opens the stores for work in the background (a notification's action, reading photos for
+    /// photo search), if they are closed. The app pauses the account again when the work is done.
+    pub async fn begin_background_work(&self) {
         self.lifecycle.begin_background_work().await;
     }
 

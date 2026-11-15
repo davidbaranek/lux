@@ -335,6 +335,36 @@ public final class Session {
         return await account.refresh(within: seconds)
     }
 
+    /// The system's background processing task for photo search (while it charges): opens the
+    /// kept account if the app was not running, and its stores without the sync, reads the
+    /// photos not read yet, and closes the stores again unless the app came to the front. True
+    /// when every photo is read; the task's expiry cancels it (`stopReadingPhotos`).
+    public func readPhotosInBackground() async -> Bool {
+        guard await restore(), let account = try? await account.value,
+              let search = await openedSearch() else { return false }
+        await account.beginBackgroundWork()
+        return await search.photos.readAll()
+    }
+
+    /// The background task ran out of time: the reading stops where it is.
+    public func stopReadingPhotos() async {
+        await search?.photos.stop()
+    }
+
+    /// The search, once its store has opened (a moment after the account).
+    private func openedSearch() async -> MessageSearch? {
+        if let search { return search }
+        guard let opening = store, await opening.value != nil else { return nil }
+        let (opened, announce) = AsyncStream<Void>.makeStream()
+        let following = searchChanges.observe { announce.yield() }
+        defer { withExtendedLifetime(following) {} }
+        if let search { return search }
+        for await _ in opened {
+            if let search { return search }
+        }
+        return nil
+    }
+
     public func signOut() async {
         await search?.stop()
         search = nil

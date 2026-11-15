@@ -57,6 +57,17 @@ const THUMBNAIL_SIDE: u32 = 800;
 
 impl ChatMedia for MatrixTimelines {
     async fn image_file(&self, source: &ImageSource, folder: &Path) -> Result<Option<PathBuf>, BackendError> {
+        // a picture by its event is kept by its event: shown again (a search typed on, the chat's
+        // details opened again), no server is asked for the event again.
+        let by_event = match source {
+            ImageSource::Shared { event, .. } => Some(folder.join(event_file_name(event))),
+            _ => None,
+        };
+        if let Some(file) = &by_event
+            && file.is_file()
+        {
+            return Ok(Some(file.clone()));
+        }
         let request = match source {
             ImageSource::Room(room) => {
                 let Some(url) = crate::mapping::room_picture(&self.room(room)?).await else {
@@ -97,7 +108,7 @@ impl ChatMedia for MatrixTimelines {
                 }
             }
         };
-        let file = folder.join(file_name(&request));
+        let file = by_event.unwrap_or_else(|| folder.join(file_name(&request)));
         if file.is_file() {
             return Ok(Some(file));
         }
@@ -202,6 +213,17 @@ fn file_name(request: &MediaRequestParameters) -> String {
     }
     if let MediaFormat::Thumbnail(settings) = &request.format {
         let _ = write!(name, "-{}x{}", settings.width, settings.height);
+    }
+    name
+}
+
+/// The file name of a picture by its event: the event, hashed (any id, one name each).
+fn event_file_name(event: &EventId) -> String {
+    let mut name = String::with_capacity(6 + 64);
+    name.push_str("event-");
+    // writing to a string cannot fail.
+    for byte in Sha256::digest(event.as_str()) {
+        let _ = write!(name, "{byte:02x}");
     }
     name
 }

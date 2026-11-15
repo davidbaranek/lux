@@ -29,8 +29,8 @@ use crate::ports::{
 };
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
-    Draft, FileKind, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind, Picture, Quote, Reaction,
-    Reader, Receipt, SharedPost, TextHistory, TimelineMessage, Typist, html,
+    Draft, FileKind, IndexHistory, IndexedImage, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
+    Picture, Quote, Reaction, Reader, Receipt, SharedPost, TimelineMessage, Typist, html,
 };
 
 /// The demo account's user.
@@ -344,36 +344,42 @@ impl ChatTimelines for DemoTimelines {
             .map(|index| MessageId::from(format!("{room}/{index}"))))
     }
 
-    async fn text_history(
+    async fn index_history(
         &self,
         room: &RoomId,
         since: SystemTime,
         max_pages: u32,
-    ) -> Result<TextHistory, BackendError> {
-        let messages: Vec<IndexedMessage> = {
-            let mut state = self.state();
-            self.room(&mut state, room)
-                .iter()
-                .rev()
-                .filter(|message| !message.message.body.is_empty() && message.message.date >= since)
-                .map(|message| IndexedMessage {
-                    event_id: EventId::from(message.message.id.as_str()),
+    ) -> Result<IndexHistory, BackendError> {
+        // pages of 50 messages, as a server gives them.
+        let most = max_pages as usize * 50;
+        let mut history = IndexHistory::default();
+        let mut state = self.state();
+        let shown = self.room(&mut state, room);
+        let newest = shown.iter().rev().filter(|message| message.message.date >= since);
+        for message in newest.clone().take(most) {
+            let event_id = EventId::from(message.message.id.as_str());
+            if matches!(message.media, Some(Media::Photo { .. })) {
+                history.images.push(IndexedImage {
+                    event_id,
+                    room: room.clone(),
+                    sender_name: message.sender_name.clone(),
+                    caption: message.message.body.clone(),
+                    date: message.message.date,
+                    is_own: message.is_own,
+                });
+            } else if !message.message.body.is_empty() {
+                history.messages.push(IndexedMessage {
+                    event_id,
                     room: room.clone(),
                     sender_name: message.sender_name.clone(),
                     body: message.message.body.clone(),
                     date: message.message.date,
                     is_own: message.is_own,
-                })
-                .collect()
-        };
-        // pages of 50, as a server gives them.
-        let most = max_pages as usize * 50;
-        Ok(TextHistory {
-            reached_start: messages.len() <= most,
-            messages: messages.into_iter().take(most).collect(),
-            removed: Vec::new(),
-            deleted_until: None,
-        })
+                });
+            }
+        }
+        history.reached_start = newest.count() <= most;
+        Ok(history)
     }
 
     /// Someone types for a few seconds now and then, so the indicator shows.

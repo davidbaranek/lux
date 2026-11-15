@@ -1,11 +1,11 @@
 import LuxCore
 import UIKit
 
-/// Settings: the account, its networks, the appearance (`AppearanceViewController`), encryption (the key backup), and signing out, as an
-/// inset-grouped list.
+/// Settings: the account, its networks, the appearance (`AppearanceViewController`), encryption (the
+/// key backup), privacy, search, and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
-    private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, session }
-    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, signOut }
+    private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
+    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, photoWords, photoLooks, photoModel, photoLooksState, readPhotos, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -94,9 +94,49 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 }, for: .valueChanged)
                 cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
             case .searchIndex:
-                content.text = String(localized: "Search Index")
+                content.text = String(localized: "Messages")
                 content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
+            case .photoWords:
+                content.text = String(localized: "Words in Photos")
+                content.secondaryText = model.photoWords ?? String(localized: "Opening…")
+                content.image = UIImage(systemName: "text.viewfinder")
+            case .photoModel:
+                content.text = String(localized: "Model")
+                content.secondaryText = model.photoModel
+                content.image = UIImage(systemName: "arrow.down.circle")
+            case .photoLooksState:
+                content.text = String(localized: "What Photos Show")
+                content.secondaryText = model.photoLooks
+                content.image = UIImage(systemName: "photo.on.rectangle.angled")
+            case .photoLooks:
+                content = .cell()
+                content.text = String(localized: "Search by What Photos Show")
+                content.secondaryText = String(localized: """
+                    Photos are always found by the words in them and the messages sent with them. This also finds \
+                    them by what they show ("dog on the beach"). It downloads a model of about 450 MB and reads \
+                    the photos on this iPhone, in the background while it charges.
+                    """)
+                content.secondaryTextProperties.color = .secondaryLabel
+                let toggle = UISwitch()
+                toggle.isOn = model.searchesPhotosByLook
+                toggle.addAction(UIAction { [weak self, weak toggle] _ in
+                    let on = toggle?.isOn ?? false
+                    Task { await self?.model.setSearchesPhotosByLook(on) }
+                }, for: .valueChanged)
+                cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
+            case .readPhotos:
+                content = .cell()
+                let model = model
+                content.text = model.isReadingPhotos ? String(localized: "Stop Reading Photos")
+                    : model.hasUnreadPhotos ? String(localized: "Read Photos Now") : String(localized: "All Photos Read")
+                let blocked = model.isReadingPhotos ? nil : model.readPhotosBlocked
+                content.textProperties.color = (model.isReadingPhotos || model.hasUnreadPhotos) && blocked == nil
+                    ? .tintColor : .secondaryLabel
+                content.secondaryText = model.isReadingPhotos
+                    ? String(localized: "Stopped, the reading goes on the next time Lux opens, or while the iPhone charges.")
+                    : blocked ?? String(localized: "Reads them now instead of while the iPhone charges; the Lock Screen shows how far it is.")
+                content.secondaryTextProperties.color = .secondaryLabel
             case .signOut:
                 content = .cell()
                 content.text = String(localized: "Sign Out")
@@ -113,7 +153,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendItems([.networks], toSection: .networks)
         snapshot.appendItems([.appearance], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
-        snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
+        snapshot.appendItems([.readReceipts], toSection: .privacy)
+        snapshot.appendItems([.searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos], toSection: .search)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
 
@@ -121,7 +162,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery, .searchIndex])
+            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery, .searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos])
             dataSource.apply(snapshot)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in
@@ -158,6 +199,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             navigationController?.pushViewController(RecoverySetupViewController(security: security), animated: true)
         case .recovery?:
             navigationController?.pushViewController(RecoveryKeyViewController(model: model), animated: true)
+        case .readPhotos? where model.isReadingPhotos:
+            Task { await model.stopReadingPhotos() }
+        case .readPhotos? where model.hasUnreadPhotos && model.readPhotosBlocked == nil:
+            model.readPhotosNow()
         case .signOut?:
             confirmSignOut(from: collectionView.cellForItem(at: indexPath))
         default:

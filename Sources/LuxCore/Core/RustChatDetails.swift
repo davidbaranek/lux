@@ -59,9 +59,16 @@ extension RustAccount {
 
     /// A shared photo's, video's or file's original on this device, downloaded once into `directory`.
     func sharedFile(_ item: SharedItem, directory: URL) async throws -> URL {
-        if let demo { return try demo.mediaFile(roomId: item.roomId, messageId: item.eventId, directory: directory) }
+        try await sharedFile(roomId: item.roomId, eventId: item.eventId, directory: directory)
+    }
+
+    /// The original of the photo, video or file a message's event sent (no timeline need hold
+    /// it: chat details, photo search), downloaded once into `directory`.
+    func sharedFile(roomId: String, eventId: String, directory: URL) async throws -> URL {
+        // the demo's events are its messages.
+        if let demo { return try demo.mediaFile(roomId: roomId, messageId: eventId, directory: directory) }
         return URL(fileURLWithPath: try await worded {
-            try await account.sharedFile(roomId: item.roomId, eventId: item.eventId, folder: directory.path)
+            try await account.sharedFile(roomId: roomId, eventId: eventId, folder: directory.path)
         })
     }
 }

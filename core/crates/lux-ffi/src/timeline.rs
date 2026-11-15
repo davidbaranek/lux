@@ -9,8 +9,8 @@ use lux_core::ids::{EventId, MediaId, MessageId, MessageRef, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines, ThreadBackend};
 use lux_core::timeline::{
-    FileKind, ImageSource, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind, OutgoingThumbnail,
-    Picture, Quote, StyleKind, TextHistory, TimelineMessage, Typist,
+    FileKind, ImageSource, IndexHistory, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
+    OutgoingThumbnail, Picture, Quote, StyleKind, TimelineMessage, Typist,
 };
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, with_account};
@@ -221,11 +221,30 @@ pub struct CoreIndexedMessage {
     pub is_own: bool,
 }
 
-/// A chat's text messages back to a date, newest first.
+/// A photo as the search index keeps it.
 #[derive(uniffi::Record)]
-pub struct CoreTextHistory {
-    /// The messages.
+pub struct CoreIndexedImage {
+    /// Its event.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// The words sent with it; empty when none.
+    pub caption: String,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The account sent it.
+    pub is_own: bool,
+}
+
+/// A chat's text messages and photos back to a date, newest first.
+#[derive(uniffi::Record)]
+pub struct CoreIndexHistory {
+    /// The text messages.
     pub messages: Vec<CoreIndexedMessage>,
+    /// The photos.
+    pub images: Vec<CoreIndexedImage>,
     /// Nothing is older.
     pub reached_start: bool,
     /// The event ids of the messages deleted meanwhile, for the index to forget.
@@ -471,10 +490,22 @@ impl From<IndexedMessage> for CoreIndexedMessage {
     }
 }
 
-impl From<TextHistory> for CoreTextHistory {
-    fn from(history: TextHistory) -> Self {
+impl From<IndexHistory> for CoreIndexHistory {
+    fn from(history: IndexHistory) -> Self {
         Self {
             messages: history.messages.into_iter().map(Into::into).collect(),
+            images: history
+                .images
+                .into_iter()
+                .map(|image| CoreIndexedImage {
+                    event_id: image.event_id.to_string(),
+                    room_id: image.room.to_string(),
+                    sender_name: image.sender_name,
+                    caption: image.caption,
+                    date: image.date,
+                    is_own: image.is_own,
+                })
+                .collect(),
             reached_start: history.reached_start,
             removed: history.removed.iter().map(ToString::to_string).collect(),
             deleted_until: history.deleted_until,
@@ -557,19 +588,19 @@ impl CoreAccount {
         Ok(with_account!(self.backend(), account => account.timelines().prefetch(&room).await)?)
     }
 
-    /// The chat's text messages back to `since`, for the search index.
+    /// The chat's text messages and photos back to `since`, for the search index.
     ///
     /// # Errors
     /// When the server cannot be reached.
-    pub async fn text_history(
+    pub async fn index_history(
         &self,
         room_id: String,
         since: SystemTime,
         max_pages: u32,
-    ) -> Result<CoreTextHistory, CoreAccountError> {
+    ) -> Result<CoreIndexHistory, CoreAccountError> {
         let room = RoomId::from(room_id);
         let history = with_account!(self.backend(), account => {
-            account.timelines().text_history(&room, since, max_pages).await
+            account.timelines().index_history(&room, since, max_pages).await
         })?;
         Ok(history.into())
     }

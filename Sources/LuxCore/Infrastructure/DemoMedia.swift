@@ -26,14 +26,21 @@ struct DemoMedia: Sendable {
         return file
     }
 
+    /// The file name of the made-up history's photo at `messageId` ("!room1:demo/19"); nil when
+    /// that message is no photo.
+    private static func photoName(_ messageId: String) -> String? {
+        let index = Int(messageId.split(separator: "/").last ?? "") ?? 0
+        return index % 15 == 4 && index % 45 != 34 ? "demo-photo-\(index % 6).jpg" : nil
+    }
+
     /// A made-up photo or poster drawn large; a made-up file as a page of text.
     func mediaFile(roomId: String, messageId: String, directory: URL) throws -> URL {
         // the made-up history's media go by the message's place in it ("!room1:demo/19").
         let index = Int(messageId.split(separator: "/").last ?? "") ?? 0
         let ref: ImageRef? = if index % 45 == 19 {
             .poster(roomId: roomId, messageId: messageId, name: "demo-poster-\(index % 4).jpg")
-        } else if index % 15 == 4, index % 45 != 34 {
-            .photo(roomId: roomId, messageId: messageId, name: "demo-photo-\(index % 6).jpg")
+        } else if let name = Self.photoName(messageId) {
+            .photo(roomId: roomId, messageId: messageId, name: name)
         } else {
             nil
         }

@@ -299,11 +299,32 @@ pub struct IndexedMessage {
     pub is_own: bool,
 }
 
-/// A chat's text messages back to a date, newest first.
+/// A photo, as the search index keeps it: where it is and who sent it; what it shows is the
+/// apps' to read (its words; its embedding, when the user turns search by look on).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexedImage {
+    /// Its event.
+    pub event_id: EventId,
+    /// Its room.
+    pub room: RoomId,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// The words sent with it; empty when none.
+    pub caption: String,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The account sent it.
+    pub is_own: bool,
+}
+
+/// A chat's messages for the search index back to a date, newest first: its text messages and
+/// its photos.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TextHistory {
-    /// The messages, newest first.
+pub struct IndexHistory {
+    /// The text messages, newest first.
     pub messages: Vec<IndexedMessage>,
+    /// The photos, newest first.
+    pub images: Vec<IndexedImage>,
     /// The chat's first message is among them: there is nothing older.
     pub reached_start: bool,
     /// The messages deleted in that time, which the index may hold from before.

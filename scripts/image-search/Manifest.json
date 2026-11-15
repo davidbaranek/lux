@@ -1,0 +1,15 @@
+{
+	"assetPackID": "PhotoSearch",
+	"downloadPolicy": {
+		"onDemand": {}
+	},
+	"fileSelectors": [
+		{
+			"directory": "PhotoSearch"
+		}
+	],
+	"platforms": [
+		"iOS",
+		"macOS"
+	]
+}

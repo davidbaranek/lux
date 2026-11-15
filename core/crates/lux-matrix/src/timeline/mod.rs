@@ -22,7 +22,7 @@ use futures_util::stream;
 use lux_core::ids::{EventId, MessageId, RoomId};
 use lux_core::organizer::Organized;
 use lux_core::ports::{BackendError, ChatTimelines, DiffStream, RoomChanges, TimelineHold, TypingStream};
-use lux_core::timeline::{TextHistory, TimelineMessage};
+use lux_core::timeline::{IndexHistory, TimelineMessage};
 use matrix_sdk::ruma::OwnedRoomId;
 use matrix_sdk::{Client, Room};
 use tokio::sync::{broadcast, watch};
@@ -158,14 +158,14 @@ impl ChatTimelines for MatrixTimelines {
         self.open(room).await?.first_unread().await
     }
 
-    async fn text_history(
+    async fn index_history(
         &self,
         room: &RoomId,
         since: SystemTime,
         max_pages: u32,
-    ) -> Result<TextHistory, BackendError> {
+    ) -> Result<IndexHistory, BackendError> {
         let deleted_until = self.cuts.borrow().marks.cleared.get(room.as_str()).copied();
-        history::text_history(&self.room(room)?, since, deleted_until, max_pages).await
+        history::index_history(&self.room(room)?, since, deleted_until, max_pages).await
     }
 
     fn typing(&self, room: &RoomId) -> Result<TypingStream, BackendError> {

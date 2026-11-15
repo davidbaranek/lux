@@ -57,9 +57,50 @@ pub(crate) fn unmark(snippet: &str) -> (String, Vec<Range<u32>>) {
     (plain, matches)
 }
 
+/// One way of finding photos (their words, messages near them, their look), best first.
+pub(crate) type Ranked<T> = Vec<(String, T)>;
+
+/// Merges rankings of the same photos by reciprocal rank: a photo high in any, or found by
+/// several, comes first. Each photo keeps what the first ranking that found it says of it.
+pub(crate) fn fuse<T>(rankings: Vec<Ranked<T>>, limit: usize) -> Vec<T> {
+    // the usual constant: a first place outweighs a tenth, without drowning the others.
+    const K: f64 = 60.0;
+    let mut scored: Vec<(String, f64, usize, T)> = Vec::new();
+    let mut at = std::collections::HashMap::<String, usize>::new();
+    for ranking in rankings {
+        for (place, (id, value)) in ranking.into_iter().enumerate() {
+            // a place is far below 2^52.
+            #[allow(clippy::cast_precision_loss)]
+            let score = 1.0 / (K + place as f64 + 1.0);
+            if let Some(&index) = at.get(&id) {
+                scored[index].1 += score;
+            } else {
+                at.insert(id.clone(), scored.len());
+                let order = scored.len();
+                scored.push((id, score, order, value));
+            }
+        }
+    }
+    // the higher score first; a tie keeps the order found.
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.2.cmp(&b.2)));
+    scored.into_iter().take(limit).map(|(_, _, _, value)| value).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_photo_found_several_ways_comes_first_and_keeps_its_first_reason() {
+        let words = vec![("a".to_owned(), "a by words"), ("b".to_owned(), "b by words")];
+        let looks = vec![("c".to_owned(), "c by look"), ("b".to_owned(), "b by look")];
+        assert_eq!(
+            fuse(vec![words, looks], 10),
+            vec!["b by words", "a by words", "c by look"]
+        );
+        assert_eq!(fuse::<&str>(vec![vec![], vec![]], 10), Vec::<&str>::new());
+        assert_eq!(fuse(vec![vec![("a".to_owned(), 1), ("b".to_owned(), 2)]], 1), vec![1]);
+    }
 
     #[test]
     fn every_word_is_a_quoted_prefix() {

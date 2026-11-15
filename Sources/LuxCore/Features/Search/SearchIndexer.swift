@@ -127,13 +127,17 @@ public actor SearchIndexer {
             let indexed = chats[room.id]
             // history back three months; afterwards only what came since the newest indexed.
             let since = if let indexed, indexed.complete { indexed.newest } else { Date.now.addingTimeInterval(-Self.history) }
-            guard let page = try? await account.textHistory(roomId: room.id, since: since,
+            guard let page = try? await account.indexHistory(roomId: room.id, since: since,
                                                              maxPages: deep ? Self.deepPages : Self.quickPages) else { continue }
             do {
                 if let until = page.deletedUntil { try await store.forgetChat(room.id, until: until) }
                 try await store.add(page.messages)
+                // photos are kept from the start: turning photo search on reads them, with no
+                // walk back through every chat again.
+                try await store.addImages(page.images)
                 try await store.remove(page.removed)
-                let newest = max(page.messages.map(\.date).max() ?? .distantPast, room.date ?? .distantPast, indexed?.newest ?? .distantPast)
+                let newest = [page.messages.map(\.date).max(), page.images.map(\.date).max(), room.date, indexed?.newest]
+                    .compactMap(\.self).max() ?? .distantPast
                 let chat = IndexedChat(newest: newest, complete: indexed?.complete == true || deep)
                 try await store.setChat(room.id, chat)
                 chats[room.id] = chat

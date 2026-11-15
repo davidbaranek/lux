@@ -10,12 +10,12 @@ extension RustAccount {
     /// none), so the chat opens at once.
     func prefetch(roomId: String) async { try? await account.prefetchThread(roomId: roomId) }
 
-    /// A chat's text messages, the newest first, back to `since`, the chat's start, or `maxPages`
-    /// pages: what the search index reads (`SearchIndexer`).
-    func textHistory(roomId: String, since: Date, maxPages: Int) async throws -> TextHistoryPage {
+    /// A chat's text messages and photos, the newest first, back to `since`, the chat's start, or
+    /// `maxPages` pages: what the search index reads (`SearchIndexer`).
+    func indexHistory(roomId: String, since: Date, maxPages: Int) async throws -> IndexHistoryPage {
         let since = max(since, Date(timeIntervalSince1970: 0))
-        return TextHistoryPage(try await worded {
-            try await account.textHistory(roomId: roomId, since: since, maxPages: UInt32(clamping: maxPages))
+        return IndexHistoryPage(try await worded {
+            try await account.indexHistory(roomId: roomId, since: since, maxPages: UInt32(clamping: maxPages))
         })
     }
 

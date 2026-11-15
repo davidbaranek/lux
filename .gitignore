@@ -19,3 +19,6 @@ DerivedData/
 /Config/Local.xcconfig
 
 .DS_Store
+
+# photo search's model and asset pack (scripts/image-search)
+/build/
