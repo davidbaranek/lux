@@ -20,10 +20,12 @@ enum PhotoSearchAssets {
         return (try? await AssetPackManager.shared.status(ofAssetPackWithID: packID))?.contains(.downloaded) ?? false
     }
 
-    /// The model's folder, downloading the pack first when it is not on the device; `progress`
-    /// hears how far the download is (0…1).
-    static func modelFolder(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
-        if let folder = LaunchOptions.photoModel { return folder }
+    /// Where each of the model's files is, downloading the pack first when it is not on the
+    /// device; `progress` hears how far the download is (0…1). Each file's place is asked of the
+    /// pack by its own path: a pack keeps its files where it chooses, so a folder found for one
+    /// (`model.json`) need not hold the others (the encoders' `.mlmodelc` folders).
+    static func modelFiles(progress: @escaping @Sendable (Double) -> Void) async throws -> PhotoSearchModel.Files {
+        if let folder = LaunchOptions.photoModel { return { folder.appending(path: $0) } }
         let manager = AssetPackManager.shared
         let pack = try await manager.assetPack(withID: packID)
         let following = Task {
@@ -34,7 +36,7 @@ enum PhotoSearchAssets {
         defer { following.cancel() }
         // at once when the pack is on the device already.
         try await manager.ensureLocalAvailability(of: pack)
-        return try manager.url(for: FilePath("\(folder)/model.json")).deletingLastPathComponent()
+        return { name in try AssetPackManager.shared.url(for: FilePath("\(folder)/\(name)")) }
     }
 
     /// Frees the pack's space: photo search was turned off.

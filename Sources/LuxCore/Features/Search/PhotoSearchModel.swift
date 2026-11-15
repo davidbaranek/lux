@@ -28,23 +28,32 @@ actor PhotoSearchModel {
     /// below 0.07 (measured on the base model in English and Czech).
     nonisolated let minSimilarity: Float = 0.085
 
-    private let folder: URL
+    /// Where each of the model's files is (`model.json`, an encoder's `.mlmodelc`).
+    typealias Files = @Sendable (String) throws -> URL
+
+    private let file: Files
     private let description: Description
     private var imageEncoder: MLModel?
     private var textEncoder: MLModel?
     private var tokenizer: QueryTokenizer?
     private var preparing: Task<Void, Never>?
 
-    /// The model in `folder` (its `model.json`, encoders and tokenizer).
-    init(folder: URL) throws {
-        self.folder = folder
-        description = try JSONDecoder().decode(Description.self, from: Data(contentsOf: folder.appending(path: "model.json")))
+    /// The model whose files `file` finds (its `model.json`, encoders and tokenizer): an asset
+    /// pack names each of its files' places itself, which need not share one folder.
+    init(files file: @escaping Files) throws {
+        self.file = file
+        description = try JSONDecoder().decode(Description.self, from: Data(contentsOf: file("model.json")))
         name = "\(description.model)@\(description.side)"
+    }
+
+    /// The model in `folder` (a model built on this Mac, for tests and `-LuxPhotoModel`).
+    init(folder: URL) throws {
+        try self.init(files: { folder.appending(path: $0) })
     }
 
     /// A photo's unit embedding: the photo squashed to the encoder's square, as it learned.
     func embedding(of image: CGImage) throws -> [Float] {
-        let encoder = try imageEncoder ?? Self.load("ImageEncoder", in: folder)
+        let encoder = try imageEncoder ?? Self.load("ImageEncoder", from: file)
         imageEncoder = encoder
         guard let constraint = encoder.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else {
             throw PhotoSearchError.unexpectedModel
@@ -61,12 +70,12 @@ actor PhotoSearchModel {
     /// by words meanwhile.
     func prepareTextEncoder() {
         guard textEncoder == nil, preparing == nil else { return }
-        let folder = folder, description = description
+        let file = file, description = description
         preparing = Task.detached(priority: .utility) { [weak self] in
             do {
-                let tokenizer = try QueryTokenizer(file: folder.appending(path: "tokenizer.json"), length: description.textLength,
+                let tokenizer = try QueryTokenizer(file: file("tokenizer.json"), length: description.textLength,
                                                    padId: description.padId, lowercase: description.lowercase)
-                let encoder = try Self.load("TextEncoder", in: folder)
+                let encoder = try Self.load("TextEncoder", from: file)
                 await self?.prepared(encoder, tokenizer)
             } catch {
                 Log.app.error("photo search: the text encoder: \(String(describing: error), privacy: .public)")
@@ -103,10 +112,10 @@ actor PhotoSearchModel {
         imageEncoder = nil
     }
 
-    private static func load(_ name: String, in folder: URL) throws -> MLModel {
+    private static func load(_ name: String, from file: Files) throws -> MLModel {
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
-        return try MLModel(contentsOf: folder.appending(path: "\(name).mlmodelc"), configuration: configuration)
+        return try MLModel(contentsOf: file("\(name).mlmodelc"), configuration: configuration)
     }
 
     private func floats(_ output: any MLFeatureProvider) throws -> [Float] {
