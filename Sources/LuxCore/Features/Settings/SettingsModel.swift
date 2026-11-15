@@ -60,6 +60,16 @@ public final class SettingsModel {
     /// Some photos wait to be read: Settings offers to read them now.
     public var hasUnreadPhotos: Bool { session.search?.photos.hasUnread ?? false }
 
+    /// Why photos cannot be read now, in words: the device saves its battery or its data; nil
+    /// when they can.
+    public var readPhotosBlocked: String? {
+        switch session.search?.photos.readNowBlocked {
+        case .battery?: String(localized: "Not while Low Power Mode is on.")
+        case .data?: String(localized: "Not while Low Data Mode is on.")
+        case nil: nil
+        }
+    }
+
     /// Reads every photo not read yet, now; on the iPhone in a task the system shows as a Live
     /// Activity, which goes on when the user leaves the app.
     public func readPhotosNow() {

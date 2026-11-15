@@ -46,6 +46,7 @@ public final class PhotoSearch {
     private let indexer: PhotoIndexer
     private var model: PhotoSearchModel?
     private var loading: Task<Void, Never>?
+    private var saving: AnyObject?
 
     init(store: LocalStore, account: Task<RustAccount, any Error>, directory: URL) {
         self.store = store
@@ -53,6 +54,12 @@ public final class PhotoSearch {
         indexer = PhotoIndexer(store: store, account: account, directory: directory, model: nil) { report.yield($0) }
         Task { [weak self] in
             for await progress in reports { self?.progress = progress }
+        }
+        // the battery or the data saved no more: the waiting photos are read (Settings shows the
+        // change either way).
+        saving = Saving.shared.changes.observe { [weak self] in
+            self?.changes.send()
+            self?.update()
         }
         if searchesByLook { loadModel() }
     }
@@ -78,10 +85,11 @@ public final class PhotoSearch {
         update()
     }
 
-    /// New photos came: a few of them are read now (all on the Mac).
+    /// New photos came: a few of them are read now (all on the Mac), unless the device saves its
+    /// battery or data; then they wait for the next time, or for it to charge.
     func update() {
         // while the model loads, the photos wait: they are read once, with it.
-        guard loading == nil else { return }
+        guard loading == nil, Saving.shared.reason == nil else { return }
         // below what the user does: the reading yields to the app.
         Task(priority: .utility) { [indexer] in await indexer.read(limit: Self.foregroundLimit) }
     }
@@ -95,8 +103,13 @@ public final class PhotoSearch {
     /// the system shows as a Live Activity and keeps going when the user leaves the app.
     public var onReadNow: (() -> Void)?
 
-    /// Reads every photo not read yet, now (the user asked).
+    /// Why photos cannot be read now: the device saves its battery or data. Nil when they can.
+    public var readNowBlocked: Saving.Reason? { Saving.shared.reason }
+
+    /// Reads every photo not read yet, now (the user asked), unless the device saves its battery
+    /// or data.
     public func readNow() {
+        guard readNowBlocked == nil else { return }
         if let onReadNow { onReadNow() } else { Task(priority: .utility) { await readAll() } }
     }
 

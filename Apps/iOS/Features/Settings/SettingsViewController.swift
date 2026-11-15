@@ -132,10 +132,12 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 let model = model
                 content.text = model.isReadingPhotos ? String(localized: "Stop Reading Photos")
                     : model.hasUnreadPhotos ? String(localized: "Read Photos Now") : String(localized: "All Photos Read")
-                content.textProperties.color = model.isReadingPhotos || model.hasUnreadPhotos ? .tintColor : .secondaryLabel
+                let blocked = model.isReadingPhotos ? nil : model.readPhotosBlocked
+                content.textProperties.color = (model.isReadingPhotos || model.hasUnreadPhotos) && blocked == nil
+                    ? .tintColor : .secondaryLabel
                 content.secondaryText = model.isReadingPhotos
                     ? String(localized: "Stopped, the reading goes on the next time Lux opens, or while the iPhone charges.")
-                    : String(localized: "Reads them now instead of while the iPhone charges; the Lock Screen shows how far it is.")
+                    : blocked ?? String(localized: "Reads them now instead of while the iPhone charges; the Lock Screen shows how far it is.")
                 content.secondaryTextProperties.color = .secondaryLabel
             case .signOut:
                 content = .cell()
@@ -199,7 +201,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             navigationController?.pushViewController(RecoveryKeyViewController(model: model), animated: true)
         case .readPhotos? where model.isReadingPhotos:
             Task { await model.stopReadingPhotos() }
-        case .readPhotos? where model.hasUnreadPhotos:
+        case .readPhotos? where model.hasUnreadPhotos && model.readPhotosBlocked == nil:
             model.readPhotosNow()
         case .signOut?:
             confirmSignOut(from: collectionView.cellForItem(at: indexPath))
