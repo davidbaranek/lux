@@ -26,6 +26,8 @@ enum ThemeMenu {
             entry.target = target
             entry.representedObject = Choice(place: place, theme: theme)
             entry.image = swatch(theme)
+            // macOS 27 hides menu images unless asked: the swatch is what the item means.
+            if #available(macOS 27, *) { entry.preferredImageVisibility = .visible }
             entry.state = current == theme ? .on : .off
             return entry
         }
