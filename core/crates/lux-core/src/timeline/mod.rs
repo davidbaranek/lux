@@ -334,6 +334,13 @@ pub enum ImageSource {
         /// The message.
         message: MessageId,
     },
+    /// A shared photo's thumbnail or video's poster, by its event, which the timeline may not hold.
+    Shared {
+        /// Its room.
+        room: RoomId,
+        /// The message's event.
+        event: EventId,
+    },
 }
 
 /// Who sees that the account read a chat.

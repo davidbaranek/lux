@@ -210,6 +210,14 @@ pub trait ChatMedia: Send + Sync {
         folder: &Path,
     ) -> impl Future<Output = Result<PathBuf, BackendError>> + Send;
 
+    /// The original of a shared photo, video or file, by its message's event.
+    fn shared_file(
+        &self,
+        room: &RoomId,
+        event: &EventId,
+        folder: &Path,
+    ) -> impl Future<Output = Result<PathBuf, BackendError>> + Send;
+
     /// The largest file the server takes, in bytes.
     fn max_upload_size(&self) -> impl Future<Output = Result<u64, BackendError>> + Send;
 }
