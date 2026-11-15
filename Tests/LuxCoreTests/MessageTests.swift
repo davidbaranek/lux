@@ -68,6 +68,17 @@ struct MessageLayoutTests {
         #expect(layout.postMore == nil)
     }
 
+    /// A post the bridge tells nothing of still shows a card, named by its address, so it can be
+    /// opened.
+    @Test func aSharedPostWithoutATitleIsNamedByItsAddress() {
+        var item = sharedReel(caption: "")
+        item.shared = .init(url: "https://www.instagram.com/p/Db58C19iErS/?igsh=abc")
+        #expect(item.postCard?.title == "instagram.com/p/Db58C19iErS")
+        #expect(item.postCard?.description == nil)
+        #expect(item.shared?.link?.host == "www.instagram.com")
+        #expect(!item.isMediaOnly)
+    }
+
     @Test func aLongCaptionFoldsToItsFirstLinesUntilUnfolded() {
         var reel = sharedReel(caption: String(repeating: "a", count: 200))
         let folded = MessageLayout.make(reel, showsSender: false, width: 400, metrics: BubbleMetrics(), measure: FixedMeasure())

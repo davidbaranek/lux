@@ -443,10 +443,14 @@ extension MessageItem {
     /// Only a photo or a video: drawn without a bubble round it.
     public var isMediaOnly: Bool { photo != nil && body.isEmpty && quote == nil && file == nil && postCard == nil }
 
-    /// A shared post with something to tell (its title or caption): a card; nil while the server
-    /// has not read its page, or when it has nothing to say.
+    /// A shared post's card: its title and caption, or, when neither is known (the server has not
+    /// read its page, or it tells nothing), its address, so the post can always be opened.
     public var postCard: SharedPost? {
-        shared.flatMap { $0.title != nil || $0.description != nil ? $0 : nil }
+        shared.map { post in
+            var card = post
+            if card.title == nil && card.description == nil { card.title = post.address }
+            return card
+        }
     }
 
     /// Under a folded caption, and under an unfolded one.

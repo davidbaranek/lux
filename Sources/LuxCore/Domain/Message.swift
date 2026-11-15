@@ -119,6 +119,18 @@ public struct MessageItem: Hashable, Sendable, Identifiable {
             self.title = title
             self.description = description
         }
+
+        /// The post's page, opened by a tap on its card (its title or caption).
+        public var link: URL? { URL(string: url) }
+
+        /// The address as a card names a post that tells nothing else: its site and path, without
+        /// `www.`, the query or a closing slash ("instagram.com/p/abc").
+        public var address: String {
+            guard let parts = URLComponents(string: url), let host = parts.host else { return url }
+            let site = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            let path = parts.path.hasSuffix("/") ? String(parts.path.dropLast()) : parts.path
+            return site + path
+        }
     }
 
     /// The message a reply answers: its sender (empty until known) and picture, and what it is

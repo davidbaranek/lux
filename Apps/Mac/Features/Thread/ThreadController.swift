@@ -303,6 +303,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
                 self?.unfolding = id
                 self?.model.togglePost(of: id)
             }
+            // a shared post's card (its title and caption) opens the post; its media opens as any.
+            cell.onPostOpen = self?.messages[id]?.shared?.link.map { post in { NSWorkspace.shared.open(post) } }
             cell.onMediaTap = self?.messages[id]?.hasMedia == true ? { [weak self, weak cell] index in
                 guard let self, let message = messages[id] else { return }
                 openMedia(message, at: index, from: cell?.mediaFrameOnScreen(at: index))
