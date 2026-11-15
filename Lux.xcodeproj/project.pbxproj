@@ -50,6 +50,7 @@
 		50F5F40E8F91A5F6C64854BD /* ChatStylePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE43DFD6C4B1FDD6D4D93D33 /* ChatStylePicker.swift */; };
 		5470DEAD78BA1CDEAFDBA5CF /* NSImage+Symbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861B6215E0535216006F41DA /* NSImage+Symbol.swift */; };
 		5F25ADA8CB7A06BAEC4A88A1 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */; };
+		6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */; };
 		657C45CA956C202D41ADF97C /* DevicesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D38CDE5B816C247508144E /* DevicesViewController.swift */; };
 		683DD25022320CAE2D32D91F /* ChatListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C63259781CAA212711C097 /* ChatListViewController.swift */; };
 		6948CB74315F9E166913736C /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */; };
@@ -174,6 +175,7 @@
 		05956B7632D91F0739F96D43 /* Lux-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lux-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		06C63259781CAA212711C097 /* ChatListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListViewController.swift; sourceTree = "<group>"; };
 		0AD2A43CC3D6B685EA440146 /* Lux-iOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lux-iOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceViewController.swift; sourceTree = "<group>"; };
 		0D98930FAB5212EFBE46E3F0 /* AppearanceSettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsController.swift; sourceTree = "<group>"; };
 		0EC71AE3DBF5977DA99DC7E8 /* NewConversationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationController.swift; sourceTree = "<group>"; };
 		1019436DD5B08FB56BEDB051 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -536,6 +538,7 @@
 		78EA7C8989F2A568ED88D97E /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */,
 				BE43DFD6C4B1FDD6D4D93D33 /* ChatStylePicker.swift */,
 				F7AE0A9E340C58E1A40417BD /* ProfileViewController.swift */,
 				802B0EF69ACCF714742C6517 /* RecoveryKeyViewController.swift */,
@@ -1040,6 +1043,7 @@
 			files = (
 				3A45E99BEAFBE536670D9162 /* AlbumView.swift in Sources */,
 				AB9DD50F903CEDC7BD2C38FB /* AppDelegate.swift in Sources */,
+				6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */,
 				3070AFA29798B0CD0AE87E10 /* AttachmentStrip.swift in Sources */,
 				E147D495AC39B7A968B095E8 /* AvatarView.swift in Sources */,
 				6B251BC0D10032002FAB5EE0 /* BackgroundRefresh.swift in Sources */,

@@ -1,17 +1,15 @@
 import LuxCore
 import UIKit
 
-/// Settings: the account, the places' colour and how chats look, encryption (the key backup), and signing out, as an
+/// Settings: the account, its networks, the appearance (`AppearanceViewController`), encryption (the key backup), and signing out, as an
 /// inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, session }
-    private enum Item: Hashable { case profile, networks, theme, chatStyle, verify, devices, recovery, readReceipts, searchIndex, signOut }
+    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, signOut }
 
     private let model: SettingsModel
     private let session: Session
     private let list: ChatListModel
-    /// The places' colour as chosen here: the list has it a moment later.
-    private lazy var theme = list.defaultTheme
     private let signOut: () -> Void
     private var observation: AnyObject?
     /// The account's picture as the profile row shows it, round; nil while it loads or without one.
@@ -61,11 +59,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.secondaryText = networksSummary
                 content.image = UIImage(systemName: "point.3.connected.trianglepath.dotted")
                 cell.accessories = [.disclosureIndicator()]
-            case .theme:
-                content.text = String(localized: "Colour")
-                content.secondaryText = String(localized: "For places without their own")
+            case .appearance:
+                content.text = String(localized: "Appearance")
+                content.secondaryText = model.chatStyle.title
                 content.image = UIImage(systemName: "paintpalette")
-                cell.accessories = [.customView(configuration: .init(customView: themeButton(), placement: .trailing()))]
+                cell.accessories = [.disclosureIndicator()]
             case .verify:
                 content.text = String(localized: "Verify This Device")
                 content.secondaryText = switch model.isVerified {
@@ -99,8 +97,6 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.text = String(localized: "Search Index")
                 content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
-            case .chatStyle:
-                break
             case .signOut:
                 content = .cell()
                 content.text = String(localized: "Sign Out")
@@ -108,32 +104,14 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             }
             cell.contentConfiguration = content
         }
-        // bubbles or plain rows, each drawn.
-        let styleCell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { [weak self] cell, _, _ in
-            guard let self else { return }
-            cell.contentView.subviews.forEach { $0.removeFromSuperview() }
-            let picker = ChatStylePicker(style: model.chatStyle)
-            picker.onChoose = { [weak self] style in self?.model.chatStyle = style }
-            picker.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(picker)
-            let margins = cell.contentView.layoutMarginsGuide
-            NSLayoutConstraint.activate([
-                picker.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
-                picker.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
-                picker.topAnchor.constraint(equalTo: margins.topAnchor, constant: 4),
-                picker.bottomAnchor.constraint(equalTo: margins.bottomAnchor, constant: -4),
-            ])
-            cell.accessibilityElements = [picker]
-        }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
-            item == .chatStyle ? collectionView.dequeueConfiguredReusableCell(using: styleCell, for: indexPath, item: item)
-                : collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
+            collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
         }
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
         snapshot.appendSections(Section.allCases)
         snapshot.appendItems([.profile], toSection: .account)
         snapshot.appendItems([.networks], toSection: .networks)
-        snapshot.appendItems([.theme, .chatStyle], toSection: .appearance)
+        snapshot.appendItems([.appearance], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
         snapshot.appendItems([.signOut], toSection: .session)
@@ -143,7 +121,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex])
+            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery, .searchIndex])
             dataSource.apply(snapshot)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in
@@ -156,11 +134,6 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         Task { await model.load() }
     }
 
-    /// The style picker's tiles take the taps; its row is not selected as a whole.
-    func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
-        dataSource.itemIdentifier(for: indexPath) != .chatStyle
-    }
-
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         switch dataSource.itemIdentifier(for: indexPath) {
@@ -170,6 +143,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         case .networks?:
             guard let networks = session.networks else { return }
             navigationController?.pushViewController(NetworksViewController(model: networks, mode: .settings), animated: true)
+        case .appearance?:
+            navigationController?.pushViewController(AppearanceViewController(model: model, list: list), animated: true)
         case .verify?:
             let verification = VerificationViewController(model: VerificationModel(session: session)) { [weak self] in
                 Task { await self?.model.load() }
@@ -205,26 +180,6 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             snapshot.reconfigureItems([.profile])
             await dataSource.apply(snapshot)
         }
-    }
-
-    /// The colour of the places without their own, as a pop-up button of the colours.
-    private func themeButton() -> UIButton {
-        var configuration = UIButton.Configuration.plain()
-        configuration.title = theme.title
-        configuration.image = ThemeMenu.swatch(theme)
-        configuration.imagePadding = 6
-        configuration.indicator = .popup
-        let button = UIButton(configuration: configuration)
-        button.menu = ThemeMenu.menu(current: theme) { [weak self] theme in
-            guard let self, let theme else { return }
-            self.theme = theme
-            list.setDefaultTheme(theme)
-            var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.theme])
-            dataSource.apply(snapshot)
-        }
-        button.showsMenuAsPrimaryAction = true
-        return button
     }
 
     /// How many networks are connected, or why there are none.
