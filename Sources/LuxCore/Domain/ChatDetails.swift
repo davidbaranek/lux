@@ -131,3 +131,12 @@ public struct SharedItem: Sendable, Hashable, Identifiable {
         }
     }
 }
+
+extension URL {
+    /// A web address as a list shows it: without its scheme or a trailing slash
+    /// ("example.org/plan").
+    public var shownAddress: String {
+        let path = path(percentEncoded: false)
+        return (host() ?? absoluteString) + (path == "/" ? "" : path)
+    }
+}
