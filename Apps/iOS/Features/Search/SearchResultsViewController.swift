@@ -2,7 +2,7 @@ import LuxCore
 import UIKit
 
 /// What a search found: "Conversations", "Photos" (a grid of thumbnails), then "Messages", in
-/// the chat list's own row.
+/// the chat list's own row; a switch on top shows all of them, the text ones, or the photos.
 final class SearchResultsViewController: UIViewController, UICollectionViewDelegate {
     enum Section: Int { case chats, photos, messages }
 
@@ -16,6 +16,11 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
     /// While the index is still reading chats, one small line over the results: they are what it
     /// has so far. (The search field is at the bottom, so the line is at the top.)
     private let status = UILabel()
+    /// All, Text, Images: which results show.
+    private let scopes = UISegmentedControl(items: SearchScope.allCases.map(\.title))
+    private var scope = SearchScope.all
+    /// What the search found, all of it: the scope shows part.
+    private var hits = SearchHits()
     private var progress: SearchIndexer.Progress?
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, String>!
@@ -53,10 +58,21 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         status.isHidden = true
         status.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(status)
+        scopes.selectedSegmentIndex = scope.rawValue
+        scopes.addAction(UIAction { [weak self] _ in
+            guard let self, let scope = SearchScope(rawValue: scopes.selectedSegmentIndex) else { return }
+            self.scope = scope
+            render()
+        }, for: .valueChanged)
+        scopes.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scopes)
         NSLayoutConstraint.activate([
+            scopes.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            scopes.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            scopes.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
             status.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
             status.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
-            status.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 2),
+            status.topAnchor.constraint(equalTo: scopes.bottomAnchor, constant: 4),
         ])
 
         let images = images
@@ -90,7 +106,14 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
     }
 
     func show(_ hits: SearchHits) {
+        self.hits = hits
+        render()
+    }
+
+    /// The hits the scope shows.
+    private func render() {
         guard isViewLoaded else { return }
+        let hits = hits.scoped(scope)
         let found = hits.messages.map(\.row)
         rows = Dictionary((hits.chats + found).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         chats = Dictionary(hits.messages.map { ($0.id, $0.chat) }, uniquingKeysWith: { first, _ in first })
@@ -115,7 +138,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         dataSource.applySnapshotUsingReloadData(snapshot)
     }
 
-    /// The index's note while it is not complete; nothing once it is. The results start under it.
+    /// The index's note while it is not complete; nothing once it is.
     func showProgress(_ progress: SearchIndexer.Progress?) {
         // kept for when the results first show: the index may report before search opens.
         self.progress = progress
@@ -123,7 +146,18 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         let note = progress?.note
         status.text = note
         status.isHidden = note == nil
-        let top: CGFloat = note == nil ? 0 : status.intrinsicContentSize.height + 4
+        updateInset()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateInset()
+    }
+
+    /// The results start under the switch, and under the index's note while it shows.
+    private func updateInset() {
+        let note: CGFloat = status.isHidden ? 0 : status.intrinsicContentSize.height + 4
+        let top = scopes.intrinsicContentSize.height + 12 + note
         if collectionView.contentInset.top != top { collectionView.contentInset.top = top }
     }
 

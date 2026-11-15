@@ -11,6 +11,31 @@ public struct SearchHits: Sendable, Equatable {
     }
 }
 
+/// Which results a search shows: all of them, the text ones (chats by name and messages), or
+/// the photos.
+public enum SearchScope: Int, CaseIterable, Sendable {
+    case all, text, images
+
+    public var title: String {
+        switch self {
+        case .all: String(localized: "All")
+        case .text: String(localized: "Text")
+        case .images: String(localized: "Images")
+        }
+    }
+}
+
+extension SearchHits {
+    /// The hits the scope shows.
+    public func scoped(_ scope: SearchScope) -> SearchHits {
+        switch scope {
+        case .all: self
+        case .text: SearchHits(chats: chats, messages: messages)
+        case .images: SearchHits(photos: photos)
+        }
+    }
+}
+
 /// A photo a search found, with its chat and why.
 public struct FoundPhoto: Sendable, Hashable, Identifiable {
     /// Its event's id.

@@ -2,7 +2,7 @@ import AppKit
 import LuxCore
 
 /// What a search found, under "Conversations", "Photos" (a grid of thumbnails) and "Messages", in
-/// the chat list's own row view.
+/// the chat list's own row view; a switch on top shows all of them, the text ones, or the photos.
 final class SearchResultsController: NSViewController, NSTableViewDelegate {
     enum Section: Int { case chats, photos, messages }
 
@@ -22,6 +22,12 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     private static let photoGrid = "photo-grid"
     /// While the index is still reading chats, one small line under the results.
     private let status = NSTextField(labelWithString: "")
+    /// All, Text, Images: which results show.
+    private lazy var scopes = NSSegmentedControl(labels: SearchScope.allCases.map(\.title), trackingMode: .selectOne,
+                                                 target: self, action: #selector(scopeChanged))
+    private var scope = SearchScope.all
+    /// What the search found, all of it: the scope shows part.
+    private var hits = SearchHits()
     private let scroll = NSScrollView()
     private var progress: SearchIndexer.Progress?
     private lazy var scrollAboveStatus = scroll.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -6)
@@ -49,14 +55,20 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
         status.lineBreakMode = .byTruncatingTail
         status.isHidden = true
         let container = NSView()
-        for view in [scroll, status] as [NSView] {
+        scopes.selectedSegment = scope.rawValue
+        scopes.segmentDistribution = .fillEqually
+        scopes.controlSize = .small
+        for view in [scopes, scroll, status] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: container.topAnchor),
+            scopes.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            scopes.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            scopes.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
+            scroll.topAnchor.constraint(equalTo: scopes.bottomAnchor, constant: 6),
             status.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             status.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
             status.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
@@ -110,6 +122,19 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate {
     }
 
     func show(_ hits: SearchHits) {
+        self.hits = hits
+        render()
+    }
+
+    @objc private func scopeChanged() {
+        guard let scope = SearchScope(rawValue: scopes.selectedSegment) else { return }
+        self.scope = scope
+        render()
+    }
+
+    /// The hits the scope shows.
+    private func render() {
+        let hits = hits.scoped(scope)
         let found = hits.messages.map(\.row)
         photos = hits.photos
         rows = Dictionary((hits.chats + found).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

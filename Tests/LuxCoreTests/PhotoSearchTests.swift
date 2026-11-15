@@ -89,3 +89,13 @@ private func receipt(_ lines: [String]) throws -> URL {
         #expect(try await store.imagesToRead(by: PhotoReader(model: nil).name, limit: 10).isEmpty)
     }
 }
+
+@Test func theScopeShowsAllTheTextOnesOrThePhotos() {
+    let chat = ChatRow(id: "!a", name: "Anna", preview: "", date: nil, unreadCount: 0)
+    let message = FoundItem(id: "$m", chat: chat, senderName: "Anna", body: "pláž", date: .now, isOwn: false)
+    let photo = FoundPhoto(id: "$p", roomId: "!a", chat: chat, senderName: "Anna", date: .now, isOwn: false, reason: .looks)
+    let hits = SearchHits(chats: [chat], messages: [message], photos: [photo])
+    #expect(hits.scoped(.all) == hits)
+    #expect(hits.scoped(.text) == SearchHits(chats: [chat], messages: [message]))
+    #expect(hits.scoped(.images) == SearchHits(photos: [photo]))
+}
