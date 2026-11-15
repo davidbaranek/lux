@@ -83,6 +83,8 @@ pub enum SharedContent {
     Photo {
         /// What shows.
         picture: SharedPicture,
+        /// The words sent with it; empty when none.
+        caption: String,
     },
     /// A video, by its poster.
     Video {
@@ -90,6 +92,8 @@ pub enum SharedContent {
         poster: Option<SharedPicture>,
         /// Its length, when the sender said.
         duration: Option<Duration>,
+        /// The words sent with it; empty when none.
+        caption: String,
     },
     /// A file or a sound.
     File {

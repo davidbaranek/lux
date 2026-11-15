@@ -14,6 +14,11 @@ public enum ImageRef: Hashable, Sendable {
     /// timeline may not hold.
     case shared(roomId: String, eventId: String, name: String)
 
+    /// A photo search found, by its event.
+    static func foundPhoto(roomId: String, eventId: String) -> ImageRef {
+        .shared(roomId: roomId, eventId: eventId, name: "photo-" + String(eventId.unicodeScalars.filter(CharacterSet.alphanumerics.contains)))
+    }
+
     var key: String {
         switch self {
         case .room(let id, let version): "r|\(id)|\(version)"

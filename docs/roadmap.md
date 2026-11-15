@@ -78,6 +78,8 @@ What is done, and what comes next in order. How things work lives in
 - [ ] Invite, and a member's own card (message them, their role)
 - [ ] Disappearing messages
 - [x] Shared media, files and links, read back from the server across a merged chat's rooms
+- [x] Search in them: a file's name, a link's address or text, a photo's caption, and photos by
+      the words in them and their look (photo search's index)
 - [ ] Spaces: create one, add chats
 - [ ] Settings: appearance, notifications, sign out other sessions
 

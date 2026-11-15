@@ -2,7 +2,7 @@
 //! SDK, so an encrypted room's too: a server cannot filter those by their content), and the
 //! media of one such message, which the live timeline may not hold.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use lux_core::ids::{EventId, RoomId};
 use lux_core::message;
@@ -66,20 +66,30 @@ pub(crate) async fn page(room: &Room, from: Option<&str>) -> Result<SharedPage, 
     Ok(SharedPage { items, next })
 }
 
-/// What a message shares: its photo, video or file, and each web address in its text.
+/// What a message shares: its photo, video or file, and each web address in its text, once
+/// (a bridged post's text holds its address twice, as the link and as the caption).
 fn shared(message: &MessageType) -> Vec<SharedContent> {
     let shown = message_shown(message);
     let mut shared: Vec<SharedContent> = match shown.media {
-        Some(Media::Photo { picture, .. }) => vec![SharedContent::Photo { picture }],
-        Some(Media::Video { poster, duration }) => vec![SharedContent::Video { poster, duration }],
+        Some(Media::Photo { picture, .. }) => vec![SharedContent::Photo {
+            picture,
+            caption: shown.body.clone(),
+        }],
+        Some(Media::Video { poster, duration }) => vec![SharedContent::Video {
+            poster,
+            duration,
+            caption: shown.body.clone(),
+        }],
         Some(Media::File {
             name, size, mimetype, ..
         }) => vec![SharedContent::File { name, size, mimetype }],
         None => Vec::new(),
     };
+    let mut seen = HashSet::new();
     shared.extend(
         message::links(&shown.body, &shown.styles)
             .into_iter()
+            .filter(|link| seen.insert(link.url.clone()))
             .map(|link| SharedContent::Link {
                 url: link.url,
                 text: shown.body.clone(),
@@ -106,6 +116,13 @@ mod tests {
     use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
 
     use super::*;
+
+    #[test]
+    fn a_message_shares_an_address_once_however_often_its_text_holds_it() {
+        let url = "https://www.instagram.com/p/abc/";
+        let text = RoomMessageEventContent::text_plain(format!("{url}\n\n{url}"));
+        assert_eq!(shared(&text.msgtype).len(), 1);
+    }
 
     #[test]
     fn a_text_shares_each_of_its_links_and_a_plain_text_nothing() {

@@ -13,13 +13,14 @@ extension RustAccount {
         MemberList(try await worded { try await account.roomMembers(roomId: roomId) })
     }
 
-    func sharedHistory(chatId: String, kind: SharedKind) async throws -> SharedHistory {
+    /// What the chat shared, of `kind`; with a `query`, only what holds its words.
+    func sharedHistory(chatId: String, kind: SharedKind, query: String? = nil) async throws -> SharedHistory {
         let kind: CoreSharedKind = switch kind {
         case .media: .media
         case .files: .files
         case .links: .links
         }
-        return SharedHistory(try await worded { try await account.sharedHistory(chatId: chatId, kind: kind) })
+        return SharedHistory(try await worded { try await account.sharedHistory(chatId: chatId, kind: kind, query: query) })
     }
 
     func setNotifications(chatId: String, _ setting: NotificationSetting) async throws {

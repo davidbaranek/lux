@@ -75,6 +75,28 @@ struct ChatDetailsTests {
         #expect(!links.items.isEmpty)
     }
 
+    @Test func aSearchKeepsWhatHoldsItsWordsAndClearingItShowsAllAgain() async throws {
+        let details = session.details(of: row("!room1:demo"))
+        let files = details.shared(.files)
+        await files.loadMore()
+        let all = files.items.count
+        #expect(all > 1)
+        guard case .file(let name, _, _) = files.items.last?.content else { throw CancellationError() }
+        // its name's words, in any case and without its accents.
+        await files.search(name.uppercased().replacingOccurrences(of: ".PDF", with: ""))
+        #expect(!files.items.isEmpty && files.items.count < all)
+        #expect(files.items.allSatisfy { if case .file(let found, _, _) = $0.content { found == name } else { false } })
+        await files.search("nothing shared by this name")
+        #expect(files.isComplete && files.items.isEmpty)
+        await files.search("")
+        #expect(files.items.count == all)
+
+        let links = details.shared(.links)
+        await links.search("page2")
+        #expect(!links.items.isEmpty)
+        #expect(links.items.allSatisfy { if case .link(let url, let text) = $0.content { (url.absoluteString + text).contains("page2") } else { false } })
+    }
+
     @Test func aChatKeepsItsOwnMessageStyleOverTheAppsAndNamesTheAppsInItsChoices() {
         let details = session.details(of: row("!room3:demo", isGroup: true))
         defer { details.chatStyleOverride = nil }

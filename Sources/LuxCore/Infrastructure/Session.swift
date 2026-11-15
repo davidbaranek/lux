@@ -80,7 +80,7 @@ public final class Session {
     /// A chat's details screen, of a chat in `list`: it tells which place keeps the chat out of
     /// the inbox.
     public func details(of row: ChatRow, in list: ChatListModel? = nil) -> ChatDetailsModel {
-        ChatDetailsModel(account: account, row: row, list: list, originals: originalsDirectory)
+        ChatDetailsModel(account: account, row: row, list: list, originals: originalsDirectory) { [weak self] in self?.search?.photos }
     }
 
     /// The chat that shows a room (its own, or the merged chat it is in); nil when the list has

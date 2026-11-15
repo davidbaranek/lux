@@ -125,14 +125,23 @@ public final class PhotoSearch {
         await indexer.stop()
     }
 
-    /// The photos that match `text`, the best first.
-    func search(_ text: String) async -> [ImageHit] {
+    /// The photos that match `text`, the best first; `roomIds` keeps those rooms' (a chat's
+    /// details), each room's best first.
+    func search(_ text: String, in roomIds: [String]? = nil) async -> [ImageHit] {
         let model = self.model
         var embedding: [Float]?
         do { embedding = try await model?.embedding(of: text) } catch {
             Log.app.error("photo search: the words' embedding: \(String(describing: error), privacy: .public)")
         }
-        return (try? await store.searchImages(text, embedding: embedding, minSimilarity: model?.minSimilarity ?? 1)) ?? []
+        let minSimilarity = model?.minSimilarity ?? 1
+        guard let roomIds else {
+            return (try? await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity)) ?? []
+        }
+        var hits: [ImageHit] = []
+        for roomId in roomIds {
+            hits += (try? await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity, in: roomId, limit: 120)) ?? []
+        }
+        return hits
     }
 
     /// Gets the model (downloading it the first time), then reads the photos with it; when it

@@ -17,12 +17,17 @@ public final class ChatDetailsModel {
     private let originals: URL
     /// The list the chat was opened from: it knows the places' inbox rules.
     private weak var list: ChatListModel?
+    /// Photo search, once the account's index has opened: what the chat shared is found by the
+    /// words in its photos and how they look too.
+    private let photos: @MainActor () -> PhotoSearch?
 
-    init(account: Task<RustAccount, any Error>, row: ChatRow, list: ChatListModel?, originals: URL) {
+    init(account: Task<RustAccount, any Error>, row: ChatRow, list: ChatListModel?, originals: URL,
+         photos: @escaping @MainActor () -> PhotoSearch? = { nil }) {
         self.account = account
         self.row = row
         self.list = list
         self.originals = originals
+        self.photos = photos
     }
 
     /// The room a single-room chat is; a merged chat's first. Its name, topic and picture are
@@ -155,7 +160,7 @@ public final class ChatDetailsModel {
 
     /// What it shared, of `kind`.
     public func shared(_ kind: SharedKind) -> SharedModel {
-        SharedModel(account: account, chatId: row.id, kind: kind, originals: originals)
+        SharedModel(account: account, chatId: row.id, kind: kind, originals: originals, photos: photos)
     }
 }
 
@@ -202,63 +207,5 @@ public final class MembersModel {
         guard let list else { return }
         found = list.find(query, limit: Self.shown)
         changes.send()
-    }
-}
-
-/// What a chat shared, of one kind, read back the newest first as the user scrolls.
-@MainActor
-public final class SharedModel {
-    public let kind: SharedKind
-    public private(set) var items: [SharedItem] = []
-    public private(set) var isLoading = false
-    /// Everything was read, back to the chat's start.
-    public private(set) var isComplete = false
-    public private(set) var failure: AccountFailure?
-    public let changes = Broadcast()
-
-    /// How many a page asks for.
-    private static let page = 60
-
-    private let account: Task<RustAccount, any Error>
-    private let chatId: String
-    private let originals: URL
-    private var history: SharedHistory?
-
-    init(account: Task<RustAccount, any Error>, chatId: String, kind: SharedKind, originals: URL) {
-        self.account = account
-        self.chatId = chatId
-        self.kind = kind
-        self.originals = originals
-    }
-
-    /// Reads the next page, unless one is on its way or all were read.
-    public func loadMore() async {
-        guard !isLoading, !isComplete else { return }
-        isLoading = true
-        failure = nil
-        changes.send()
-        defer {
-            isLoading = false
-            changes.send()
-        }
-        do {
-            let history: SharedHistory
-            if let opened = self.history {
-                history = opened
-            } else {
-                history = try await account.value.sharedHistory(chatId: chatId, kind: kind)
-                self.history = history
-            }
-            let known = Set(items.map(\.id))
-            items += try await history.next(Self.page).filter { !known.contains($0.id) }
-            isComplete = await history.isAtStart()
-        } catch {
-            failure = error as? AccountFailure ?? .connectionFailed
-        }
-    }
-
-    /// A photo's, video's or file's original on this device, to open.
-    public func file(of item: SharedItem) async throws -> URL {
-        try await account.value.sharedFile(item, directory: originals)
     }
 }
