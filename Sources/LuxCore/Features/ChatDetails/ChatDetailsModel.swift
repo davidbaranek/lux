@@ -1,8 +1,8 @@
 import Foundation
 
 /// A chat's details screen: its rooms' state (name, topic, picture, networks, encryption), its
-/// notification setting, and what the user changes there. Its members and what it shared have
-/// their own models, made here.
+/// notification setting, whether it is of low priority, and what the user changes there. Its
+/// members and what it shared have their own models, made here.
 @MainActor
 public final class ChatDetailsModel {
     /// The chat as the list shows it; renamed and repictured as the details change.
@@ -15,13 +15,17 @@ public final class ChatDetailsModel {
 
     private let account: Task<RustAccount, any Error>
     private let originals: URL
+    /// The list the chat was opened from: it knows the places' inbox rules.
+    private weak var list: ChatListModel?
     /// Photo search, once the account's index has opened: what the chat shared is found by the
     /// words in its photos and how they look too.
     private let photos: @MainActor () -> PhotoSearch?
 
-    init(account: Task<RustAccount, any Error>, row: ChatRow, originals: URL, photos: @escaping @MainActor () -> PhotoSearch? = { nil }) {
+    init(account: Task<RustAccount, any Error>, row: ChatRow, list: ChatListModel?, originals: URL,
+         photos: @escaping @MainActor () -> PhotoSearch? = { nil }) {
         self.account = account
         self.row = row
+        self.list = list
         self.originals = originals
         self.photos = photos
     }
@@ -80,9 +84,27 @@ public final class ChatDetailsModel {
             + [(String(localized: "As in Settings (\(Preferences.shared.chatStyle.title))"), nil)]
     }
 
+    /// Of low priority by its own choice (`m.lowPriority`): out of the inbox, in its places still.
+    public var isLowPriority: Bool { row.folder == .lowPriority }
+
+    /// Why the chat is in low priority though not by its own choice: the rule of the network or
+    /// space that keeps it out of the inbox; nil when none does.
+    public var keptOutNote: String? {
+        guard !isLowPriority, let place = list?.keepingOut(row.id), let rule = place.inbox else { return nil }
+        return rule.keepsOut(by: place.title)
+    }
+
+    /// Puts the chat in low priority, or back in the inbox.
+    public func setLowPriority(_ lowPriority: Bool) async throws {
+        try await save(reload: false) { try await $0.change(chatId: self.row.id, lowPriority ? .lowPriority : .inbox) }
+        row.folder = lowPriority ? .lowPriority : .inbox
+        changes.send()
+    }
+
     public func setNotifications(_ setting: NotificationSetting) async throws {
         try await save { try await $0.setNotifications(chatId: self.row.id, setting) }
-        row.isMuted = setting == .off || setting == .mentions
+        row.isMuted = setting.isQuiet
+        row.notifications = setting
     }
 
     /// Marks it read (or unread) on the server, as the chat's menu does.

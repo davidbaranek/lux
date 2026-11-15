@@ -317,7 +317,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             guard let collectionView = self?.collectionView else { return }
             ScrollBenchmark(collectionView, name: "chat list", direction: 1).run { [weak self] in
                 guard let self, let row = rows.first(where: \.isGroup) else { return }
-                navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme), animated: false)
+                navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme, list: model), animated: false)
             }
         }
     }
@@ -360,14 +360,14 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             }
         }
         let main = changes.filter { !$0.isDestructive }.map(action)
-        return UIMenu(children: [UIMenu(options: .displayInline, children: main), remindMenu(for: row), labelsMenu(for: row), inboxMenu(for: row),
+        return UIMenu(children: [UIMenu(options: .displayInline, children: main), remindMenu(for: row), labelsMenu(for: row), notificationsMenu(for: row),
                                  mergeMenu(for: row), UIMenu(options: .displayInline, children: changes.filter(\.isDestructive).map(action))])
     }
 
-    /// Whether the inbox shows the chat: as its places say, or by a rule of its own.
-    private func inboxMenu(for row: ChatRow) -> UIMenu {
-        InboxMenu.chat(current: model.chatInbox[row.id], isGroup: row.isGroup) { [weak self] rule in
-            self?.model.setChatInbox(row.id, rule)
+    /// When the chat's messages notify, as its details say.
+    private func notificationsMenu(for row: ChatRow) -> UIMenu {
+        NotificationMenu.menu(current: row.notifications) { [weak self] setting in
+            self?.model.setNotifications(row.id, setting)
         }
     }
 
@@ -503,7 +503,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     private func open(_ row: ChatRow, focusEvent: String? = nil, thread: MatrixThread? = nil) {
-        let chat = ThreadViewController(session: session, row: row, theme: model.theme, focusEvent: focusEvent)
+        let chat = ThreadViewController(session: session, row: row, theme: model.theme, list: model, focusEvent: focusEvent)
         navigationController?.pushViewController(chat, animated: thread == nil)
         // a thread over its chat: back goes to the chat.
         if let thread { chat.openThread(thread) }
@@ -604,7 +604,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             Task {
                 guard let id = try? await self.model.createRoom(name: name) else { return }
                 let row = ChatRow(id: id, name: name, preview: "", date: nil)
-                self.navigationController?.pushViewController(ThreadViewController(session: self.session, row: row, theme: self.model.theme), animated: true)
+                self.navigationController?.pushViewController(ThreadViewController(session: self.session, row: row, theme: self.model.theme, list: self.model), animated: true)
             }
         })
         present(alert, animated: true)

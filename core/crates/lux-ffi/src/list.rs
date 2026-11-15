@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, CoreChat, CoreRequest, list_diff, with_account};
 use crate::chat::{CoreLabel, CoreSavedMessage, CoreScheduledMessage};
+use crate::details::CoreNotificationMode;
 use crate::organizing::CoreChatChange;
 use crate::places::{
     CoreChatFilter, CoreChatOrder, CoreInboxRule, CoreListedPlace, CorePlace, CoreSectionId, CoreSectionStyle,
@@ -175,8 +176,9 @@ pub struct CoreListUpdate {
     pub reminders: Option<Vec<CoreDueReminder>>,
     /// How far the list is loaded, when that changed.
     pub loading: Option<CoreLoading>,
-    /// The chats (by id) that follow an inbox rule of their own, when they changed.
-    pub chat_inbox: Option<HashMap<String, CoreInboxRule>>,
+    /// The chats (by id) a place's rule keeps out of the inbox, into low priority, with that
+    /// place, when they changed.
+    pub kept_out: Option<HashMap<String, CorePlace>>,
 }
 
 impl From<ListUpdate> for CoreListUpdate {
@@ -212,9 +214,9 @@ impl From<ListUpdate> for CoreListUpdate {
                 .reminders
                 .map(|reminders| reminders.into_iter().map(CoreDueReminder::from).collect()),
             loading: update.loading.map(CoreLoading::from),
-            chat_inbox: update.chat_inbox.map(|rules| {
-                (rules.into_iter())
-                    .map(|(chat, rule)| (chat.to_string(), rule.into()))
+            kept_out: update.kept_out.map(|kept| {
+                (kept.into_iter())
+                    .map(|(chat, place)| (chat.to_string(), place.into()))
                     .collect()
             }),
         }
@@ -458,14 +460,20 @@ impl CoreChatList {
         self.list.set_default_theme(theme.into());
     }
 
-    /// Says how much of a network's or a space's chats the inbox shows.
+    /// Says how much of a network's or a space's chats the inbox shows; what it keeps out is of
+    /// low priority.
     pub fn set_inbox(&self, place: CorePlace, rule: CoreInboxRule) {
         self.list.set_inbox(place.into(), rule.into());
     }
 
-    /// Gives a chat an inbox rule of its own, or (`None`) has it follow its places' again.
-    pub fn set_chat_inbox(&self, chat: String, rule: Option<CoreInboxRule>) {
-        self.list.set_chat_inbox(ChatId::from(chat), rule.map(Into::into));
+    /// Sets when a chat's messages notify.
+    pub fn set_notifications(&self, chat: String, mode: CoreNotificationMode) {
+        self.list.set_notifications(ChatId::from(chat), mode.into());
+    }
+
+    /// Sets when each chat of a network or a space notifies, those it has now.
+    pub fn set_place_notifications(&self, place: CorePlace, mode: CoreNotificationMode) {
+        self.list.set_place_notifications(place.into(), mode.into());
     }
 }
 

@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use eyeball_im::Vector;
 
-use lux_core::chat::{Chat, ChatRoom, Folder};
+use lux_core::chat::{Chat, ChatRoom, Folder, NotificationMode};
 use lux_core::ids::{ChatId, MediaId, RoomId};
 use lux_core::network::Network;
 use lux_core::preview::{Author, Membership, Preview, PreviewKind};
@@ -86,6 +86,9 @@ struct KeptChat {
     unread_mentions: u32,
     is_marked_unread: bool,
     is_muted: bool,
+    /// Kept since notifications came to the list: the room list reads them again.
+    #[serde(default)]
+    notifications: Option<KeptNotifications>,
     network: String,
     avatar: Option<String>,
     member_avatars: Vec<String>,
@@ -212,6 +215,36 @@ impl From<KeptPreview> for Preview {
     }
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum KeptNotifications {
+    Default,
+    All,
+    Mentions,
+    Off,
+}
+
+impl From<NotificationMode> for KeptNotifications {
+    fn from(mode: NotificationMode) -> Self {
+        match mode {
+            NotificationMode::Default => Self::Default,
+            NotificationMode::All => Self::All,
+            NotificationMode::Mentions => Self::Mentions,
+            NotificationMode::Off => Self::Off,
+        }
+    }
+}
+
+impl From<KeptNotifications> for NotificationMode {
+    fn from(mode: KeptNotifications) -> Self {
+        match mode {
+            KeptNotifications::Default => Self::Default,
+            KeptNotifications::All => Self::All,
+            KeptNotifications::Mentions => Self::Mentions,
+            KeptNotifications::Off => Self::Off,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 enum KeptFolder {
     Inbox,
@@ -230,6 +263,7 @@ impl From<&Chat> for KeptChat {
             unread_mentions: chat.unread_mentions,
             is_marked_unread: chat.is_marked_unread,
             is_muted: chat.is_muted,
+            notifications: chat.notifications.map(KeptNotifications::from),
             network: chat.network.as_str().to_owned(),
             avatar: chat.avatar.as_ref().map(ToString::to_string),
             member_avatars: chat.member_avatars.iter().map(ToString::to_string).collect(),
@@ -262,6 +296,7 @@ impl From<KeptChat> for Chat {
             unread_mentions: kept.unread_mentions,
             is_marked_unread: kept.is_marked_unread,
             is_muted: kept.is_muted,
+            notifications: kept.notifications.map(NotificationMode::from),
             network: Network::from_id(&kept.network),
             avatar: kept.avatar.map(MediaId::from),
             member_avatars: kept.member_avatars.into_iter().map(MediaId::from).collect(),
@@ -308,6 +343,7 @@ mod tests {
             unread_mentions: 1,
             is_marked_unread: false,
             is_muted: true,
+            notifications: Some(lux_core::chat::NotificationMode::Off),
             network: Network::WhatsApp,
             avatar: Some("mxc://example.org/a".into()),
             member_avatars: Vec::new(),

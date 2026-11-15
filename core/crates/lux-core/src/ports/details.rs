@@ -10,19 +10,7 @@ use crate::timeline::{Participant, Picture as SharedPicture, ThreadSummary};
 
 use super::{BackendError, Picture};
 
-/// When a room's messages notify the user.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum NotificationMode {
-    /// As the account's settings say for a chat of its kind.
-    #[default]
-    Default,
-    /// Every message.
-    All,
-    /// Only mentions of the account and its keywords.
-    Mentions,
-    /// Nothing (a mention still shows in the list).
-    Off,
-}
+pub use crate::chat::NotificationMode;
 
 /// A room as its details show it.
 #[derive(Clone, Debug, PartialEq, Eq)]

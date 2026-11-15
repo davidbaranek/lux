@@ -24,7 +24,19 @@ struct ChatDetailsTests {
         #expect(details.row.name == "The Nováks")
         try await details.setNotifications(.mentions)
         #expect(details.info?.notifications == .mentions)
-        #expect(details.row.isMuted)
+        #expect(details.row.isMuted && details.row.notifications == .mentions)
+    }
+
+    @Test func aChatGoesToLowPriorityAndBack() async throws {
+        let details = session.details(of: row("!room1:demo"))
+        try await details.load()
+        #expect(!details.isLowPriority)
+        // opened with no list: no place's rule to tell of.
+        #expect(details.keptOutNote == nil)
+        try await details.setLowPriority(true)
+        #expect(details.isLowPriority && details.row.folder == .lowPriority)
+        try await details.setLowPriority(false)
+        #expect(details.row.folder == .inbox)
     }
 
     @Test func aGroupOthersRunCannotBeRenamed() async throws {

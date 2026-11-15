@@ -143,11 +143,8 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
         // some unread groups mention the user.
         unread_mentions: u32::from(is_group && unread_count > 0 && index.is_multiple_of(3)),
         is_marked_unread,
-        is_muted: match changed.notifications {
-            Some(NotificationMode::Off | NotificationMode::Mentions) => true,
-            Some(NotificationMode::All | NotificationMode::Default) => false,
-            None => changed.muted.unwrap_or(index % 17 == 16),
-        },
+        is_muted: notifications(index, changed).is_quiet(),
+        notifications: Some(notifications(index, changed)),
         network: NETWORKS[index % NETWORKS.len()].clone(),
         // a group with no picture shows two members' pictures.
         member_avatars: if is_group && avatar.is_none() {
@@ -234,7 +231,6 @@ pub(crate) fn details(index: usize, state: Option<&ChatState>) -> RoomDetails {
         Some(topic) => Some(topic.clone()),
         None => made_topic,
     };
-    let muted = changed.muted.unwrap_or(index % 17 == 16);
     RoomDetails {
         id: room_id(index),
         name: changed.name.clone().unwrap_or_else(|| made_name(index)),
@@ -244,11 +240,7 @@ pub(crate) fn details(index: usize, state: Option<&ChatState>) -> RoomDetails {
         is_encrypted: index % 5 != 4,
         is_direct: !group,
         joined_members: u64::try_from(member_count(index)).unwrap_or(u64::MAX),
-        notifications: changed.notifications.unwrap_or(if muted {
-            NotificationMode::Off
-        } else {
-            NotificationMode::Default
-        }),
+        notifications: notifications(index, changed),
         may: RoomPermissions {
             rename: admin,
             change_topic: admin,
@@ -401,6 +393,17 @@ pub(crate) fn stable(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
     }) >> 1
+}
+
+/// When room `index`'s messages notify: as the user set them, else one in seventeen muted.
+fn notifications(index: usize, changed: &ChatState) -> NotificationMode {
+    changed
+        .notifications
+        .unwrap_or(if changed.muted.unwrap_or(index % 17 == 16) {
+            NotificationMode::Off
+        } else {
+            NotificationMode::Default
+        })
 }
 
 #[cfg(test)]

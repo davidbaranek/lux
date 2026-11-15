@@ -23,9 +23,10 @@ use crate::actions::Actions;
 use crate::chat::{Chat, Request, ScheduledMessage, Space};
 use crate::ids::{ChatId, EventId, LabelId, RoomId, ScheduledId};
 use crate::organizer::Organized;
-use crate::places::{Arrangement, ChatFilter, ChatOrder, InboxRule, PlaceId, Theme};
+use crate::places::{self, Arrangement, ChatFilter, ChatOrder, InboxRule, PlaceId, Theme};
 use crate::ports::{
-    BackendError, ChatAccount, ChatActions, ChatChange, Diffs, Organizing, SavedMessages, Scheduling, Spaces,
+    BackendError, ChatAccount, ChatActions, ChatChange, ChatDetails, Diffs, NotificationMode, Organizing,
+    SavedMessages, Scheduling, Spaces,
 };
 
 /// Once the server has answered, the list is done when this passes with no new chats.
@@ -41,11 +42,14 @@ pub trait ListListener: Send + Sync {
 
 /// The ports a chat list needs.
 pub trait ChatListBackend:
-    ChatAccount + ChatActions + Organizing + SavedMessages + Spaces + Scheduling + 'static
+    ChatAccount + ChatActions + ChatDetails + Organizing + SavedMessages + Spaces + Scheduling + 'static
 {
 }
 
-impl<T: ChatAccount + ChatActions + Organizing + SavedMessages + Spaces + Scheduling + 'static> ChatListBackend for T {}
+impl<T: ChatAccount + ChatActions + ChatDetails + Organizing + SavedMessages + Spaces + Scheduling + 'static>
+    ChatListBackend for T
+{
+}
 
 /// How a list starts.
 #[derive(Clone, Debug)]
@@ -84,7 +88,7 @@ enum Intent {
     Theme(PlaceId, Option<Theme>),
     DefaultTheme(Theme),
     Inbox(PlaceId, InboxRule),
-    ChatInbox(ChatId, Option<InboxRule>),
+    PlaceNotifications(PlaceId, NotificationMode),
     Act(Action),
     /// The waiting messages, read.
     Scheduled(Vec<ScheduledMessage>),
@@ -95,6 +99,7 @@ enum Intent {
 /// What an intent does through the ports.
 enum Action {
     Change(ChatId, ChatChange),
+    Notify(ChatId, NotificationMode),
     Answer(RoomId, bool),
     MakeLabel {
         name: String,
@@ -255,15 +260,22 @@ impl ChatListViewModel {
         self.send(Intent::DefaultTheme(theme));
     }
 
-    /// Says how much of a network's or a space's chats the inbox shows; another place has
-    /// no rule, and stays as it is.
+    /// Says how much of a network's or a space's chats the inbox shows; what it keeps out is of
+    /// low priority. Another place has no rule, and stays as it is.
     pub fn set_inbox(&self, place: PlaceId, rule: InboxRule) {
         self.send(Intent::Inbox(place, rule));
     }
 
-    /// Gives a chat an inbox rule of its own, or (`None`) has it follow its places' again.
-    pub fn set_chat_inbox(&self, chat: ChatId, rule: Option<InboxRule>) {
-        self.send(Intent::ChatInbox(chat, rule));
+    /// Sets when a chat's messages notify (each room of a merged one).
+    pub fn set_notifications(&self, chat: ChatId, mode: NotificationMode) {
+        self.send(Intent::Act(Action::Notify(chat, mode)));
+    }
+
+    /// Sets when the chats of a network or a space notify, each as if set on its own: those it
+    /// has now, out of the archive. A chat set afterwards keeps its own; one that comes later is
+    /// as the account's settings say. Another place has none, and stays as it is.
+    pub fn set_place_notifications(&self, place: PlaceId, mode: NotificationMode) {
+        self.send(Intent::PlaceNotifications(place, mode));
     }
 }
 
@@ -330,7 +342,7 @@ impl Action {
     /// What the action changes; `None` for one that only reads or makes something new.
     fn target(&self) -> Option<Target> {
         Some(match self {
-            Self::Change(chat, _) | Self::SetReminder(chat, _) => Target::Chat(chat.clone()),
+            Self::Change(chat, _) | Self::Notify(chat, _) | Self::SetReminder(chat, _) => Target::Chat(chat.clone()),
             Self::Answer(room, _) => Target::Invitation(room.clone()),
             Self::MakeLabel { .. } | Self::ReadScheduled => return None,
             Self::RemoveLabel(id) => Target::Label(id.clone()),
@@ -382,6 +394,7 @@ async fn perform<B: ChatListBackend>(
 ) -> Result<(), BackendError> {
     match action {
         Action::Change(chat, change) => account.change(&chat, change).await,
+        Action::Notify(chat, mode) => account.set_notifications(&chat, mode).await,
         Action::Answer(room, accept) => account.answer_request(&room, accept).await,
         Action::MakeLabel { name, with } => {
             let label = account.make_label(&name).await?;
@@ -473,9 +486,13 @@ fn handle<B: ChatListBackend>(intent: Intent, state: &mut ListState, actor: &mut
             let arrangement = state.arrangement().clone().with_inbox(place.key(), rule);
             return arrange(state, actor, arrangement);
         }
-        Intent::ChatInbox(chat, rule) => {
-            let arrangement = state.arrangement().clone().with_chat_inbox(chat, rule);
-            return arrange(state, actor, arrangement);
+        Intent::PlaceNotifications(place, mode) => {
+            for (chat, now) in places::notified_rooms(state.snapshot(), &place) {
+                if now != Some(mode) {
+                    actor.act(Action::Notify(chat, mode));
+                }
+            }
+            return false;
         }
         Intent::Act(action) => {
             actor.act(action);
@@ -625,7 +642,7 @@ mod tests {
     use crate::list::{ListRow, ListUpdate, LoadState};
     use crate::network::Network;
     use crate::places::{InboxRule, PlaceId, SectionId, Theme};
-    use crate::ports::{BackendError, ChatChange};
+    use crate::ports::{BackendError, ChatChange, NotificationMode};
 
     struct Relay(mpsc::UnboundedSender<ListUpdate>);
 
@@ -847,12 +864,12 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_network_kept_out_of_the_inbox_leaves_at_once_and_a_chat_of_it_may_stay() {
+    async fn a_network_kept_out_of_the_inbox_goes_to_low_priority_at_once() {
         let demo = demo();
         let (list, mut batches) = list(&demo);
         let mut shown = Shown::default();
         let first = next(&mut batches).await;
-        assert_eq!(first.chat_inbox, Some(HashMap::new()));
+        assert_eq!(first.kept_out, Some(HashMap::new()));
         shown.apply(&first);
         let signal = Network::from_id("signal");
         let snapshot = demo.snapshot();
@@ -872,13 +889,58 @@ mod tests {
         let place = places.iter().find(|place| place.id == PlaceId::Network(signal.clone()));
         assert_eq!(place.and_then(|place| place.inbox), Some(InboxRule::Never));
         assert!(of_signal.iter().all(|id| !inbox(&shown).contains(id)));
-        let kept = ChatId::from(of_signal[0].as_str());
-        list.set_chat_inbox(kept.clone(), Some(InboxRule::All));
+        let kept_out = batch.kept_out.unwrap();
+        assert_eq!(kept_out.len(), of_signal.len());
+        assert!(
+            of_signal
+                .iter()
+                .all(|id| kept_out.get(&ChatId::from(id.as_str())) == Some(&PlaceId::Network(signal.clone())))
+        );
+        list.set_inbox(PlaceId::Network(signal), InboxRule::All);
         let batch = next(&mut batches).await;
         shown.apply(&batch);
-        assert_eq!(batch.chat_inbox, Some([(kept, InboxRule::All)].into()));
-        assert!(inbox(&shown).contains(&of_signal[0]));
-        assert!(!inbox(&shown).contains(&of_signal[1]));
+        assert_eq!(batch.kept_out, Some(HashMap::new()));
+        assert!(of_signal.iter().all(|id| inbox(&shown).contains(id)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_networks_notifications_set_each_of_its_chats_and_show_on_the_network() {
+        let demo = demo();
+        let (list, mut batches) = list(&demo);
+        let signal = PlaceId::Network(Network::from_id("signal"));
+        let notifications = |update: &ListUpdate| {
+            (update.places.as_ref())
+                .and_then(|places| places.iter().find(|place| place.id == signal))
+                .map(|place| place.notifications)
+        };
+        let first = next(&mut batches).await;
+        // one chat in seventeen is muted in the demo: signal's are set apart.
+        assert!(notifications(&first).is_some());
+        list.set_place_notifications(signal.clone(), NotificationMode::Off);
+        let mut now = None;
+        while now != Some(Some(NotificationMode::Off)) {
+            now = notifications(&next(&mut batches).await).or(now);
+        }
+        let of_signal = (demo.snapshot().chats.iter())
+            .filter(|chat| chat.network == Network::from_id("signal") && chat.folder != Folder::Archive)
+            .map(|chat| (chat.notifications, chat.is_muted))
+            .collect::<Vec<_>>();
+        assert!(!of_signal.is_empty());
+        assert!(
+            of_signal
+                .iter()
+                .all(|&state| state == (Some(NotificationMode::Off), true))
+        );
+        // a label has none.
+        list.set_place_notifications(PlaceId::Label("work".into()), NotificationMode::All);
+        let chat = demo.snapshot().chats[0].id.clone();
+        list.set_notifications(chat.clone(), NotificationMode::All);
+        let mut set = false;
+        while !set {
+            next(&mut batches).await;
+            set = (demo.snapshot().chats.iter())
+                .any(|shown| shown.id == chat && shown.notifications == Some(NotificationMode::All));
+        }
     }
 
     #[tokio::test(start_paused = true)]

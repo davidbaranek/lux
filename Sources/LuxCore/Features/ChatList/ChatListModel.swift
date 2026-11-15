@@ -56,15 +56,25 @@ public final class ChatListModel {
     /// Sets the colour of the places without one of their own.
     public func setDefaultTheme(_ theme: PlaceTheme) { list?.setDefaultTheme(theme) }
 
-    /// The chats (by id) with an inbox rule of their own; the others follow their places'.
-    public private(set) var chatInbox: [String: InboxRule] = [:]
+    /// The chats (by id) a place's rule keeps out of the inbox, into low priority, with that place.
+    private var keptOut: [String: Place] = [:]
 
-    /// Says how much of a network's or a space's chats the inbox shows; shown at once, kept
-    /// with the account.
+    /// The network or space whose rule keeps a chat out of the inbox, into low priority; nil
+    /// when none does.
+    public func keepingOut(_ chatId: String) -> PlaceItem? {
+        guard let place = keptOut[chatId] else { return nil }
+        return places.first { $0.id == place }
+    }
+
+    /// Says how much of a network's or a space's chats the inbox shows; what it keeps out is of
+    /// low priority. Shown at once, kept with the account.
     public func setInbox(_ place: Place, _ rule: InboxRule) { list?.setInbox(place, rule) }
 
-    /// Gives a chat an inbox rule of its own, or (nil) has it follow its places' again.
-    public func setChatInbox(_ chatId: String, _ rule: InboxRule?) { list?.setChatInbox(chatId, rule) }
+    /// Sets when a chat's messages notify.
+    public func setNotifications(_ chatId: String, _ setting: NotificationSetting) { list?.setNotifications(chatId, setting) }
+
+    /// Sets when each chat a network or a space has now notifies, as if set on its own.
+    public func setNotifications(_ place: Place, _ setting: NotificationSetting) { list?.setNotifications(place, setting) }
 
     /// Shows the list again with what may have changed outside it (drafts, for the Drafts filter).
     public func refresh() {
@@ -143,7 +153,7 @@ public final class ChatListModel {
         saved.merge(batch.saved) { _, new in new }
         scheduled.merge(batch.scheduled) { _, new in new }
         if let labels = batch.labels { self.labels = labels }
-        if let chatInbox = batch.chatInbox { self.chatInbox = chatInbox }
+        if let keptOut = batch.keptOut { self.keptOut = keptOut }
         if let reminders = batch.reminders {
             notifications.sync(reminders.map { (roomId: $0.chatId, name: $0.name, date: $0.date) })
         }

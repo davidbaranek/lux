@@ -32,7 +32,7 @@ public struct ChatLabel: Sendable, Hashable, Identifiable {
 
 /// What a chat's menu does to it.
 public enum ChatChange: String, Sendable, CaseIterable {
-    case read, unread, mute, unmute, lowPriority, inbox, archive, unarchive, delete, pin, unpin
+    case read, unread, lowPriority, inbox, archive, unarchive, delete, pin, unpin
 }
 
 /// Which list a chat is in.
@@ -74,7 +74,10 @@ public struct ChatRow: Hashable, Sendable, Identifiable {
     public var date: Date?
     public var unreadCount: Int
     public var isMarkedUnread: Bool
+    /// Its notifications are off or mentions only: its badge is grey.
     public var isMuted: Bool
+    /// When its messages notify; nil when a merged chat's rooms are set apart.
+    public var notifications: NotificationSetting?
     public var network: String
     public var avatar: ImageRef?
     /// A group with no picture of its own: two members' pictures, drawn as one (Messenger's way).
