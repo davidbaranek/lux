@@ -57,6 +57,29 @@ pub(crate) async fn avatar_bytes(
 /// The side a photo's thumbnail is asked at, when the sender sent none.
 const THUMBNAIL_SIDE: u32 = 800;
 
+impl MatrixTimelines {
+    /// A found photo's thumbnail, by its event: its file is named by the event, so a photo shown
+    /// again (the same search typed on) does not ask the server for its event again.
+    async fn found_thumbnail(
+        &self,
+        room: &RoomId,
+        event: &EventId,
+        folder: &Path,
+    ) -> Result<Option<PathBuf>, BackendError> {
+        let file = folder.join(found_file_name(event));
+        if file.is_file() {
+            return Ok(Some(file));
+        }
+        let Some(photo) = found_photo(&self.room(room)?, event).await? else {
+            return Ok(None);
+        };
+        let request = photo.thumbnail.map_or_else(|| photo_thumbnail(photo.source), original);
+        let data = picture_content(&self.client, &request, false).await.map_err(from_sdk)?;
+        write(&file, data).await?;
+        Ok(Some(file))
+    }
+}
+
 impl ChatMedia for MatrixTimelines {
     async fn image_file(&self, source: &ImageSource, folder: &Path) -> Result<Option<PathBuf>, BackendError> {
         let request = match source {
@@ -85,12 +108,7 @@ impl ChatMedia for MatrixTimelines {
                     (None, _) => photo_thumbnail(media.source),
                 }
             }
-            ImageSource::Found { room, event } => {
-                let Some(photo) = found_photo(&self.room(room)?, event).await? else {
-                    return Ok(None);
-                };
-                photo.thumbnail.map_or_else(|| photo_thumbnail(photo.source), original)
-            }
+            ImageSource::Found { room, event } => return self.found_thumbnail(room, event, folder).await,
         };
         let file = folder.join(file_name(&request));
         if file.is_file() {
@@ -238,6 +256,17 @@ fn file_name(request: &MediaRequestParameters) -> String {
     }
     if let MediaFormat::Thumbnail(settings) = &request.format {
         let _ = write!(name, "-{}x{}", settings.width, settings.height);
+    }
+    name
+}
+
+/// A found photo's thumbnail's file name: its event, hashed (any id, one name each).
+fn found_file_name(event: &EventId) -> String {
+    let mut name = String::with_capacity(64 + 6);
+    name.push_str("found-");
+    // writing to a string cannot fail.
+    for byte in Sha256::digest(event.as_str()) {
+        let _ = write!(name, "{byte:02x}");
     }
     name
 }
