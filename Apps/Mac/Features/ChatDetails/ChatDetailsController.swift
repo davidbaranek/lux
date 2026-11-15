@@ -33,6 +33,9 @@ final class ChatDetailsController: NSViewController {
     /// The Info tab's form, kept while other tabs show so it keeps its scroll.
     private lazy var info = NSHostingController(rootView: ChatInfoForm(state: infoState, actions: infoActions))
 
+    /// Where every tab's content starts and ends, the Info form's sections and the lists alike.
+    static let inset: CGFloat = 16
+
     private enum Tab: Equatable {
         case info
         /// A group room's, by its id and network.
@@ -101,9 +104,8 @@ final class ChatDetailsController: NSViewController {
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             topic.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -40),
             actions.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -32),
-            tabsScroll.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -32),
-            // as wide as the tabs when they fit, so the column centres them.
-            tabsScroll.widthAnchor.constraint(equalTo: tabs.widthAnchor).withPriority(.defaultHigh),
+            // the tabs start where the sections under them do, and scroll when they are wider.
+            tabsScroll.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -2 * Self.inset),
             tabsScroll.heightAnchor.constraint(equalToConstant: 28),
             pane.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
@@ -292,10 +294,19 @@ private final class CapsuleTabs: NSView {
                 return button
             }, in: .leading)
             mark()
+            needsLayout = true
         }
     }
 
-    var selected = 0 { didSet { mark() } }
+    /// The chosen tab; set from outside (a new chat), the glass moves at once.
+    var selected = 0 {
+        didSet {
+            mark()
+            if !picking { needsLayout = true }
+        }
+    }
+    /// The user is choosing a tab: the glass animates there, and no layout pass jumps it.
+    private var picking = false
 
     init() {
         super.init(frame: .zero)
@@ -315,13 +326,33 @@ private final class CapsuleTabs: NSView {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     @objc private func pick(_ button: NSButton) {
+        guard button.tag != selected else { return }
+        picking = true
         selected = button.tag
+        picking = false
+        // the glass slides from the tab it marked to the chosen one.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            glass.animator().frame = glassFrame
+        }
         onSelect?()
     }
 
+    /// The glass centred on the chosen tab's title as drawn (a borderless button draws its title
+    /// a little off its own centre), as wide as the tab.
     override func layout() {
         super.layout()
-        glass.frame = row.views[safe: selected]?.frame ?? .zero
+        glass.frame = glassFrame
+    }
+
+    private var glassFrame: CGRect {
+        guard let button = row.views[safe: selected] as? NSButton, let cell = button.cell else { return .zero }
+        let title = convert(cell.titleRect(forBounds: button.bounds), from: button)
+        let height = button.frame.height
+        return CGRect(x: button.frame.minX, y: (title.midY - height / 2).rounded(), width: button.frame.width, height: height)
+            .offsetBy(dx: (title.midX - button.frame.midX).rounded(), dy: 0)
     }
 
     private func mark() {
@@ -331,7 +362,6 @@ private final class CapsuleTabs: NSView {
             button.setAccessibilityValue(on ? String(localized: "Selected") : nil)
         }
         glass.isHidden = row.views.isEmpty
-        needsLayout = true
     }
 }
 
@@ -494,6 +524,9 @@ struct ChatInfoForm: View {
             }
         }
         .formStyle(.grouped)
+        // the sections start where the tabs and the other tabs' lists do: a grouped form insets
+        // its sections 9 points within its margins.
+        .contentMargins(.horizontal, ChatDetailsController.inset - 9, for: .scrollContent)
     }
 
     /// A row's title beside its symbol on a coloured tile, as System Settings shows them.

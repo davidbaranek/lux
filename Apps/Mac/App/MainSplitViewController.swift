@@ -36,8 +36,9 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         addSplitViewItem(sidebar)
         addSplitViewItem(content)
         let inspectorItem = NSSplitViewItem(inspectorWithViewController: inspector)
-        inspectorItem.minimumThickness = 320
-        inspectorItem.maximumThickness = 560
+        // as narrow as Messages' details: a column of settings and lists, not a second chat.
+        inspectorItem.minimumThickness = 300
+        inspectorItem.maximumThickness = 380
         inspectorItem.isCollapsed = true
         addSplitViewItem(inspectorItem)
         self.inspectorItem = inspectorItem
