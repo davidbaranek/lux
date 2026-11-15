@@ -295,6 +295,7 @@ private final class CapsuleTabs: NSView {
             }, in: .leading)
             mark()
             needsLayout = true
+            centresChosen = true
         }
     }
 
@@ -302,9 +303,14 @@ private final class CapsuleTabs: NSView {
     var selected = 0 {
         didSet {
             mark()
-            if !picking { needsLayout = true }
+            if !picking {
+                needsLayout = true
+                centresChosen = true
+            }
         }
     }
+    /// The next layout scrolls the chosen tab to the middle (a new chat, new tabs).
+    private var centresChosen = false
     /// The user is choosing a tab: the glass animates there, and no layout pass jumps it.
     private var picking = false
 
@@ -336,6 +342,7 @@ private final class CapsuleTabs: NSView {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             context.allowsImplicitAnimation = true
             glass.animator().frame = glassFrame
+            centreChosen(animated: true)
         }
         onSelect?()
     }
@@ -345,6 +352,24 @@ private final class CapsuleTabs: NSView {
     override func layout() {
         super.layout()
         glass.frame = glassFrame
+        if centresChosen, let clip = enclosingScrollView?.contentView, clip.bounds.width > 0 {
+            centresChosen = false
+            centreChosen(animated: false)
+        }
+    }
+
+    /// Scrolls the tabs so the chosen one sits in the middle, as far as the row goes.
+    private func centreChosen(animated: Bool) {
+        guard let scroll = enclosingScrollView, let button = row.views[safe: selected] else { return }
+        let clip = scroll.contentView
+        let x = min(max(0, button.frame.midX - clip.bounds.width / 2), max(0, bounds.width - clip.bounds.width)).rounded()
+        guard abs(clip.bounds.minX - x) > 0.5 else { return }
+        if animated {
+            clip.animator().setBoundsOrigin(NSPoint(x: x, y: clip.bounds.minY))
+        } else {
+            clip.setBoundsOrigin(NSPoint(x: x, y: clip.bounds.minY))
+        }
+        scroll.reflectScrolledClipView(clip)
     }
 
     private var glassFrame: CGRect {
