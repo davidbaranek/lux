@@ -116,6 +116,8 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
         )),
         date: Some(start.checked_sub(ago).unwrap_or(start)),
         unread_count,
+        // some unread groups mention the user.
+        unread_mentions: u32::from(is_group && unread_count > 0 && index.is_multiple_of(3)),
         is_marked_unread,
         is_muted: changed.muted.unwrap_or(index % 17 == 16),
         network: NETWORKS[index % NETWORKS.len()].clone(),

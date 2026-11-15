@@ -141,6 +141,7 @@ mod tests {
             preview: Some(Preview::new(PreviewSource::Text("hi"), sender, false)),
             date: Some(at(minutes)),
             unread_count: 1,
+            unread_mentions: 0,
             is_marked_unread: false,
             is_muted: false,
             network: crate::network::Network::Matrix,

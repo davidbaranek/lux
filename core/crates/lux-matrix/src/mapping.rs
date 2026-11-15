@@ -64,6 +64,7 @@ impl Mapper {
             preview,
             date,
             unread_count: u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX),
+            unread_mentions: u32::try_from(room.num_unread_mentions()).unwrap_or(u32::MAX),
             is_marked_unread: room.is_marked_unread(),
             // the room list's push rules decide it (`ChatRows`): muted or mentions only.
             is_muted: false,

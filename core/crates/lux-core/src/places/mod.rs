@@ -3,21 +3,25 @@
 //!
 //! The user's arrangement is kept with the account, so every device shows the places alike:
 //! the order of the networks, spaces and labels, the places hidden from view, and the places'
-//! colours (one each, and one for those without). The folders keep the app's order, and the
-//! inbox is never hidden.
+//! colours (one each, and one for those without), and how much of each network and space the
+//! inbox shows, and of single chats. The folders keep the app's order, and the inbox is never
+//! hidden.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use crate::chat::Folder;
-use crate::ids::{LabelId, RoomId};
+use crate::chat::{Folder, Space};
+use crate::ids::{ChatId, LabelId, RoomId};
 use crate::network::Network;
 
 mod filter;
+mod inbox;
 mod list;
 mod theme;
 
 pub use filter::ChatFilter;
+pub use inbox::InboxRule;
+pub(crate) use inbox::InboxRules;
 pub(crate) use list::compose;
 pub use list::{ChatOrder, ListedPlace, Row, Section, SectionId, SectionStyle};
 pub use theme::Theme;
@@ -34,6 +38,18 @@ impl PlaceKey {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// A network's key.
+    #[must_use]
+    pub fn network(network: &Network) -> Self {
+        Self(format!("network:{}", network.as_str()))
+    }
+
+    /// A space's key.
+    #[must_use]
+    pub fn space(space: &Space) -> Self {
+        Self(format!("space:{}", space.id))
     }
 
     /// Whether this is the inbox, which is never hidden.
@@ -82,8 +98,8 @@ impl PlaceGroup {
     }
 }
 
-/// How the user arranged the places: an order for the reorderable ones, the hidden ones, and
-/// their colours.
+/// How the user arranged the places: an order for the reorderable ones, the hidden ones, their
+/// colours, and how much of them the inbox shows.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Arrangement {
     /// Places in the user's order; a place not named comes after those that are.
@@ -94,6 +110,10 @@ pub struct Arrangement {
     pub themes: HashMap<PlaceKey, Theme>,
     /// The colour of the places without one of their own.
     pub theme: Theme,
+    /// How much of each network and space the inbox shows, for those that do not show all.
+    pub inbox: HashMap<PlaceKey, InboxRule>,
+    /// The chats that follow a rule of their own, not their places'.
+    pub chat_inbox: HashMap<ChatId, InboxRule>,
 }
 
 impl Arrangement {
@@ -126,6 +146,33 @@ impl Arrangement {
         match theme {
             Some(theme) => self.themes.insert(key, theme),
             None => self.themes.remove(&key),
+        };
+        self
+    }
+
+    /// How much of `key` the inbox shows: all, unless the user said less.
+    #[must_use]
+    pub fn inbox_of(&self, key: &PlaceKey) -> InboxRule {
+        self.inbox.get(key).copied().unwrap_or_default()
+    }
+
+    /// A copy where the inbox shows `rule` of `key`'s chats; all is what it shows unasked.
+    #[must_use]
+    pub fn with_inbox(mut self, key: PlaceKey, rule: InboxRule) -> Self {
+        if rule == InboxRule::All {
+            self.inbox.remove(&key);
+        } else {
+            self.inbox.insert(key, rule);
+        }
+        self
+    }
+
+    /// A copy where `chat` follows `rule`, or (`None`) its places' again.
+    #[must_use]
+    pub fn with_chat_inbox(mut self, chat: ChatId, rule: Option<InboxRule>) -> Self {
+        match rule {
+            Some(rule) => self.chat_inbox.insert(chat, rule),
+            None => self.chat_inbox.remove(&chat),
         };
         self
     }
@@ -175,9 +222,9 @@ pub enum PlaceId {
     Reminders,
     /// Messages waiting to go.
     Scheduled,
-    /// One network's inbox chats.
+    /// One network's chats out of the archive.
     Network(Network),
-    /// A space's inbox chats, with a section for each space inside it.
+    /// A space's chats out of the archive, with a section for each space inside it.
     Space(RoomId),
     /// A label's chats, but those archived.
     Label(LabelId),
@@ -198,6 +245,13 @@ impl PlaceId {
         }
     }
 
+    /// Whether the user may say how much of it the inbox shows: a network's or a space's
+    /// chats; the folders and lists are not the inbox's, and a label gathers by hand.
+    #[must_use]
+    pub fn has_inbox_rule(&self) -> bool {
+        matches!(self, Self::Network(_) | Self::Space(_))
+    }
+
     /// Its key, as the user's arrangement keeps it.
     #[must_use]
     pub fn key(&self) -> PlaceKey {
@@ -209,7 +263,7 @@ impl PlaceId {
             Self::Saved => "saved".to_owned(),
             Self::Reminders => "reminders".to_owned(),
             Self::Scheduled => "scheduled".to_owned(),
-            Self::Network(network) => format!("network:{}", network.as_str()),
+            Self::Network(network) => return PlaceKey::network(network),
             Self::Space(id) => format!("space:{id}"),
             Self::Label(id) => format!("label:{id}"),
         })
