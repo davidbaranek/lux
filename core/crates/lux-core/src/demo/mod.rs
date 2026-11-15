@@ -35,9 +35,9 @@ use crate::merge::{self, Merge};
 use crate::organizer::{LabelError, Organized, checked_name};
 use crate::places::Arrangement;
 use crate::ports::{
-    AccountProfile, BackendError, ChatAccount, ChatActions, ChatChange, DeviceSignOut, DiffStream, EncryptionSetup,
-    Organizing, OwnDevice, Picture, Profile, RecoveryState, SavedMessages, Scheduling, Security, Spaces, ThreadBackend,
-    ValueStream,
+    AccountProfile, BackendError, ChatAccount, ChatActions, ChatChange, ChatDetails, DeviceSignOut, DiffStream,
+    EncryptionSetup, MAX_NAME_LENGTH, Member, NotificationMode, Organizing, OwnDevice, Picture, Profile, RecoveryState,
+    RoomDetails, SavedMessages, Scheduling, Security, SharedPage, Spaces, ThreadBackend, ValueStream,
 };
 use crate::preview::{Preview, PreviewSource, Sender};
 
@@ -409,8 +409,14 @@ impl ChatActions for DemoAccount {
             match change {
                 ChatChange::Read => state.unread = Some(false),
                 ChatChange::Unread => state.unread = Some(true),
-                ChatChange::Mute => state.muted = Some(true),
-                ChatChange::Unmute => state.muted = Some(false),
+                ChatChange::Mute => {
+                    state.muted = Some(true);
+                    state.notifications = None;
+                }
+                ChatChange::Unmute => {
+                    state.muted = Some(false);
+                    state.notifications = None;
+                }
                 ChatChange::LowPriority => {
                     state.low_priority = Some(true);
                     state.archived = None;
@@ -553,6 +559,93 @@ impl SavedMessages for DemoAccount {
         inner.saved.retain(|saved| saved.event != *event);
         inner.publish_organized();
         Ok(())
+    }
+}
+
+impl DemoAccount {
+    /// The number of a room the account has.
+    fn room_number(inner: &Inner, room: &RoomId) -> Result<usize, BackendError> {
+        data::room_index(room.as_str())
+            .filter(|&index| index < inner.made.len())
+            .ok_or_else(|| BackendError::UnknownChat(ChatId::Room(room.clone())))
+    }
+
+    /// Changes what the user changed of `room` from its details, and shows it in the list.
+    fn change_room(&self, room: &RoomId, change: impl FnOnce(&mut ChatState)) -> Result<(), BackendError> {
+        let mut inner = self.lock();
+        let index = Self::room_number(&inner, room)?;
+        change(inner.states.entry(index).or_insert_with(|| ChatState {
+            pinned: (index < 3).then(|| f64::from(u32::try_from(index).unwrap_or(0))),
+            ..ChatState::default()
+        }));
+        inner.publish_chats();
+        Ok(())
+    }
+}
+
+impl ChatDetails for DemoAccount {
+    async fn room_details(&self, room: &RoomId) -> Result<RoomDetails, BackendError> {
+        let inner = self.lock();
+        let index = Self::room_number(&inner, room)?;
+        Ok(data::details(index, inner.states.get(&index)))
+    }
+
+    async fn members(&self, room: &RoomId) -> Result<Vec<Member>, BackendError> {
+        let inner = self.lock();
+        let index = Self::room_number(&inner, room)?;
+        Ok(data::members(index, inner.states.get(&index)))
+    }
+
+    async fn shared(&self, room: &RoomId, from: Option<&str>) -> Result<SharedPage, BackendError> {
+        Self::room_number(&self.lock(), room)?;
+        Ok(self.timelines.shared(room, from))
+    }
+
+    async fn set_notifications(&self, chat: &ChatId, mode: NotificationMode) -> Result<(), BackendError> {
+        let rooms = self.lock().rooms_of(chat);
+        if rooms.is_empty() {
+            return Err(BackendError::UnknownChat(chat.clone()));
+        }
+        for room in &rooms {
+            self.change_room(room, |state| {
+                state.notifications = Some(mode);
+                state.muted = Some(matches!(mode, NotificationMode::Off | NotificationMode::Mentions));
+            })?;
+        }
+        Ok(())
+    }
+
+    async fn rename_room(&self, room: &RoomId, name: &str) -> Result<(), BackendError> {
+        let name = name.trim();
+        if name.chars().count() > MAX_NAME_LENGTH {
+            return Err(BackendError::NameTooLong);
+        }
+        let name = name.to_owned();
+        self.change_room(room, |state| state.name = (!name.is_empty()).then_some(name))
+    }
+
+    async fn set_topic(&self, room: &RoomId, topic: &str) -> Result<(), BackendError> {
+        let topic = topic.trim().to_owned();
+        self.change_room(room, |state| state.topic = Some(topic))
+    }
+
+    async fn set_room_avatar(&self, room: &RoomId, picture: Picture) -> Result<(), BackendError> {
+        if picture.data.is_empty() {
+            return Err(BackendError::file("the picture is empty"));
+        }
+        let avatar = {
+            let mut inner = self.lock();
+            inner.next_id::<MediaId>("room-picture")
+        };
+        self.change_room(room, |state| state.avatar = Some(data::PictureChange::Set(avatar)))
+    }
+
+    async fn remove_room_avatar(&self, room: &RoomId) -> Result<(), BackendError> {
+        self.change_room(room, |state| state.avatar = Some(data::PictureChange::Removed))
+    }
+
+    async fn leave(&self, chat: &ChatId) -> Result<(), BackendError> {
+        self.change(chat, ChatChange::Delete).await
     }
 }
 
@@ -715,6 +808,44 @@ mod tests {
             .unwrap();
         assert_eq!(chat.folder, Folder::Archive);
         assert!(demo.change(&ChatId::from("!nope"), ChatChange::Pin).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_groups_details_change_as_its_admin_changes_them_and_the_list_follows() {
+        use crate::details::SharedHistory;
+        use crate::ports::{ChatDetails, NotificationMode, SharedKind};
+
+        let demo = demo(30);
+        let family = RoomId::from("!room2:demo");
+        let details = demo.room_details(&family).await.unwrap();
+        assert!(details.may.rename && !details.is_direct);
+        assert_eq!(demo.members(&family).await.unwrap().len(), 6);
+        // work is run by others, and big enough to search.
+        let work = RoomId::from("!room6:demo");
+        assert!(!demo.room_details(&work).await.unwrap().may.rename);
+        assert_eq!(demo.members(&work).await.unwrap().len(), 240);
+
+        demo.rename_room(&family, " Nováks ").await.unwrap();
+        demo.set_notifications(&ChatId::Room(family.clone()), NotificationMode::Mentions)
+            .await
+            .unwrap();
+        let details = demo.room_details(&family).await.unwrap();
+        assert_eq!(details.name, "Nováks");
+        assert_eq!(details.notifications, NotificationMode::Mentions);
+        let chat = demo
+            .snapshot()
+            .chats
+            .iter()
+            .find(|chat| chat.id == ChatId::Room(family.clone()))
+            .cloned()
+            .unwrap();
+        assert_eq!(chat.name, "Nováks");
+        assert!(chat.is_muted);
+
+        let mut photos = SharedHistory::new(vec![family], SharedKind::Media);
+        let first = photos.next(&demo, 5).await.unwrap();
+        assert_eq!(first.len(), 5);
+        assert!(first.windows(2).all(|pair| pair[0].date >= pair[1].date));
     }
 
     #[tokio::test]
