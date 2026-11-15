@@ -65,10 +65,16 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
     }
 
+    /// The list it was opened from: the details tell which of its places keeps the chat out of
+    /// the inbox.
+    private weak var list: ChatListModel?
+
     /// The chat of `row`, or its Matrix thread `thread`.
-    init(session: Session, row: ChatRow, theme: PlaceTheme, focusEvent: String? = nil, thread: MatrixThread? = nil) {
+    init(session: Session, row: ChatRow, theme: PlaceTheme, list: ChatListModel?, focusEvent: String? = nil,
+         thread: MatrixThread? = nil) {
         self.session = session
         self.row = row
+        self.list = list
         self.theme = theme
         self.focusEvent = focusEvent
         model = ThreadModel(session: session, row: row, thread: thread)
@@ -546,12 +552,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     /// A Matrix thread of this chat, pushed over it.
     func openThread(_ thread: MatrixThread) {
-        navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: theme, thread: thread), animated: true)
+        navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: theme, list: list, thread: thread), animated: true)
     }
 
     /// The chat's details, from its title, as Messages opens a conversation's.
     @objc private func openDetails() {
-        let details = ChatDetailsViewController(session: session, row: row)
+        let details = ChatDetailsViewController(session: session, row: row, list: list)
         details.onChange = { [weak self] row in
             self?.chatTitle.show(row, images: self?.session.images)
             if self?.model.thread != nil { self?.chatTitle.subtitle = String(localized: "Thread") }

@@ -1,29 +1,20 @@
-/// How much of a network's or a space's chats the inbox shows, or of one chat
-/// (`lux_core::places::InboxRule`). A chat kept out stays in its places; its own rule beats its
-/// places', and of its places the strictest counts. The account keeps them.
+/// How much of a network's or a space's chats the inbox shows (`lux_core::places::InboxRule`).
+/// What a rule keeps out is of low priority, and stays in its places; of a chat's places the
+/// strictest counts, and a pinned chat stays in the inbox. The account keeps them.
 public enum InboxRule: String, CaseIterable, Hashable, Sendable {
     /// Everything, as the inbox always did.
     case all
     /// Conversations of two, and groups while they mention the user.
     case mentions
-    /// Nothing: its chats are read in their places only.
+    /// Nothing: its chats are read in their places, and in low priority.
     case never
 
     /// What a place's menu calls it.
-    public var placeTitle: String {
+    public var title: String {
         switch self {
         case .all: String(localized: "All Chats")
         case .mentions: String(localized: "Direct Messages and Mentions")
         case .never: String(localized: "None")
-        }
-    }
-
-    /// What a chat's menu calls it.
-    public var chatTitle: String {
-        switch self {
-        case .all: String(localized: "Always")
-        case .mentions: String(localized: "When Mentioned")
-        case .never: String(localized: "Never")
         }
     }
 
@@ -36,10 +27,15 @@ public enum InboxRule: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The menus' heading.
+    /// What a chat's details say of a chat this rule of `place` keeps out of the inbox.
+    public func keepsOut(by place: String) -> String {
+        switch self {
+        case .all: ""
+        case .mentions: String(localized: "In Low Priority: Inbox shows only direct messages and mentions of \(place).")
+        case .never: String(localized: "In Low Priority: Inbox shows no chats of \(place).")
+        }
+    }
+
+    /// The menu's heading.
     public static let menuTitle = String(localized: "Show in Inbox")
-    /// The inbox's menu, with every network's and space's rule.
-    public static let overviewTitle = String(localized: "What Inbox Shows")
-    /// A chat's choice to follow its places.
-    public static let followPlaces = String(localized: "As Its Places Say")
 }

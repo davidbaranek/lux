@@ -20,6 +20,7 @@ use lux_matrix::{MatrixAccount, MatrixOAuth, MatrixSignIn, StoreFolder};
 use tokio::task::JoinHandle;
 
 use crate::chat::{CoreFolder, CorePreview};
+use crate::details::CoreNotificationMode;
 use crate::runtime;
 use crate::store::CoreStore;
 
@@ -387,8 +388,10 @@ pub struct CoreChat {
     pub unread_count: u32,
     /// Marked unread by hand.
     pub is_marked_unread: bool,
-    /// Its notifications are off.
+    /// Its notifications are off or mentions only.
     pub is_muted: bool,
+    /// When its messages notify; none when a merged chat's rooms are set apart.
+    pub notifications: Option<CoreNotificationMode>,
     /// Its network (`"whatsapp"`, `"matrix"`).
     pub network: String,
     /// Its picture (a media URL).
@@ -420,6 +423,7 @@ impl From<&Chat> for CoreChat {
             unread_count: chat.unread_count,
             is_marked_unread: chat.is_marked_unread,
             is_muted: chat.is_muted,
+            notifications: chat.notifications.map(CoreNotificationMode::from),
             network: chat.network.as_str().to_owned(),
             avatar: chat.avatar.as_ref().map(ToString::to_string),
             member_avatars: chat.member_avatars.iter().map(ToString::to_string).collect(),

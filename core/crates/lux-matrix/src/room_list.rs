@@ -7,13 +7,13 @@
 //! Rows are shared: a chat nothing changed stays the same allocation from the mapping to the
 //! apps' list. A keeper task writes the list to the store for the next launch.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::{StreamExt, pin_mut};
-use lux_core::chat::{Chat, Request};
+use lux_core::chat::{Chat, NotificationMode, Request};
 use lux_core::diff;
 use lux_core::organizer::Organized;
 use matrix_sdk::Client;
@@ -219,7 +219,7 @@ async fn map_chats(
         mapper: Mapper::default(),
         members: MemberLoader::start(client.clone()),
         own,
-        quiet: crate::actions::quiet_rooms(&settings).await,
+        notifications: crate::actions::room_notifications(&settings).await,
     };
     // the rooms' chats in the server's order, and the list as last sent (the kept one first).
     let mut rooms: Vector<Arc<Chat>> = Vector::new();
@@ -262,12 +262,13 @@ async fn map_chats(
                     rules_open = false;
                     continue;
                 }
-                chat_rows.quiet = crate::actions::quiet_rooms(&settings).await;
+                chat_rows.notifications = crate::actions::room_notifications(&settings).await;
                 for index in 0..rooms.len() {
-                    let muted = rooms[index].id.room().is_some_and(|room| chat_rows.quiet.contains(room.as_str()));
-                    if rooms[index].is_muted != muted {
+                    let mode = rooms[index].id.room().map(|room| chat_rows.mode_of(room.as_str()));
+                    if let Some(mode) = mode.filter(|&mode| rooms[index].notifications != Some(mode)) {
                         let chat = Chat {
-                            is_muted: muted,
+                            is_muted: mode.is_quiet(),
+                            notifications: Some(mode),
                             ..Chat::clone(&rooms[index])
                         };
                         rooms.set(index, Arc::new(chat));
@@ -394,8 +395,18 @@ struct ChatRows {
     /// Loads the members of the groups that have no pictures to show.
     members: MemberLoader,
     own: OwnedUserId,
-    /// The rooms whose notifications are off.
-    quiet: HashSet<OwnedRoomId>,
+    /// The rooms whose notifications the user set, and how.
+    notifications: HashMap<OwnedRoomId, NotificationMode>,
+}
+
+impl ChatRows {
+    /// How room `room`'s messages notify.
+    fn mode_of(&self, room: &str) -> NotificationMode {
+        <&RoomId>::try_from(room)
+            .ok()
+            .and_then(|room| self.notifications.get(room).copied())
+            .unwrap_or_default()
+    }
 }
 
 impl RowMapper for ChatRows {
@@ -403,7 +414,9 @@ impl RowMapper for ChatRows {
 
     async fn row(&mut self, room: RoomListItem) -> Arc<Chat> {
         let mut chat = self.mapper.chat(&room, &self.own).await;
-        chat.is_muted = self.quiet.contains(room.room_id());
+        let mode = self.notifications.get(room.room_id()).copied().unwrap_or_default();
+        chat.is_muted = mode.is_quiet();
+        chat.notifications = Some(mode);
         // a group's members load for its pictures, and for the name of its latest message's
         // sender (the store holds only the members the sync named).
         if chat.is_group

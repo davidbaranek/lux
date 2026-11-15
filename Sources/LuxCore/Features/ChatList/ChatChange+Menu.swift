@@ -1,9 +1,10 @@
 import Foundation
 
 extension ChatChange {
-    /// What a chat's menu offers, in order: read state, pin, mute, where it lives, delete.
+    /// What a chat's menu offers, in order: read state, pin, where it lives, delete. Its
+    /// notifications are a choice of their own (`NotificationSetting`).
     public static func available(for row: ChatRow) -> [ChatChange] {
-        var changes: [ChatChange] = [row.isUnread ? .read : .unread, row.isPinned ? .unpin : .pin, row.isMuted ? .unmute : .mute]
+        var changes: [ChatChange] = [row.isUnread ? .read : .unread, row.isPinned ? .unpin : .pin]
         switch row.folder {
         case .inbox: changes += [.lowPriority, .archive]
         case .lowPriority: changes += [.inbox, .archive]
@@ -18,8 +19,6 @@ extension ChatChange {
         case .unread: String(localized: "Mark as Unread")
         case .pin: String(localized: "Pin")
         case .unpin: String(localized: "Unpin")
-        case .mute: String(localized: "Mute")
-        case .unmute: String(localized: "Unmute")
         case .lowPriority: String(localized: "Move to Low Priority")
         case .inbox: String(localized: "Move to Inbox")
         case .archive: String(localized: "Archive")
@@ -34,8 +33,6 @@ extension ChatChange {
         case .unread: "envelope.badge"
         case .pin: "pin"
         case .unpin: "pin.slash"
-        case .mute: "bell.slash"
-        case .unmute: "bell"
         case .lowPriority: "arrow.down.circle"
         case .inbox: "tray.and.arrow.up"
         case .archive: "archivebox"

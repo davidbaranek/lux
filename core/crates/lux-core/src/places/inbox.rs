@@ -1,18 +1,20 @@
-//! Which chats the inbox shows. Every chat of the inbox folder, unless one of its places keeps
-//! it out: a network or a space can let all its chats in, only those that call for the user
-//! (conversations of two, groups that mention them), or none. A chat's own rule beats its
-//! places'. A chat kept out stays in its places, where the user goes to read it.
+//! Which chats the inbox shows, and so which are of low priority: low priority is every chat of
+//! the inbox and archive's sides that the inbox does not show. A chat is of low priority by its
+//! own `m.lowpriority` tag, or because one of its places keeps it out: a network or a space can
+//! let all its chats in, only those that call for the user (conversations of two, groups that
+//! mention them), or none. A pinned chat stays in the inbox, whatever its places say. A chat kept
+//! out stays in its places, where the user goes to read it.
 
 use std::collections::HashMap;
 
-use super::{Arrangement, PlaceKey};
+use super::{Arrangement, PlaceId, PlaceKey};
 use crate::chat::{Chat, Folder, Space};
 use crate::ids::ChatId;
 
-/// How much of a place (or of one chat) the inbox shows.
+/// How much of a place's chats the inbox shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum InboxRule {
-    /// Nothing: its chats are read in their places only.
+    /// Nothing: its chats are read in their places, and in low priority.
     Never,
     /// Conversations of two, and groups while they mention the user.
     Mentions,
@@ -52,17 +54,17 @@ impl InboxRule {
     }
 }
 
-/// The inbox's rules, read once for a list: the arrangement's, and each chat's strictest of
-/// the spaces it is in.
+/// The inbox's rules, read once for a list: the networks' from the arrangement, and for each
+/// chat in a space with a rule, the strictest of those spaces.
 pub(crate) struct InboxRules<'a> {
     arrangement: &'a Arrangement,
-    /// The strictest rule of the spaces each chat is in, for the chats in a space with one.
-    spaces: HashMap<&'a ChatId, InboxRule>,
+    /// The strictest space rule over each chat in a space with one, and that space.
+    spaces: HashMap<&'a ChatId, (InboxRule, &'a Space)>,
 }
 
 impl<'a> InboxRules<'a> {
     pub(crate) fn new(arrangement: &'a Arrangement, spaces: &'a [Space]) -> Self {
-        let mut by_chat: HashMap<&'a ChatId, InboxRule> = HashMap::new();
+        let mut by_chat: HashMap<&'a ChatId, (InboxRule, &'a Space)> = HashMap::new();
         if !arrangement.inbox.is_empty() {
             for space in spaces {
                 let Some(&rule) = arrangement.inbox.get(&PlaceKey::space(space)) else {
@@ -72,8 +74,12 @@ impl<'a> InboxRules<'a> {
                 for chat in &space.chats {
                     by_chat
                         .entry(chat)
-                        .and_modify(|stricter| *stricter = (*stricter).min(rule))
-                        .or_insert(rule);
+                        .and_modify(|stricter| {
+                            if rule < stricter.0 {
+                                *stricter = (rule, space);
+                            }
+                        })
+                        .or_insert((rule, space));
                 }
             }
         }
@@ -83,20 +89,45 @@ impl<'a> InboxRules<'a> {
         }
     }
 
-    /// The rule `chat` follows: its own, else the strictest of its network's and its spaces'.
-    pub(crate) fn of(&self, chat: &Chat) -> InboxRule {
-        if let Some(&own) = self.arrangement.chat_inbox.get(&chat.id) {
-            return own;
+    /// The strictest rule of `chat`'s places, and the place that has it (its network when its
+    /// network's is as strict as its spaces'); `None` when no place of it has one.
+    fn strictest(&self, chat: &Chat) -> Option<(InboxRule, PlaceId)> {
+        let network = (self.arrangement.inbox.get(&PlaceKey::network(&chat.network)))
+            .map(|&rule| (rule, PlaceId::Network(chat.network.clone())));
+        let space = (self.spaces.get(&chat.id)).map(|&(rule, space)| (rule, PlaceId::Space(space.id.clone())));
+        match (network, space) {
+            (Some(network), Some(space)) if space.0 < network.0 => Some(space),
+            (network, space) => network.or(space),
         }
-        let network = self.arrangement.inbox.get(&PlaceKey::network(&chat.network)).copied();
-        let space = self.spaces.get(&chat.id).copied();
-        network.into_iter().chain(space).min().unwrap_or_default()
     }
 
-    /// Whether the inbox shows `chat`: in the inbox folder, and pinned there or let in by its
-    /// rule.
-    pub(crate) fn admits(&self, chat: &Chat) -> bool {
-        chat.folder == Folder::Inbox && (chat.pinned.is_some() || self.of(chat).admits(chat))
+    /// The place whose rule keeps `chat` out of the inbox, and so in low priority: `None` for a
+    /// chat its places let in, a pinned one, or one out of the inbox's folder already.
+    pub(crate) fn keeping_out(&self, chat: &Chat) -> Option<PlaceId> {
+        if chat.folder != Folder::Inbox || chat.pinned.is_some() {
+            return None;
+        }
+        self.strictest(chat)
+            .filter(|(rule, _)| !rule.admits(chat))
+            .map(|(_, place)| place)
+    }
+
+    /// The folder `chat` shows in: its own, unless a place keeps it out of the inbox, into low
+    /// priority.
+    pub(crate) fn folder_of(&self, chat: &Chat) -> Folder {
+        if chat.folder == Folder::Inbox && self.keeping_out(chat).is_some() {
+            Folder::LowPriority
+        } else {
+            chat.folder
+        }
+    }
+
+    /// Every chat of `chats` a place keeps out of the inbox, with that place.
+    pub(crate) fn kept_out<'c>(&self, chats: impl IntoIterator<Item = &'c Chat>) -> HashMap<ChatId, PlaceId> {
+        chats
+            .into_iter()
+            .filter_map(|chat| Some((chat.id.clone(), self.keeping_out(chat)?)))
+            .collect()
     }
 }
 
@@ -104,7 +135,6 @@ impl<'a> InboxRules<'a> {
 mod tests {
     use super::*;
     use crate::network::Network;
-    use crate::places::PlaceId;
     use crate::places::list::tests::chat;
 
     fn space(id: &str, chats: &[&str], parents: &[&str]) -> Space {
@@ -143,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_follows_the_strictest_of_its_places_and_its_own_rule_beats_them() {
+    fn a_chat_is_kept_out_by_the_strictest_of_its_places() {
         let spaces = [
             space("!guild", &["general", "inner"], &[]),
             space("!room", &["inner"], &["!guild"]),
@@ -154,33 +184,47 @@ mod tests {
             .with_inbox(PlaceId::Space("!friends".into()).key(), InboxRule::Never);
         let rules = InboxRules::new(&arrangement, &spaces);
         // in both spaces: the stricter keeps it out.
-        assert_eq!(rules.of(&group("general", "discord", 0)), InboxRule::Never);
-        // inside a space inside the guild: the guild's rule reaches it.
-        assert_eq!(rules.of(&group("inner", "discord", 0)), InboxRule::Mentions);
-        assert_eq!(rules.of(&chat("elsewhere", "discord")), InboxRule::All);
-        let arrangement = arrangement
-            .with_inbox(PlaceId::Network(Network::from_id("discord")).key(), InboxRule::Never)
-            .with_chat_inbox("inner".into(), Some(InboxRule::All));
+        assert_eq!(
+            rules.keeping_out(&group("general", "discord", 1)),
+            Some(PlaceId::Space("!friends".into()))
+        );
+        // inside a space inside the guild: the guild's rule reaches it, and a mention lets it in.
+        assert_eq!(
+            rules.keeping_out(&group("inner", "discord", 0)),
+            Some(PlaceId::Space("!guild".into()))
+        );
+        assert_eq!(rules.keeping_out(&group("inner", "discord", 2)), None);
+        assert_eq!(rules.keeping_out(&chat("elsewhere", "discord")), None);
+        let discord = Network::from_id("discord");
+        let arrangement = arrangement.with_inbox(PlaceId::Network(discord.clone()).key(), InboxRule::Mentions);
         let rules = InboxRules::new(&arrangement, &spaces);
-        assert_eq!(rules.of(&chat("elsewhere", "discord")), InboxRule::Never);
-        assert_eq!(rules.of(&chat("elsewhere", "signal")), InboxRule::All);
-        assert_eq!(rules.of(&group("inner", "discord", 0)), InboxRule::All);
+        // as strict as the guild: the network says so.
+        assert_eq!(
+            rules.keeping_out(&group("inner", "discord", 0)),
+            Some(PlaceId::Network(discord))
+        );
+        assert_eq!(rules.keeping_out(&group("elsewhere", "signal", 0)), None);
     }
 
     #[test]
-    fn the_inbox_keeps_pinned_chats_and_only_its_own_folder() {
+    fn what_a_place_keeps_out_is_of_low_priority_but_a_pinned_chat_stays() {
         let arrangement =
             Arrangement::default().with_inbox(PlaceId::Network(Network::from_id("discord")).key(), InboxRule::Never);
         let rules = InboxRules::new(&arrangement, &[]);
-        assert!(!rules.admits(&chat("a", "discord")));
-        assert!(rules.admits(&Chat {
+        assert_eq!(rules.folder_of(&chat("a", "discord")), Folder::LowPriority);
+        let pinned = Chat {
             pinned: Some(1.0),
             ..chat("a", "discord")
-        }));
-        assert!(!rules.admits(&Chat {
-            folder: Folder::LowPriority,
-            ..chat("b", "signal")
-        }));
-        assert!(rules.admits(&chat("b", "signal")));
+        };
+        assert_eq!(rules.folder_of(&pinned), Folder::Inbox);
+        let archived = Chat {
+            folder: Folder::Archive,
+            ..chat("b", "discord")
+        };
+        assert_eq!(rules.folder_of(&archived), Folder::Archive);
+        assert_eq!(rules.folder_of(&chat("c", "signal")), Folder::Inbox);
+        let kept = rules.kept_out([&chat("a", "discord"), &pinned, &archived, &chat("c", "signal")]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[&ChatId::from("a")], PlaceId::Network(Network::from_id("discord")));
     }
 }

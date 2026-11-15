@@ -271,6 +271,7 @@ extension ChatRow {
                   isGroup: chat.isGroup,
                   folder: ChatFolder(chat.folder))
         memberAvatars = chat.memberAvatars.map { .person(url: $0) }
+        notifications = chat.notifications.map(NotificationSetting.init)
         reminder = chat.reminder
         isPinned = chat.pinned != nil
         pinOrder = chat.pinned
