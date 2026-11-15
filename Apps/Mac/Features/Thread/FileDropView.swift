@@ -4,6 +4,8 @@ import AppKit
 /// message. It lightens while they hover over it.
 final class FileDropView: NSView {
     var onDrop: (([URL]) -> Void)?
+    /// A live resize ended: the window's edge let go, or the split beside it done animating.
+    var onEndLiveResize: (() -> Void)?
     private let highlight = CALayer()
 
     override init(frame: NSRect) {
@@ -18,6 +20,11 @@ final class FileDropView: NSView {
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        onEndLiveResize?()
+    }
 
     override func layout() {
         super.layout()
