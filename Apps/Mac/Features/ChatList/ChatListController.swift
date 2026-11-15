@@ -390,6 +390,8 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         submenu.addItem(new)
         labels.submenu = submenu
         menu.addItem(labels)
+        menu.addItem(InboxMenu.item(chatId: row.id, isGroup: row.isGroup, current: model.chatInbox[row.id], target: self,
+                                    action: #selector(choseInbox(_:))))
         menu.addItem(.separator())
         for change in changes where change.isDestructive { menu.addItem(item(change, row)) }
         return menu
@@ -478,6 +480,11 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
     @objc private func cancelScheduled(_ item: NSMenuItem) {
         guard let waiting = item.representedObject as? ScheduledMessage else { return }
         model.cancel(waiting)
+    }
+
+    @objc private func choseInbox(_ item: NSMenuItem) {
+        guard let choice = item.representedObject as? InboxMenu.Choice, let chatId = choice.chatId else { return }
+        model.setChatInbox(chatId, choice.rule)
     }
 
     @objc private func toggleLabel(_ item: NSMenuItem) {

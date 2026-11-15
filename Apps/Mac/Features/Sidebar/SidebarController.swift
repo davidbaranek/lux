@@ -98,6 +98,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             if let place { listModel.setHidden(place, hidden) } else { listModel.showAllPlaces() }
         }
         rail.onTheme = { [weak self] place, theme in self?.listModel.setTheme(place, theme) }
+        rail.onInbox = { [weak self] place, rule in self?.listModel.setInbox(place, rule) }
         listModel.onPlaces = { [weak self] places in
             guard let self else { return }
             if let inbox = places.first(where: { $0.id == .inbox }) { onBadge?(inbox.unread) }
