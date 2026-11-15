@@ -8,6 +8,11 @@ final class MessageCellView: NSTableCellView {
     private let sender = TextView()
     /// A plain group's time, after its sender's name.
     private let time = TextView()
+    /// Over a plain reply: the answered sender's picture and their message on one line, linked
+    /// to the sender's picture below.
+    private let replyLine = TextView()
+    private let replyAvatar = AvatarView(side: BubbleMetrics().replyAvatarSide)
+    private let replyLink = ReplyLinkView()
     private let bubble = FlippedView()
     /// A plain row's band behind its parts (`MessageLayout.band`).
     private let band = FlippedView()
@@ -102,9 +107,11 @@ final class MessageCellView: NSTableCellView {
         failed.contentTintColor = .systemRed
         failed.symbolConfiguration = .init(pointSize: 16, weight: .regular)
         band.wantsLayer = true
-        band.layer?.cornerRadius = 6
+        band.layer?.cornerRadius = 8
         band.layer?.cornerCurve = .continuous
-        for view in [band, day, unreadMarker, avatar, plainAvatar, sender, time, bubble, reactionsBackground, readers, detail, failed] as [NSView] {
+        replyLine.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(quoteClicked)))
+        for view in [band, day, unreadMarker, avatar, plainAvatar, sender, time, replyLink, replyAvatar, replyLine, bubble,
+                     reactionsBackground, readers, detail, failed] as [NSView] {
             addSubview(view)
         }
         bubble.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(bubbleClicked)))
@@ -251,6 +258,7 @@ final class MessageCellView: NSTableCellView {
         place(sender, layout.sender, message.senderName, plain ? text.author : text.sender,
               !plain ? .secondaryLabelColor : message.isOwn ? accent : .labelColor)
         place(time, layout.time, message.headerTimeText, text.footer, .secondaryLabelColor)
+        placeReply(message, layout: layout, text: text, images: images)
         bubble.frame = layout.bubble
         // the layer clips to its corners: a plain row's text, at its edge, has none.
         bubble.layer?.cornerRadius = plain ? 0 : 16
@@ -321,10 +329,32 @@ final class MessageCellView: NSTableCellView {
             fileRow.frame = frame
             fileRow.show(file, own: own, text: text)
         }
-        setAccessibilityLabel([layout.sender == nil ? nil : message.senderName, message.quote,
+        setAccessibilityLabel([layout.sender == nil ? nil : message.senderName, message.quoteText,
                                message.video != nil ? String(localized: "Video") : message.photo == nil ? nil : String(localized: "Photo"),
                                message.file.map { "\($0.name), \($0.detailText)" }, message.postCard?.title,
                                message.postCard?.description, message.body, message.footerText, message.reactionsText].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", "))
+    }
+
+    /// A plain reply's line, as Discord draws one: the quoted sender's picture and name, then
+    /// their message in the secondary colour, a rounded line from the sender's picture up to it.
+    private func placeReply(_ message: MessageItem, layout: MessageLayout, text: MessageText, images: ImagePipeline?) {
+        let quote = layout.reply == nil ? nil : message.quote
+        for view in [replyLine, replyAvatar, replyLink] as [NSView] { view.isHidden = quote == nil }
+        guard let quote, let line = layout.reply, let picture = layout.replyAvatar, let link = layout.replyLink else { return }
+        replyLine.frame = line
+        let oneLine = NSMutableParagraphStyle()
+        oneLine.lineBreakMode = .byTruncatingTail
+        let words = NSMutableAttributedString()
+        if !quote.senderName.isEmpty {
+            let bold = NSFont.systemFont(ofSize: text.quote.pointSize, weight: .semibold)
+            words.append(NSAttributedString(string: quote.senderName + " ", attributes: [.font: bold, .foregroundColor: NSColor.labelColor]))
+        }
+        words.append(NSAttributedString(string: quote.text, attributes: [.font: text.quote, .foregroundColor: NSColor.secondaryLabelColor]))
+        words.addAttribute(.paragraphStyle, value: oneLine, range: NSRange(location: 0, length: words.length))
+        replyLine.set(words)
+        replyAvatar.frame = picture
+        replyAvatar.show(quote.senderAvatar, name: quote.senderName, images: images)
+        replyLink.frame = link
     }
 
     private static let allCorners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -379,6 +409,30 @@ extension NSColor {
             ? NSColor(srgbRed: 0.227, green: 0.227, blue: 0.235, alpha: 1)
             : NSColor(srgbRed: 0.898, green: 0.898, blue: 0.918, alpha: 1)
     }
+}
+
+/// The line from a plain reply's sender up and round to the message it answers.
+private final class ReplyLinkView: NSView {
+    override var isFlipped: Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let width: CGFloat = 2
+        context.addPath(MessageLayout.replyLinkPath(size: bounds.size, lineWidth: width))
+        context.setLineWidth(width)
+        context.setLineCap(.round)
+        context.setStrokeColor(NSColor.tertiaryLabelColor.cgColor)
+        context.strokePath()
+    }
+
+    // clicks go to the row beneath.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// "New messages", between two hairlines in the accent colour.

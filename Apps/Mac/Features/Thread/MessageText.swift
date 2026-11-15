@@ -25,6 +25,7 @@ struct MessageText: TextMeasuring, @unchecked Sendable {
         switch role {
         case .sender: sender
         case .author: author
+        case .reply: quote
         case .quote: quote
         case .body: body
         case .footer: footer
@@ -41,10 +42,10 @@ struct MessageText: TextMeasuring, @unchecked Sendable {
         let rect = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
                                                   options: TextView.options, attributes: [.font: font])
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        // a quote and a post's title show at most two lines; a file's name, one (it truncates).
+        // a quote and a post's title show at most two lines; a file's name and a reply's line, one (they truncate).
         let height = switch role {
         case .quote, .postTitle: min(rect.height, lineHeight * 2)
-        case .fileName: lineHeight
+        case .fileName, .reply: lineHeight
         default: rect.height
         }
         return CGSize(width: ceil(rect.width), height: ceil(height))

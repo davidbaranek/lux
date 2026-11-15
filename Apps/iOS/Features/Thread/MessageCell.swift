@@ -12,6 +12,11 @@ final class MessageCell: UICollectionViewCell {
     private let sender = UILabel()
     /// A plain group's time, after its sender's name.
     private let time = UILabel()
+    /// Over a plain reply: the answered sender's picture and their message on one line, linked
+    /// to the sender's picture below.
+    private let replyLine = UILabel()
+    private let replyAvatar = AvatarView()
+    private let replyLink = ReplyLinkView()
     private let quote = UILabel()
     private let photo = RemoteImageView()
     private let videoBadge = VideoBadgeView()
@@ -92,9 +97,15 @@ final class MessageCell: UICollectionViewCell {
         }
         avatar.side = 28
         failed.tintColor = .systemRed
-        band.layer.cornerRadius = 8
+        band.layer.cornerRadius = 10
         band.layer.cornerCurve = .continuous
-        for view in [band, day, unreadMarker, avatar, sender, time, bubble, reactions, readers, detail, failed] { contentView.addSubview(view) }
+        replyLine.lineBreakMode = .byTruncatingTail
+        replyLine.isUserInteractionEnabled = true
+        replyLine.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(quoteTapped)))
+        replyAvatar.side = BubbleMetrics().replyAvatarSide
+        for view in [band, day, unreadMarker, avatar, sender, time, replyLink, replyAvatar, replyLine, bubble, reactions, readers, detail, failed] {
+            contentView.addSubview(view)
+        }
         bubble.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bubbleTapped)))
         band.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bandTapped)))
         replyArrow.preferredSymbolConfiguration = Self.arrowStyle(armed: false)
@@ -233,6 +244,7 @@ final class MessageCell: UICollectionViewCell {
         // one's own name in the place's colour, others' in the text's.
         sender.textColor = !plain ? .secondaryLabel : message.isOwn ? ownFill : .label
         place(time, layout.time, message.headerTimeText, text.footer)
+        placeReply(message, layout: layout, text: text, images: images)
         band.isHidden = layout.band == nil
         if let frame = layout.band { band.frame = frame }
         bubble.frame = layout.bubble
@@ -294,12 +306,32 @@ final class MessageCell: UICollectionViewCell {
             fileRow.frame = frame
             fileRow.show(file, own: own, text: text)
         }
-        accessibilityLabel = [layout.sender == nil ? nil : message.senderName, message.quote,
+        accessibilityLabel = [layout.sender == nil ? nil : message.senderName, message.quoteText,
                               message.album.count > 1 ? String(localized: "\(message.album.count) photos")
                                 : message.video != nil ? String(localized: "Video") : message.photo == nil ? nil : String(localized: "Photo"),
                               message.file.map { "\($0.name), \($0.detailText)" }, message.postCard?.title, message.postCard?.description,
                               message.body, message.footerText, message.reactionsText, message.readersText(inGroup: isGroup)]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
+    }
+
+    /// A plain reply's line, as Discord draws one: the quoted sender's picture and name, then
+    /// their message in the secondary colour, a rounded line from the sender's picture up to it.
+    private func placeReply(_ message: MessageItem, layout: MessageLayout, text: MessageText, images: ImagePipeline?) {
+        let quote = layout.reply == nil ? nil : message.quote
+        replyLine.isHidden = quote == nil
+        replyAvatar.isHidden = quote == nil
+        replyLink.isHidden = quote == nil
+        guard let quote, let line = layout.reply, let picture = layout.replyAvatar, let link = layout.replyLink else { return }
+        replyLine.frame = line
+        let words = NSMutableAttributedString()
+        if !quote.senderName.isEmpty {
+            words.append(NSAttributedString(string: quote.senderName + " ", attributes: [.font: text.quote.bold, .foregroundColor: UIColor.label]))
+        }
+        words.append(NSAttributedString(string: quote.text, attributes: [.font: text.quote, .foregroundColor: UIColor.secondaryLabel]))
+        replyLine.attributedText = words
+        replyAvatar.frame = picture
+        replyAvatar.show(quote.senderAvatar, name: quote.senderName, images: images)
+        replyLink.frame = link
     }
 
     private static let allCorners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -370,6 +402,28 @@ final class MessageCell: UICollectionViewCell {
         UIView.performWithoutAnimation { label.frame = frame }
         label.alpha = 0
         UIView.animate(withDuration: 0.2) { label.alpha = 1 }
+    }
+}
+
+/// The line from a plain reply's sender up and round to the message it answers.
+private final class ReplyLinkView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        contentMode = .redraw
+        isUserInteractionEnabled = false
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        let width: CGFloat = 2
+        context.addPath(MessageLayout.replyLinkPath(size: bounds.size, lineWidth: width))
+        context.setLineWidth(width)
+        context.setLineCap(.round)
+        context.setStrokeColor(UIColor.tertiaryLabel.cgColor)
+        context.strokePath()
     }
 }
 

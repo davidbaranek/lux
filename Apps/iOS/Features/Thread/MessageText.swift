@@ -29,6 +29,7 @@ struct MessageText: TextMeasuring, Sendable {
         switch role {
         case .sender: sender
         case .author: author
+        case .reply: quote
         case .quote: quote
         case .body: body
         case .footer: footer
@@ -46,11 +47,11 @@ struct MessageText: TextMeasuring, Sendable {
                                                   options: [.usesLineFragmentOrigin, .usesFontLeading],
                                                   attributes: [.font: font], context: nil)
         // a quote shows at most two lines.
-        // a file's name, one line (it truncates).
+        // a file's name and a reply's line, one line (they truncate).
         // a post's title, two.
         let height = switch role {
         case .quote, .postTitle: min(rect.height, font.lineHeight * 2)
-        case .fileName: ceil(font.lineHeight)
+        case .fileName, .reply: ceil(font.lineHeight)
         default: rect.height
         }
         return CGSize(width: ceil(rect.width), height: ceil(height))

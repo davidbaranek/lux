@@ -101,7 +101,9 @@ struct MessageLayoutTests {
             #expect(layout.bubble.minX == column)
             #expect(layout.body?.origin == .zero)
             #expect(layout.bubble.minY >= layout.sender!.maxY)
-            #expect(layout.band == CGRect(x: 0, y: layout.band!.minY, width: 400, height: layout.height - layout.band!.minY))
+            // the band reaches round the parts, to the row's bottom.
+            #expect(layout.band!.minY < layout.sender!.minY && layout.band!.maxY == layout.height)
+            #expect(layout.band!.minX == m.plainBandInset && layout.band!.maxX == 400 - m.plainBandInset)
         }
     }
 
@@ -113,6 +115,24 @@ struct MessageLayoutTests {
         // past the bubbles' widest (78 % of the row).
         #expect(layout.bubble.width > floor(400 * 0.78))
         #expect(layout.bubble.maxX <= 400 - BubbleMetrics().sideMargin)
+    }
+
+    @Test func aPlainReplyQuotesItsMessageOnALineOverItsHeader() {
+        let m = BubbleMetrics()
+        var item = message(own: false, body: "yes")
+        item.startsGroup = false
+        item.quote = .init(senderName: "Petr", text: "coming?")
+        let layout = MessageLayout.make(item, showsSender: true, style: .plain, width: 400, metrics: m, measure: FixedMeasure())
+        #expect(layout.quote == nil)
+        #expect(layout.replyAvatar!.minX == m.sideMargin + m.plainAvatarSide + m.plainAvatarGap)
+        #expect(layout.reply!.minX > layout.replyAvatar!.maxX)
+        // a reply shows who sent it, under its quote, even inside a run.
+        #expect(layout.sender!.minY >= layout.reply!.maxY)
+        #expect(layout.avatar != nil)
+        // the link runs from above the sender's picture to before the quoted one's.
+        #expect(layout.replyLink!.minX == layout.avatar!.midX)
+        #expect(layout.replyLink!.maxX < layout.replyAvatar!.minX)
+        #expect(layout.replyLink!.maxY < layout.avatar!.minY)
     }
 
     @Test func aPlainRowsEditedMarkSitsAtItsLeadingEdge() {
