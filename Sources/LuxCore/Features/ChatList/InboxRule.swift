@@ -38,6 +38,8 @@ public enum InboxRule: String, CaseIterable, Hashable, Sendable {
 
     /// The menus' heading.
     public static let menuTitle = String(localized: "Show in Inbox")
+    /// The inbox's menu, with every network's and space's rule.
+    public static let overviewTitle = String(localized: "What Inbox Shows")
     /// A chat's choice to follow its places.
     public static let followPlaces = String(localized: "As Its Places Say")
 }

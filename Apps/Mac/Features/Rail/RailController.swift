@@ -116,8 +116,8 @@ final class RailController: NSViewController {
 
     // MARK: Hiding places
 
-    /// A place's menu: its colour, how much of it the inbox shows (a network's or a space's),
-    /// hide it (all but the inbox), and the hidden ones to show again.
+    /// A place's menu: its colour, how much of it the inbox shows (a network's or a space's; on
+    /// the inbox, every one's), hide it (all but the inbox), and the hidden ones to show again.
     private func menu(for place: Place) -> NSMenu? {
         let menu = NSMenu()
         if let item = items.first(where: { $0.id == place }) {
@@ -132,6 +132,8 @@ final class RailController: NSViewController {
             menu.addItem(colour)
             if let current = item.inbox {
                 menu.addItem(InboxMenu.item(place: place, current: current, target: self, action: #selector(choseInbox(_:))))
+            } else if place == .inbox {
+                menu.addItem(InboxMenu.overview(items, target: self, action: #selector(choseInbox(_:))))
             }
             menu.addItem(.separator())
         }

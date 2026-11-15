@@ -5,14 +5,31 @@ import LuxCore
 /// current choice ticked. Each choice calls `action` on `target` with a `Choice`.
 @MainActor
 enum InboxMenu {
-    /// A network's or a space's: all its chats, those that call for the user, or none.
-    static func item(place: Place, current: InboxRule, target: AnyObject, action: Selector) -> NSMenuItem {
+    /// A network's or a space's: all its chats, those that call for the user, or none. Titled
+    /// Show in Inbox in the place's own menu, by the place's name in the inbox's overview.
+    static func item(place: Place, title: String = InboxRule.menuTitle, current: InboxRule, target: AnyObject,
+                     action: Selector) -> NSMenuItem {
         let submenu = NSMenu()
         for rule in InboxRule.allCases {
             submenu.addItem(entry(rule.placeTitle, rule, current: current, choice: Choice(place: place, chatId: nil, rule: rule),
                                   target: target, action: action))
         }
-        return heading(submenu)
+        let item = heading(submenu, title: title)
+        item.subtitle = current.placeTitle
+        return item
+    }
+
+    /// The inbox's own: every network's and space's rule in one place, each by its name.
+    static func overview(_ places: [PlaceItem], target: AnyObject, action: Selector) -> NSMenuItem {
+        let submenu = NSMenu()
+        for group in [Place.Group.networks, .spaces] {
+            let items = places.filter { $0.id.group == group }.compactMap { place in
+                place.inbox.map { item(place: place.id, title: place.title, current: $0, target: target, action: action) }
+            }
+            if !items.isEmpty, !submenu.items.isEmpty { submenu.addItem(.separator()) }
+            items.forEach(submenu.addItem)
+        }
+        return heading(submenu, title: InboxRule.overviewTitle)
     }
 
     /// A chat's: as its places say (nil), or always, when it mentions the user (a group's only),
@@ -30,8 +47,8 @@ enum InboxMenu {
         return heading(submenu)
     }
 
-    private static func heading(_ submenu: NSMenu) -> NSMenuItem {
-        let item = NSMenuItem(title: InboxRule.menuTitle, action: nil, keyEquivalent: "")
+    private static func heading(_ submenu: NSMenu, title: String = InboxRule.menuTitle) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
         item.submenu = submenu
         return item
