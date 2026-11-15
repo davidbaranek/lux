@@ -90,6 +90,8 @@ private final class Delivery: @unchecked Sendable {
             content.subtitle = message.subtitle
             content.body = message.body
             content.sound = message.isNoisy ? .default : nil
+            // a thread's reply opens, and is answered, in its thread.
+            content.userInfo.merge(message.userInfo) { _, read in read }
             // a merged chat's rooms in one group, as the chat list shows them.
             content.threadIdentifier = message.chatId
             deliver(Self.quietIfLate(await Self.communication(content, message) ?? content, message))

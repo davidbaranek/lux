@@ -53,6 +53,18 @@ extension RustAccount {
         try await worded { try await account.removeRoomPicture(roomId: roomId) }
     }
 
+    /// One page of a room's Matrix threads from `from` (the latest active first when nil), and
+    /// where the next starts.
+    func threads(roomId: String, from: String?) async throws -> (threads: [ListedThread], next: String?) {
+        let page = try await worded { try await account.roomThreads(roomId: roomId, from: from) }
+        let threads = page.threads.map { listed in
+            ListedThread(thread: MatrixThread(roomId: roomId, rootEventId: listed.rootEventId), senderName: listed.sender.name,
+                         senderAvatar: listed.sender.avatar.map { .person(url: $0) }, text: PreviewLine.body(listed.kind),
+                         date: listed.date, summary: MessageItem.ThreadSummary(listed.summary))
+        }
+        return (threads, page.next)
+    }
+
     func leave(chatId: String) async throws {
         try await worded { try await account.leaveChat(chatId: chatId) }
     }

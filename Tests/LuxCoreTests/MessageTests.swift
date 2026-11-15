@@ -198,9 +198,50 @@ struct MessageActionTests {
         #expect(MessageAction.available(for: message(own: false)) == [.reply, .copy, .forward])
     }
 
+    @Test func aMessageTheServerHasStartsAThreadOutsideThreads() {
+        var sent = message(own: false)
+        sent.eventId = "$e"
+        #expect(MessageAction.available(for: sent) == [.reply, .replyInThread, .copy, .save, .forward])
+        #expect(!MessageAction.available(for: sent, inThread: true).contains(.replyInThread))
+    }
+
     @Test func failedMessagesOfferRetryAndDiscard() {
         #expect(MessageAction.available(for: message(own: true, state: .failed)) == [.retry, .discard, .copy])
         #expect(!MessageAction.canReact(to: message(own: true, state: .failed)))
+    }
+}
+
+struct ThreadSummaryTests {
+    private func root(replies: Int, participants: Int, unread: Int) -> MessageItem {
+        var item = MessageItem(id: "m", senderId: "x", senderName: "Anna", body: "trip?", date: .now, isOwn: false)
+        item.thread = .init(replies: replies, latestSender: "Petr Svoboda", latestText: "see you", latestDate: .now,
+                            participants: (0..<participants).map { .init(userId: "@\($0)", name: "P\($0)") }, unread: unread)
+        return item
+    }
+
+    @Test func aThreadsSummaryCountsItsRepliesAndShowsTheLastByItsSendersFirstName() {
+        #expect(root(replies: 3, participants: 2, unread: 0).threadText == "3 replies · Petr: see you")
+        #expect(root(replies: 1, participants: 1, unread: 0).thread?.countText == "1 reply")
+        var none = root(replies: 0, participants: 0, unread: 0)
+        none.thread?.latestSender = nil
+        #expect(none.threadText == "Thread")
+    }
+
+    @Test func aThreadsSummaryGoesUnderItsRootWithAtMostThreePicturesAndADotWhileUnread() {
+        let m = BubbleMetrics()
+        let layout = MessageLayout.make(root(replies: 5, participants: 4, unread: 2), showsSender: true, width: 400, metrics: m,
+                                        measure: FixedMeasure())
+        let box = try? #require(layout.thread)
+        #expect(box.map { $0.minY >= layout.bubble.maxY } == true)
+        #expect(layout.threadAvatars.count == m.threadAvatars)
+        #expect(layout.threadDot != nil)
+        #expect(layout.height >= (box?.maxY ?? 0))
+        let read = MessageLayout.make(root(replies: 5, participants: 1, unread: 0), showsSender: true, width: 400, metrics: m,
+                                      measure: FixedMeasure())
+        #expect(read.threadDot == nil && read.threadAvatars.count == 1)
+        let plain = MessageLayout.make(MessageItem(id: "p", senderId: "x", senderName: "A", body: "hi", date: .now, isOwn: false),
+                                       showsSender: true, width: 400, metrics: m, measure: FixedMeasure())
+        #expect(plain.thread == nil)
     }
 }
 

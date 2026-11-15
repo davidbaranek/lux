@@ -12,8 +12,9 @@ public final class ThreadCore: Sendable {
 
     enum Event: Sendable {
         case update(Batch)
-        /// Files the user sent: the platform prepares and uploads them.
-        case upload(files: [URL], roomId: String, caption: String?, replyTo: String?)
+        /// Files the user sent: the platform prepares and uploads them (to the Matrix thread
+        /// of `threadRoot`, if any).
+        case upload(files: [URL], roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
         case failed(AccountFailure)
     }
 
@@ -52,13 +53,18 @@ public final class ThreadCore: Sendable {
         var canSendLater: Bool
     }
 
-    /// Opens the thread of `row` with `open`.
-    fileprivate init(row: ChatRow, readReceipts: ReadReceipts, open: (CoreThreadOpening, CoreThreadListener) -> CoreThread) {
+    /// Opens the thread of `row` (the Matrix thread `thread` in it, if given) with `open`.
+    fileprivate init(row: ChatRow, thread: MatrixThread?, readReceipts: ReadReceipts,
+                     open: (CoreThreadOpening, CoreThreadListener) -> CoreThread) {
         let (events, continuation) = AsyncStream<Event>.makeStream()
         self.events = events
-        let opening = CoreThreadOpening(chatId: row.id, rooms: row.chatRooms.map { CoreThreadRoom(id: $0.id, network: $0.network) },
-                                    defaultRoom: row.defaultRoom ?? row.chatRooms[0].id, listedUnread: row.isUnread,
-                                    readReceipts: CoreReadReceipts(readReceipts), timeZone: TimeZone.current.identifier)
+        // a Matrix thread is in one room: its own.
+        let rooms = thread.map { thread in row.chatRooms.filter { $0.id == thread.roomId } } ?? row.chatRooms
+        let opening = CoreThreadOpening(chatId: row.id, rooms: rooms.map { CoreThreadRoom(id: $0.id, network: $0.network) },
+                                    defaultRoom: thread?.roomId ?? row.defaultRoom ?? row.chatRooms[0].id,
+                                    listedUnread: thread == nil && row.isUnread,
+                                    readReceipts: CoreReadReceipts(readReceipts), timeZone: TimeZone.current.identifier,
+                                    threadRoot: thread?.rootEventId)
         view = open(opening, Listener(continuation))
     }
 
@@ -98,9 +104,11 @@ public final class ThreadCore: Sendable {
 
 extension RustAccount {
     /// A chat's thread: its view model in the core, following its rooms' timelines (they stay
-    /// open while it lives), presenting its rows, deciding what the composer sends.
-    func openThread(row: ChatRow, readReceipts: ReadReceipts) -> ThreadCore {
-        ThreadCore(row: row, readReceipts: readReceipts) { account.openThread(opening: $0, listener: $1) }
+    /// open while it lives), presenting its rows, deciding what the composer sends. With
+    /// `thread`, the Matrix thread's own timeline: its root and replies, the composer replying
+    /// there.
+    func openThread(row: ChatRow, thread: MatrixThread? = nil, readReceipts: ReadReceipts) -> ThreadCore {
+        ThreadCore(row: row, thread: thread, readReceipts: readReceipts) { account.openThread(opening: $0, listener: $1) }
     }
 }
 
@@ -121,8 +129,8 @@ private final class Listener: CoreThreadListener {
     }
 
     func onUpload(upload: CoreUpload) {
-        continuation.yield(.upload(files: upload.files.map { URL(fileURLWithPath: $0) }, roomId: upload.roomId, caption: upload.caption,
-                                   replyTo: upload.replyTo))
+        continuation.yield(.upload(files: upload.files.map { URL(fileURLWithPath: $0) }, roomId: upload.roomId,
+                                   threadRoot: upload.threadRoot, caption: upload.caption, replyTo: upload.replyTo))
     }
 
     func onError(error: CoreAccountError) { continuation.yield(.failed(AccountFailure(error))) }
@@ -241,9 +249,24 @@ private extension MessageItem {
         if case .sending(let upload) = message.state { uploadProgress = upload }
         readers = message.readers.map { Reader(userId: $0.userId, name: $0.name.isEmpty ? $0.userId : $0.name) }
         shared = message.shared.map { MessageItem.SharedPost(url: $0.url, title: $0.title, description: $0.description) }
+        thread = message.thread.map(MessageItem.ThreadSummary.init)
         if message.kind == .message {
             styles = message.styles.compactMap(TextStyle.init)
         }
+    }
+}
+
+extension MessageItem.ThreadSummary {
+    init(_ summary: CoreThreadSummary) {
+        self.init(replies: Int(summary.replies), latestSender: summary.latest.map { $0.sender.name },
+                  latestText: summary.latest.map { PreviewLine.body($0.kind) }, latestDate: summary.latest?.date,
+                  participants: summary.participants.map(Participant.init), unread: Int(summary.unread))
+    }
+}
+
+extension MessageItem.ThreadSummary.Participant {
+    init(_ participant: CoreParticipant) {
+        self.init(userId: participant.userId, name: participant.name, avatar: participant.avatar.map { .person(url: $0) })
     }
 }
 

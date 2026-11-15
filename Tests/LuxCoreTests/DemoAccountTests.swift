@@ -35,6 +35,63 @@ struct DemoThreadTests {
     }
 }
 
+/// Matrix threads in the demo: a root's summary in the chat, the thread's own timeline, replying
+/// there, the chat's threads, and joining a bridged thread by its reaction (mautrix-discord's).
+@MainActor
+struct DemoMatrixThreadTests {
+    private let session = Session.demo(rooms: 6, messagesPerRoom: 30)
+
+    private func opened(_ thread: MatrixThread? = nil, in chat: ChatRow? = nil) async throws -> (ThreadModel, Changes) {
+        let first = try await session.account.value.chats().first
+        let row = try #require(chat ?? first)
+        let model = ThreadModel(session: session, row: row, thread: thread)
+        let changes = model.changes()
+        await model.start()
+        await changes.until { !model.messages.isEmpty }
+        return (model, changes)
+    }
+
+    @Test func aThreadOpensAtItsRootAndWhatIsSentThereCountsOnTheRoot() async throws {
+        let (chat, chatChanges) = try await opened()
+        let root = try #require(chat.messages.last { $0.thread != nil })
+        let before = try #require(root.thread?.replies)
+        let (thread, changes) = try await opened(MatrixThread(roomId: root.roomId, rootEventId: root.eventId))
+        #expect(thread.messages.first?.eventId == root.eventId)
+        #expect(thread.messages.count == before + 1)
+        thread.send("in the thread")
+        await changes.until { thread.messages.last?.body == "in the thread" }
+        await chatChanges.until { chat.messages.first { $0.eventId == root.eventId }?.thread?.replies == before + 1 }
+        #expect(!chat.messages.contains { $0.body == "in the thread" })
+    }
+
+    @Test func theChatsThreadsListTheLatestActiveFirst() async throws {
+        let row = try #require(await session.account.value.chats().first)
+        let threads = session.details(of: row).threads()
+        let changes = Changes()
+        let observation = threads.changes.observe { changes.send() }
+        await threads.loadMore()
+        await changes.until { !threads.threads.isEmpty }
+        withExtendedLifetime(observation) {}
+        #expect(threads.threads == threads.threads.sorted { $0.activity > $1.activity })
+    }
+
+    @Test func reactingJoinThreadToTheBridgesNoticeBringsTheThreadsReplies() async throws {
+        for row in try await session.account.value.chats() where !row.isMerged {
+            let (chat, _) = try await opened(in: row)
+            for root in chat.messages where root.thread != nil {
+                let (thread, changes) = try await opened(MatrixThread(roomId: root.roomId, rootEventId: root.eventId), in: row)
+                guard let notice = thread.messages.first(where: { $0.body.hasPrefix("Thread created.") }) else { continue }
+                #expect(notice.reactions.contains { $0.key == "join thread" && !$0.isMine })
+                let before = thread.messages.count
+                thread.toggleReaction("join thread", on: notice.id)
+                await changes.until { thread.messages.count == before + 2 }
+                return
+            }
+        }
+        Issue.record("no bridged thread among the demo's")
+    }
+}
+
 /// The account's chats as the core reads them, beside the chat list.
 @MainActor
 struct DemoChatsTests {

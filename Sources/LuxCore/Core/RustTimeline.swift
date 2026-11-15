@@ -8,7 +8,7 @@ import LuxBindings
 extension RustAccount {
     /// Opens a chat's timeline ahead of time (its first page from the server if the device has
     /// none), so the chat opens at once.
-    func prefetch(roomId: String) async { try? await account.prefetchThread(roomId: roomId) }
+    func prefetch(roomId: String, thread: String? = nil) async { try? await account.prefetchThread(roomId: roomId, threadRoot: thread) }
 
     /// A chat's text messages and photos, the newest first, back to `since`, the chat's start, or
     /// `maxPages` pages: what the search index reads (`SearchIndexer`).
@@ -21,12 +21,15 @@ extension RustAccount {
 
     // MARK: Sending
 
-    /// Puts a photo or a file in the chat's send queue; the chat shows it at once, uploading.
-    /// Returns its message's id (nil if it did not show in time).
-    func send(_ attachment: OutgoingAttachment, roomId: String, caption: String?, replyTo: String?) async throws -> String? {
+    /// Puts a photo or a file in the chat's send queue (a reply in the Matrix thread of
+    /// `threadRoot`, if given); the chat shows it at once, uploading. Returns its message's id
+    /// (nil if it did not show in time).
+    func send(_ attachment: OutgoingAttachment, roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
+        async throws -> String? {
         let attachment = CoreOutgoingAttachment(attachment)
         return try await worded {
-            try await account.sendAttachment(roomId: roomId, attachment: attachment, caption: caption, replyTo: replyTo)
+            try await account.sendAttachment(roomId: roomId, threadRoot: threadRoot, attachment: attachment, caption: caption,
+                                             replyTo: replyTo)
         }
     }
 

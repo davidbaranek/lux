@@ -106,6 +106,37 @@ public struct MessageItem: Hashable, Sendable, Identifiable {
     public var showsWholePost = false
     /// What shows under it when it is not plain ("Edited · Sending…"), set by the core.
     public var footer: Footer?
+    /// The Matrix thread it starts, summed up under it (in the chat's own timeline): a tap opens
+    /// the thread.
+    public var thread: ThreadSummary?
+
+    /// A Matrix thread under its root message: how many replied, the last reply, who took part.
+    public struct ThreadSummary: Hashable, Sendable {
+        public struct Participant: Hashable, Sendable {
+            public var userId: String
+            public var name: String
+            public var avatar: ImageRef?
+
+            public init(userId: String, name: String, avatar: ImageRef? = nil) {
+                self.userId = userId; self.name = name; self.avatar = avatar
+            }
+        }
+        public var replies: Int
+        /// Who wrote the last reply and what it is ("Photo"), once known.
+        public var latestSender: String?
+        public var latestText: String?
+        public var latestDate: Date?
+        /// Who replied, the last to reply first.
+        public var participants: [Participant]
+        /// Replies others sent since the user read the thread.
+        public var unread: Int
+
+        public init(replies: Int, latestSender: String? = nil, latestText: String? = nil, latestDate: Date? = nil,
+                    participants: [Participant] = [], unread: Int = 0) {
+            self.replies = replies; self.latestSender = latestSender; self.latestText = latestText
+            self.latestDate = latestDate; self.participants = participants; self.unread = unread
+        }
+    }
 
     /// A post shared from another network: its address (shown and copied from the menu), its
     /// title and its caption, as the core tells them.
@@ -209,4 +240,39 @@ public struct ReplyPreview: Sendable, Equatable {
     public init(messageId: String, senderName: String, body: String) {
         self.messageId = messageId; self.senderName = senderName; self.body = body
     }
+}
+
+/// A Matrix thread of a chat: the replies under one of its messages, shown as a timeline of their
+/// own (its root first).
+public struct MatrixThread: Hashable, Sendable {
+    /// The room it is in.
+    public var roomId: String
+    /// Its root message's event.
+    public var rootEventId: String
+
+    public init(roomId: String, rootEventId: String) {
+        self.roomId = roomId
+        self.rootEventId = rootEventId
+    }
+}
+
+/// A Matrix thread of a room, as the chat's list of threads shows it.
+public struct ListedThread: Hashable, Sendable, Identifiable {
+    public var thread: MatrixThread
+    public var senderName: String
+    public var senderAvatar: ImageRef?
+    /// What the root says ("Saturday?", "Photo").
+    public var text: String
+    public var date: Date
+    public var summary: MessageItem.ThreadSummary
+    public var id: String { thread.rootEventId }
+
+    public init(thread: MatrixThread, senderName: String, senderAvatar: ImageRef?, text: String, date: Date,
+                summary: MessageItem.ThreadSummary) {
+        self.thread = thread; self.senderName = senderName; self.senderAvatar = senderAvatar
+        self.text = text; self.date = date; self.summary = summary
+    }
+
+    /// When it was last active: its last reply, else its root.
+    public var activity: Date { summary.latestDate ?? date }
 }

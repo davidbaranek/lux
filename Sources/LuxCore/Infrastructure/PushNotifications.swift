@@ -37,29 +37,31 @@ public enum PushNotifications {
 }
 
 /// What the user did with a message's notification (or a reminder's), read once from the
-/// system's response so both apps answer it the same way.
+/// system's response so both apps answer it the same way. `thread` is the Matrix thread the
+/// message came in, by its root: the reply goes there, the read is the thread's, and it opens.
 public enum NotificationAction: Sendable, Equatable {
     /// Reply, with the text typed; `event` is the message answered, read once the reply went.
-    case reply(room: String, event: String?, text: String)
-    case markRead(room: String, event: String)
-    /// The notification itself was tapped or clicked: its chat opens.
-    case open(room: String)
+    case reply(room: String, thread: String?, event: String?, text: String)
+    case markRead(room: String, thread: String?, event: String)
+    /// The notification itself was tapped or clicked: its chat opens (at its thread).
+    case open(room: String, thread: String?)
 
     /// Nil for a notification of no room, an empty reply, or an action the app does not offer.
     public init?(_ response: UNNotificationResponse) {
         let userInfo = response.notification.request.content.userInfo
         guard let room = PushNotifications.room(of: userInfo) else { return nil }
-        let event = PushPayload(userInfo: userInfo)?.eventId
+        let payload = PushPayload(userInfo: userInfo)
+        let (event, thread) = (payload?.eventId, payload?.threadRoot)
         switch response.actionIdentifier {
         case PushNotifications.replyAction:
             guard let text = (response as? UNTextInputNotificationResponse)?.userText,
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            self = .reply(room: room, event: event, text: text)
+            self = .reply(room: room, thread: thread, event: event, text: text)
         case PushNotifications.readAction:
             guard let event else { return nil }
-            self = .markRead(room: room, event: event)
+            self = .markRead(room: room, thread: thread, event: event)
         case UNNotificationDefaultActionIdentifier:
-            self = .open(room: room)
+            self = .open(room: room, thread: thread)
         default:
             return nil
         }
@@ -73,28 +75,28 @@ extension Session {
     public func answer(_ action: NotificationAction) async {
         _ = await restore()
         switch action {
-        case let .reply(room, event, text):
+        case let .reply(room, thread, event, text):
             do {
-                try await reply(roomId: room, text: text)
+                try await reply(roomId: room, threadRoot: thread, text: text)
             } catch {
                 Log.app.error("notification reply: \(String(describing: error), privacy: .public)")
                 await PushNotifications.replyFailed()
                 return
             }
             // answered: read up to the message.
-            if let event { _ = await markRead(room: room, upTo: event) }
+            if let event { _ = await markRead(room: room, thread: thread, upTo: event) }
             await PushNotifications.removeDelivered(rooms: [room])
-        case let .markRead(room, event):
-            if await markRead(room: room, upTo: event) { await PushNotifications.removeDelivered(rooms: [room]) }
+        case let .markRead(room, thread, event):
+            if await markRead(room: room, thread: thread, upTo: event) { await PushNotifications.removeDelivered(rooms: [room]) }
         case .open:
             break
         }
     }
 
     /// Marks read from a notification; false (logged) when it failed.
-    private func markRead(room: String, upTo event: String) async -> Bool {
+    private func markRead(room: String, thread: String?, upTo event: String) async -> Bool {
         do {
-            try await markRead(roomId: room, upTo: event)
+            try await markRead(roomId: room, threadRoot: thread, upTo: event)
             return true
         } catch {
             Log.app.error("notification read: \(String(describing: error), privacy: .public)")
