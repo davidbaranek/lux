@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use lux_core::ids::{MediaId, MessageId, MessageRef, RoomId};
+use lux_core::ids::{EventId, MediaId, MessageId, MessageRef, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines, ThreadBackend};
 use lux_core::timeline::{
@@ -327,11 +327,18 @@ pub enum CoreImageSource {
         /// The message.
         message_id: String,
     },
+    /// A shared photo's thumbnail or video's poster, by its message's event.
+    Shared {
+        /// Its room.
+        room_id: String,
+        /// The message's event.
+        event_id: String,
+    },
 }
 
 // MARK: mappings
 
-fn picture(picture: &Picture) -> CorePicture {
+pub(crate) fn picture(picture: &Picture) -> CorePicture {
     CorePicture {
         source: picture.source.to_string(),
         width: picture.width,
@@ -528,6 +535,10 @@ impl From<CoreImageSource> for ImageSource {
             CoreImageSource::Poster { room_id, message_id } => Self::Poster {
                 room: room_id.into(),
                 message: message_id.into(),
+            },
+            CoreImageSource::Shared { room_id, event_id } => Self::Shared {
+                room: room_id.into(),
+                event: EventId::from(event_id),
             },
         }
     }
