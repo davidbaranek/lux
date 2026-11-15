@@ -49,6 +49,19 @@ public enum PlaceTheme: String, CaseIterable, Hashable, Sendable {
         #endif
     }
 
+    /// The colour for a wash behind content: in light the system's own, since a deepened one turns
+    /// grey when thinned out; in the dark the deepened one, so the wash stays dark. Nil for neutral.
+    public var wash: Color? {
+        guard let base = systemColor, let deep = color else { return nil }
+        #if canImport(UIKit)
+        return UIColor { traits in traits.userInterfaceStyle == .dark ? deep.resolvedColor(with: traits) : base.resolvedColor(with: traits) }
+        #else
+        return NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? deep : base
+        }
+        #endif
+    }
+
     /// The same hue, darker and less saturated; in the dark a little less so, to stay readable.
     private static func deepened(_ color: Color, dark: Bool) -> Color {
         var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
