@@ -47,11 +47,12 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
         container.addSubview(scroll)
         container.addSubview(empty)
         NSLayoutConstraint.activate([
-            search.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            search.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            search.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: ChatDetailsController.inset),
+            search.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -ChatDetailsController.inset),
             search.topAnchor.constraint(equalTo: container.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            // every tab's content starts at the same inset as the Info form's.
+            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: ChatDetailsController.inset),
+            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -ChatDetailsController.inset),
             scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 8),
             scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             empty.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),

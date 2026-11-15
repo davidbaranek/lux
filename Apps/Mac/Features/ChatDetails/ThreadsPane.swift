@@ -28,6 +28,7 @@ final class ThreadsPane: NSViewController, NSTableViewDataSource, NSTableViewDel
         table.addTableColumn(column)
         table.headerView = nil
         table.style = .plain
+        table.intercellSpacing = NSSize(width: 0, height: table.intercellSpacing.height)
         table.rowHeight = 64
         table.backgroundColor = .clear
         table.dataSource = self
@@ -46,8 +47,9 @@ final class ThreadsPane: NSViewController, NSTableViewDataSource, NSTableViewDel
         container.addSubview(scroll)
         container.addSubview(empty)
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            // every tab's content starts at the same inset as the Info form's.
+            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: ChatDetailsController.inset),
+            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -ChatDetailsController.inset),
             scroll.topAnchor.constraint(equalTo: container.topAnchor),
             scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             empty.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -119,6 +121,13 @@ private final class ThreadRowView: NSTableCellView {
         root.lineBreakMode = .byTruncatingTail
         replies.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         replies.lineBreakMode = .byTruncatingTail
+        // one line each, cut short: the row's height is fixed.
+        for label in [name, root, replies] {
+            label.maximumNumberOfLines = 1
+            label.cell?.wraps = false
+            label.cell?.usesSingleLineMode = true
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
         dot.wantsLayer = true
         dot.layer?.cornerRadius = 4
         let top = NSStackView(views: [name, time])
@@ -138,8 +147,8 @@ private final class ThreadRowView: NSTableCellView {
             avatar.heightAnchor.constraint(equalToConstant: 32),
             dot.widthAnchor.constraint(equalToConstant: 8),
             dot.heightAnchor.constraint(equalToConstant: 8),
-            all.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            all.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            all.leadingAnchor.constraint(equalTo: leadingAnchor),
+            all.trailingAnchor.constraint(equalTo: trailingAnchor),
             all.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }

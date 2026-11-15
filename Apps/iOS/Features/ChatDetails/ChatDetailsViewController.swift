@@ -15,7 +15,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         case members(String)
         case threads
         case shared(SharedKind)
-        case markRead, leave
+        case leave
     }
 
     private let session: Session
@@ -83,6 +83,16 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
 
     private func update() {
         header.show(model, images: session.images)
+        header.onMute = { [weak self] in
+            guard let self else { return }
+            let setting: NotificationSetting = model.info?.notifications == .off ? .default : .off
+            change(of: "chat notifications") { try await $0.setNotifications(setting) }
+        }
+        header.onRead = { [weak self] in
+            guard let self else { return }
+            let read = model.row.isUnread
+            change(of: "mark read") { try await $0.markRead(read) }
+        }
         navigationItem.rightBarButtonItem = model.canRename || model.canChangeTopic || model.canChangePicture
             ? UIBarButtonItem(title: String(localized: "Edit"), primaryAction: UIAction { [weak self] _ in self?.edit() })
             : nil
@@ -102,7 +112,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         }
         snapshot.appendSections([.shared, .actions])
         snapshot.appendItems([.threads] + SharedKind.allCases.map(Item.shared), toSection: .shared)
-        snapshot.appendItems([.markRead, .leave], toSection: .actions)
+        snapshot.appendItems([.leave], toSection: .actions)
         snapshot.reconfigureItems(snapshot.itemIdentifiers)
         dataSource.apply(snapshot, animatingDifferences: false)
         onChange?(model.row)
@@ -146,14 +156,14 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             content.secondaryText = model.row.isMerged ? room.name : nil
             content.secondaryTextProperties.color = .secondaryLabel
         case .notifications:
-            content.image = UIImage(systemName: (model.info?.notifications ?? .default).symbol)
+            content.image = SettingIcon.image((model.info?.notifications ?? .default).symbol, .systemRed)
             content.text = String(localized: "Notifications")
             content.secondaryText = model.info?.notifications?.title ?? String(localized: "Mixed")
             cell.accessories = [.popUpMenu(notificationsMenu(), displayed: .always)]
         case .lowPriority:
             // the place whose rule keeps it out of the inbox, under the switch.
             content = .subtitleCell()
-            content.image = UIImage(systemName: "arrow.down.circle")
+            content.image = SettingIcon.image("arrow.down", .systemGray)
             content.text = String(localized: "Low Priority")
             content.secondaryText = model.keptOutNote
             content.secondaryTextProperties.color = .secondaryLabel
@@ -167,39 +177,34 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             }, for: .valueChanged)
             cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
         case .messages:
-            content.image = UIImage(systemName: "text.bubble")
+            content.image = SettingIcon.image("text.bubble.fill", .systemBlue)
             content.text = String(localized: "Messages")
             content.secondaryText = model.chatStyleOverride?.title ?? String(localized: "As in Settings")
             cell.accessories = [.popUpMenu(chatStyleMenu(), displayed: .always)]
         case .encryption:
             let encrypted = model.info?.isEncrypted == true
-            content.image = UIImage(systemName: encrypted ? "lock.fill" : "lock.open")
-            content.imageProperties.tintColor = encrypted ? .systemGreen : .secondaryLabel
+            content.image = SettingIcon.image(encrypted ? "lock.fill" : "lock.open.fill", encrypted ? .systemGreen : .systemOrange)
             content.text = String(localized: "Encryption")
             content.secondaryText = encrypted ? String(localized: "On") : String(localized: "Off")
         case .address:
-            content.image = UIImage(systemName: "link")
+            content.image = SettingIcon.image("at", .systemTeal)
             content.text = String(localized: "Address")
             content.secondaryText = model.mainRoom?.address
             content.prefersSideBySideTextAndSecondaryText = false
         case .members(let id):
             guard let room = room(id) else { return }
-            content.image = UIImage(systemName: "person.2")
+            content.image = SettingIcon.image("person.2.fill", .systemPurple)
             content.text = model.row.isMerged ? Networks.name(room.network) : String(localized: "Members")
             content.secondaryText = room.joinedMembers.formatted()
             cell.accessories = [.disclosureIndicator()]
         case .threads:
-            content.image = UIImage(systemName: "bubble.left.and.text.bubble.right")
+            content.image = SettingIcon.image("bubble.left.and.text.bubble.right.fill", .systemIndigo)
             content.text = String(localized: "Threads")
             cell.accessories = [.disclosureIndicator()]
         case .shared(let kind):
-            content.image = UIImage(systemName: kind.symbol)
+            content.image = SettingIcon.image(kind.symbol, .systemCyan)
             content.text = kind.title
             cell.accessories = [.disclosureIndicator()]
-        case .markRead:
-            content = .cell()
-            content.text = model.row.isUnread ? String(localized: "Mark as Read") : String(localized: "Mark as Unread")
-            content.textProperties.color = .tintColor
         case .leave:
             content = .cell()
             content.text = model.isGroup ? String(localized: "Leave Group") : String(localized: "Leave Chat")
@@ -242,7 +247,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         switch dataSource.itemIdentifier(for: indexPath) {
-        case .members, .threads, .shared, .markRead, .leave, .address: true
+        case .members, .threads, .shared, .leave, .address: true
         default: false
         }
     }
@@ -259,9 +264,6 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             navigationController?.pushViewController(threads, animated: true)
         case .shared(let kind):
             navigationController?.pushViewController(SharedViewController(details: model, kind: kind, images: session.images), animated: true)
-        case .markRead:
-            let read = model.row.isUnread
-            change(of: "mark read") { try await $0.markRead(read) }
         case .leave:
             confirmLeave()
         case .address:
@@ -306,13 +308,34 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
     }
 }
 
+/// A setting's symbol on a coloured tile, as Settings shows its rows.
+private enum SettingIcon {
+    static func image(_ symbol: String, _ color: UIColor) -> UIImage {
+        let side: CGFloat = 29
+        let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            color.setFill()
+            UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side), cornerRadius: 7).fill()
+            guard let glyph else { return }
+            let size = glyph.size
+            glyph.draw(at: CGPoint(x: (side - size.width) / 2, y: (side - size.height) / 2))
+        }
+    }
+}
+
 /// The details' top: the chat's picture, its name, what it is (a group of how many, or its
-/// networks) and its topic, on the list's background as a contact card's.
+/// networks) and its topic, on the list's background as a contact card's; under them its quick
+/// actions (mute, mark read), as Messages shows them.
 private final class ChatDetailsHeader: UIView {
     private let avatar = AvatarView()
     private let name = UILabel()
     private let kind = UILabel()
     private let topic = UILabel()
+    private let mute = UIButton(configuration: .gray())
+    private let read = UIButton(configuration: .gray())
+    var onMute: (() -> Void)?
+    var onRead: (() -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -326,12 +349,26 @@ private final class ChatDetailsHeader: UIView {
             label.numberOfLines = 0
             label.textAlignment = .center
         }
-        let stack = UIStackView(arrangedSubviews: [avatar, name, kind, topic])
+        for (button, action) in [(mute, #selector(muteTapped)), (read, #selector(readTapped))] {
+            var configuration = UIButton.Configuration.gray()
+            configuration.imagePlacement = .top
+            configuration.imagePadding = 4
+            configuration.cornerStyle = .large
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+            button.configuration = configuration
+            button.addTarget(self, action: action, for: .primaryActionTriggered)
+            button.widthAnchor.constraint(equalToConstant: 88).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 60).isActive = true
+        }
+        let actions = UIStackView(arrangedSubviews: [mute, read])
+        actions.spacing = 10
+        let stack = UIStackView(arrangedSubviews: [avatar, name, kind, topic, actions])
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 4
         stack.setCustomSpacing(12, after: avatar)
         stack.setCustomSpacing(10, after: kind)
+        stack.setCustomSpacing(16, after: topic)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -353,5 +390,21 @@ private final class ChatDetailsHeader: UIView {
         kind.text = model.subtitle
         topic.text = model.topic
         topic.isHidden = model.topic == nil
+        let muted = model.info?.notifications == .off
+        set(mute, muted ? "bell" : "bell.slash", muted ? String(localized: "Unmute") : String(localized: "Mute"))
+        mute.isEnabled = model.info != nil && !model.isSaving
+        set(read, row.isUnread ? "checkmark.message" : "message.badge",
+            row.isUnread ? String(localized: "Read") : String(localized: "Unread"))
+        read.isEnabled = !model.isSaving
     }
+
+    private func set(_ button: UIButton, _ symbol: String, _ title: String) {
+        button.configuration?.image = UIImage(systemName: symbol)
+        var text = AttributedString(title)
+        text.font = .preferredFont(forTextStyle: .caption1)
+        button.configuration?.attributedTitle = text
+    }
+
+    @objc private func muteTapped() { onMute?() }
+    @objc private func readTapped() { onRead?() }
 }

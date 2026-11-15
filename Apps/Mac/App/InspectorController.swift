@@ -28,8 +28,8 @@ final class InspectorController: NSViewController {
     }
 }
 
-/// A Matrix thread in the inspector: "Thread" and the chat's name over it, a close button at its
-/// end; the thread's own timeline and composer under them.
+/// A Matrix thread in the inspector: "Thread" and the chat's name in the toolbar's row, beside
+/// the info button, with a close button; the thread's own timeline and composer under them.
 final class ThreadPanelController: NSViewController {
     let thread: ThreadController
     private let chatName: String
@@ -59,10 +59,13 @@ final class ThreadPanelController: NSViewController {
                              action: #selector(closeClicked))
         close.bezelStyle = .glass
         close.borderShape = .circle
+        close.controlSize = .large
         close.toolTip = String(localized: "Close Thread")
         let header = NSStackView(views: [names, NSView(), close])
         header.orientation = .horizontal
-        header.edgeInsets = NSEdgeInsets(top: 8, left: 16, bottom: 8, right: 12)
+        header.alignment = .centerY
+        // the toolbar's info button sits at the row's end: the close button stays clear of it.
+        header.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 60)
         let line = NSBox()
         line.boxType = .separator
         addChild(thread)
@@ -72,8 +75,9 @@ final class ThreadPanelController: NSViewController {
             container.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            // under the window's toolbar, which spans the inspector too.
-            header.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            // in the window toolbar's row, which spans the inspector too: as Messages titles it.
+            header.topAnchor.constraint(equalTo: container.topAnchor),
+            header.bottomAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             header.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             line.topAnchor.constraint(equalTo: header.bottomAnchor),

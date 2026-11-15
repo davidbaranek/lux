@@ -1,11 +1,12 @@
 import AppKit
 import LuxCore
+import SwiftUI
 
 /// A chat's details, in the window's inspector beside the chat (its title in the toolbar, or the
-/// info button, opens and closes it): its picture, name and topic, its networks (a merged chat's rooms), its
-/// notifications, low priority and encryption, marking it read and leaving it; under them its members and
-/// what it shared and its Matrix threads, one at a time. Edit… (for who may) changes its name, topic and
-/// picture.
+/// info button, opens and closes it), as Messages shows a conversation's: its picture, name and
+/// topic, a row of quick actions (mute, mark read, edit), then tabs: Info (its settings as a
+/// grouped form, as System Settings draws one), its members, its Matrix threads and what it
+/// shared, one at a time.
 final class ChatDetailsController: NSViewController {
     private let session: Session
     private let model: ChatDetailsModel
@@ -21,38 +22,27 @@ final class ChatDetailsController: NSViewController {
     private let name = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
     private let topic = NSTextField(wrappingLabelWithString: "")
-    private lazy var edit = NSButton(title: String(localized: "Edit…"), target: self, action: #selector(openEdit))
-    private let networks = NSStackView()
-    private let notifications = NSPopUpButton()
-    private let lowPriority = NSSwitch()
-    /// Under the switch: the rule of the place that keeps the chat out of the inbox.
-    private let keptOut = NSTextField(wrappingLabelWithString: "")
-    private let chatStyle = NSPopUpButton()
-    private let encryption = NSTextField(labelWithString: "")
-    private let encryptionIcon = NSImageView()
-    private let address = NSTextField(labelWithString: "")
-    private var addressRow: NSGridRow?
-    private lazy var markRead = NSButton(title: "", target: self, action: #selector(toggleRead))
-    private lazy var leave = NSButton(title: String(localized: "Leave…"), target: self, action: #selector(confirmLeave))
-    private let tabs = NSSegmentedControl()
+    private lazy var mute = QuickAction(target: self, action: #selector(toggleMute))
+    private lazy var markRead = QuickAction(target: self, action: #selector(toggleRead))
+    private lazy var edit = QuickAction(target: self, action: #selector(openEdit))
+    private let tabs = CapsuleTabs()
+    private let tabsScroll = NSScrollView()
     private let pane = NSView()
     private var tabKinds: [Tab] = []
     private var shown: NSViewController?
+    /// The Info tab's form, kept while other tabs show so it keeps its scroll.
+    private lazy var info = NSHostingController(rootView: ChatInfoForm(state: infoState, actions: infoActions))
+
+    /// Where every tab's content starts and ends, the Info form's sections and the lists alike.
+    static let inset: CGFloat = 16
 
     private enum Tab: Equatable {
+        case info
         /// A group room's, by its id and network.
         case members(String, network: String)
         case threads
         case shared(SharedKind)
     }
-
-    /// Between the chat's settings and its members, threads and shared items.
-    private let separatorLine: NSBox = {
-        let line = NSBox()
-        line.boxType = .separator
-        line.translatesAutoresizingMaskIntoConstraints = false
-        return line
-    }()
 
     init(session: Session, row: ChatRow, list: ChatListModel?) {
         self.session = session
@@ -67,79 +57,41 @@ final class ChatDetailsController: NSViewController {
         name.alignment = .center
         name.lineBreakMode = .byTruncatingTail
         subtitle.textColor = .secondaryLabelColor
+        subtitle.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         subtitle.alignment = .center
         topic.alignment = .center
         topic.isSelectable = true
-        edit.controlSize = .small
-        edit.bezelStyle = .push
-        let header = NSStackView(views: [avatar, name, subtitle, topic, edit])
+        topic.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        let header = NSStackView(views: [avatar, name, subtitle, topic])
         header.orientation = .vertical
         header.alignment = .centerX
-        header.spacing = 4
+        header.spacing = 2
         header.setCustomSpacing(10, after: avatar)
-        header.setCustomSpacing(8, after: subtitle)
-        header.setCustomSpacing(10, after: topic)
+        header.setCustomSpacing(6, after: subtitle)
 
-        networks.orientation = .vertical
-        networks.alignment = .leading
-        networks.spacing = 4
-        notifications.target = self
-        notifications.action = #selector(chooseNotifications)
-        notifications.controlSize = .small
-        for setting in NotificationSetting.allCases {
-            notifications.addItem(withTitle: setting.title)
-            notifications.lastItem?.image = NSImage(systemSymbolName: setting.symbol, accessibilityDescription: nil)
-            notifications.lastItem?.representedObject = setting
-        }
-        lowPriority.controlSize = .small
-        lowPriority.target = self
-        lowPriority.action = #selector(toggleLowPriority)
-        lowPriority.setAccessibilityLabel(String(localized: "Low Priority"))
-        keptOut.textColor = .secondaryLabelColor
-        keptOut.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        let lowPriorityView = NSStackView(views: [lowPriority, keptOut])
-        lowPriorityView.orientation = .vertical
-        lowPriorityView.alignment = .leading
-        lowPriorityView.spacing = 4
-        chatStyle.target = self
-        chatStyle.action = #selector(chooseChatStyle)
-        chatStyle.controlSize = .small
-        encryptionIcon.symbolConfiguration = .init(pointSize: 11, weight: .medium)
-        let encryptionView = NSStackView(views: [encryptionIcon, encryption])
-        encryptionView.spacing = 4
-        address.isSelectable = true
-        address.lineBreakMode = .byTruncatingMiddle
-        let grid = NSGridView(views: [
-            [label(String(localized: "Networks:")), networks],
-            [label(String(localized: "Notifications:")), notifications],
-            [label(String(localized: "Low Priority:")), lowPriorityView],
-            [label(String(localized: "Messages:")), chatStyle],
-            [label(String(localized: "Encryption:")), encryptionView],
-            [label(String(localized: "Address:")), address],
-        ])
-        grid.rowSpacing = 8
-        grid.columnSpacing = 8
-        grid.column(at: 0).xPlacement = .trailing
-        grid.rowAlignment = .firstBaseline
-        addressRow = grid.row(at: 5)
+        let actions = NSStackView(views: [mute, markRead, edit])
+        actions.spacing = 10
+        // as wide as its tiles, so the column centres it.
+        actions.setHuggingPriority(.required, for: .horizontal)
 
-        markRead.controlSize = .small
-        leave.controlSize = .small
-        let actions = NSStackView(views: [markRead, leave])
-        actions.spacing = 8
-
-        tabs.segmentStyle = .automatic
-        tabs.target = self
-        tabs.action = #selector(chooseTab)
+        // capsule tabs, as Messages' details; they scroll sideways when the inspector is narrow.
+        tabs.onSelect = { [weak self] in self?.chooseTab() }
+        tabsScroll.documentView = tabs
+        tabsScroll.hasHorizontalScroller = false
+        tabsScroll.drawsBackground = false
+        tabsScroll.horizontalScrollElasticity = .allowed
+        tabsScroll.verticalScrollElasticity = .none
+        tabsScroll.translatesAutoresizingMaskIntoConstraints = false
         pane.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [header, grid, actions, separatorLine, tabs, pane])
+        let stack = NSStackView(views: [header, actions, tabsScroll, pane])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 14
-        stack.edgeInsets = NSEdgeInsets(top: 18, left: 16, bottom: 12, right: 16)
+        stack.setCustomSpacing(16, after: header)
+        stack.edgeInsets = NSEdgeInsets(top: 18, left: 0, bottom: 0, right: 0)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        // the members, threads or shared items take what is left of the inspector's height.
+        // the tab's content takes what is left of the inspector's height.
         stack.setHuggingPriority(.defaultLow, for: .vertical)
         pane.setContentHuggingPriority(.defaultLow, for: .vertical)
         let container = NSView()
@@ -151,11 +103,12 @@ final class ChatDetailsController: NSViewController {
             stack.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             topic.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -40),
-            // the note wraps beside its label, as wide as the inspector lets it be.
-            keptOut.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -150),
-            separatorLine.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
-            pane.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
-            pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            actions.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -32),
+            // the tabs start where the sections under them do, and scroll when they are wider.
+            tabsScroll.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -2 * Self.inset),
+            tabsScroll.heightAnchor.constraint(equalToConstant: 28),
+            pane.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
         ])
         view = container
         observation = model.changes.observe { [weak self] in self?.update() }
@@ -165,13 +118,6 @@ final class ChatDetailsController: NSViewController {
         }
     }
 
-    private func label(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.textColor = .secondaryLabelColor
-        return label
-    }
-
-
     private func update() {
         let row = model.row
         avatar.show(row.avatar, name: row.name, members: row.memberAvatars, images: session.images)
@@ -179,74 +125,83 @@ final class ChatDetailsController: NSViewController {
         subtitle.stringValue = model.subtitle
         topic.stringValue = model.topic ?? ""
         topic.isHidden = model.topic == nil
+
+        let muted = model.info?.notifications == .off
+        mute.set(muted ? "bell" : "bell.slash", muted ? String(localized: "Unmute") : String(localized: "Mute"))
+        mute.isEnabled = model.info != nil && !model.isSaving
+        markRead.set(row.isUnread ? "checkmark.message" : "message.badge",
+                     row.isUnread ? String(localized: "Read") : String(localized: "Unread"))
+        markRead.isEnabled = !model.isSaving
+        edit.set("pencil", String(localized: "Edit"))
         edit.isHidden = !(model.canRename || model.canChangeTopic || model.canChangePicture)
         edit.isEnabled = !model.isSaving
 
-        networks.setViews(row.chatRooms.map(networkRow), in: .top)
-        let setting = model.info?.notifications
-        notifications.selectItem(at: setting.flatMap { NotificationSetting.allCases.firstIndex(of: $0) } ?? -1)
-        notifications.isEnabled = model.info != nil && !model.isSaving
-        if setting == nil, model.info != nil { notifications.setTitle(String(localized: "Mixed")) }
-        lowPriority.state = model.isLowPriority ? .on : .off
-        lowPriority.isEnabled = !model.isSaving
-        keptOut.stringValue = model.keptOutNote ?? ""
-        keptOut.isHidden = model.keptOutNote == nil
-        chatStyle.removeAllItems()
-        for (index, choice) in model.chatStyleChoices.enumerated() {
-            chatStyle.addItem(withTitle: choice.title)
-            chatStyle.lastItem?.tag = index
-        }
-        chatStyle.selectItem(withTag: model.chatStyleChoices.firstIndex { $0.style == model.chatStyleOverride } ?? 0)
-        let encrypted = model.info?.isEncrypted == true
-        encryptionIcon.image = NSImage(systemSymbolName: encrypted ? "lock.fill" : "lock.open", accessibilityDescription: nil)
-        encryptionIcon.contentTintColor = encrypted ? .systemGreen : .secondaryLabelColor
-        encryption.stringValue = model.info == nil ? "" : encrypted ? String(localized: "End-to-end encrypted") : String(localized: "Not encrypted")
-        address.stringValue = model.mainRoom?.address ?? ""
-        addressRow?.isHidden = model.mainRoom?.address == nil
-        markRead.title = row.isUnread ? String(localized: "Mark as Read") : String(localized: "Mark as Unread")
-        markRead.isEnabled = !model.isSaving
-        leave.title = model.isGroup ? String(localized: "Leave Group…") : String(localized: "Leave Chat…")
-        leave.isEnabled = !model.isSaving
+        info.rootView = ChatInfoForm(state: infoState, actions: infoActions)
         updateTabs()
         onChange?(row)
     }
 
-    private func networkRow(_ room: ChatRoom) -> NSView {
-        let logo = NSImageView(image: NetworkImage.image(room.network))
-        logo.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([logo.widthAnchor.constraint(equalToConstant: 16), logo.heightAnchor.constraint(equalToConstant: 16)])
-        let row = NSStackView(views: [logo, NSTextField(labelWithString: Networks.name(room.network))])
-        row.spacing = 6
-        return row
+    /// What the Info tab shows, read from the model.
+    private var infoState: ChatInfoForm.State {
+        let choices = model.chatStyleChoices
+        return ChatInfoForm.State(
+            notifications: model.info?.notifications,
+            isLoaded: model.info != nil,
+            isSaving: model.isSaving,
+            isLowPriority: model.isLowPriority,
+            keptOutNote: model.keptOutNote,
+            chatStyles: choices.map(\.title),
+            chatStyle: choices.firstIndex { $0.style == model.chatStyleOverride } ?? choices.count - 1,
+            isEncrypted: model.info.map(\.isEncrypted),
+            networks: model.row.chatRooms.map(\.network),
+            address: model.mainRoom?.address,
+            isGroup: model.isGroup
+        )
     }
 
-    /// Members (a group's, each room's for a merged one), then what it shared.
+    private var infoActions: ChatInfoForm.Actions {
+        ChatInfoForm.Actions(
+            notifications: { [weak self] setting in
+                self?.change(String(localized: "The notifications could not be changed.")) { try await $0.setNotifications(setting) }
+            },
+            lowPriority: { [weak self] on in
+                self?.change(String(localized: "The chat could not be moved.")) { try await $0.setLowPriority(on) }
+            },
+            chatStyle: { [weak self] index in
+                guard let self else { return }
+                model.chatStyleOverride = model.chatStyleChoices[safe: index]?.style
+            },
+            leave: { [weak self] in self?.confirmLeave() }
+        )
+    }
+
+    /// Info, then members (a group's, each room's for a merged one), threads and what it shared.
     private func updateTabs() {
-        // once the rooms are known: a group opens on its members.
-        guard let info = model.info else { return }
-        let groups = info.rooms.filter { !$0.isDirect }
-        let kinds = groups.map { Tab.members($0.id, network: $0.network) } + [.threads] + SharedKind.allCases.map(Tab.shared)
+        let groups = model.info?.rooms.filter { !$0.isDirect } ?? []
+        let kinds = [Tab.info] + groups.map { Tab.members($0.id, network: $0.network) } + [.threads]
+            + SharedKind.allCases.map(Tab.shared)
         guard kinds != tabKinds else { return }
-        let selected = tabs.selectedSegment >= 0 ? tabKinds[safe: tabs.selectedSegment] : nil
+        let selected = tabKinds[safe: tabs.selected]
         tabKinds = kinds
-        tabs.segmentCount = kinds.count
-        for (index, kind) in kinds.enumerated() {
+        tabs.titles = kinds.map { kind in
             switch kind {
-            case .members(_, let network):
-                tabs.setLabel(groups.count > 1 ? Networks.name(network) : String(localized: "Members"), forSegment: index)
-            case .threads:
-                tabs.setLabel(String(localized: "Threads"), forSegment: index)
-            case .shared(let kind):
-                tabs.setLabel(kind.title, forSegment: index)
+            case .info: String(localized: "Info")
+            case .members(_, let network): groups.count > 1 ? Networks.name(network) : String(localized: "Members")
+            case .threads: String(localized: "Threads")
+            case .shared(let kind): kind.title
             }
         }
-        tabs.selectedSegment = selected.flatMap { kinds.firstIndex(of: $0) } ?? 0
+        tabs.selected = selected.flatMap { kinds.firstIndex(of: $0) } ?? 0
+        // the tabs' own width: the scroll view shows them, or scrolls them when they are wider.
+        tabs.setFrameSize(tabs.fittingSize)
         chooseTab()
     }
 
-    @objc private func chooseTab() {
+    private func chooseTab() {
         let controller: NSViewController
-        switch tabKinds[safe: tabs.selectedSegment] {
+        switch tabKinds[safe: tabs.selected] {
+        case .info:
+            controller = info
         case .members(let id, _):
             guard let room = model.info?.rooms.first(where: { $0.id == id }) else { return }
             controller = MembersPane(model: model.members(of: room), images: session.images)
@@ -259,6 +214,7 @@ final class ChatDetailsController: NSViewController {
         case nil:
             return
         }
+        guard controller !== shown else { return }
         shown?.view.removeFromSuperview()
         shown?.removeFromParent()
         addChild(controller)
@@ -270,18 +226,9 @@ final class ChatDetailsController: NSViewController {
 
     // MARK: Changes
 
-    @objc private func chooseNotifications() {
-        guard let setting = notifications.selectedItem?.representedObject as? NotificationSetting else { return }
+    @objc private func toggleMute() {
+        let setting: NotificationSetting = model.info?.notifications == .off ? .default : .off
         change(String(localized: "The notifications could not be changed.")) { try await $0.setNotifications(setting) }
-    }
-
-    @objc private func toggleLowPriority() {
-        let on = lowPriority.state == .on
-        change(String(localized: "The chat could not be moved.")) { try await $0.setLowPriority(on) }
-    }
-
-    @objc private func chooseChatStyle() {
-        model.chatStyleOverride = model.chatStyleChoices[safe: chatStyle.selectedTag()]?.style
     }
 
     @objc private func toggleRead() {
@@ -293,7 +240,7 @@ final class ChatDetailsController: NSViewController {
         presentAsSheet(EditChatController(model: model, images: session.images))
     }
 
-    @objc private func confirmLeave() {
+    private func confirmLeave() {
         guard let window = view.window else { return }
         let alert = NSAlert()
         alert.messageText = model.isGroup ? String(localized: "Leave \(model.row.name)?") : String(localized: "Leave the chat with \(model.row.name)?")
@@ -323,6 +270,300 @@ final class ChatDetailsController: NSViewController {
                 alert.informativeText = error.localizedDescription
                 if let window = view.window { _ = await alert.beginSheetModal(for: window) }
             }
+        }
+    }
+}
+
+/// Tabs as Messages' details draws them: titles side by side, the chosen one on a capsule.
+private final class CapsuleTabs: NSView {
+    var onSelect: (() -> Void)?
+    private let row = NSStackView()
+    /// Behind the chosen tab: Liquid Glass, as Messages marks it.
+    private let glass = NSGlassEffectView()
+
+    var titles: [String] = [] {
+        didSet {
+            row.setViews(titles.enumerated().map { index, title in
+                let button = NSButton(title: title, target: self, action: #selector(pick))
+                button.tag = index
+                button.isBordered = false
+                button.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+                button.translatesAutoresizingMaskIntoConstraints = false
+                button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+                button.widthAnchor.constraint(equalToConstant: ceil(button.intrinsicContentSize.width) + 24).isActive = true
+                return button
+            }, in: .leading)
+            mark()
+            needsLayout = true
+            centresChosen = true
+        }
+    }
+
+    /// The chosen tab; set from outside (a new chat), the glass moves at once.
+    var selected = 0 {
+        didSet {
+            mark()
+            if !picking {
+                needsLayout = true
+                centresChosen = true
+            }
+        }
+    }
+    /// The next layout scrolls the chosen tab to the middle (a new chat, new tabs).
+    private var centresChosen = false
+    /// The user is choosing a tab: the glass animates there, and no layout pass jumps it.
+    private var picking = false
+
+    init() {
+        super.init(frame: .zero)
+        glass.cornerRadius = 13
+        addSubview(glass)
+        row.spacing = 2
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func pick(_ button: NSButton) {
+        guard button.tag != selected else { return }
+        picking = true
+        selected = button.tag
+        picking = false
+        // the glass slides from the tab it marked to the chosen one.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            glass.animator().frame = glassFrame
+            centreChosen(animated: true)
+        }
+        onSelect?()
+    }
+
+    /// The glass centred on the chosen tab's title as drawn (a borderless button draws its title
+    /// a little off its own centre), as wide as the tab.
+    override func layout() {
+        super.layout()
+        glass.frame = glassFrame
+        if centresChosen, let clip = enclosingScrollView?.contentView, clip.bounds.width > 0 {
+            centresChosen = false
+            centreChosen(animated: false)
+        }
+    }
+
+    /// Scrolls the tabs so the chosen one sits in the middle, as far as the row goes.
+    private func centreChosen(animated: Bool) {
+        guard let scroll = enclosingScrollView, let button = row.views[safe: selected] else { return }
+        let clip = scroll.contentView
+        let x = min(max(0, button.frame.midX - clip.bounds.width / 2), max(0, bounds.width - clip.bounds.width)).rounded()
+        guard abs(clip.bounds.minX - x) > 0.5 else { return }
+        if animated {
+            clip.animator().setBoundsOrigin(NSPoint(x: x, y: clip.bounds.minY))
+        } else {
+            clip.setBoundsOrigin(NSPoint(x: x, y: clip.bounds.minY))
+        }
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    private var glassFrame: CGRect {
+        guard let button = row.views[safe: selected] as? NSButton, let cell = button.cell else { return .zero }
+        let title = convert(cell.titleRect(forBounds: button.bounds), from: button)
+        let height = button.frame.height
+        return CGRect(x: button.frame.minX, y: (title.midY - height / 2).rounded(), width: button.frame.width, height: height)
+            .offsetBy(dx: (title.midX - button.frame.midX).rounded(), dy: 0)
+    }
+
+    private func mark() {
+        for case let button as NSButton in row.views {
+            let on = button.tag == selected
+            button.contentTintColor = on ? .labelColor : .secondaryLabelColor
+            button.setAccessibilityValue(on ? String(localized: "Selected") : nil)
+        }
+        glass.isHidden = row.views.isEmpty
+    }
+}
+
+/// A quick action under a chat's name, as Messages draws them: a symbol centred over a short
+/// title, on a rounded tile.
+private final class QuickAction: NSControl {
+    private let symbol = NSImageView()
+    private let title = NSTextField(labelWithString: "")
+
+    convenience init(target: AnyObject, action: Selector) {
+        self.init(frame: .zero)
+        self.target = target
+        self.action = action
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.cornerCurve = .continuous
+        symbol.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+        symbol.contentTintColor = .labelColor
+        title.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        title.alignment = .center
+        let content = NSStackView(views: [symbol, title])
+        content.orientation = .vertical
+        content.alignment = .centerX
+        content.spacing = 4
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            content.centerXAnchor.constraint(equalTo: centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbol.heightAnchor.constraint(equalToConstant: 20),
+            heightAnchor.constraint(equalToConstant: 54),
+            widthAnchor.constraint(equalToConstant: 76),
+        ])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    func set(_ symbolName: String, _ text: String) {
+        symbol.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        title.stringValue = text
+        setAccessibilityLabel(text)
+    }
+
+    override var isEnabled: Bool {
+        didSet { alphaValue = isEnabled ? 1 : 0.5 }
+    }
+
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        alphaValue = 0.7
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        alphaValue = isEnabled ? 1 : 0.5
+        guard isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        sendAction(action, to: target)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        sendAction(action, to: target)
+    }
+}
+
+/// A chat's settings as a grouped form, as System Settings draws one: notifications and low
+/// priority, how its messages show, its encryption, networks and address, and leaving it.
+struct ChatInfoForm: View {
+    struct State {
+        var notifications: NotificationSetting?
+        var isLoaded: Bool
+        var isSaving: Bool
+        var isLowPriority: Bool
+        var keptOutNote: String?
+        var chatStyles: [String]
+        var chatStyle: Int
+        var isEncrypted: Bool?
+        var networks: [String]
+        var address: String?
+        var isGroup: Bool
+    }
+
+    struct Actions {
+        var notifications: (NotificationSetting) -> Void
+        var lowPriority: (Bool) -> Void
+        var chatStyle: (Int) -> Void
+        var leave: () -> Void
+    }
+
+    let state: State
+    let actions: Actions
+
+    var body: some View {
+        Form {
+            Section {
+                Picker(selection: Binding(get: { state.notifications ?? .default }, set: actions.notifications)) {
+                    ForEach(NotificationSetting.allCases, id: \.self) { setting in
+                        Label(setting.title, systemImage: setting.symbol).tag(setting)
+                    }
+                } label: {
+                    row(String(localized: "Notifications"), "bell.fill", .red)
+                }
+                .disabled(!state.isLoaded || state.isSaving)
+                Toggle(isOn: Binding(get: { state.isLowPriority }, set: actions.lowPriority)) {
+                    row(String(localized: "Low Priority"), "arrow.down", .gray)
+                }
+                .disabled(state.isSaving)
+            } footer: {
+                if let note = state.keptOutNote {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                Picker(selection: Binding(get: { state.chatStyle }, set: actions.chatStyle)) {
+                    ForEach(state.chatStyles.indices, id: \.self) { Text(state.chatStyles[$0]).tag($0) }
+                } label: {
+                    row(String(localized: "Messages"), "text.bubble.fill", .blue)
+                }
+            }
+            Section {
+                LabeledContent {
+                    if let encrypted = state.isEncrypted {
+                        Text(encrypted ? String(localized: "End-to-end encrypted") : String(localized: "Not encrypted"))
+                    }
+                } label: {
+                    row(String(localized: "Encryption"), state.isEncrypted == false ? "lock.open.fill" : "lock.fill",
+                        state.isEncrypted == false ? .orange : .green)
+                }
+                LabeledContent {
+                    HStack(spacing: 6) {
+                        ForEach(state.networks, id: \.self) { network in
+                            Image(nsImage: NetworkImage.image(network)).resizable().frame(width: 16, height: 16)
+                            Text(Networks.name(network))
+                        }
+                    }
+                } label: {
+                    row(String(localized: "Networks"), "point.3.connected.trianglepath.dotted", .purple)
+                }
+                if let address = state.address {
+                    LabeledContent {
+                        Text(address).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                    } label: {
+                        row(String(localized: "Address"), "at", .teal)
+                    }
+                }
+            }
+            Section {
+                Button(role: .destructive, action: actions.leave) {
+                    Text(state.isGroup ? String(localized: "Leave Group…") : String(localized: "Leave Chat…"))
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderless)
+                .disabled(state.isSaving)
+            }
+        }
+        .formStyle(.grouped)
+        // the sections start where the tabs and the other tabs' lists do: a grouped form insets
+        // its sections 9 points within its margins.
+        .contentMargins(.horizontal, ChatDetailsController.inset - 9, for: .scrollContent)
+    }
+
+    /// A row's title beside its symbol on a coloured tile, as System Settings shows them.
+    private func row(_ title: String, _ symbol: String, _ color: Color) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(color, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
     }
 }

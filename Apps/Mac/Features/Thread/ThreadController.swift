@@ -107,6 +107,15 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     private var styleObservation: AnyObject?
     private let text = MessageText()
     private var layoutWidth: CGFloat = 0
+    /// The inspector is opening or closing beside the chat: the chat resizes live, as it does
+    /// while the user drags the window's edge.
+    var resizesLive = false {
+        didSet { if !resizesLive { view.needsLayout = true } }
+    }
+    /// While the chat resizes live, on every frame only the messages on screen are measured for
+    /// the new width, right away, so they narrow or widen with it; all of them are measured once,
+    /// off the main thread, when it ends.
+    private var isResizingLive: Bool { resizesLive || view.inLiveResize }
     /// The newest update; an older one still measuring is dropped.
     private var generation = 0
     /// The last generation the table shows: until it catches up, the rows on screen are not the
@@ -337,6 +346,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         NotificationCenter.default.addObserver(self, selector: #selector(userStartedScrolling),
                                                name: NSScrollView.willStartLiveScrollNotification, object: scroll)
         scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(windowEndedLiveResize),
+                                               name: NSWindow.didEndLiveResizeNotification, object: nil)
         model.onUpdate = { [weak self] messages in self?.show(messages) }
         // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
         styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in
@@ -404,8 +415,12 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         // the chat got wider or narrower: measure again for the new width.
         let width = scroll.contentView.bounds.width
         if width > 0, width != layoutWidth {
-            layoutWidth = width
-            show(model.messages, relayout: true)
+            if isResizingLive {
+                relayoutShown(width: width)
+            } else {
+                layoutWidth = width
+                show(model.messages, relayout: true)
+            }
         }
         // the last message ends above the composer, which floats over the chat, and above
         // "Anna is typing…" while it shows.
@@ -470,6 +485,42 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         // `order` mirrors the applied snapshot: an array index, not a data source lookup, for every row.
         order.indices.contains(row) ? layouts[order[row]]?.height ?? 44 : 44
+    }
+
+    /// The window's edge let go: every message is measured for the width it ended at.
+    @objc private func windowEndedLiveResize(_ note: Notification) {
+        guard (note.object as? NSWindow) === view.window else { return }
+        view.needsLayout = true
+    }
+
+    /// The rows on screen (and a few around them) measured for `width` now, on the main thread:
+    /// a handful of messages per frame, while the chat resizes live. The rest keep their size
+    /// until the full measure at the end; the reader stays at the bottom, or on the row they read.
+    private func relayoutShown(width: CGFloat) {
+        guard shownFirst, !order.isEmpty else { return }
+        let atBottom = isAtBottom
+        let anchor = atBottom ? nil : readingAnchor(in: order)
+        let shown = table.rows(in: scroll.contentView.bounds)
+        let rows = max(0, shown.location - 4)..<min(order.count, NSMaxRange(shown) + 4)
+        let firstUnread = model.firstUnreadId, style = model.chatStyle, metrics = layoutCache.metrics
+        var resized = IndexSet()
+        for index in rows {
+            let id = order[index]
+            guard let message = messages[id] else { continue }
+            let layout = MessageLayout.make(message, showsSender: row.isGroup, isFirstUnread: id == firstUnread, style: style,
+                                            width: width, metrics: metrics, measure: text)
+            layouts[id] = layout
+            resized.insert(index)
+            (table.view(atColumn: 0, row: index, makeIfNecessary: false) as? MessageCellView)?
+                .show(message, layout: layout, isGroup: row.isGroup, text: text, images: session.images)
+        }
+        guard !resized.isEmpty else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            table.noteHeightOfRows(withIndexesChanged: resized)
+        }
+        anchorToBottom()
+        if atBottom { scrollToBottom() } else if let anchor { keep(anchor) }
     }
 
     /// Measures `new` off the main thread, then shows it. `relayout`: every row may have a new size.
