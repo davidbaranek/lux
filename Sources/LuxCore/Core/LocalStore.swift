@@ -97,9 +97,11 @@ public final class LocalStore: Sendable {
 
     /// The photos that match `text`: by their caption and the words in them, the messages sent
     /// near them, and how they look (`embedding`, the words' in the photos' space); the best first.
-    public func searchImages(_ text: String, embedding: [Float]?, minSimilarity: Float, limit: Int = 30) async throws -> [ImageHit] {
+    /// `roomId` keeps one room's.
+    public func searchImages(_ text: String, embedding: [Float]?, minSimilarity: Float, in roomId: String? = nil,
+                             limit: Int = 30) async throws -> [ImageHit] {
         let hits = try await store.searchImages(search: CoreImageSearch(
-            text: text, embedding: embedding, minSimilarity: minSimilarity, roomId: nil, limit: UInt32(clamping: limit)))
+            text: text, embedding: embedding, minSimilarity: minSimilarity, roomId: roomId, limit: UInt32(clamping: limit)))
         return hits.map { hit in
             let reason: PhotoReason = switch hit.reason {
             case .words(let excerpt, let matches): .words(excerpt, matches: matches.map(\.range))
