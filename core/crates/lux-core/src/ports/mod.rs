@@ -9,7 +9,8 @@
 //! Beside [`ChatAccount`] (signing in, the sync, the chat list), each part of the account is its
 //! own trait, so an adapter grows piece by piece: a chat's messages ([`ChatTimelines`],
 //! [`ChatSending`], [`ChatMedia`]), its actions and the organizing kept with the account
-//! ([`ChatActions`], [`Organizing`], [`SavedMessages`]), [`Spaces`], [`Scheduling`], [`People`], [`Security`], and the
+//! ([`ChatActions`], [`Organizing`], [`SavedMessages`]), [`Spaces`], [`Scheduling`], [`People`], the
+//! [`AccountProfile`], [`Security`], and the
 //! device's [`Push`] notifications.
 //! A thread's view model takes what it needs of them as one [`ThreadBackend`].
 
@@ -18,6 +19,7 @@ mod bridges;
 mod error;
 mod organizing;
 mod people;
+mod profile;
 mod push;
 mod secrets;
 mod security;
@@ -29,7 +31,8 @@ pub use account::{ChatAccount, DiffStream, Diffs};
 pub use bridges::{Bridges, StepAnswer};
 pub use error::{BackendError, Cause, NetworkFailure, UnusableStore};
 pub use organizing::{ChatActions, ChatChange, Organizing, SavedMessages, Scheduling, Spaces, ValueStream};
-pub use people::{Contact, ContactAccount, ContactListing, ContactProblem, People, Profile};
+pub use people::{Contact, ContactAccount, ContactListing, ContactProblem, People};
+pub use profile::{AccountProfile, MAX_NAME_LENGTH, Picture, PictureFormat, Profile, display_name};
 pub use push::{NotificationStream, Push};
 pub use secrets::{SecretStore, SecretStoreError, SessionSecrets, StoreKey};
 pub use security::{

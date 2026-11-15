@@ -1,9 +1,8 @@
-//! The people around the account: whom to write to, starting a conversation, the account's own
-//! profile.
+//! The people around the account: whom to write to, starting a conversation.
 
 use std::future::Future;
 
-use crate::ids::{MediaId, RoomId, UserId};
+use crate::ids::{MediaId, RoomId};
 
 use super::BackendError;
 
@@ -55,18 +54,7 @@ pub struct ContactListing {
     pub problems: Vec<ContactProblem>,
 }
 
-/// The account's own profile.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Profile {
-    /// The account.
-    pub user_id: UserId,
-    /// Its display name (the user id's local part when it has none).
-    pub name: String,
-    /// Its picture.
-    pub avatar: Option<MediaId>,
-}
-
-/// Contacts, conversations and the profile.
+/// Contacts and conversations.
 pub trait People: Send + Sync {
     /// People to write to, by `query`: the server's user directory, and the contacts of the
     /// accounts the server's bridges hold for the user.
@@ -77,7 +65,4 @@ pub trait People: Send + Sync {
 
     /// A new, encrypted group named `name`. Its room.
     fn create_room(&self, name: &str) -> impl Future<Output = Result<RoomId, BackendError>> + Send;
-
-    /// The account's profile, from the server.
-    fn profile(&self) -> impl Future<Output = Result<Profile, BackendError>> + Send;
 }

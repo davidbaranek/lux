@@ -63,6 +63,16 @@ id!(
     /// A Matrix user (`@anna:server`).
     UserId
 );
+
+impl UserId {
+    /// The part before the server (`anna` of `@anna:server`).
+    #[must_use]
+    pub fn localpart(&self) -> &str {
+        let id = self.0.strip_prefix('@').unwrap_or(&self.0);
+        id.split_once(':').map_or(id, |(localpart, _)| localpart)
+    }
+}
+
 id!(
     /// A message as the timeline knows it, the same from local echo to sent; unique among all
     /// rooms' messages, since a merged chat's thread holds several rooms' as one list.
@@ -233,6 +243,12 @@ impl fmt::Debug for MessageRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_user_ids_localpart_is_before_the_server() {
+        assert_eq!(UserId::from("@anna:server.org").localpart(), "anna");
+        assert_eq!(UserId::from("@anna").localpart(), "anna");
+    }
 
     #[test]
     fn a_chat_id_reads_back_from_its_text() {

@@ -1,6 +1,5 @@
-//! People, as the apps see them: contacts, conversations, the profile.
+//! People, as the apps see them: contacts and conversations.
 
-use lux_core::ports::ChatAccount;
 use lux_core::ports::{Contact, ContactAccount, ContactProblem, People};
 
 use crate::account::{Backend, CoreAccount, CoreAccountError};
@@ -83,17 +82,6 @@ pub struct CoreContactListing {
     pub problems: Vec<CoreContactProblem>,
 }
 
-/// The account's profile.
-#[derive(uniffi::Record)]
-pub struct CoreProfile {
-    /// The account.
-    pub user_id: String,
-    /// Its name.
-    pub name: String,
-    /// Its picture.
-    pub avatar: Option<String>,
-}
-
 #[uniffi::export(async_runtime = "tokio")]
 impl CoreAccount {
     /// People to write to, by `query` (the demo knows none).
@@ -141,29 +129,5 @@ impl CoreAccount {
     /// When the server refuses.
     pub async fn create_room(&self, name: String) -> Result<String, CoreAccountError> {
         Ok(self.matrix_account()?.create_room(&name).await?.to_string())
-    }
-
-    /// The account's profile; the demo's is its user, named by its id.
-    ///
-    /// # Errors
-    /// When the server cannot be reached.
-    pub async fn profile(&self) -> Result<CoreProfile, CoreAccountError> {
-        let account = match self.backend() {
-            Backend::Matrix(account) => account,
-            Backend::Demo(demo) => {
-                let user_id = demo.own_user_id().to_string();
-                return Ok(CoreProfile {
-                    name: user_id.clone(),
-                    user_id,
-                    avatar: None,
-                });
-            }
-        };
-        let profile = account.profile().await?;
-        Ok(CoreProfile {
-            user_id: profile.user_id.to_string(),
-            name: profile.name,
-            avatar: profile.avatar.map(|avatar| avatar.to_string()),
-        })
     }
 }
