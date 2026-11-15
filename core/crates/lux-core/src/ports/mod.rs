@@ -10,12 +10,13 @@
 //! own trait, so an adapter grows piece by piece: a chat's messages ([`ChatTimelines`],
 //! [`ChatSending`], [`ChatMedia`]), its actions and the organizing kept with the account
 //! ([`ChatActions`], [`Organizing`], [`SavedMessages`]), [`Spaces`], [`Scheduling`], [`People`], the
-//! [`AccountProfile`], [`Security`], and the
+//! [`AccountProfile`], a chat's [`ChatDetails`], [`Security`], and the
 //! device's [`Push`] notifications.
 //! A thread's view model takes what it needs of them as one [`ThreadBackend`].
 
 mod account;
 mod bridges;
+mod details;
 mod error;
 mod organizing;
 mod people;
@@ -29,6 +30,10 @@ mod timeline;
 
 pub use account::{ChatAccount, DiffStream, Diffs};
 pub use bridges::{Bridges, StepAnswer};
+pub use details::{
+    ChatDetails, Member, NotificationMode, Role, RoomDetails, RoomPermissions, SharedContent, SharedItem, SharedKind,
+    SharedPage,
+};
 pub use error::{BackendError, Cause, NetworkFailure, UnusableStore};
 pub use organizing::{ChatActions, ChatChange, Organizing, SavedMessages, Scheduling, Spaces, ValueStream};
 pub use people::{Contact, ContactAccount, ContactListing, ContactProblem, People};
