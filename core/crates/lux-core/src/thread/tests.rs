@@ -357,3 +357,36 @@ async fn a_slow_forward_holds_back_only_its_message() {
     thread.updates();
     assert!(row(&thread, "!r:demo/20").message.message.body.is_empty());
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_jump_to_a_photo_in_an_album_answers_the_albums_row() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 20, ReadReceipts::Automatic).await;
+    // two photos sent together, without words: an album.
+    for name in ["a.jpg", "b.jpg"] {
+        let photo = crate::timeline::OutgoingAttachment {
+            file: PathBuf::from(format!("/tmp/{name}")),
+            name: name.to_owned(),
+            mimetype: "image/jpeg".to_owned(),
+            size: 1,
+            kind: crate::timeline::OutgoingKind::Photo { width: 10, height: 10 },
+            thumbnail: None,
+        };
+        thread
+            .threads
+            .timelines()
+            .send_attachment(&"!r:demo".into(), &photo, None, None)
+            .await
+            .unwrap();
+    }
+    thread.frame().await;
+    let album = thread
+        .rows
+        .iter()
+        .find(|row| row.album.len() > 1)
+        .expect("the demo's history has an album");
+    let photo = album.album[1].message.id.clone();
+    assert_ne!(&photo, album.id());
+    // the demo's events are its messages.
+    let row = thread.model.jump_to_event(EventId::from(photo.as_str())).await;
+    assert_eq!(row.as_ref(), Some(album.id()));
+}

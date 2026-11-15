@@ -154,6 +154,8 @@ struct Thread<B> {
     jumping: usize,
     /// Messages to show once their room's timeline has them, and who waits for them.
     reveals: Vec<(MessageId, Option<oneshot::Sender<Option<MessageId>>>)>,
+    /// Jumps to messages now shown, answered with their rows once the rows are presented.
+    jumped: Vec<(MessageId, oneshot::Sender<Option<MessageId>>)>,
     loaded_waiters: Vec<oneshot::Sender<()>>,
     unread_waiters: Vec<oneshot::Sender<Option<MessageId>>>,
     send_room: RoomId,
@@ -223,6 +225,7 @@ impl<B: ThreadBackend> Thread<B> {
             paging: 0,
             jumping: 0,
             reveals: Vec::new(),
+            jumped: Vec::new(),
             loaded_waiters: Vec::new(),
             unread_waiters: Vec::new(),
             can_send_later: false,
@@ -342,7 +345,7 @@ impl<B: ThreadBackend> Thread<B> {
                 match found {
                     Some((index, id)) if self.rooms[index].reveal(&id) => {
                         self.dirty.rows = true;
-                        let _ = answer.send(Some(id));
+                        self.jumped.push((id, answer));
                     }
                     // the room's list has not caught up yet: it shows once it does.
                     Some((_, id)) => self.reveals.push((id, Some(answer))),
@@ -394,6 +397,7 @@ impl<B: ThreadBackend> Thread<B> {
                 diff::changes(&self.rows, &rows, |row| row.id())
             };
             self.rows = rows;
+            self.answer_jumps();
             self.after_rows();
         }
         self.dirty.state = false;
@@ -705,7 +709,7 @@ impl<B: ThreadBackend> Thread<B> {
             if let Some(id) = self.rooms[index].find_event(&event) {
                 self.rooms[index].reveal(&id);
                 self.dirty.rows = true;
-                let _ = answer.send(Some(id));
+                self.jumped.push((id, answer));
                 return;
             }
         }
@@ -951,6 +955,19 @@ impl<B: ThreadBackend> Thread<B> {
         }
     }
 
+    /// Answers the jumps whose messages show now: with the row that shows each, an album's for a
+    /// photo in it (the apps scroll to rows).
+    fn answer_jumps(&mut self) {
+        for (id, answer) in mem::take(&mut self.jumped) {
+            let row = self
+                .rows
+                .iter()
+                .find(|row| row.id() == &id || row.album.iter().any(|message| message.message.id == id))
+                .map(|row| row.id().clone());
+            let _ = answer.send(row.or(Some(id)));
+        }
+    }
+
     /// Shows the messages waiting to show whose room now has them, and answers who waits.
     fn reveal_waiting(&mut self) {
         let mut waiting = mem::take(&mut self.reveals);
@@ -960,7 +977,7 @@ impl<B: ThreadBackend> Thread<B> {
             }
             self.dirty.rows = true;
             if let Some(answer) = answer.take() {
-                let _ = answer.send(Some(id.clone()));
+                self.jumped.push((id.clone(), answer));
             }
             false
         });
