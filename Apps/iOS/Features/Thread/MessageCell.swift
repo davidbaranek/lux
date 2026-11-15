@@ -5,9 +5,13 @@ import UIKit
 /// self-sizing, so showing a row costs a few frame assignments.
 final class MessageCell: UICollectionViewCell {
     let bubble = UIView()
+    /// A plain row's band behind its parts (`MessageLayout.band`).
+    let band = UIView()
     private let day = UILabel()
     private let unreadMarker = UnreadMarkerView()
     private let sender = UILabel()
+    /// A plain group's time, after its sender's name.
+    private let time = UILabel()
     private let quote = UILabel()
     private let photo = RemoteImageView()
     private let videoBadge = VideoBadgeView()
@@ -31,7 +35,11 @@ final class MessageCell: UICollectionViewCell {
     /// One's own bubbles: the place's colour, else the system's blue. A fixed colour, not
     /// .tintColor: the tint dims while a menu is open, and the lifted bubble with it.
     var ownFill = UIColor.systemBlue {
-        didSet { if ownFill != oldValue, let message = shown?.0 { fillBubble(message) } }
+        didSet {
+            guard ownFill != oldValue, let (message, layout) = shown else { return }
+            fillBubble(message)
+            if layout.style == .plain, message.isOwn { sender.textColor = ownFill }
+        }
     }
     private var shown: (MessageItem, MessageLayout)?
     /// The quote of the message this one answers was tapped.
@@ -50,7 +58,7 @@ final class MessageCell: UICollectionViewCell {
         super.init(frame: frame)
         day.textAlignment = .center
         day.textColor = .secondaryLabel
-        sender.textColor = .secondaryLabel
+        time.textColor = .secondaryLabel
         quote.numberOfLines = 2
         body.numberOfLines = 0
         readers.textColor = .secondaryLabel
@@ -84,8 +92,11 @@ final class MessageCell: UICollectionViewCell {
         }
         avatar.side = 28
         failed.tintColor = .systemRed
-        for view in [day, unreadMarker, avatar, sender, bubble, reactions, readers, detail, failed] { contentView.addSubview(view) }
+        band.layer.cornerRadius = 8
+        band.layer.cornerCurve = .continuous
+        for view in [band, day, unreadMarker, avatar, sender, time, bubble, reactions, readers, detail, failed] { contentView.addSubview(view) }
         bubble.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bubbleTapped)))
+        band.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bandTapped)))
         replyArrow.preferredSymbolConfiguration = Self.arrowStyle(armed: false)
         replyArrow.layer.shadowOpacity = 0.15
         replyArrow.layer.shadowRadius = 4
@@ -111,6 +122,9 @@ final class MessageCell: UICollectionViewCell {
         guard ![quote, body, photo, album, fileRow, postMore].contains(where: { !$0.isHidden && $0.frame.contains(point) }) else { return }
         onBubbleTap?()
     }
+
+    /// A tap on a plain row beside its parts.
+    @objc private func bandTapped() { onBubbleTap?() }
 
     @objc private func mediaTapped(_ tap: UITapGestureRecognizer) {
         if let view = tap.view { onMediaTap?(view, 0) }
@@ -164,7 +178,10 @@ final class MessageCell: UICollectionViewCell {
     /// Draws the eye to the bubble after a jump to it: the bubble takes the accent colour, then
     /// fades back to its own.
     func flash() {
-        guard let own = shown?.0.isOwn, let base = bubble.backgroundColor?.resolvedColor(with: traitCollection) else { return }
+        guard let (message, layout) = shown else { return }
+        if layout.band != nil { return flashBand() }
+        guard let base = bubble.backgroundColor?.resolvedColor(with: traitCollection) else { return }
+        let own = message.isOwn
         // others' grey turns to the accent; one's own (already the accent) lightens.
         let highlight = own ? base.blended(with: .white, by: 0.35)
                             : base.blended(with: tintColor.resolvedColor(with: traitCollection), by: 0.55)
@@ -176,16 +193,48 @@ final class MessageCell: UICollectionViewCell {
         bubble.layer.add(pulse, forKey: "flash")
     }
 
+    /// A plain row's band takes a wash of the accent colour, then fades back to its own.
+    private func flashBand() {
+        let base = (band.backgroundColor ?? .clear).resolvedColor(with: traitCollection)
+        let highlight = ownFill.resolvedColor(with: traitCollection).withAlphaComponent(0.25)
+        let pulse = CAKeyframeAnimation(keyPath: "backgroundColor")
+        pulse.values = [base.cgColor, highlight.cgColor, highlight.cgColor, base.cgColor]
+        pulse.keyTimes = [0, 0.12, 0.35, 1]
+        pulse.duration = 1.6
+        pulse.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .linear), CAMediaTimingFunction(name: .easeInEaseOut)]
+        band.layer.add(pulse, forKey: "flash")
+    }
+
+    /// What lifts for the menu: a bubble in its own shape, a plain row's band across the row.
+    var menuPreview: UITargetedPreview {
+        let parameters = UIPreviewParameters()
+        guard let frame = shown?.1.band else {
+            parameters.visiblePath = UIBezierPath(roundedRect: bubble.bounds, cornerRadius: bubble.layer.cornerRadius)
+            parameters.backgroundColor = .clear
+            return UITargetedPreview(view: bubble, parameters: parameters)
+        }
+        parameters.visiblePath = UIBezierPath(roundedRect: frame, cornerRadius: band.layer.cornerRadius)
+        parameters.backgroundColor = .systemBackground
+        return UITargetedPreview(view: contentView, parameters: parameters)
+    }
+
     func show(_ message: MessageItem, layout: MessageLayout, isGroup: Bool, text: MessageText, images: ImagePipeline?) {
         if let shown, shown.0 == message, shown.1 == layout { return }
         shown = (message, layout)
-        let own = message.isOwn
+        let plain = layout.style == .plain
+        // a plain row's parts are on the chat's own ground, one's own too.
+        let own = message.isOwn && !plain
         let ink: UIColor = own ? .white : .label
 
         place(day, layout.day, message.separatorText, text.footer)
         unreadMarker.isHidden = layout.unreadMarker == nil
         if let frame = layout.unreadMarker { unreadMarker.frame = frame }
-        place(sender, layout.sender, message.senderName, text.sender)
+        place(sender, layout.sender, message.senderName, plain ? text.author : text.sender)
+        // one's own name in the place's colour, others' in the text's.
+        sender.textColor = !plain ? .secondaryLabel : message.isOwn ? ownFill : .label
+        place(time, layout.time, message.headerTimeText, text.footer)
+        band.isHidden = layout.band == nil
+        if let frame = layout.band { band.frame = frame }
         bubble.frame = layout.bubble
         fillBubble(message)
         // a message that did not go out is marked as such.
@@ -197,7 +246,9 @@ final class MessageCell: UICollectionViewCell {
         footer.textColor = own && !message.isMediaOnly ? UIColor.white.withAlphaComponent(0.75) : .secondaryLabel
         failed.isHidden = message.state != .failed
         if message.state == .failed {
-            failed.frame = CGRect(x: layout.bubble.minX - 26, y: layout.bubble.midY - 10, width: 20, height: 20)
+            // before a bubble; at a plain row's trailing edge, the picture column being before it.
+            let x = plain ? layout.bubble.maxX + 6 : layout.bubble.minX - 26
+            failed.frame = CGRect(x: x, y: layout.bubble.midY - 10, width: 20, height: 20)
         }
         place(reactions, layout.reactions, message.reactionsText, text.reactions)
         reactions.layer.cornerRadius = (layout.reactions?.height ?? 0) / 2
@@ -209,6 +260,7 @@ final class MessageCell: UICollectionViewCell {
 
         avatar.isHidden = layout.avatar == nil
         if let frame = layout.avatar {
+            avatar.side = frame.width
             avatar.frame = frame
             avatar.show(message.senderAvatar, name: message.senderName, images: images)
         }
@@ -258,10 +310,10 @@ final class MessageCell: UICollectionViewCell {
         postCard.isHidden = layout.post == nil
         if let frame = layout.post {
             postCard.frame = frame
-            // its top is the bubble's; its bottom too when nothing follows it.
-            postCard.layer.maskedCorners = frame.maxY >= layout.bubble.height ? Self.allCorners
+            // its top is the bubble's; its bottom too when nothing follows it (always in a plain row).
+            postCard.layer.maskedCorners = frame.maxY >= layout.bubble.height || layout.style == .plain ? Self.allCorners
                 : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            postCard.backgroundColor = message.isOwn ? .systemGray5 : Self.cardOnGrey
+            postCard.backgroundColor = message.isOwn && layout.style == .bubbles ? .systemGray5 : Self.cardOnGrey
         }
         place(postTitle, layout.postTitle, message.postCard?.title, text.postTitle)
         postTitle.textColor = .label
@@ -289,11 +341,17 @@ final class MessageCell: UICollectionViewCell {
             body.text = message.body
             return
         }
-        body.attributedText = text.bodyText(message, ink: ink, link: message.isOwn ? ink : .link)
+        body.attributedText = text.bodyText(message, ink: ink, link: ink == .white ? ink : .link)
     }
 
-    /// The bubble's colour; a tapped message darkens while its details show.
+    /// The bubble's colour; a tapped message darkens while its details show. A plain row has no
+    /// bubble: its band shades while the details show.
     private func fillBubble(_ message: MessageItem) {
+        if shown?.1.style == .plain {
+            bubble.backgroundColor = .clear
+            band.backgroundColor = message.showsDetail ? .tertiarySystemFill : .clear
+            return
+        }
         let own = ownFill
         bubble.backgroundColor = message.isMediaOnly ? .clear
             : message.isOwn ? (message.showsDetail ? UIColor { own.resolvedColor(with: $0).darkened(by: 0.22) } : own)

@@ -1,11 +1,11 @@
 import LuxCore
 import UIKit
 
-/// Settings: the account, the places' colour, encryption (the key backup), and signing out, as an
+/// Settings: the account, the places' colour and how chats look, encryption (the key backup), and signing out, as an
 /// inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, session }
-    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, signOut }
+    private enum Item: Hashable { case profile, networks, theme, chatStyle, verify, devices, recovery, readReceipts, searchIndex, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -99,6 +99,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.text = String(localized: "Search Index")
                 content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
+            case .chatStyle:
+                break
             case .signOut:
                 content = .cell()
                 content.text = String(localized: "Sign Out")
@@ -106,14 +108,32 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             }
             cell.contentConfiguration = content
         }
+        // bubbles or plain rows, each drawn.
+        let styleCell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { [weak self] cell, _, _ in
+            guard let self else { return }
+            cell.contentView.subviews.forEach { $0.removeFromSuperview() }
+            let picker = ChatStylePicker(style: model.chatStyle)
+            picker.onChoose = { [weak self] style in self?.model.chatStyle = style }
+            picker.translatesAutoresizingMaskIntoConstraints = false
+            cell.contentView.addSubview(picker)
+            let margins = cell.contentView.layoutMarginsGuide
+            NSLayoutConstraint.activate([
+                picker.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+                picker.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+                picker.topAnchor.constraint(equalTo: margins.topAnchor, constant: 4),
+                picker.bottomAnchor.constraint(equalTo: margins.bottomAnchor, constant: -4),
+            ])
+            cell.accessibilityElements = [picker]
+        }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
-            collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
+            item == .chatStyle ? collectionView.dequeueConfiguredReusableCell(using: styleCell, for: indexPath, item: item)
+                : collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
         }
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
         snapshot.appendSections(Section.allCases)
         snapshot.appendItems([.profile], toSection: .account)
         snapshot.appendItems([.networks], toSection: .networks)
-        snapshot.appendItems([.theme], toSection: .appearance)
+        snapshot.appendItems([.theme, .chatStyle], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
         snapshot.appendItems([.signOut], toSection: .session)
@@ -134,6 +154,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         }
         Task { await session.networks?.load() }
         Task { await model.load() }
+    }
+
+    /// The style picker's tiles take the taps; its row is not selected as a whole.
+    func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
+        dataSource.itemIdentifier(for: indexPath) != .chatStyle
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
