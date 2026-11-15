@@ -5,12 +5,12 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use lux_core::ids::{MediaId, MessageId, MessageRef, RoomId};
+use lux_core::ids::{EventId, MediaId, MessageId, MessageRef, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines, ThreadBackend};
 use lux_core::timeline::{
-    FileKind, ImageSource, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind, OutgoingThumbnail,
-    Picture, Quote, StyleKind, TextHistory, TimelineMessage, Typist,
+    FileKind, ImageSource, IndexHistory, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
+    OutgoingThumbnail, Picture, Quote, StyleKind, TimelineMessage, Typist,
 };
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, with_account};
@@ -219,11 +219,30 @@ pub struct CoreIndexedMessage {
     pub is_own: bool,
 }
 
-/// A chat's text messages back to a date, newest first.
+/// A photo as the search index keeps it.
 #[derive(uniffi::Record)]
-pub struct CoreTextHistory {
-    /// The messages.
+pub struct CoreIndexedImage {
+    /// Its event.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// The words sent with it; empty when none.
+    pub caption: String,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The account sent it.
+    pub is_own: bool,
+}
+
+/// A chat's text messages and photos back to a date, newest first.
+#[derive(uniffi::Record)]
+pub struct CoreIndexHistory {
+    /// The text messages.
     pub messages: Vec<CoreIndexedMessage>,
+    /// The photos.
+    pub images: Vec<CoreIndexedImage>,
     /// Nothing is older.
     pub reached_start: bool,
     /// The event ids of the messages deleted meanwhile, for the index to forget.
@@ -324,6 +343,13 @@ pub enum CoreImageSource {
         room_id: String,
         /// The message.
         message_id: String,
+    },
+    /// A photo the search index found, by its event: its thumbnail.
+    Found {
+        /// Its room.
+        room_id: String,
+        /// Its event.
+        event_id: String,
     },
 }
 
@@ -461,10 +487,22 @@ impl From<IndexedMessage> for CoreIndexedMessage {
     }
 }
 
-impl From<TextHistory> for CoreTextHistory {
-    fn from(history: TextHistory) -> Self {
+impl From<IndexHistory> for CoreIndexHistory {
+    fn from(history: IndexHistory) -> Self {
         Self {
             messages: history.messages.into_iter().map(Into::into).collect(),
+            images: history
+                .images
+                .into_iter()
+                .map(|image| CoreIndexedImage {
+                    event_id: image.event_id.to_string(),
+                    room_id: image.room.to_string(),
+                    sender_name: image.sender_name,
+                    caption: image.caption,
+                    date: image.date,
+                    is_own: image.is_own,
+                })
+                .collect(),
             reached_start: history.reached_start,
             removed: history.removed.iter().map(ToString::to_string).collect(),
             deleted_until: history.deleted_until,
@@ -526,6 +564,10 @@ impl From<CoreImageSource> for ImageSource {
                 room: room_id.into(),
                 message: message_id.into(),
             },
+            CoreImageSource::Found { room_id, event_id } => Self::Found {
+                room: room_id.into(),
+                event: event_id.into(),
+            },
         }
     }
 }
@@ -543,19 +585,19 @@ impl CoreAccount {
         Ok(with_account!(self.backend(), account => account.timelines().prefetch(&room).await)?)
     }
 
-    /// The chat's text messages back to `since`, for the search index.
+    /// The chat's text messages and photos back to `since`, for the search index.
     ///
     /// # Errors
     /// When the server cannot be reached.
-    pub async fn text_history(
+    pub async fn index_history(
         &self,
         room_id: String,
         since: SystemTime,
         max_pages: u32,
-    ) -> Result<CoreTextHistory, CoreAccountError> {
+    ) -> Result<CoreIndexHistory, CoreAccountError> {
         let room = RoomId::from(room_id);
         let history = with_account!(self.backend(), account => {
-            account.timelines().text_history(&room, since, max_pages).await
+            account.timelines().index_history(&room, since, max_pages).await
         })?;
         Ok(history.into())
     }
@@ -627,6 +669,30 @@ impl CoreAccount {
         ))
         .await?;
         Ok(path_text(&file))
+    }
+
+    /// A photo's original by its event, loaded into `folder` for the app to read what it shows;
+    /// none when the event is no photo (the demo's photos are the app's to draw).
+    ///
+    /// # Errors
+    /// When it cannot be loaded or written.
+    pub async fn found_photo_file(
+        &self,
+        room_id: String,
+        event_id: String,
+        folder: String,
+    ) -> Result<Option<String>, CoreAccountError> {
+        let Backend::Matrix(account) = self.backend() else {
+            return Ok(None);
+        };
+        // the download's future is large: on the heap.
+        let file = Box::pin(account.timelines().found_photo_file(
+            &RoomId::from(room_id),
+            &EventId::from(event_id),
+            Path::new(&folder),
+        ))
+        .await?;
+        Ok(file.map(|file| path_text(&file)))
     }
 
     /// The largest file the server takes, in bytes.

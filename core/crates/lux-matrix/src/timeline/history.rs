@@ -1,5 +1,5 @@
-//! What a room says besides its live timeline: its text history from the server, for the search
-//! index, and who is typing in it.
+//! What a room says besides its live timeline: its history from the server for the search index
+//! (text messages and photos), and who is typing in it.
 
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -7,10 +7,10 @@ use std::time::SystemTime;
 use futures_util::stream;
 use lux_core::ids::{EventId, MediaId, RoomId, UserId};
 use lux_core::ports::{BackendError, TypingStream};
-use lux_core::timeline::{IndexedMessage, TextHistory, Typist};
+use lux_core::timeline::{IndexHistory, IndexedImage, IndexedMessage, Typist};
 use matrix_sdk::Room;
 use matrix_sdk::room::MessagesOptions;
-use matrix_sdk::ruma::events::room::message::Relation;
+use matrix_sdk::ruma::events::room::message::{MessageType, Relation};
 use matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent;
 use matrix_sdk::ruma::events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent};
 use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, UInt, UserId as SdkUserId};
@@ -23,21 +23,21 @@ use crate::errors::from_sdk;
 /// How many events one page of the history asks the server for.
 const HISTORY_PAGE: u32 = 100;
 
-/// The room's text messages, newest first, back to `since`, its start, the chat's delete
-/// (`deleted_until`: none older shows), or `max_pages` pages: each with its newest text (an
-/// edit's), and the messages deleted since they may have been indexed.
-pub(crate) async fn text_history(
+/// The room's text messages and photos, newest first, back to `since`, its start, the chat's
+/// delete (`deleted_until`: none older shows), or `max_pages` pages: each message with its newest
+/// text (an edit's), and the messages deleted since they may have been indexed.
+pub(crate) async fn index_history(
     room: &Room,
     since: SystemTime,
     deleted_until: Option<SystemTime>,
     max_pages: u32,
-) -> Result<TextHistory, BackendError> {
+) -> Result<IndexHistory, BackendError> {
     let own = room.own_user_id().to_owned();
     let room_id = RoomId::from(room.room_id().as_str());
     let mut names = Names::new(room.clone());
-    let mut history = TextHistory {
+    let mut history = IndexHistory {
         deleted_until,
-        ..TextHistory::default()
+        ..IndexHistory::default()
     };
     // the messages edited, by the place of their newest text in `history.messages`; the pages
     // come newest first, so an older edit, and the message itself, find their place taken.
@@ -86,6 +86,20 @@ pub(crate) async fn text_history(
                 } else {
                     (message.event_id, message.content.msgtype, false)
                 };
+            if let MessageType::Image(image) = &content {
+                // a photo's caption edited later keeps its first: the photo is what is found.
+                if !is_edit {
+                    history.images.push(IndexedImage {
+                        event_id: EventId::from(event_id.as_str()),
+                        room: room_id.clone(),
+                        sender_name: names.name(&message.sender).await,
+                        caption: image.caption().unwrap_or_default().to_owned(),
+                        date,
+                        is_own: message.sender == own,
+                    });
+                }
+                continue;
+            }
             let Some(body) = indexed_text(&content) else {
                 continue;
             };

@@ -48,6 +48,9 @@ tempfile = "3"
 zeroize = "1.9"
 # the stores' key (lux-matrix).
 getrandom = "0.3"
+# photo search's query words as the model's token ids (lux-ffi): Hugging Face's own tokenizer, in
+# pure Rust (its regexes by fancy-regex, not the C Oniguruma).
+tokenizers = { version = "0.22.2", default-features = false, features = ["fancy-regex"] }
 
 # the sdk's own patches: a git dependency does not bring its workspace's.
 [patch.crates-io]

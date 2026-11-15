@@ -13,7 +13,7 @@ use futures_core::Stream;
 
 use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId};
 use crate::message::SendState;
-use crate::timeline::{Draft, ImageSource, OutgoingAttachment, Receipt, TextHistory, TimelineMessage, Typist};
+use crate::timeline::{Draft, ImageSource, IndexHistory, OutgoingAttachment, Receipt, TimelineMessage, Typist};
 
 use super::{BackendError, DiffStream};
 
@@ -95,14 +95,14 @@ pub trait ChatTimelines: Send + Sync {
     /// timeline does not hold it yet; `None` when the chat is read.
     fn first_unread(&self, room: &RoomId) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
 
-    /// The room's text messages, newest first, back to `since`, the room's start, or `max_pages`
-    /// pages from the server: what the search index reads.
-    fn text_history(
+    /// The room's text messages and photos, newest first, back to `since`, the room's start, or
+    /// `max_pages` pages from the server: what the search index reads.
+    fn index_history(
         &self,
         room: &RoomId,
         since: SystemTime,
         max_pages: u32,
-    ) -> impl Future<Output = Result<TextHistory, BackendError>> + Send;
+    ) -> impl Future<Output = Result<IndexHistory, BackendError>> + Send;
 
     /// Who else is typing in the room.
     ///
@@ -209,6 +209,15 @@ pub trait ChatMedia: Send + Sync {
         message: &MessageId,
         folder: &Path,
     ) -> impl Future<Output = Result<PathBuf, BackendError>> + Send;
+
+    /// A photo's original by its event (no timeline holds it), for the apps to read what it
+    /// shows; `None` when the event is no photo.
+    fn found_photo_file(
+        &self,
+        room: &RoomId,
+        event: &EventId,
+        folder: &Path,
+    ) -> impl Future<Output = Result<Option<PathBuf>, BackendError>> + Send;
 
     /// The largest file the server takes, in bytes.
     fn max_upload_size(&self) -> impl Future<Output = Result<u64, BackendError>> + Send;

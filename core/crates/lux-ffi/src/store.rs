@@ -3,8 +3,8 @@
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use lux_core::timeline::IndexedMessage;
-use lux_store::{Error, Hit, IndexedChat, Key, Store};
+use lux_core::timeline::{IndexedImage, IndexedMessage};
+use lux_store::{Error, Hit, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, Store};
 
 /// Why a store call failed.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -89,6 +89,110 @@ pub struct CoreStoreHit {
     pub date: SystemTime,
     /// The user sent it.
     pub is_own: bool,
+}
+
+/// A photo for the search index.
+#[derive(uniffi::Record)]
+pub struct CoreStoreImage {
+    /// Its event id.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// The words sent with it.
+    pub caption: String,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The user sent it.
+    pub is_own: bool,
+}
+
+/// A photo for the app to read.
+#[derive(uniffi::Record)]
+pub struct CoreImageToRead {
+    /// Its event id.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+}
+
+/// What the app read in a photo.
+#[derive(uniffi::Record)]
+pub struct CoreImageRead {
+    /// Its event id.
+    pub event_id: String,
+    /// Who read it, with the reader's version.
+    pub reader: String,
+    /// The words in it.
+    pub words: String,
+    /// Its unit embedding; none when the reader makes none.
+    pub embedding: Option<Vec<f32>>,
+}
+
+/// A search for photos.
+#[derive(uniffi::Record)]
+pub struct CoreImageSearch {
+    /// The typed words.
+    pub text: String,
+    /// The words' embedding in the photos' space; none finds by words only.
+    pub embedding: Option<Vec<f32>>,
+    /// The least cosine a photo found by its look has to the words'.
+    pub min_similarity: f32,
+    /// One chat's photos only.
+    pub room_id: Option<String>,
+    /// At most this many.
+    pub limit: u32,
+}
+
+/// Why a search found a photo.
+#[derive(uniffi::Enum)]
+pub enum CoreImageReason {
+    /// Its caption or the words in it.
+    Words {
+        /// The words around the found ones.
+        excerpt: String,
+        /// The found words in `excerpt`.
+        matches: Vec<CoreStoreMatch>,
+    },
+    /// A message sent near it.
+    Nearby {
+        /// That message's words around the found ones.
+        excerpt: String,
+        /// The found words in `excerpt`.
+        matches: Vec<CoreStoreMatch>,
+    },
+    /// How it looks.
+    Looks {
+        /// The cosine of its and the words' embeddings.
+        similarity: f32,
+    },
+}
+
+/// A photo a search found.
+#[derive(uniffi::Record)]
+pub struct CoreImageHit {
+    /// Its event id.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The user sent it.
+    pub is_own: bool,
+    /// Why it was found.
+    pub reason: CoreImageReason,
+}
+
+/// How many photos the index has, and how many were read.
+#[derive(uniffi::Record)]
+pub struct CoreImageCounts {
+    /// The photos.
+    pub total: u64,
+    /// Those the reader asked about has read.
+    pub read: u64,
 }
 
 /// The account's encrypted store on this device: the message search index and kept values.
@@ -178,6 +282,119 @@ impl CoreStore {
     }
 }
 
+#[uniffi::export]
+impl CoreStore {
+    /// Adds photos, or changes their captions, in one transaction.
+    pub async fn add_images(&self, images: Vec<CoreStoreImage>) -> Result<(), CoreStoreError> {
+        let images = images
+            .into_iter()
+            .map(|image| IndexedImage {
+                event_id: image.event_id.into(),
+                room: image.room_id.into(),
+                sender_name: image.sender_name,
+                caption: image.caption,
+                date: image.date,
+                is_own: image.is_own,
+            })
+            .collect();
+        Ok(self.store.add_images(images).await?)
+    }
+
+    /// The photos `reader` has not read yet, the newest first, at most `limit`.
+    pub async fn images_to_read(&self, reader: String, limit: u32) -> Result<Vec<CoreImageToRead>, CoreStoreError> {
+        let images = self.store.images_to_read(reader, limit).await?;
+        Ok(images
+            .into_iter()
+            .map(|(event_id, room_id)| CoreImageToRead {
+                event_id: event_id.to_string(),
+                room_id: room_id.to_string(),
+            })
+            .collect())
+    }
+
+    /// Keeps what the app read in photos.
+    pub async fn set_images_read(&self, reads: Vec<CoreImageRead>) -> Result<(), CoreStoreError> {
+        let reads = reads
+            .into_iter()
+            .map(|read| ImageRead {
+                event_id: read.event_id.into(),
+                reader: read.reader,
+                words: read.words,
+                embedding: read.embedding,
+            })
+            .collect();
+        Ok(self.store.set_images_read(reads).await?)
+    }
+
+    /// Counts a failed reading of a photo; after a few, it is not asked for again.
+    pub async fn image_unread(&self, event_id: String) -> Result<(), CoreStoreError> {
+        Ok(self.store.image_unread(event_id.into()).await?)
+    }
+
+    /// Forgets what was read in every photo (photo search turned off).
+    pub async fn forget_image_reads(&self) -> Result<(), CoreStoreError> {
+        Ok(self.store.forget_image_reads().await?)
+    }
+
+    /// How many photos the index has, and how many `reader` has read.
+    pub async fn image_counts(&self, reader: String) -> Result<CoreImageCounts, CoreStoreError> {
+        let counts = self.store.image_counts(reader).await?;
+        Ok(CoreImageCounts {
+            total: counts.total,
+            read: counts.read,
+        })
+    }
+
+    /// The photos that match, by their words, the messages near them and their look; the best
+    /// first.
+    pub async fn search_images(&self, search: CoreImageSearch) -> Result<Vec<CoreImageHit>, CoreStoreError> {
+        let hits = self
+            .store
+            .search_images(ImageSearch {
+                text: search.text,
+                embedding: search.embedding,
+                min_similarity: search.min_similarity,
+                room_id: search.room_id.map(Into::into),
+                limit: search.limit,
+            })
+            .await?;
+        Ok(hits.into_iter().map(CoreImageHit::from).collect())
+    }
+}
+
+impl From<ImageHit> for CoreImageHit {
+    fn from(hit: ImageHit) -> Self {
+        Self {
+            event_id: hit.event_id.to_string(),
+            room_id: hit.room_id.to_string(),
+            sender_name: hit.sender_name,
+            date: hit.date,
+            is_own: hit.is_own,
+            reason: match hit.reason {
+                ImageReason::Words { excerpt, matches } => CoreImageReason::Words {
+                    excerpt,
+                    matches: matched(matches),
+                },
+                ImageReason::Nearby { excerpt, matches } => CoreImageReason::Nearby {
+                    excerpt,
+                    matches: matched(matches),
+                },
+                ImageReason::Looks { similarity } => CoreImageReason::Looks { similarity },
+            },
+        }
+    }
+}
+
+fn matched(ranges: Vec<std::ops::Range<u32>>) -> Vec<CoreStoreMatch> {
+    ranges
+        .into_iter()
+        .map(|range| CoreStoreMatch {
+            start: range.start,
+            length: range.end - range.start,
+        })
+        .collect()
+}
+
 impl From<Hit> for CoreStoreHit {
     fn from(hit: Hit) -> Self {
         Self {
@@ -185,14 +402,7 @@ impl From<Hit> for CoreStoreHit {
             room_id: hit.room_id.to_string(),
             sender_name: hit.sender_name,
             excerpt: hit.excerpt,
-            matches: hit
-                .matches
-                .into_iter()
-                .map(|range| CoreStoreMatch {
-                    start: range.start,
-                    length: range.end - range.start,
-                })
-                .collect(),
+            matches: matched(hit.matches),
             date: hit.date,
             is_own: hit.is_own,
         }

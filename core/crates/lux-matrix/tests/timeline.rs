@@ -450,7 +450,7 @@ async fn the_first_unread_message_is_paged_back_to() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_text_history_holds_each_messages_newest_text_and_the_deleted_ones() {
+async fn the_index_history_holds_each_messages_newest_text_and_the_deleted_ones() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
     server
@@ -503,7 +503,7 @@ async fn the_text_history_holds_each_messages_newest_text_and_the_deleted_ones()
     let timelines = MatrixTimelines::new(client);
 
     let history = timelines
-        .text_history(&room(), std::time::SystemTime::UNIX_EPOCH, 3)
+        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, 3)
         .await
         .unwrap();
     assert!(history.reached_start);
@@ -519,6 +519,81 @@ async fn the_text_history_holds_each_messages_newest_text_and_the_deleted_ones()
     );
     assert!(history.removed.iter().all(|event| event.as_str() == "$gone"));
     assert!(!history.removed.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_index_history_holds_photos_with_their_captions_and_a_found_one_loads_by_its_event() {
+    use matrix_sdk::ruma::events::room::message::{ImageMessageEventContent, MessageType, RoomMessageEventContent};
+
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id!("!chat:example.org")))
+        .await;
+    let factory = EventFactory::new()
+        .room(room_id!("!chat:example.org"))
+        .sender(user_id!("@alice:example.org"));
+    let mut captioned = ImageMessageEventContent::plain(
+        "Our dog on the beach".to_owned(),
+        mxc_uri!("mxc://example.org/dog").to_owned(),
+    );
+    captioned.filename = Some("dog.jpg".to_owned());
+    let dog = || {
+        factory
+            .event(RoomMessageEventContent::new(MessageType::Image(captioned.clone())))
+            .event_id(event_id!("$dog"))
+            .server_ts(1_700_000_002_000_u64)
+    };
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            dog().into_raw_timeline(),
+            factory
+                .image(
+                    "IMG_0042.jpg".to_owned(),
+                    mxc_uri!("mxc://example.org/plain").to_owned(),
+                )
+                .event_id(event_id!("$plain"))
+                .server_ts(1_700_000_001_000_u64)
+                .into_raw_timeline(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default())
+        .mount()
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(dog().into_event())
+        .mount()
+        .await;
+    server.mock_authed_media_download().ok_image().mount().await;
+    let timelines = MatrixTimelines::new(client);
+
+    let history = timelines
+        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, 3)
+        .await
+        .unwrap();
+    assert!(history.messages.is_empty());
+    let photos: Vec<(&str, &str)> = history
+        .images
+        .iter()
+        .map(|image| (image.event_id.as_str(), image.caption.as_str()))
+        .collect();
+    // a photo's file name is no caption.
+    assert_eq!(photos, [("$dog", "Our dog on the beach"), ("$plain", "")]);
+
+    let folder = tempfile::tempdir().unwrap();
+    let file = timelines
+        .found_photo_file(&room(), &"$dog".into(), folder.path())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), b"binaryjpegfullimagedata");
 }
 
 #[tokio::test(flavor = "multi_thread")]

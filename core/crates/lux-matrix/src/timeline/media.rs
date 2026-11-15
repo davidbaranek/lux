@@ -5,13 +5,16 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use lux_core::ids::{MediaId, MessageId, RoomId};
+use lux_core::ids::{EventId, MediaId, MessageId, RoomId};
 use lux_core::ports::{BackendError, ChatMedia};
 use lux_core::timeline::ImageSource;
+use matrix_sdk::Room;
 use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
-use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::UInt;
 use matrix_sdk::ruma::events::room::MediaSource;
+use matrix_sdk::ruma::events::room::message::MessageType;
+use matrix_sdk::ruma::events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent};
+use matrix_sdk::ruma::{OwnedEventId, OwnedMxcUri};
 use sha2::{Digest, Sha256};
 use tracing::debug;
 use uuid::Uuid;
@@ -77,15 +80,16 @@ impl ChatMedia for MatrixTimelines {
                     return Ok(None);
                 };
                 match (media.thumbnail, source) {
-                    // the sender's thumbnail or poster, as it is.
                     (Some(thumbnail), _) => original(thumbnail),
                     (None, ImageSource::Poster { .. }) => return Ok(None),
-                    // a photo without one: the server scales it, unless it is encrypted.
-                    (None, _) => match media.source {
-                        MediaSource::Plain(_) => thumbnail(media.source, THUMBNAIL_SIDE),
-                        MediaSource::Encrypted(_) => original(media.source),
-                    },
+                    (None, _) => photo_thumbnail(media.source),
                 }
+            }
+            ImageSource::Found { room, event } => {
+                let Some(photo) = found_photo(&self.room(room)?, event).await? else {
+                    return Ok(None);
+                };
+                photo.thumbnail.map_or_else(|| photo_thumbnail(photo.source), original)
             }
         };
         let file = folder.join(file_name(&request));
@@ -121,6 +125,30 @@ impl ChatMedia for MatrixTimelines {
         Ok(file)
     }
 
+    async fn found_photo_file(
+        &self,
+        room: &RoomId,
+        event: &EventId,
+        folder: &Path,
+    ) -> Result<Option<PathBuf>, BackendError> {
+        let Some(photo) = found_photo(&self.room(room)?, event).await? else {
+            return Ok(None);
+        };
+        let request = original(photo.source);
+        let file = folder.join(file_name(&request));
+        if !file.is_file() {
+            // read once by the apps, then deleted: not kept in the SDK's cache.
+            let data = self
+                .client
+                .media()
+                .get_media_content(&request, false)
+                .await
+                .map_err(from_sdk)?;
+            write(&file, data).await?;
+        }
+        Ok(Some(file))
+    }
+
     async fn max_upload_size(&self) -> Result<u64, BackendError> {
         self.client
             .load_or_fetch_max_upload_size()
@@ -148,6 +176,41 @@ async fn picture_content(
                 .await
         }
         content => content,
+    }
+}
+
+/// A photo's media, and its sender's thumbnail.
+struct FoundPhoto {
+    source: MediaSource,
+    thumbnail: Option<MediaSource>,
+}
+
+/// The photo `event` sent, from the event cache or the server (decrypted); `None` when it is no
+/// photo, or no longer one (deleted).
+async fn found_photo(room: &Room, event: &EventId) -> Result<Option<FoundPhoto>, BackendError> {
+    let event_id = OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;
+    let event = room.load_or_fetch_event(&event_id, None).await.map_err(from_sdk)?;
+    let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
+        message,
+    )))) = event.raw().deserialize()
+    else {
+        return Ok(None);
+    };
+    let MessageType::Image(image) = message.content.msgtype else {
+        return Ok(None);
+    };
+    Ok(Some(FoundPhoto {
+        thumbnail: image.info.and_then(|info| info.thumbnail_source),
+        source: image.source,
+    }))
+}
+
+/// A photo's thumbnail when its sender sent none: the server scales it, unless it is encrypted
+/// (the server cannot read it), then the photo as it is, which the apps scale.
+fn photo_thumbnail(source: MediaSource) -> MediaRequestParameters {
+    match source {
+        MediaSource::Plain(_) => thumbnail(source, THUMBNAIL_SIDE),
+        MediaSource::Encrypted(_) => original(source),
     }
 }
 
