@@ -44,6 +44,18 @@ public final class ChatListModel {
     /// Shows every hidden place again.
     public func showAllPlaces() { list?.showAllPlaces() }
 
+    /// The colour of the places without one of their own; kept with the account.
+    public private(set) var defaultTheme = PlaceTheme.neutral
+
+    /// The colour the shown place shows in.
+    public var theme: PlaceTheme { places.first { $0.id == place }?.theme ?? defaultTheme }
+
+    /// Gives a place its own colour, or (nil) the one for every place; shown at once, kept with the account.
+    public func setTheme(_ place: Place, _ theme: PlaceTheme?) { list?.setTheme(place, theme) }
+
+    /// Sets the colour of the places without one of their own.
+    public func setDefaultTheme(_ theme: PlaceTheme) { list?.setDefaultTheme(theme) }
+
     /// Shows the list again with what may have changed outside it (drafts, for the Drafts filter).
     public func refresh() {
         if filter == .drafts { list?.setDrafts(Preferences.shared.chatsWithDrafts) }
@@ -136,8 +148,11 @@ public final class ChatListModel {
             }
             loadState = loading.state
         }
+        if let theme = batch.theme { defaultTheme = theme }
         if let places = batch.places {
             self.places = places
+            onPlaces?(places)
+        } else if batch.theme != nil {
             onPlaces?(places)
         }
         Signposts.list.endInterval("batch", state, "\(changed.count) changed")

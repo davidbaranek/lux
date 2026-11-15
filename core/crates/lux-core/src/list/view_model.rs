@@ -23,7 +23,7 @@ use crate::actions::Actions;
 use crate::chat::{Chat, Request, ScheduledMessage, Space};
 use crate::ids::{ChatId, EventId, LabelId, RoomId, ScheduledId};
 use crate::organizer::Organized;
-use crate::places::{Arrangement, ChatFilter, ChatOrder, PlaceId};
+use crate::places::{Arrangement, ChatFilter, ChatOrder, PlaceId, Theme};
 use crate::ports::{
     BackendError, ChatAccount, ChatActions, ChatChange, Diffs, Organizing, SavedMessages, Scheduling, Spaces,
 };
@@ -81,6 +81,8 @@ enum Intent {
     Reorder(Vec<PlaceId>),
     Hide(PlaceId, bool),
     ShowAllPlaces,
+    Theme(PlaceId, Option<Theme>),
+    DefaultTheme(Theme),
     Act(Action),
     /// The waiting messages, read.
     Scheduled(Vec<ScheduledMessage>),
@@ -239,6 +241,16 @@ impl ChatListViewModel {
     /// Shows every hidden place again.
     pub fn show_all_places(&self) {
         self.send(Intent::ShowAllPlaces);
+    }
+
+    /// Gives a place its own colour, or (`None`) the one for every place.
+    pub fn set_theme(&self, place: PlaceId, theme: Option<Theme>) {
+        self.send(Intent::Theme(place, theme));
+    }
+
+    /// Sets the colour of the places without one of their own.
+    pub fn set_default_theme(&self, theme: Theme) {
+        self.send(Intent::DefaultTheme(theme));
     }
 }
 
@@ -432,6 +444,15 @@ fn handle<B: ChatListBackend>(intent: Intent, state: &mut ListState, actor: &mut
             arrangement.hidden.clear();
             return arrange(state, actor, arrangement);
         }
+        Intent::Theme(place, theme) => {
+            let arrangement = state.arrangement().clone().with_theme(place.key(), theme);
+            return arrange(state, actor, arrangement);
+        }
+        Intent::DefaultTheme(theme) => {
+            let mut arrangement = state.arrangement().clone();
+            arrangement.theme = theme;
+            return arrange(state, actor, arrangement);
+        }
         Intent::Act(action) => {
             actor.act(action);
             return false;
@@ -578,7 +599,7 @@ mod tests {
     use crate::demo::{DemoAccount, DemoConfig};
     use crate::list::{ListRow, ListUpdate, LoadState};
     use crate::network::Network;
-    use crate::places::{PlaceId, SectionId};
+    use crate::places::{PlaceId, SectionId, Theme};
     use crate::ports::{BackendError, ChatChange};
 
     struct Relay(mpsc::UnboundedSender<ListUpdate>);
@@ -770,6 +791,34 @@ mod tests {
             batch = next(&mut batches).await;
         }
         assert!(batch.places.unwrap().iter().all(|place| !place.is_hidden));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_colour_shows_at_once_and_the_one_for_every_place_with_it() {
+        let demo = demo();
+        let (list, mut batches) = list(&demo);
+        let first = next(&mut batches).await;
+        assert_eq!(first.theme, Some(Theme::Neutral));
+        let signal = PlaceId::Network(Network::from_id("signal"));
+        list.set_theme(signal.clone(), Some(Theme::Orange));
+        let batch = next(&mut batches).await;
+        let places = batch.places.unwrap();
+        let place = places.iter().find(|place| place.id == signal).unwrap();
+        assert_eq!((place.theme, place.own_theme), (Theme::Orange, Some(Theme::Orange)));
+        assert_eq!(batch.theme, None);
+        list.set_default_theme(Theme::Indigo);
+        let mut batch = next(&mut batches).await;
+        while batch.theme.is_none() {
+            batch = next(&mut batches).await;
+        }
+        assert_eq!(batch.theme, Some(Theme::Indigo));
+        let places = batch.places.unwrap();
+        assert!(places.iter().all(|place| place.theme
+            == if place.id == signal {
+                Theme::Orange
+            } else {
+                Theme::Indigo
+            }));
     }
 
     #[tokio::test(start_paused = true)]

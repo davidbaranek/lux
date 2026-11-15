@@ -13,7 +13,7 @@ use lux_core::chat::{SavedKind, SavedMessage};
 use lux_core::ids::{EventId, LabelId, RoomId, UserId};
 use lux_core::merge::Merge;
 use lux_core::organizer::{ChatMarks, LabelRecord, Reminder, Reminders, WholeLabel};
-use lux_core::places::{Arrangement, PlaceKey};
+use lux_core::places::{Arrangement, PlaceKey, Theme};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -27,7 +27,7 @@ pub(crate) const REMINDERS: &str = "com.bardav.lux.reminders";
 pub(crate) const MERGES: &str = "com.bardav.lux.merges";
 /// The saved messages.
 pub(crate) const BOOKMARKS: &str = "com.bardav.lux.bookmarks";
-/// The places' order and the hidden ones.
+/// The places' order, the hidden ones, and their colours.
 pub(crate) const PLACE_ORDER: &str = "com.bardav.lux.place_order";
 /// The labels' first document, read only: their changes are records.
 pub(crate) const LABELS: &str = "com.bardav.lux.labels";
@@ -295,8 +295,9 @@ fn saved_kind_name(kind: SavedKind) -> &'static str {
 
 // MARK: the places' arrangement
 
-/// `{"order": ["network:whatsapp", …], "hidden": […]}`; `hidden` came later, and its absence
-/// hides nothing.
+/// `{"order": ["network:whatsapp", …], "hidden": […], "themes": {"space:!s": "blue", …},
+/// "theme": "green"}`; `hidden` and the colours came later, and their absence hides nothing and
+/// colours nothing. A colour this version does not know reads as none.
 pub(crate) fn arrangement(content: &Content) -> Arrangement {
     let keys = |key: &str| {
         content
@@ -306,15 +307,33 @@ pub(crate) fn arrangement(content: &Content) -> Arrangement {
             .flatten()
             .filter_map(|key| key.as_str().map(PlaceKey::from))
     };
+    let themes = object(content, "themes")
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, theme)| Some((PlaceKey::from(key.as_str()), Theme::from_key(theme.as_str()?)?)))
+        .collect();
     Arrangement {
         order: keys("order").collect(),
         hidden: keys("hidden").collect(),
+        themes,
+        theme: text(content, "theme").and_then(Theme::from_key).unwrap_or_default(),
     }
 }
 
+/// The content with `arrangement` written in. A place's colour this version does not know stays
+/// until this device gives that place another.
 pub(crate) fn with_arrangement(content: &Content, arrangement: &Arrangement) -> Content {
     let mut hidden: Vec<&str> = arrangement.hidden.iter().map(PlaceKey::as_str).collect();
     hidden.sort_unstable();
+    let mut themes: Content = object(content, "themes")
+        .into_iter()
+        .flatten()
+        .filter(|(_, theme)| theme.as_str().and_then(Theme::from_key).is_none())
+        .map(|(key, theme)| (key.clone(), theme.clone()))
+        .collect();
+    for (key, theme) in &arrangement.themes {
+        themes.insert(key.as_str().to_owned(), theme.as_str().into());
+    }
     let mut content = content.clone();
     content.insert(
         "order".to_owned(),
@@ -326,6 +345,11 @@ pub(crate) fn with_arrangement(content: &Content, arrangement: &Arrangement) -> 
             .into(),
     );
     content.insert("hidden".to_owned(), hidden.into());
+    content.insert("themes".to_owned(), themes.into());
+    // an unknown colour for every place stays while this device keeps neutral.
+    if arrangement.theme != Theme::Neutral || text(&content, "theme").and_then(Theme::from_key).is_some() {
+        content.insert("theme".to_owned(), arrangement.theme.as_str().into());
+    }
     content
 }
 
@@ -531,6 +555,35 @@ mod tests {
         let mut changed = old.clone();
         changed.hidden.insert("space:!s".into());
         assert_eq!(arrangement(&with_arrangement(&Content::new(), &changed)), changed);
+    }
+
+    #[test]
+    fn the_places_colours_read_back_and_unknown_ones_stay() {
+        let old = content(json!({
+            "order": [],
+            "themes": {"space:!s": "blue", "space:!new": "ultraviolet"},
+            "theme": "green",
+        }));
+        let read = arrangement(&old);
+        assert_eq!(read.theme, Theme::Green);
+        assert_eq!(read.themes.len(), 1);
+        assert_eq!(read.theme_of(&"space:!s".into()), Theme::Blue);
+        assert_eq!(read.theme_of(&"space:!new".into()), Theme::Green);
+        let changed = read
+            .with_theme("space:!s".into(), None)
+            .with_theme("label:work".into(), Some(Theme::Neutral));
+        let written = with_arrangement(&old, &changed);
+        assert_eq!(
+            Value::Object(written["themes"].as_object().unwrap().clone()),
+            json!({"space:!new": "ultraviolet", "label:work": "neutral"})
+        );
+        assert_eq!(arrangement(&written), changed);
+        let neutral = Arrangement {
+            theme: Theme::Neutral,
+            ..changed
+        };
+        assert_eq!(with_arrangement(&old, &neutral)["theme"], json!("neutral"));
+        assert!(!with_arrangement(&Content::new(), &Arrangement::default()).contains_key("theme"));
     }
 
     #[test]

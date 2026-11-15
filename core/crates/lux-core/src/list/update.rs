@@ -7,7 +7,7 @@ use eyeball_im::VectorDiff;
 use super::{ListRow, Loading, SectionHeader};
 use crate::chat::Label;
 use crate::ids::ChatId;
-use crate::places::{ListedPlace, PlaceId, SectionId};
+use crate::places::{ListedPlace, PlaceId, SectionId, Theme};
 
 /// The rows of one section that changed, as diffs to apply in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +36,8 @@ pub struct ListUpdate {
     pub place: PlaceId,
     /// The places, arranged, when any changed.
     pub places: Option<Vec<ListedPlace>>,
+    /// The colour of the places without one of their own, when it changed.
+    pub theme: Option<Theme>,
     /// The shown place's sections in order, when they changed (one came or went, or a heading
     /// changed). A section that stays keeps its rows.
     pub sections: Option<Vec<SectionHeader>>,
@@ -54,6 +56,7 @@ impl ListUpdate {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.places.is_none()
+            && self.theme.is_none()
             && self.sections.is_none()
             && self.rows.is_empty()
             && self.labels.is_none()

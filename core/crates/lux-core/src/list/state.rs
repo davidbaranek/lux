@@ -12,7 +12,7 @@ use crate::chat::{Chat, Label, Request, ScheduledMessage, Snapshot, Space};
 use crate::diff;
 use crate::ids::ChatId;
 use crate::organizer::Organized;
-use crate::places::{self, Arrangement, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId};
+use crate::places::{self, Arrangement, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, Theme};
 
 /// What the listener was last sent.
 #[derive(Debug, Default)]
@@ -23,6 +23,7 @@ struct Shown {
     labels: Option<Vec<Label>>,
     reminders: Option<Vec<DueReminder>>,
     loading: Option<Loading>,
+    theme: Option<Theme>,
 }
 
 /// The list's state.
@@ -216,9 +217,14 @@ impl ListState {
         if loading.is_some() {
             self.shown.loading = loading;
         }
+        let theme = (self.shown.theme != Some(arrangement.theme)).then_some(arrangement.theme);
+        if theme.is_some() {
+            self.shown.theme = theme;
+        }
         ListUpdate {
             place: self.place.clone(),
             places,
+            theme,
             sections: headers_changed.then_some(headers),
             rows,
             labels,

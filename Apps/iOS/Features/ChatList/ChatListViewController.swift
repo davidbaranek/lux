@@ -27,6 +27,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     /// The sections drawn as a grid (the inbox's pinned chats).
     private var gridSections: Set<String> = []
     private var dataSource: UICollectionViewDiffableDataSource<String, String>!
+    /// The shown place's colour behind the top of the list.
+    private let band = ThemeBand()
 
     /// The app's badge: the inbox's unread chats.
     private let badge: (Int) -> Void
@@ -85,7 +87,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
                 return Self.pinnedGrid(environment)
             }
             var list = UICollectionLayoutListConfiguration(appearance: .plain)
-            list.backgroundColor = .systemBackground
+            // clear: the place's colour shows through at the top (`ThemeBand`).
+            list.backgroundColor = .clear
             // no line above a section's first chat: lines only between chats.
             list.itemSeparatorHandler = { indexPath, configuration in
                 var configuration = configuration
@@ -132,6 +135,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
                 self?.collectionView.refreshControl?.endRefreshing()
             }
         })
+        collectionView.backgroundColor = .systemBackground
+        collectionView.addSubview(band)
         view.addSubview(collectionView)
         // what scrolls under the bar blurs out gradually, not at a hard edge (the system's default).
         collectionView.topEdgeEffect.style = .soft
@@ -141,6 +146,13 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             guard let row = self?.rows[id] else { return }
             cell.contentConfiguration = ChatRowConfiguration(row: row, images: images)
             cell.accessories = []
+            // at rest the row is clear, so the place's colour shows behind it (`ThemeBand`); a
+            // touch or a selection fills it as the system's list does.
+            cell.configurationUpdateHandler = { cell, state in
+                var background = UIBackgroundConfiguration.listCell().updated(for: state)
+                if !state.isHighlighted && !state.isSelected { background.backgroundColor = .clear }
+                cell.backgroundConfiguration = background
+            }
         }
         let pinned = UICollectionView.CellRegistration<PinnedChatCell, String> { [weak self] cell, _, id in
             guard let row = self?.rows[id] else { return }
@@ -184,6 +196,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setToolbarHidden(false, animated: animated)
+        updateTheme()
         // a draft may have been written or sent in the chat just left.
         if model.filter == .drafts { model.refresh() }
         guard let selected = collectionView.indexPathsForSelectedItems?.first else { return }
@@ -514,7 +527,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     private func openSettings() {
-        navigationController?.pushViewController(SettingsViewController(session: session, model: SettingsModel(session: session), signOut: signOut), animated: true)
+        navigationController?.pushViewController(SettingsViewController(session: session, model: SettingsModel(session: session), list: model,
+                                                                        signOut: signOut), animated: true)
     }
 
     // MARK: Places
@@ -528,6 +542,23 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         return item
     }()
     weak var placesSheet: PlacesSheetViewController?
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        band.place(in: collectionView)
+    }
+
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        band.place(in: scrollView)
+    }
+
+    /// The shown place's colour: the accent of the list and of what opens from it, and the band at
+    /// the top. Neutral keeps the app's own.
+    func updateTheme() {
+        let theme = model.theme
+        band.theme = theme
+        navigationController?.view.tintColor = theme.color
+    }
 
     /// Which of the place's chats show: the button at the bottom left.
     lazy var filterButton: UIBarButtonItem = {

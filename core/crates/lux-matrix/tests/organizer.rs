@@ -505,6 +505,10 @@ async fn the_places_arrangement_is_written() {
     let mut arrangement = lux_core::places::Arrangement::default();
     arrangement.order.push("network:whatsapp".into());
     arrangement.hidden.insert("space:!s".into());
+    arrangement
+        .themes
+        .insert("space:!s".into(), lux_core::places::Theme::Teal);
+    arrangement.theme = lux_core::places::Theme::Purple;
     account.set_arrangement(&arrangement).await.unwrap();
     organized_until(&account, |organized| organized.arrangement == arrangement).await;
 }

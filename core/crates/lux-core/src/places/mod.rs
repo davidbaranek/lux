@@ -2,8 +2,9 @@
 //! the spaces, the labels), and how the user arranged them.
 //!
 //! The user's arrangement is kept with the account, so every device shows the places alike:
-//! the order of the networks, spaces and labels, and the places hidden from view. The folders
-//! keep the app's order, and the inbox is never hidden.
+//! the order of the networks, spaces and labels, the places hidden from view, and the places'
+//! colours (one each, and one for those without). The folders keep the app's order, and the
+//! inbox is never hidden.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -14,10 +15,12 @@ use crate::network::Network;
 
 mod filter;
 mod list;
+mod theme;
 
 pub use filter::ChatFilter;
 pub(crate) use list::compose;
 pub use list::{ChatOrder, ListedPlace, Row, Section, SectionId, SectionStyle};
+pub use theme::Theme;
 
 /// A place's key, stable across launches and devices: `"network:whatsapp"`, `"space:!id"`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -79,13 +82,18 @@ impl PlaceGroup {
     }
 }
 
-/// How the user arranged the places: an order for the reorderable ones, and the hidden ones.
+/// How the user arranged the places: an order for the reorderable ones, the hidden ones, and
+/// their colours.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Arrangement {
     /// Places in the user's order; a place not named comes after those that are.
     pub order: Vec<PlaceKey>,
     /// Places hidden from view (the inbox is shown all the same).
     pub hidden: HashSet<PlaceKey>,
+    /// The colour of each place the user gave one (neutral among them); the others take `theme`.
+    pub themes: HashMap<PlaceKey, Theme>,
+    /// The colour of the places without one of their own.
+    pub theme: Theme,
 }
 
 impl Arrangement {
@@ -103,6 +111,22 @@ impl Arrangement {
         } else {
             self.hidden.remove(&key);
         }
+        self
+    }
+
+    /// The colour `key` shows in: its own, else the one for every place.
+    #[must_use]
+    pub fn theme_of(&self, key: &PlaceKey) -> Theme {
+        self.themes.get(key).copied().unwrap_or(self.theme)
+    }
+
+    /// A copy with `key`'s own colour `theme`, or (`None`) the one for every place.
+    #[must_use]
+    pub fn with_theme(mut self, key: PlaceKey, theme: Option<Theme>) -> Self {
+        match theme {
+            Some(theme) => self.themes.insert(key, theme),
+            None => self.themes.remove(&key),
+        };
         self
     }
 }
@@ -287,5 +311,22 @@ mod tests {
                 .with_hidden("network:signal".into(), false)
                 .hides(&"network:signal".into())
         );
+    }
+
+    #[test]
+    fn a_place_takes_its_own_colour_else_the_one_for_every_place() {
+        let space: PlaceKey = "space:!a".into();
+        let other: PlaceKey = "space:!b".into();
+        let arrangement = Arrangement {
+            theme: Theme::Blue,
+            ..Arrangement::default()
+        }
+        .with_theme(space.clone(), Some(Theme::Neutral));
+        assert_eq!(arrangement.theme_of(&space), Theme::Neutral);
+        assert_eq!(arrangement.theme_of(&other), Theme::Blue);
+        let arrangement = arrangement.with_theme(space.clone(), None);
+        assert_eq!(arrangement.theme_of(&space), Theme::Blue);
+        assert!(arrangement.themes.is_empty());
+        assert_eq!(Arrangement::default().theme_of(&space), Theme::Neutral);
     }
 }

@@ -32,6 +32,8 @@ struct ChatListBatch: Sendable {
     /// The place shown: the one asked for, or the inbox when it went away.
     var place: Place
     var places: [PlaceItem]?
+    /// The colour of the places without one of their own, when it changed.
+    var theme: PlaceTheme?
     /// The sections in order, when one came or went.
     var sections: [Header]?
     var rows: [SectionEdits]

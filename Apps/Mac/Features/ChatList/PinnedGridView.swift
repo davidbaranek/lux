@@ -21,12 +21,17 @@ final class PinnedGridView: NSTableCellView {
     var onOpen: ((ChatRow) -> Void)?
     var menuProvider: ((ChatRow) -> NSMenu?)?
     private var tiles: [PinnedTile] = []
+    /// The shown place's accent, for the unread dots.
+    var accent = NSColor.controlAccentColor {
+        didSet { if accent != oldValue { tiles.forEach { $0.accent = accent } } }
+    }
 
     override var isFlipped: Bool { true }
 
     func show(_ rows: [ChatRow], images: ImagePipeline?) {
         while tiles.count < rows.count {
             let tile = PinnedTile()
+            tile.accent = accent
             tile.onOpen = { [weak self] row in self?.onOpen?(row) }
             tile.menuProvider = { [weak self] row in self?.menuProvider?(row) }
             addSubview(tile)
@@ -58,6 +63,12 @@ private final class PinnedTile: NSView {
     private let name = NSTextField(labelWithString: "")
     private let dot = NSView()
     private var row: ChatRow?
+    var accent = NSColor.controlAccentColor {
+        didSet { needsDisplay = true }
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() { dot.layer?.backgroundColor = accent.cgColor }
 
     override var isFlipped: Bool { true }
 
@@ -66,8 +77,8 @@ private final class PinnedTile: NSView {
         name.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         name.alignment = .center
         name.lineBreakMode = .byTruncatingTail
+        wantsLayer = true
         dot.wantsLayer = true
-        dot.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         dot.layer?.cornerRadius = 5
         for view in [avatar, name, dot] as [NSView] { addSubview(view) }
         setAccessibilityRole(.button)

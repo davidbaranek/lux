@@ -1,7 +1,7 @@
 //! Places, as the apps see them.
 
 use lux_core::network::Network;
-use lux_core::places::{ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, SectionStyle};
+use lux_core::places::{ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, SectionStyle, Theme};
 
 use crate::chat::CoreFolder;
 
@@ -70,6 +70,78 @@ impl From<PlaceId> for CorePlace {
     }
 }
 
+/// A place's colour: neutral (the apps' look) or one of the system's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, uniffi::Enum)]
+pub enum CoreTheme {
+    /// The apps' look.
+    #[default]
+    Neutral,
+    /// Red.
+    Red,
+    /// Orange.
+    Orange,
+    /// Yellow.
+    Yellow,
+    /// Green.
+    Green,
+    /// Mint.
+    Mint,
+    /// Teal.
+    Teal,
+    /// Cyan.
+    Cyan,
+    /// Blue.
+    Blue,
+    /// Indigo.
+    Indigo,
+    /// Purple.
+    Purple,
+    /// Pink.
+    Pink,
+    /// Brown.
+    Brown,
+}
+
+impl From<CoreTheme> for Theme {
+    fn from(theme: CoreTheme) -> Self {
+        match theme {
+            CoreTheme::Neutral => Self::Neutral,
+            CoreTheme::Red => Self::Red,
+            CoreTheme::Orange => Self::Orange,
+            CoreTheme::Yellow => Self::Yellow,
+            CoreTheme::Green => Self::Green,
+            CoreTheme::Mint => Self::Mint,
+            CoreTheme::Teal => Self::Teal,
+            CoreTheme::Cyan => Self::Cyan,
+            CoreTheme::Blue => Self::Blue,
+            CoreTheme::Indigo => Self::Indigo,
+            CoreTheme::Purple => Self::Purple,
+            CoreTheme::Pink => Self::Pink,
+            CoreTheme::Brown => Self::Brown,
+        }
+    }
+}
+
+impl From<Theme> for CoreTheme {
+    fn from(theme: Theme) -> Self {
+        match theme {
+            Theme::Neutral => Self::Neutral,
+            Theme::Red => Self::Red,
+            Theme::Orange => Self::Orange,
+            Theme::Yellow => Self::Yellow,
+            Theme::Green => Self::Green,
+            Theme::Mint => Self::Mint,
+            Theme::Teal => Self::Teal,
+            Theme::Cyan => Self::Cyan,
+            Theme::Blue => Self::Blue,
+            Theme::Indigo => Self::Indigo,
+            Theme::Purple => Self::Purple,
+            Theme::Pink => Self::Pink,
+            Theme::Brown => Self::Brown,
+        }
+    }
+}
+
 /// Which of a place's chats the list shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum CoreChatFilter {
@@ -129,6 +201,10 @@ pub struct CoreListedPlace {
     pub name: Option<String>,
     /// A space's picture (a media URL).
     pub avatar: Option<String>,
+    /// The colour it shows in: its own, else the one for every place.
+    pub theme: CoreTheme,
+    /// The colour the user gave it; `None` takes the one for every place.
+    pub own_theme: Option<CoreTheme>,
 }
 
 impl From<ListedPlace> for CoreListedPlace {
@@ -139,6 +215,8 @@ impl From<ListedPlace> for CoreListedPlace {
             is_hidden: listed.is_hidden,
             name: listed.name,
             avatar: listed.avatar.map(|avatar| avatar.to_string()),
+            theme: listed.theme.into(),
+            own_theme: listed.own_theme.map(CoreTheme::from),
         }
     }
 }

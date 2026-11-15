@@ -17,7 +17,8 @@ final class PinnedChatCell: UICollectionViewCell {
         name.adjustsFontForContentSizeCategory = true
         name.textAlignment = .center
         name.lineBreakMode = .byTruncatingTail
-        dot.backgroundColor = .systemBlue
+        // the place's accent, as the rows' unread badges.
+        dot.backgroundColor = .tintColor
         dot.layer.cornerRadius = 6
         dot.layer.borderWidth = 2
         dot.layer.borderColor = UIColor.systemBackground.cgColor

@@ -15,7 +15,9 @@ use tokio::sync::oneshot;
 use crate::account::{Backend, CoreAccount, CoreAccountError, CoreChat, CoreRequest, list_diff, with_account};
 use crate::chat::{CoreLabel, CoreSavedMessage, CoreScheduledMessage};
 use crate::organizing::CoreChatChange;
-use crate::places::{CoreChatFilter, CoreChatOrder, CoreListedPlace, CorePlace, CoreSectionId, CoreSectionStyle};
+use crate::places::{
+    CoreChatFilter, CoreChatOrder, CoreListedPlace, CorePlace, CoreSectionId, CoreSectionStyle, CoreTheme,
+};
 use crate::runtime;
 use crate::store::CoreStore;
 
@@ -159,6 +161,8 @@ pub struct CoreListUpdate {
     pub place: CorePlace,
     /// The places, when any changed.
     pub places: Option<Vec<CoreListedPlace>>,
+    /// The colour of the places without one of their own, when it changed.
+    pub theme: Option<CoreTheme>,
     /// The sections in order, when they changed.
     pub sections: Option<Vec<CoreSectionHeader>>,
     /// The sections whose rows changed.
@@ -178,6 +182,7 @@ impl From<ListUpdate> for CoreListUpdate {
             places: update
                 .places
                 .map(|places| places.into_iter().map(CoreListedPlace::from).collect()),
+            theme: update.theme.map(CoreTheme::from),
             sections: update.sections.map(|sections| {
                 sections
                     .into_iter()
@@ -432,6 +437,16 @@ impl CoreChatList {
     /// Shows every hidden place again.
     pub fn show_all_places(&self) {
         self.list.show_all_places();
+    }
+
+    /// Gives a place its own colour, or (`None`) the one for every place.
+    pub fn set_theme(&self, place: CorePlace, theme: Option<CoreTheme>) {
+        self.list.set_theme(place.into(), theme.map(Into::into));
+    }
+
+    /// Sets the colour of the places without one of their own.
+    pub fn set_default_theme(&self, theme: CoreTheme) {
+        self.list.set_default_theme(theme.into());
     }
 }
 

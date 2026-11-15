@@ -1,22 +1,27 @@
 import LuxCore
 import UIKit
 
-/// Settings: the account, encryption (the key backup), and signing out, as an inset-grouped list.
+/// Settings: the account, the places' colour, encryption (the key backup), and signing out, as an
+/// inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
-    private enum Section: Int, CaseIterable { case account, networks, encryption, privacy, session }
-    private enum Item: Hashable { case profile, networks, verify, devices, recovery, readReceipts, searchIndex, signOut }
+    private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, session }
+    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, signOut }
 
     private let model: SettingsModel
     private let session: Session
+    private let list: ChatListModel
+    /// The places' colour as chosen here: the list has it a moment later.
+    private lazy var theme = list.defaultTheme
     private let signOut: () -> Void
     private var observation: AnyObject?
     private var networksObservation: AnyObject?
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
 
-    init(session: Session, model: SettingsModel, signOut: @escaping () -> Void) {
+    init(session: Session, model: SettingsModel, list: ChatListModel, signOut: @escaping () -> Void) {
         self.session = session
         self.model = model
+        self.list = list
         self.signOut = signOut
         super.init(nibName: nil, bundle: nil)
         title = String(localized: "Settings")
@@ -51,6 +56,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.secondaryText = networksSummary
                 content.image = UIImage(systemName: "point.3.connected.trianglepath.dotted")
                 cell.accessories = [.disclosureIndicator()]
+            case .theme:
+                content.text = String(localized: "Colour")
+                content.secondaryText = String(localized: "For places without their own")
+                content.image = UIImage(systemName: "paintpalette")
+                cell.accessories = [.customView(configuration: .init(customView: themeButton(), placement: .trailing()))]
             case .verify:
                 content.text = String(localized: "Verify This Device")
                 content.secondaryText = switch model.isVerified {
@@ -98,6 +108,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendSections(Section.allCases)
         snapshot.appendItems([.profile], toSection: .account)
         snapshot.appendItems([.networks], toSection: .networks)
+        snapshot.appendItems([.theme], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts, .searchIndex], toSection: .privacy)
         snapshot.appendItems([.signOut], toSection: .session)
@@ -143,6 +154,26 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         default:
             break
         }
+    }
+
+    /// The colour of the places without their own, as a pop-up button of the colours.
+    private func themeButton() -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = theme.title
+        configuration.image = ThemeMenu.swatch(theme)
+        configuration.imagePadding = 6
+        configuration.indicator = .popup
+        let button = UIButton(configuration: configuration)
+        button.menu = ThemeMenu.menu(current: theme) { [weak self] theme in
+            guard let self, let theme else { return }
+            self.theme = theme
+            list.setDefaultTheme(theme)
+            var snapshot = dataSource.snapshot()
+            snapshot.reconfigureItems([.theme])
+            dataSource.apply(snapshot)
+        }
+        button.showsMenuAsPrimaryAction = true
+        return button
     }
 
     /// How many networks are connected, or why there are none.

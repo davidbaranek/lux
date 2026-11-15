@@ -122,13 +122,14 @@ final class RailButton: NSView {
 
     override func updateLayer() {
         let tint: NSColor = switch item?.icon {
-        case .symbol?: isSelected ? .controlAccentColor : .quaternaryLabelColor
+        case .symbol?: isSelected ? item?.theme.color ?? .controlAccentColor : .quaternaryLabelColor
         case .picture?: pictureShown ? .clear : Monogram.color(item?.title ?? "")
         default: .clear
         }
         tile.layer?.backgroundColor = tint.cgColor
         symbol.contentTintColor = isSelected ? .white : .secondaryLabelColor
-        indicator.layer?.backgroundColor = NSColor.labelColor.cgColor
+        // a place with its own colour shows it in its pill too.
+        indicator.layer?.backgroundColor = (item?.theme.color ?? .labelColor).cgColor
     }
 
     private func updateIndicator() {
@@ -142,6 +143,13 @@ final class RailButton: NSView {
     override func mouseExited(with event: NSEvent) { hovering = false }
     override func mouseDown(with event: NSEvent) { press(place) }
     override func accessibilityPerformPress() -> Bool { press(place); return true }
+
+    /// VoiceOver's (and Control-click's) menu: the same as a right click.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let menu = menuProvider?(place) else { return false }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.midX, y: bounds.midY), in: self)
+        return true
+    }
 }
 
 private extension PlaceItem.Icon {
