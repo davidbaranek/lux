@@ -22,10 +22,11 @@ final class ThemeTint: NSView {
     override func updateLayer() {
         var color: CGColor?
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            guard let accent = theme.color else { return }
-            // a little stronger in the dark, where a faint wash disappears.
+            guard let wash = theme.wash else { return }
+            // light and airy over the light material; a little stronger in the dark, where a faint
+            // wash disappears.
             let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            color = accent.withAlphaComponent(dark ? 0.22 : 0.16).cgColor
+            color = wash.withAlphaComponent(dark ? 0.22 : 0.14).cgColor
         }
         layer?.backgroundColor = color
     }

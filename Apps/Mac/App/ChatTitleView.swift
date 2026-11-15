@@ -40,13 +40,30 @@ final class ChatTitleView: NSStackView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    /// Starts the picture at `x` in the window, where the chat's messages start below: the space
-    /// before it grows or shrinks by the picture's distance from there, measured where the picture
-    /// is now (wherever the toolbar put the view), so lining up again moves nothing.
-    func lineUp(at x: CGFloat) {
-        layoutSubtreeIfNeeded()
+    /// Where the picture starts in the window: where the chat's messages start below. The view
+    /// keeps it there itself, whenever the toolbar moves or resizes it (a longer name, a subtitle
+    /// arriving, the networks button showing).
+    var pictureStart: CGFloat? {
+        didSet { if pictureStart != oldValue { needsLayout = true } }
+    }
+
+    override func setFrameOrigin(_ origin: NSPoint) {
+        super.setFrameOrigin(origin)
+        needsLayout = true
+    }
+
+    override func setFrameSize(_ size: NSSize) {
+        super.setFrameSize(size)
+        needsLayout = true
+    }
+
+    /// The space before the picture grows or shrinks by its distance from `pictureStart`,
+    /// measured where the picture is now, so lining up again moves nothing.
+    override func layout() {
+        super.layout()
+        guard let pictureStart, window != nil else { return }
         let start = picture.convert(NSPoint.zero, to: nil).x
-        let inset = max(0, edgeInsets.left + x - start).rounded()
+        let inset = max(0, edgeInsets.left + pictureStart - start).rounded()
         guard abs(edgeInsets.left - inset) >= 1 else { return }
         edgeInsets.left = inset
     }

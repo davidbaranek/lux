@@ -49,8 +49,8 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     /// margin, where a group's pictures are), whatever the toolbar's own spacing, sidebar width
     /// and window.
     private func alignTitle() {
-        guard !chatTitle.isHidden, chatTitle.window != nil, detail.view.window != nil else { return }
-        chatTitle.lineUp(at: detail.view.convert(NSPoint(x: BubbleMetrics().sideMargin, y: 0), to: nil).x)
+        guard detail.view.window != nil else { return }
+        chatTitle.pictureStart = detail.view.convert(NSPoint(x: BubbleMetrics().sideMargin, y: 0), to: nil).x
     }
 
     private func open(_ row: ChatRow?, focusEvent: String? = nil) {
