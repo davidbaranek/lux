@@ -136,11 +136,21 @@ pub struct Notification {
     /// The sender's picture: theirs, else, in a chat of two, the chat's (the other person's).
     /// The notification shows it, in a group too: who wrote, not the group.
     pub sender_picture: Option<MediaId>,
+    /// The Matrix thread the message replies in, by its root: opening the notification opens the
+    /// thread, where the message shows (the chat's own timeline does not show it).
+    pub thread: Option<EventId>,
 }
 
 impl Notification {
     /// How much older than its arrival a message may be and still notify as new.
     pub const LATE: Duration = Duration::from_mins(15);
+
+    /// The notification of a reply in the Matrix thread of `root`, if it is one.
+    #[must_use]
+    pub fn in_thread(mut self, root: Option<EventId>) -> Self {
+        self.thread = root;
+        self
+    }
 
     /// The notification of a message sent at `sent` that arrived `now`: one that came
     /// [late](Self::LATE) is quiet.
@@ -224,6 +234,7 @@ impl Notification {
             is_noisy,
             is_late: false,
             sender_picture: sender_picture.map(MediaId::from),
+            thread: None,
         }
     }
 }

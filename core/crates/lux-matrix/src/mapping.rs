@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::bridge_state::bridge_states;
 use lux_core::chat::{Chat, Folder, Request};
-use lux_core::ids::{ChatId, MediaId, RoomId};
+use lux_core::ids::{ChatId, EventId, MediaId, RoomId};
 use lux_core::network::Network;
 use lux_core::preview::{Membership, Preview, PreviewKind, PreviewSource, Sender};
 use matrix_sdk::Room;
@@ -368,6 +368,21 @@ pub(crate) async fn room_picture(room: &Room) -> Option<OwnedMxcUri> {
 pub(crate) fn display_name(room: &Room) -> String {
     room.cached_display_name()
         .map_or_else(|| room.room_id().to_string(), |name| name.to_string())
+}
+
+/// The root of the Matrix thread a message replies in, if it is a thread's reply.
+pub(crate) fn thread_root(event: &AnySyncTimelineEvent) -> Option<EventId> {
+    use matrix_sdk::ruma::events::{AnySyncMessageLikeEvent, SyncMessageLikeEvent};
+    let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
+        message,
+    ))) = event
+    else {
+        return None;
+    };
+    match &message.content.relates_to {
+        Some(Relation::Thread(thread)) => Some(EventId::from(thread.event_id.as_str())),
+        _ => None,
+    }
 }
 
 /// What a timeline event is, as a preview words it (a notification's message); `None` for an
