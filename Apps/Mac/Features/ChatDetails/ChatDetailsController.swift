@@ -97,7 +97,6 @@ final class ChatDetailsController: NSViewController {
         lowPriority.setAccessibilityLabel(String(localized: "Low Priority"))
         keptOut.textColor = .secondaryLabelColor
         keptOut.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        keptOut.preferredMaxLayoutWidth = Self.width - 150
         let lowPriorityView = NSStackView(views: [lowPriority, keptOut])
         lowPriorityView.orientation = .vertical
         lowPriorityView.alignment = .leading
@@ -152,6 +151,8 @@ final class ChatDetailsController: NSViewController {
             stack.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             topic.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -40),
+            // the note wraps beside its label, as wide as the inspector lets it be.
+            keptOut.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -150),
             separatorLine.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
             pane.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
             pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
