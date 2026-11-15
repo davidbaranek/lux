@@ -48,6 +48,8 @@ final class SharedViewController: UIViewController, UICollectionViewDelegate, UI
         navigationItem.titleView = kinds
         search.searchResultsUpdater = self
         search.obscuresBackgroundDuringPresentation = false
+        // the kinds stay in the bar, to switch while searching.
+        search.hidesNavigationBarDuringPresentation = false
         navigationItem.searchController = search
         navigationItem.hidesSearchBarWhenScrolling = false
 
