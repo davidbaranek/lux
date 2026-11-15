@@ -131,6 +131,8 @@ public final class PhotoSearch {
     func search(_ text: String, in roomIds: [String]? = nil) async -> [ImageHit] {
         let model = self.model
         var embedding: [Float]?
+        // a search right after launch waits for the encoder rather than going without the look.
+        await model?.textEncoderLoaded()
         do { embedding = try await model?.embedding(of: text) } catch {
             Log.app.error("photo search: the words' embedding: \(String(describing: error), privacy: .public)")
         }
@@ -168,6 +170,9 @@ public final class PhotoSearch {
             guard !Task.isCancelled, searchesByLook else { return }
             let model = try PhotoSearchModel(files: files)
             self.model = model
+            // the text encoder loads now (its first load compiles it, some 20 s), not on the
+            // first search, which would find photos by their words only.
+            await model.prepareTextEncoder()
             await indexer.use(model)
             progress = await indexer.progress()
         } catch {
