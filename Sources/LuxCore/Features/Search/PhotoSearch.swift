@@ -126,6 +126,13 @@ public final class PhotoSearch {
         await indexer.stop()
     }
 
+    /// Someone is about to search: the text encoder loads now, off the main actor, so the first
+    /// query finds photos by their look too. It loads in about a second once Core ML has compiled
+    /// it on this device (some 20 s the first time), and is kept only from the first search on.
+    public func prepareForSearch() {
+        Task { await model?.prepareTextEncoder() }
+    }
+
     /// The photos that match `text`, the best first; `roomIds` keeps those rooms' (a chat's
     /// details), each room's best first.
     func search(_ text: String, in roomIds: [String]? = nil) async -> [ImageHit] {
@@ -170,9 +177,6 @@ public final class PhotoSearch {
             guard !Task.isCancelled, searchesByLook else { return }
             let model = try PhotoSearchModel(files: files)
             self.model = model
-            // the text encoder loads now (its first load compiles it, some 20 s), not on the
-            // first search, which would find photos by their words only.
-            await model.prepareTextEncoder()
             await indexer.use(model)
             progress = await indexer.progress()
         } catch {

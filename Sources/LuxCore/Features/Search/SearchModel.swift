@@ -19,9 +19,16 @@ public final class SearchModel {
     /// How far the index is; nil before it opens.
     public var progress: SearchIndexer.Progress? { session.search?.progress }
 
+    /// The user started searching (the field took the focus): photo search gets ready to find
+    /// photos by their look.
+    public func prepare() {
+        session.search?.photos.prepareForSearch()
+    }
+
     public func search(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text != query else { return }
+        if query.isEmpty { prepare() }
         query = text
         running?.cancel()
         guard !text.isEmpty else {

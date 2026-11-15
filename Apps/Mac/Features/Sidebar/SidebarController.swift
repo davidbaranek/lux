@@ -133,6 +133,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
 
     /// Cmd-F: the search field.
     @objc func performFindPanelAction(_ sender: Any?) {
+        searchModel.prepare()
         view.window?.makeFirstResponder(search)
     }
 

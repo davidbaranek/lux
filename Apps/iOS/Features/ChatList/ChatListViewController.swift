@@ -528,6 +528,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     func updateSearchResults(for searchController: UISearchController) {
+        // the field took the focus: photo search gets ready before the first letter.
+        if searchController.isActive { searchModel.prepare() }
         searchModel.search(searchController.searchBar.text ?? "")
     }
 
