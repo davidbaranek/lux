@@ -51,8 +51,27 @@ public final class Preferences {
         }
     }
 
-    /// Open chats draw their messages again when `chatStyle` changes.
+    /// Open chats draw their messages again when `chatStyle`, or a chat's own, changes.
     public let chatStyleChanges = Broadcast()
+
+    /// How one chat draws its messages, when it differs from `chatStyle`.
+    public func chatStyleOverride(in roomId: String) -> ChatStyle? {
+        (defaults.dictionary(forKey: "chatStyleByChat")?[roomId] as? String).flatMap(ChatStyle.init(rawValue:))
+    }
+
+    /// Sets how one chat draws its messages; nil follows `chatStyle`.
+    public func setChatStyle(_ style: ChatStyle?, in roomId: String) {
+        guard style != chatStyleOverride(in: roomId) else { return }
+        var all = defaults.dictionary(forKey: "chatStyleByChat") ?? [:]
+        all[roomId] = style?.rawValue
+        defaults.set(all, forKey: "chatStyleByChat")
+        chatStyleChanges.send()
+    }
+
+    /// How a chat draws its messages: its own choice, else the app's.
+    public func chatStyle(in roomId: String) -> ChatStyle {
+        chatStyleOverride(in: roomId) ?? chatStyle
+    }
 
     /// The server last signed in to; nil for Lux's own.
     public var homeserver: String? {

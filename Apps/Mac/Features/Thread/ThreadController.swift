@@ -319,7 +319,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
                                                name: NSScrollView.willStartLiveScrollNotification, object: scroll)
         scroll.contentView.postsBoundsChangedNotifications = true
         model.onUpdate = { [weak self] messages in self?.show(messages) }
-        // bubbles or plain rows, as Settings has it: every row is measured again.
+        // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
         styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in
             guard let self else { return }
             show(model.messages, relayout: true)
@@ -451,7 +451,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         guard layoutWidth > 0, model.hasLoaded else { return }
         generation += 1
         let generation = generation, width = layoutWidth, text = text, cache = layoutCache, isGroup = row.isGroup
-        let firstUnread = model.firstUnreadId, style = Preferences.shared.chatStyle
+        let firstUnread = model.firstUnreadId, style = model.chatStyle
         Task {
             let state = Signposts.thread.beginInterval("measure")
             let (layouts, changed) = await Self.measure(new, cache: cache, showsSender: isGroup, firstUnread: firstUnread,

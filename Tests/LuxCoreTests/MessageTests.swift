@@ -161,6 +161,20 @@ struct MessageLayoutTests {
     }
 }
 
+@MainActor
+struct ChatStylePreferenceTests {
+    @Test func aChatsOwnStyleWinsOverTheAppsUntilItIsCleared() {
+        let preferences = Preferences.shared
+        let app = preferences.chatStyle
+        defer { preferences.setChatStyle(nil, in: "!test:style") }
+        preferences.setChatStyle(app == .plain ? .bubbles : .plain, in: "!test:style")
+        #expect(preferences.chatStyle(in: "!test:style") != app)
+        #expect(preferences.chatStyle(in: "!other:style") == app)
+        preferences.setChatStyle(nil, in: "!test:style")
+        #expect(preferences.chatStyle(in: "!test:style") == app)
+    }
+}
+
 struct MessageActionTests {
     private func message(own: Bool, state: MessageItem.State = .sent) -> MessageItem {
         var item = MessageItem(id: "m", senderId: own ? "me" : "x", senderName: "A", body: "hi", date: .now, isOwn: own, state: state)

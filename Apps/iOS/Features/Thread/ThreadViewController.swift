@@ -234,7 +234,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             self.show(self.model.messages, relayout: true)
         }
         model.onUpdate = { [weak self] messages in self?.show(messages) }
-        // bubbles or plain rows, as Settings has it: every row is measured again.
+        // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
         styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in
             guard let self else { return }
             show(model.messages, relayout: true)
@@ -346,7 +346,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         guard layoutWidth > 0, model.hasLoaded else { return }
         generation += 1
         let generation = generation, width = layoutWidth, text = text, cache = layoutCache, isGroup = row.isGroup
-        let firstUnread = model.firstUnreadId, style = Preferences.shared.chatStyle
+        let firstUnread = model.firstUnreadId, style = model.chatStyle
         Task {
             let state = Signposts.thread.beginInterval("measure")
             let (layouts, changed) = await Self.measure(new, cache: cache, showsSender: isGroup, firstUnread: firstUnread,
@@ -482,7 +482,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             let tile = MessageLayout.albumGrid(count: item.album.count, width: metrics.photoWidth).tiles[0].width
             images.prefetch(item.album.map(\.photo.ref), pixels: Int(tile * scale))
         }
-        let avatarSide = Preferences.shared.chatStyle == .plain ? metrics.plainAvatarSide : metrics.avatarSide
+        let avatarSide = model.chatStyle == .plain ? metrics.plainAvatarSide : metrics.avatarSide
         images.prefetch(items.compactMap(\.senderAvatar), pixels: AvatarView.pixels(avatarSide, traitCollection), shape: .circle)
     }
 
