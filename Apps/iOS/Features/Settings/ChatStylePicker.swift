@@ -25,7 +25,7 @@ final class ChatStylePicker: UIView {
                 guard let self, self.style != option else { return }
                 self.style = option
                 onChoose?(option)
-            }, for: .primaryActionTriggered)
+            }, for: .touchUpInside)
             tiles[option] = tile
             row.addArrangedSubview(tile)
         }
