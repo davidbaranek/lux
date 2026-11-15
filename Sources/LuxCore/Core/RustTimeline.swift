@@ -50,6 +50,7 @@ extension RustAccount {
         case .person(let url): .person(url: url)
         case .photo(let roomId, let messageId, _): .photo(roomId: roomId, messageId: messageId)
         case .poster(let roomId, let messageId, _): .poster(roomId: roomId, messageId: messageId)
+        case .shared(let roomId, let eventId, _): .shared(roomId: roomId, eventId: eventId)
         }
         return try await worded { try await account.imageFile(image: image, folder: directory.path) }.map { URL(fileURLWithPath: $0) }
     }

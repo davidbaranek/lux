@@ -77,6 +77,11 @@ public final class Session {
         Task { try? await opening.value.resumeSync() }
     }
 
+    /// A chat's details screen.
+    public func details(of row: ChatRow) -> ChatDetailsModel {
+        ChatDetailsModel(account: account, row: row, originals: originalsDirectory)
+    }
+
     /// The chat that shows a room (its own, or the merged chat it is in); nil when the list has
     /// none (a notification's room not synced yet).
     public func chat(ofRoom roomId: String) async -> ChatRow? {
