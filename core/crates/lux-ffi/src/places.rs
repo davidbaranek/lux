@@ -4,6 +4,7 @@ use lux_core::network::Network;
 use lux_core::places::{ChatFilter, ChatOrder, InboxRule, ListedPlace, PlaceId, SectionId, SectionStyle, Theme};
 
 use crate::chat::CoreFolder;
+use crate::details::CoreNotificationMode;
 
 /// Where the chat list looks.
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Enum)]
@@ -207,6 +208,8 @@ pub struct CoreListedPlace {
     pub own_theme: Option<CoreTheme>,
     /// How much of a network or a space the inbox shows; `None` for the other places.
     pub inbox: Option<CoreInboxRule>,
+    /// When a network's or a space's chats notify, when they all do alike.
+    pub notifications: Option<CoreNotificationMode>,
 }
 
 impl From<ListedPlace> for CoreListedPlace {
@@ -220,18 +223,19 @@ impl From<ListedPlace> for CoreListedPlace {
             theme: listed.theme.into(),
             own_theme: listed.own_theme.map(CoreTheme::from),
             inbox: listed.inbox.map(CoreInboxRule::from),
+            notifications: listed.notifications.map(CoreNotificationMode::from),
         }
     }
 }
 
-/// How much of a place (or of one chat) the inbox shows.
+/// How much of a place's chats the inbox shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]
 pub enum CoreInboxRule {
     /// Everything.
     All,
     /// Conversations of two, and groups while they mention the user.
     Mentions,
-    /// Nothing: its chats are read in their places only.
+    /// Nothing: its chats are read in their places, and in low priority.
     Never,
 }
 
