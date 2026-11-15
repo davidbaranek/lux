@@ -55,6 +55,8 @@ final class MessageCell: UICollectionViewCell {
     var onBubbleTap: (() -> Void)?
     /// "Show more" (or "Show less") under a shared post's caption was tapped.
     var onPostMore: (() -> Void)?
+    /// A tap on a shared post's title or caption: opens the post.
+    var onPostOpen: (() -> Void)?
     /// The photo, the video, the file or an album's tile (its index) was tapped: it opens,
     /// growing from this view.
     var onMediaTap: ((UIView, Int) -> Void)?
@@ -87,6 +89,10 @@ final class MessageCell: UICollectionViewCell {
         // an unfolding caption shows its top while it grows, the rest coming into view.
         postText.contentMode = .top
         postText.clipsToBounds = true
+        postTitle.isUserInteractionEnabled = true
+        postTitle.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(postTitleTapped)))
+        postText.isUserInteractionEnabled = true
+        postText.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(postTitleTapped)))
         postMore.isUserInteractionEnabled = true
         postMore.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(postMoreTapped)))
         for view in [postCard, quote, photo, album, fileRow, postTitle, postText, postMore, body, footer] { bubble.addSubview(view) }
@@ -127,10 +133,12 @@ final class MessageCell: UICollectionViewCell {
 
     @objc private func postMoreTapped() { onPostMore?() }
 
+    @objc private func postTitleTapped() { onPostOpen?() }
+
     /// A tap on the bubble's padding or its time; its text, quote and media handle their own.
     @objc private func bubbleTapped(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: bubble)
-        guard ![quote, body, photo, album, fileRow, postMore].contains(where: { !$0.isHidden && $0.frame.contains(point) }) else { return }
+        guard ![quote, body, photo, album, fileRow, postTitle, postText, postMore].contains(where: { !$0.isHidden && $0.frame.contains(point) }) else { return }
         onBubbleTap?()
     }
 

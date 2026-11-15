@@ -51,6 +51,8 @@ final class MessageCellView: NSTableCellView {
     var onLink: ((URL) -> Void)?
     /// "Show more" (or "Show less") under a shared post's caption was clicked.
     var onPostMore: (() -> Void)?
+    /// A click on a shared post's title or caption: opens the post.
+    var onPostOpen: (() -> Void)?
     /// The bubble was clicked (not a link, a quote or media): its details show or hide.
     var onBubbleTap: (() -> Void)?
     /// The photo, the video, the file or an album's tile (its index) was clicked: it opens.
@@ -98,6 +100,8 @@ final class MessageCellView: NSTableCellView {
         postCard.wantsLayer = true
         postCard.layer?.cornerRadius = 16
         postCard.layer?.cornerCurve = .continuous
+        postTitle.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(postTitleClicked)))
+        postText.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(postTitleClicked)))
         postMore.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(postMoreClicked)))
         for view in [postCard, quote, photo, album, fileRow, postTitle, postText, postMore, body, footer] as [NSView] { bubble.addSubview(view) }
         album.onTap = { [weak self] index, _ in self?.onMediaTap?(index) }
@@ -129,6 +133,8 @@ final class MessageCellView: NSTableCellView {
     @objc private func quoteClicked() { onQuoteTap?() }
 
     @objc private func postMoreClicked() { onPostMore?() }
+
+    @objc private func postTitleClicked() { onPostOpen?() }
 
     /// A white arrow on a filled circle: grey until letting go would reply, then the accent colour.
     private func arrowStyle(armed: Bool) -> NSImage.SymbolConfiguration {
@@ -174,7 +180,7 @@ final class MessageCellView: NSTableCellView {
     /// A click on the bubble's padding or its time; its text, quote and media handle their own.
     @objc private func bubbleClicked(_ click: NSClickGestureRecognizer) {
         let point = click.location(in: bubble)
-        guard ![quote, body, photo, album, fileRow, postMore].contains(where: { !$0.isHidden && $0.frame.contains(point) }) else { return }
+        guard ![quote, body, photo, album, fileRow, postTitle, postText, postMore].contains(where: { !$0.isHidden && $0.frame.contains(point) }) else { return }
         onBubbleTap?()
     }
 

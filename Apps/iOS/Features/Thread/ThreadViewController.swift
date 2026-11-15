@@ -128,6 +128,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
                 self?.unfolding = id
                 self?.model.togglePost(of: id)
             }
+            // a shared post's card (its title and caption) opens the post; its media opens as any.
+            cell.onPostOpen = message.shared?.link.map { post in { UIApplication.shared.open(post) } }
             cell.onMediaTap = message.hasMedia ? { [weak self] view, index in
                 guard let self, let message = messages[id] else { return }
                 media.open(message, at: index, from: view, model: model)
