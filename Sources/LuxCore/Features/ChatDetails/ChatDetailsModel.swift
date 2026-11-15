@@ -134,6 +134,14 @@ public final class ChatDetailsModel {
         try await save { try await $0.removeRoomPicture(roomId: room.id) }
     }
 
+    /// A merged chat can show its rooms as their own chats again (its list does that).
+    public var canSeparate: Bool { row.isMerged && list != nil }
+
+    /// Shows a merged chat's rooms as their own chats again; the merged chat goes from the list.
+    public func separate() {
+        list?.unmerge(row)
+    }
+
     /// Leaves the chat (each room of a merged one); it goes from the list.
     public func leave() async throws {
         try await save(reload: false) { try await $0.leave(chatId: self.row.id) }

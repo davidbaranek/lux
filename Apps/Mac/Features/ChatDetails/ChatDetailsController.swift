@@ -150,7 +150,8 @@ final class ChatDetailsController: NSViewController {
             isEncrypted: model.info.map(\.isEncrypted),
             networks: model.row.chatRooms.map(\.network),
             address: model.mainRoom?.address,
-            isGroup: model.isGroup
+            isGroup: model.isGroup,
+            canSeparate: model.canSeparate
         )
     }
 
@@ -165,6 +166,11 @@ final class ChatDetailsController: NSViewController {
             chatStyle: { [weak self] index in
                 guard let self else { return }
                 model.chatStyleOverride = model.chatStyleChoices[safe: index]?.style
+            },
+            separate: { [weak self] in
+                // its rooms go back to the list as their own chats: this one is gone.
+                self?.model.separate()
+                self?.onLeave?()
             },
             leave: { [weak self] in self?.confirmLeave() }
         )
@@ -561,12 +567,14 @@ struct ChatInfoForm: View {
         var networks: [String]
         var address: String?
         var isGroup: Bool
+        var canSeparate: Bool
     }
 
     struct Actions {
         var notifications: (NotificationSetting) -> Void
         var lowPriority: (Bool) -> Void
         var chatStyle: (Int) -> Void
+        var separate: () -> Void
         var leave: () -> Void
     }
 
@@ -620,6 +628,13 @@ struct ChatInfoForm: View {
                         networks(named: false)
                     }
                     .foregroundStyle(.secondary)
+                }
+                if state.canSeparate {
+                    Button(action: actions.separate) {
+                        Label(String(localized: "Separate Chats"), systemImage: "arrow.triangle.branch")
+                            .foregroundStyle(.tint)
+                    }
+                    .buttonStyle(.borderless)
                 }
                 if let address = state.address {
                     LabeledContent {

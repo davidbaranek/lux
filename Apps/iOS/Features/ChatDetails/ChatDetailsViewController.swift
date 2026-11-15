@@ -15,6 +15,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         case members(String)
         case threads
         case shared(SharedKind)
+        case separate
         case leave
     }
 
@@ -102,7 +103,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         snapshot.appendItems([.header])
         if let info = model.info {
             snapshot.appendSections([.networks, .settings])
-            snapshot.appendItems(info.rooms.map { .room($0.id) }, toSection: .networks)
+            snapshot.appendItems(info.rooms.map { .room($0.id) } + (model.canSeparate ? [.separate] : []), toSection: .networks)
             snapshot.appendItems([.notifications, .lowPriority, .messages, .encryption] + (model.mainRoom?.address == nil ? [] : [.address]), toSection: .settings)
             let groups = info.rooms.filter { !$0.isDirect }
             if !groups.isEmpty {
@@ -205,6 +206,11 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             content.image = SettingIcon.image(kind.symbol, .systemCyan)
             content.text = kind.title
             cell.accessories = [.disclosureIndicator()]
+        case .separate:
+            content = .cell()
+            content.image = UIImage(systemName: "arrow.triangle.branch")
+            content.text = String(localized: "Separate Chats")
+            content.textProperties.color = .tintColor
         case .leave:
             content = .cell()
             content.text = model.isGroup ? String(localized: "Leave Group") : String(localized: "Leave Chat")
@@ -247,7 +253,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         switch dataSource.itemIdentifier(for: indexPath) {
-        case .members, .threads, .shared, .leave, .address: true
+        case .members, .threads, .shared, .separate, .leave, .address: true
         default: false
         }
     }
@@ -264,6 +270,10 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             navigationController?.pushViewController(threads, animated: true)
         case .shared(let kind):
             navigationController?.pushViewController(SharedViewController(details: model, kind: kind, images: session.images), animated: true)
+        case .separate:
+            // its rooms go back to the list as their own chats: this one is gone.
+            model.separate()
+            navigationController?.popToRootViewController(animated: true)
         case .leave:
             confirmLeave()
         case .address:
