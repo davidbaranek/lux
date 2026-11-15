@@ -5,7 +5,7 @@ import UIKit
 /// key backup), privacy, search, and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
-    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, photoWords, photoLooks, photoModel, photoLooksState, readPhotos, signOut }
+    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, photoLooks, photoStatus, photoAction, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -16,6 +16,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private var profilePicture: UIImage?
     private var shownPicture: ImageRef?
     private var networksObservation: AnyObject?
+    /// The settings' switches, made once: a cell configured again (as the model reports reading
+    /// photos, many times a minute) shows the same switch, so it neither slides in anew nor loses
+    /// the user's touch.
+    private lazy var readReceiptsSwitch = makeSwitch { [weak self] on in self?.model.sendsReadReceipts = on }
+    private lazy var photoLooksSwitch = makeSwitch { [weak self] on in Task { await self?.model.setSearchesPhotosByLook(on) } }
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
 
@@ -87,56 +92,35 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.text = String(localized: "Send Read Receipts")
                 content.secondaryText = String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too.")
                 content.secondaryTextProperties.color = .secondaryLabel
-                let toggle = UISwitch()
-                toggle.isOn = model.sendsReadReceipts
-                toggle.addAction(UIAction { [weak self, weak toggle] _ in
-                    self?.model.sendsReadReceipts = toggle?.isOn ?? false
-                }, for: .valueChanged)
-                cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
+                cell.accessories = [switchAccessory(readReceiptsSwitch, isOn: model.sendsReadReceipts)]
             case .searchIndex:
                 content.text = String(localized: "Messages")
                 content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
-            case .photoWords:
-                content.text = String(localized: "Words in Photos")
-                content.secondaryText = model.photoWords ?? String(localized: "Opening…")
-                content.image = UIImage(systemName: "text.viewfinder")
-            case .photoModel:
-                content.text = String(localized: "Model")
-                content.secondaryText = model.photoModel
-                content.image = UIImage(systemName: "arrow.down.circle")
-            case .photoLooksState:
-                content.text = String(localized: "What Photos Show")
-                content.secondaryText = model.photoLooks
+            case .photoStatus:
+                content = .subtitleCell()
+                content.text = String(localized: "Photos")
+                content.secondaryText = model.photoStatus ?? String(localized: "Opening…")
+                content.secondaryTextProperties.color = .secondaryLabel
                 content.image = UIImage(systemName: "photo.on.rectangle.angled")
+                if model.isPhotoWorkUnderWay {
+                    let spinner = UIActivityIndicatorView(style: .medium)
+                    spinner.startAnimating()
+                    cell.accessories = [.customView(configuration: .init(customView: spinner, placement: .trailing()))]
+                }
             case .photoLooks:
                 content = .cell()
                 content.text = String(localized: "Search by What Photos Show")
                 content.secondaryText = String(localized: """
-                    Photos are always found by the words in them and the messages sent with them. This also finds \
-                    them by what they show ("dog on the beach"). It downloads a model of about 450 MB and reads \
-                    the photos on this iPhone, in the background while it charges.
+                    Photos are always found by their words and the messages around them. This also finds them by \
+                    what they show ("dog on the beach"), with a model of about 450 MB read on this iPhone.
                     """)
                 content.secondaryTextProperties.color = .secondaryLabel
-                let toggle = UISwitch()
-                toggle.isOn = model.searchesPhotosByLook
-                toggle.addAction(UIAction { [weak self, weak toggle] _ in
-                    let on = toggle?.isOn ?? false
-                    Task { await self?.model.setSearchesPhotosByLook(on) }
-                }, for: .valueChanged)
-                cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
-            case .readPhotos:
+                cell.accessories = [switchAccessory(photoLooksSwitch, isOn: model.searchesPhotosByLook)]
+            case .photoAction:
                 content = .cell()
-                let model = model
-                content.text = model.isReadingPhotos ? String(localized: "Stop Reading Photos")
-                    : model.hasUnreadPhotos ? String(localized: "Read Photos Now") : String(localized: "All Photos Read")
-                let blocked = model.isReadingPhotos ? nil : model.readPhotosBlocked
-                content.textProperties.color = (model.isReadingPhotos || model.hasUnreadPhotos) && blocked == nil
-                    ? .tintColor : .secondaryLabel
-                content.secondaryText = model.isReadingPhotos
-                    ? String(localized: "Stopped, the reading goes on the next time Lux opens, or while the iPhone charges.")
-                    : blocked ?? String(localized: "Reads them now instead of while the iPhone charges; the Lock Screen shows how far it is.")
-                content.secondaryTextProperties.color = .secondaryLabel
+                content.text = model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now")
+                content.textProperties.color = .tintColor
             case .signOut:
                 content = .cell()
                 content.text = String(localized: "Sign Out")
@@ -154,7 +138,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendItems([.appearance], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts], toSection: .privacy)
-        snapshot.appendItems([.searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos], toSection: .search)
+        snapshot.appendItems(searchItems, toSection: .search)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
 
@@ -162,8 +146,14 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery, .searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState, .readPhotos])
-            dataSource.apply(snapshot)
+            // the action row shows only while there is something to do.
+            let search = searchItems
+            let shown = snapshot.itemIdentifiers(inSection: .search)
+            snapshot.deleteItems(shown.filter { !search.contains($0) })
+            snapshot.appendItems(search.filter { !shown.contains($0) }, toSection: .search)
+            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery] + shown.filter(search.contains))
+            // the rows' words change in place; nothing moves, so nothing animates.
+            dataSource.apply(snapshot, animatingDifferences: false)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in
             guard let self else { return }
@@ -199,10 +189,12 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             navigationController?.pushViewController(RecoverySetupViewController(security: security), animated: true)
         case .recovery?:
             navigationController?.pushViewController(RecoveryKeyViewController(model: model), animated: true)
-        case .readPhotos? where model.isReadingPhotos:
-            Task { await model.stopReadingPhotos() }
-        case .readPhotos? where model.hasUnreadPhotos && model.readPhotosBlocked == nil:
-            model.readPhotosNow()
+        case .photoAction?:
+            switch model.photoAction {
+            case .stop?: Task { await model.stopReadingPhotos() }
+            case .readNow?: model.readPhotosNow()
+            case nil: break
+            }
         case .signOut?:
             confirmSignOut(from: collectionView.cellForItem(at: indexPath))
         default:
@@ -253,5 +245,22 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         sheet.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         sheet.popoverPresentationController?.sourceItem = cell
         present(sheet, animated: true)
+    }
+
+    /// The Search section's rows: the action only while there is one.
+    private var searchItems: [Item] {
+        [.searchIndex, .photoLooks, .photoStatus] + (model.photoAction == nil ? [] : [.photoAction])
+    }
+
+    private func makeSwitch(_ changed: @escaping (Bool) -> Void) -> UISwitch {
+        let toggle = UISwitch()
+        toggle.addAction(UIAction { action in changed((action.sender as? UISwitch)?.isOn ?? false) }, for: .valueChanged)
+        return toggle
+    }
+
+    /// `toggle` as a cell's trailing accessory, showing `isOn`; it moves only when that changed.
+    private func switchAccessory(_ toggle: UISwitch, isOn: Bool) -> UICellAccessory {
+        if toggle.isOn != isOn { toggle.setOn(isOn, animated: toggle.window != nil) }
+        return .customView(configuration: .init(customView: toggle, placement: .trailing()))
     }
 }

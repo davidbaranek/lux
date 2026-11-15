@@ -24,15 +24,16 @@ public final class PhotoSearch {
     }
     /// The photos read by the current reader, of all, and whether the reading is under way.
     public private(set) var progress = PhotoIndexer.Progress() {
-        didSet { changes.send() }
+        didSet { if progress != oldValue { changes.send() } }
     }
     public let changes = Broadcast()
 
     /// Search finds photos by how they look (the model); the words in them are found always.
     public var searchesByLook: Bool { Preferences.shared.searchesPhotosByLook }
 
-    /// How far the model's download is, while it downloads.
-    private var downloading: Double? { didSet { changes.send() } }
+    /// How far the model's download is, while it downloads, in whole percent: the download reports
+    /// far more often than anyone reads it, and each change lays Settings out again.
+    private var downloading: Double? { didSet { if downloading != oldValue { changes.send() } } }
 
     /// How many new photos the iPhone reads at a time while the app is open; the rest wait for
     /// it to charge.
@@ -159,13 +160,13 @@ public final class PhotoSearch {
         if await !PhotoSearchAssets.isOnDevice() { downloading = 0 }
         defer { downloading = nil }
         do {
-            let folder = try await PhotoSearchAssets.modelFolder { [weak self] fraction in
+            let files = try await PhotoSearchAssets.modelFiles { [weak self] fraction in
                 Task { @MainActor in
-                    if self?.downloading != nil { self?.downloading = fraction }
+                    if self?.downloading != nil { self?.downloading = (fraction * 100).rounded(.down) / 100 }
                 }
             }
             guard !Task.isCancelled, searchesByLook else { return }
-            let model = try PhotoSearchModel(folder: folder)
+            let model = try PhotoSearchModel(files: files)
             self.model = model
             await indexer.use(model)
             progress = await indexer.progress()

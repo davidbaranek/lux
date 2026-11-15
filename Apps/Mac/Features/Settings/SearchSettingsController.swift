@@ -6,18 +6,19 @@ import LuxCore
 final class SearchSettingsController: NSViewController {
     private let model: SettingsModel
     private let index = NSTextField(labelWithString: "")
-    private let photoWords = NSTextField(labelWithString: "")
-    private let photoModel = NSTextField(labelWithString: "")
-    private let photoLooks = NSTextField(labelWithString: "")
+    /// Where the photos stand now, with a spinner while they are read or the model downloads.
+    private let photoStatus = NSTextField(labelWithString: "")
+    private let photoSpinner = NSProgressIndicator()
+    /// Stop, or read the waiting photos now; hidden when there is nothing to do.
+    private lazy var photoAction = NSButton(title: "", target: self, action: #selector(photoActionClicked))
     private lazy var looks = NSButton(checkboxWithTitle: String(localized: "Find photos by what they show"), target: self,
                                       action: #selector(looksChanged))
     private let looksNote = NSTextField(wrappingLabelWithString: "")
     private var observation: AnyObject?
 
     private static let looksAbout = String(localized: """
-        Photos are always found by the words in them and the messages sent with them. This also finds them by what \
-        they show ("dog on the beach"). It downloads a model of about 450 MB and reads the photos on this Mac, in \
-        the background. Nothing leaves this Mac.
+        Photos are always found by their words and the messages around them. This also finds them by what they \
+        show ("dog on the beach"), with a model of about 450 MB read on this Mac. Nothing leaves this Mac.
         """)
 
     init(model: SettingsModel) {
@@ -33,13 +34,17 @@ final class SearchSettingsController: NSViewController {
         looksNote.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         looksNote.preferredMaxLayoutWidth = 340
         looksNote.stringValue = Self.looksAbout
+        photoSpinner.style = .spinning
+        photoSpinner.controlSize = .small
+        photoSpinner.isDisplayedWhenStopped = false
+        let status = NSStackView(views: [photoStatus, photoSpinner])
+        status.spacing = 6
         view = settingsForm([
             [NSTextField(labelWithString: String(localized: "Messages:")), index],
-            [NSTextField(labelWithString: String(localized: "Words in photos:")), photoWords],
-            [NSTextField(labelWithString: String(localized: "Photos:")), looks],
+            [NSTextField(labelWithString: String(localized: "Photos:")), status],
+            [NSGridCell.emptyContentView, photoAction],
+            [NSGridCell.emptyContentView, looks],
             [NSGridCell.emptyContentView, looksNote],
-            [NSTextField(labelWithString: String(localized: "Model:")), photoModel],
-            [NSTextField(labelWithString: String(localized: "What photos show:")), photoLooks],
         ])
         observation = model.changes.observe { [weak self] in self?.update() }
         update()
@@ -47,10 +52,19 @@ final class SearchSettingsController: NSViewController {
 
     private func update() {
         index.stringValue = model.searchIndex ?? String(localized: "Opening…")
-        photoWords.stringValue = model.photoWords ?? String(localized: "Opening…")
+        photoStatus.stringValue = model.photoStatus ?? String(localized: "Opening…")
+        if model.isPhotoWorkUnderWay { photoSpinner.startAnimation(nil) } else { photoSpinner.stopAnimation(nil) }
+        photoAction.isHidden = model.photoAction == nil
+        photoAction.title = model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now")
         looks.state = model.searchesPhotosByLook ? .on : .off
-        photoModel.stringValue = model.photoModel
-        photoLooks.stringValue = model.photoLooks
+    }
+
+    @objc private func photoActionClicked() {
+        switch model.photoAction {
+        case .stop?: Task { await model.stopReadingPhotos() }
+        case .readNow?: model.readPhotosNow()
+        case nil: break
+        }
     }
 
     @objc private func looksChanged() {
