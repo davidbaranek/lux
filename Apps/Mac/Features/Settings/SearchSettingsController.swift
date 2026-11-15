@@ -6,7 +6,9 @@ import LuxCore
 final class SearchSettingsController: NSViewController {
     private let model: SettingsModel
     private let index = NSTextField(labelWithString: "")
-    private let photos = NSTextField(labelWithString: "")
+    private let photoWords = NSTextField(labelWithString: "")
+    private let photoModel = NSTextField(labelWithString: "")
+    private let photoLooks = NSTextField(labelWithString: "")
     private lazy var looks = NSButton(checkboxWithTitle: String(localized: "Find photos by what they show"), target: self,
                                       action: #selector(looksChanged))
     private let looksNote = NSTextField(wrappingLabelWithString: "")
@@ -30,11 +32,14 @@ final class SearchSettingsController: NSViewController {
         looksNote.textColor = .secondaryLabelColor
         looksNote.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         looksNote.preferredMaxLayoutWidth = 340
+        looksNote.stringValue = Self.looksAbout
         view = settingsForm([
-            [NSTextField(labelWithString: String(localized: "Index:")), index],
-            [NSGridCell.emptyContentView, photos],
+            [NSTextField(labelWithString: String(localized: "Messages:")), index],
+            [NSTextField(labelWithString: String(localized: "Words in photos:")), photoWords],
             [NSTextField(labelWithString: String(localized: "Photos:")), looks],
             [NSGridCell.emptyContentView, looksNote],
+            [NSTextField(labelWithString: String(localized: "Model:")), photoModel],
+            [NSTextField(labelWithString: String(localized: "What photos show:")), photoLooks],
         ])
         observation = model.changes.observe { [weak self] in self?.update() }
         update()
@@ -42,10 +47,10 @@ final class SearchSettingsController: NSViewController {
 
     private func update() {
         index.stringValue = model.searchIndex ?? String(localized: "Opening…")
-        photos.stringValue = model.photosRead ?? ""
-        photos.isHidden = model.photosRead == nil
+        photoWords.stringValue = model.photoWords ?? String(localized: "Opening…")
         looks.state = model.searchesPhotosByLook ? .on : .off
-        looksNote.stringValue = model.photoLooksStatus ?? Self.looksAbout
+        photoModel.stringValue = model.photoModel
+        photoLooks.stringValue = model.photoLooks
     }
 
     @objc private func looksChanged() {

@@ -5,7 +5,7 @@ import UIKit
 /// signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
-    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoLooks, signOut }
+    private enum Item: Hashable { case profile, networks, theme, verify, devices, recovery, readReceipts, searchIndex, photoWords, photoLooks, photoModel, photoLooksState, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -96,14 +96,25 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 }, for: .valueChanged)
                 cell.accessories = [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
             case .searchIndex:
-                content.text = String(localized: "Search Index")
-                content.secondaryText = [model.searchIndex ?? String(localized: "Opening…"), model.photosRead]
-                    .compactMap(\.self).joined(separator: "\n")
+                content.text = String(localized: "Messages")
+                content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
+            case .photoWords:
+                content.text = String(localized: "Words in Photos")
+                content.secondaryText = model.photoWords ?? String(localized: "Opening…")
+                content.image = UIImage(systemName: "text.viewfinder")
+            case .photoModel:
+                content.text = String(localized: "Model")
+                content.secondaryText = model.photoModel
+                content.image = UIImage(systemName: "arrow.down.circle")
+            case .photoLooksState:
+                content.text = String(localized: "What Photos Show")
+                content.secondaryText = model.photoLooks
+                content.image = UIImage(systemName: "photo.on.rectangle.angled")
             case .photoLooks:
                 content = .cell()
                 content.text = String(localized: "Search by What Photos Show")
-                content.secondaryText = model.photoLooksStatus ?? String(localized: """
+                content.secondaryText = String(localized: """
                     Photos are always found by the words in them and the messages sent with them. This also finds \
                     them by what they show ("dog on the beach"). It downloads a model of about 450 MB and reads \
                     the photos on this iPhone, in the background while it charges.
@@ -133,7 +144,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendItems([.theme], toSection: .appearance)
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts], toSection: .privacy)
-        snapshot.appendItems([.searchIndex, .photoLooks], toSection: .search)
+        snapshot.appendItems([.searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState], toSection: .search)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
 
@@ -141,7 +152,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             guard let self else { return }
             loadProfilePicture()
             var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoLooks])
+            snapshot.reconfigureItems([.profile, .verify, .recovery, .searchIndex, .photoWords, .photoLooks, .photoModel, .photoLooksState])
             dataSource.apply(snapshot)
         }
         networksObservation = session.networks?.changes.observe { [weak self] in

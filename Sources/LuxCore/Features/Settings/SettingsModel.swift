@@ -21,23 +21,38 @@ public final class SettingsModel {
         session.search?.photos.searchesByLook ?? Preferences.shared.searchesPhotosByLook
     }
 
-    /// The photos read, in words: "180 of 224 photos read"; nil before the index opens.
-    public var photosRead: String? {
-        guard let progress = session.search?.photos.progress, progress.total > 0 else { return nil }
-        return String(localized: "\(progress.read.formatted(.number)) of \(progress.total.formatted(.number)) photos read")
+    /// The basic index of photos (their words), in words: "224 photos · complete", "180 of 224
+    /// photos read"; nil before the index opens.
+    public var photoWords: String? {
+        guard let progress = session.search?.photos.progress else { return nil }
+        return Self.read(progress.withWords, of: progress.total)
     }
 
-    /// Where the search by look is, when it is on: "Downloading the model · 40 %", or that the
-    /// model could not be had; nil while it is off or ready.
-    public var photoLooksStatus: String? {
+    /// The photo search model on this device, in words: not downloaded (search by look is off),
+    /// downloading, ready, or not to be had.
+    public var photoModel: String {
         switch session.search?.photos.looks {
+        case .off?, nil: String(localized: "Not downloaded")
         case .downloading(let fraction)?:
-            String(localized: "Downloading the model · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
-        case .on(hasModel: false)?:
-            String(localized: "The model is not on this device yet: photos are found by their words")
-        case .on(hasModel: true)?, .off?, nil:
-            nil
+            String(localized: "Downloading · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
+        case .on(hasModel: true)?: String(localized: "Ready on this device")
+        case .on(hasModel: false)?: String(localized: "Not available: photos are found by their words")
         }
+    }
+
+    /// How many photos the model has read (their embeddings), in words; "Off" while search by look
+    /// is off.
+    public var photoLooks: String {
+        guard let photos = session.search?.photos, case .on(hasModel: true) = photos.looks else {
+            return searchesPhotosByLook ? String(localized: "Waiting for the model") : String(localized: "Off")
+        }
+        return Self.read(photos.progress.withEmbedding, of: photos.progress.total)
+    }
+
+    private static func read(_ read: Int, of total: Int) -> String {
+        read >= total
+            ? String(localized: "\(total.formatted(.number)) photos · complete")
+            : String(localized: "\(read.formatted(.number)) of \(total.formatted(.number)) photos read")
     }
 
     /// Turns the search by how photos look on (the model downloads; the photos are read again

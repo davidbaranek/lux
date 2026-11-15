@@ -87,10 +87,12 @@ public final class LocalStore: Sendable {
         try await store.forgetImageEmbeddings(reader: reader)
     }
 
-    /// How many photos the index has, and how many `reader` has read.
-    public func imageCounts(reader: String) async throws -> (total: Int, read: Int) {
+    /// How many photos the index has, how many `reader` has read, how many had their words read
+    /// and how many have an embedding.
+    public func imageCounts(reader: String) async throws -> (total: Int, read: Int, withWords: Int, withEmbedding: Int) {
         let counts = try await store.imageCounts(reader: reader)
-        return (Int(clamping: counts.total), Int(clamping: counts.read))
+        return (Int(clamping: counts.total), Int(clamping: counts.read), Int(clamping: counts.withWords),
+                Int(clamping: counts.withEmbedding))
     }
 
     /// The photos that match `text`: by their caption and the words in them, the messages sent

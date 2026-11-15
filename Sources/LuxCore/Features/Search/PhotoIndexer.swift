@@ -6,9 +6,14 @@ import Foundation
 actor PhotoIndexer {
     /// How far the reading is, for Settings.
     struct Progress: Sendable, Equatable {
-        var read: Int
-        var total: Int
-        var isReading: Bool
+        var total = 0
+        /// Read by the current reader; the others wait for it.
+        var read = 0
+        /// Their words read (the basic index).
+        var withWords = 0
+        /// With an embedding (search by look).
+        var withEmbedding = 0
+        var isReading = false
     }
 
     /// Kept together: few writes, and little lost when the system ends the work.
@@ -54,8 +59,9 @@ actor PhotoIndexer {
 
     /// How many photos the index has, and how many the current reader read.
     func progress() async -> Progress {
-        let counts = (try? await store.imageCounts(reader: reader.name)) ?? (total: 0, read: 0)
-        return Progress(read: counts.read, total: counts.total, isReading: running != nil)
+        guard let counts = try? await store.imageCounts(reader: reader.name) else { return Progress(isReading: running != nil) }
+        return Progress(total: counts.total, read: counts.read, withWords: counts.withWords, withEmbedding: counts.withEmbedding,
+                        isReading: running != nil)
     }
 
     private func readUnread(limit: Int?) async -> Bool {

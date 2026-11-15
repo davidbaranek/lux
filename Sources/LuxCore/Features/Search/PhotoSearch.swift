@@ -23,7 +23,7 @@ public final class PhotoSearch {
         return .on(hasModel: model != nil)
     }
     /// The photos read by the current reader, of all, and whether the reading is under way.
-    private(set) var progress = PhotoIndexer.Progress(read: 0, total: 0, isReading: false) {
+    private(set) var progress = PhotoIndexer.Progress() {
         didSet { changes.send() }
     }
     public let changes = Broadcast()

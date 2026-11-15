@@ -84,7 +84,7 @@ private func receipt(_ lines: [String]) throws -> URL {
 
         let photos = PhotoIndexer(store: store, account: account, directory: folder(), model: nil) { _ in }
         #expect(await photos.read(limit: nil))
-        #expect(try await store.imageCounts(reader: PhotoReader(model: nil).name).read == kept.total)
+        #expect(try await store.imageCounts(reader: PhotoReader(model: nil).name).withWords == kept.total)
         // nothing is left to read, and the downloads are gone.
         #expect(try await store.imagesToRead(by: PhotoReader(model: nil).name, limit: 10).isEmpty)
     }
