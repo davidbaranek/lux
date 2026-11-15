@@ -262,10 +262,10 @@ impl From<SharedItem> for CoreSharedItem {
             sender_name: item.sender_name,
             date: item.date,
             content: match item.content {
-                SharedContent::Photo { picture: shown } => CoreSharedContent::Photo {
+                SharedContent::Photo { picture: shown, .. } => CoreSharedContent::Photo {
                     picture: picture(&shown),
                 },
-                SharedContent::Video { poster, duration } => CoreSharedContent::Video {
+                SharedContent::Video { poster, duration, .. } => CoreSharedContent::Video {
                     poster: poster.as_ref().map(picture),
                     seconds: duration.map(|duration| duration.as_secs_f64()),
                 },
@@ -362,7 +362,9 @@ impl CoreAccount {
         Ok(Arc::new(CoreMemberList { members }))
     }
 
-    /// What was shared in the chat `chat_id` (each room of a merged one), of `kind`.
+    /// What was shared in the chat `chat_id` (each room of a merged one), of `kind`; with a
+    /// `query`, only what holds its words (a file's name, a link's address or text, a photo's or
+    /// a video's caption).
     ///
     /// # Errors
     /// When the chat is not in the list.
@@ -370,9 +372,11 @@ impl CoreAccount {
         &self,
         chat_id: String,
         kind: CoreSharedKind,
+        query: Option<String>,
     ) -> Result<Arc<CoreSharedHistory>, CoreAccountError> {
         let rooms = self.rooms_with_networks(&chat_id).await?;
-        let history = SharedHistory::new(rooms.into_iter().map(|(room, _)| room).collect(), kind.into());
+        let history = SharedHistory::new(rooms.into_iter().map(|(room, _)| room).collect(), kind.into())
+            .finding(query.as_deref().unwrap_or_default());
         Ok(Arc::new(CoreSharedHistory {
             backend: self.backend().clone(),
             history: tokio::sync::Mutex::new(history),

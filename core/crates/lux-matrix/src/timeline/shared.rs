@@ -70,8 +70,15 @@ pub(crate) async fn page(room: &Room, from: Option<&str>) -> Result<SharedPage, 
 fn shared(message: &MessageType) -> Vec<SharedContent> {
     let shown = message_shown(message);
     let mut shared: Vec<SharedContent> = match shown.media {
-        Some(Media::Photo { picture, .. }) => vec![SharedContent::Photo { picture }],
-        Some(Media::Video { poster, duration }) => vec![SharedContent::Video { poster, duration }],
+        Some(Media::Photo { picture, .. }) => vec![SharedContent::Photo {
+            picture,
+            caption: shown.body.clone(),
+        }],
+        Some(Media::Video { poster, duration }) => vec![SharedContent::Video {
+            poster,
+            duration,
+            caption: shown.body.clone(),
+        }],
         Some(Media::File {
             name, size, mimetype, ..
         }) => vec![SharedContent::File { name, size, mimetype }],
