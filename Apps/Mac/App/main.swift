@@ -206,6 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let view = NSMenu(title: String(localized: "View"))
         view.addItem(withTitle: String(localized: "Show Sidebar"), action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
             .keyEquivalentModifierMask = [.command, .control]
+        view.addItem(withTitle: String(localized: "Chat Details"), action: #selector(MainSplitViewController.showDetails(_:)), keyEquivalent: "i")
         let window = NSMenu(title: String(localized: "Window"))
         window.addItem(withTitle: String(localized: "Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: String(localized: "Zoom"), action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
