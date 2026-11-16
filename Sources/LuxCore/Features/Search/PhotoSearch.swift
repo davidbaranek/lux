@@ -194,7 +194,7 @@ public final class PhotoSearch {
     /// The words' embedding, in the photos' space; nil while the model or its text encoder is not
     /// ready. A search of messages by meaning starts from it too.
     func embedding(of text: String) async -> [Float]? {
-        do { return try await model?.embedding(of: text) } catch {
+        do { return try await model?.embedding(ofQuery: text) } catch {
             Log.app.error("photo search: the words' embedding: \(String(describing: error), privacy: .public)")
             return nil
         }

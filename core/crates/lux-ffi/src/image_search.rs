@@ -98,11 +98,15 @@ mod tests {
             path,
             length: 64,
             pad_id: 0,
-            lowercase: true,
+            lowercase: false,
         })
         .unwrap();
-        let ids = tokenizer.ids("A photo of a Dog".into()).unwrap();
-        assert_eq!(ids[..7], [235_250, 2686, 576, 476, 5929, 1, 0]);
+        // EmbeddingGemma 2's query prompt and a Czech word, between its start and end ids.
+        let ids = tokenizer.ids("task: search result | query: výlet".into()).unwrap();
+        assert_eq!(
+            ids[..12],
+            [2, 8071, 236_787, 3927, 1354, 1109, 7609, 236_787, 16799, 1184, 1, 0]
+        );
         assert_eq!(ids.len(), 64);
         assert_eq!(tokenizer.ids("slovo ".repeat(100)).unwrap().len(), 64);
     }

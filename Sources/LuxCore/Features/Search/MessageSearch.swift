@@ -121,8 +121,9 @@ public final class MessageSearch {
         // the words' embedding once: photos by their look, messages by their meaning.
         let embedding = await photos.embedding(of: text)
         let meant = await meaning.query(embedding)
+        let minSimilarity = await meaning.minSimilarity ?? 1
         async let foundPhotos = photos.search(text, embedding: embedding)
-        async let found = store.search(text, embedding: meant, minSimilarity: MessageMeaning.minSimilarity, limit: 60)
+        async let found = store.search(text, embedding: meant, minSimilarity: minSimilarity, limit: 60)
         async let shares = shares(text, kinds: [.links, .files, .threads], offset: 0, limit: SearchKind.links.preview + 1)
         let messages = (try? await found) ?? []
         let images = await foundPhotos

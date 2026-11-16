@@ -1,21 +1,19 @@
 import Foundation
 
-/// Reads what messages mean, for search by meaning: each message's text through the photo search
+/// Reads what messages mean, for search by meaning: each message's text through the search
 /// model's text encoder (the one a search's words go through, so no other model takes memory),
 /// the newest first, a batch at a time, off the main thread. A message shorter than `minChars`
 /// has too little to mean and is left.
 ///
-/// The encoder learned to put words near the photos they describe, not near other words: two
-/// texts' embeddings are all alike (a cosine about 0.85), and the shortest are alike to everything.
-/// Each embedding is kept less their mean (the account's first messages', once), which leaves what
-/// tells them apart; a search's words lose the same mean.
+/// Two texts' embeddings are all rather alike (a cosine of 0.7 to 0.85), and the shortest are
+/// alike to everything. Each embedding is kept less their mean (the account's first messages',
+/// once), which leaves what tells them apart; a search's words lose the same mean.
 actor MessageMeaning {
     /// A message at least this long is read; "ok" and "Díky!" mean nothing to search by.
     static let minChars = 12
     /// The least cosine a message found by its meaning has to the words' (both less the mean):
-    /// what a message is about is some 0.25 to 0.7 alike, others below 0.2 (measured in Czech and
-    /// English).
-    static let minSimilarity: Float = 0.25
+    /// the model's own, measured when it is built; nil while there is none.
+    var minSimilarity: Float? { model?.messageSimilarity }
     /// Kept together: few writes, and little lost when the system ends the work.
     private static let batch = 32
     /// How many of the first messages the mean is taken over.
@@ -84,7 +82,7 @@ actor MessageMeaning {
             var embeddings: [(eventId: String, embedding: [Float]?)] = []
             for message in messages where !Task.isCancelled {
                 // the encoder went (memory ran short): the rest wait for the next reading.
-                guard let embedding = try? await model.embedding(of: message.body) else { return false }
+                guard let embedding = try? await model.embedding(ofMessage: message.body) else { return false }
                 embeddings.append((message.eventId, embedding))
             }
             if mean == nil {
