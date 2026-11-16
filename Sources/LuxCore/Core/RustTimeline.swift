@@ -5,7 +5,7 @@ import LuxBindings
 /// opening a chat ahead, the search index's reading, uploads through the rooms' send queues,
 /// media loaded into the folder the app gives (the demo's drawn
 /// by `DemoMedia`). The generated types stay in `Core/`.
-extension RustAccount {
+extension RustAccount: UploadsPort {
     /// Opens a chat's timeline ahead of time (its first page from the server if the device has
     /// none), so the chat opens at once.
     func prefetch(roomId: String, thread: String? = nil) async throws { try await account.prefetchThread(roomId: roomId, threadRoot: thread) }

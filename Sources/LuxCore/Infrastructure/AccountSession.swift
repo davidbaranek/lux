@@ -49,10 +49,10 @@ final class AccountSession {
         index = stores.index
         self.searchChanged = searchChanged
         images = ImagePipeline(account: account, directory: paths.media)
-        uploads = Uploads(account: account, directory: paths.outgoing)
+        uploads = Uploads(account: Task { try await account.value }, directory: paths.outgoing)
         networks = NetworksModel(account: Task { try await account.value }, server: server)
         security = SecurityModel(account: account)
-        profile = ProfileModel(account: account)
+        profile = ProfileModel(account: Task { try await account.value })
         // the server may end the session (its tokens refused): the device is gone, sign in again.
         watchingEnd = Task {
             guard let ends = await bestEffort("watch the session's end", { try await account.value.sessionEnd() }) else { return }

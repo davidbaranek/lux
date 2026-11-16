@@ -28,14 +28,14 @@ public final class Uploads {
     public var onError: ((Error) -> Void)?
     public var isActive: Bool { finished < files }
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any UploadsPort, any Error>
     private let directory: URL
     private var failed = false
     /// How much of each file has gone, in bytes, by its message.
     private var sent: [String: Int64] = [:]
     private static let polling: Duration = .milliseconds(400)
 
-    init(account: Task<RustAccount, any Error>, directory: URL) {
+    init(account: Task<any UploadsPort, any Error>, directory: URL) {
         self.account = account
         self.directory = directory
     }

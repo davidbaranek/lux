@@ -5,7 +5,7 @@ import LuxBindings
 /// `RustChatList.swift`, the thread's in `RustThread.swift`, security in `RustSecurity.swift`): people and
 /// the profile, in the app's types.
 /// The generated types stay in `Core/`.
-extension RustAccount {
+extension RustAccount: ProfilePort, ConversationsPort {
     // MARK: People
 
     func contacts(query: String) async throws -> ContactListing {
