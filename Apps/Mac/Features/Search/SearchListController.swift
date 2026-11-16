@@ -36,6 +36,7 @@ final class SearchListController: NSViewController, NSTableViewDataSource, NSTab
                             target: self, action: #selector(goBack))
         back.bezelStyle = .glass
         back.borderShape = .circle
+        back.controlSize = .large
         back.toolTip = String(localized: "Back to Results")
         back.setAccessibilityIdentifier("search-list-back")
         let title = NSTextField(labelWithString: model.kind.title)
@@ -90,28 +91,29 @@ final class SearchListController: NSViewController, NSTableViewDataSource, NSTab
         empty.textColor = .secondaryLabelColor
         empty.alignment = .center
         empty.isHidden = true
+        // the bar, and the note under it while it shows (a hidden one takes no room).
+        let top = NSStackView(views: [bar, looking])
+        top.orientation = .vertical
+        top.alignment = .leading
+        top.spacing = 8
         let container = NSView()
-        for view in [bar, looking, scroll, empty] as [NSView] {
+        for view in [top, scroll, empty] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            bar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            bar.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            bar.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
-            looking.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            looking.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            looking.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: 8),
+            top.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            top.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            top.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
+            looking.widthAnchor.constraint(equalTo: top.widthAnchor),
             scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: looking.bottomAnchor, constant: 6),
+            scroll.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 6),
             scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             empty.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             empty.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             empty.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -24),
         ])
-        // a hidden note takes no room: the list sits right under the bar.
-        looking.setContentHuggingPriority(.required, for: .vertical)
         view = container
         model.onUpdate = { [weak self] hits in self?.show(hits) }
         show(model.hits)

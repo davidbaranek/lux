@@ -17,11 +17,14 @@ enum SearchViews {
         group.interItemSpacing = .fixed(spacing)
         let section = NSCollectionLayoutSection(group: group)
         section.interGroupSpacing = spacing
-        section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0)
+        section.contentInsets = .zero
         if header {
-            section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+            let item = NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(36)),
-                elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)]
+                elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)
+            // level with the list sections' headers (a list's margins are 16 points, a grid's 8).
+            item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
+            section.boundarySupplementaryItems = [item]
         }
         return section
     }

@@ -150,14 +150,15 @@ final class SearchKindButtons: NSView {
     init() {
         super.init(frame: .zero)
         row.orientation = .horizontal
-        row.spacing = 6
-        row.edgeInsets = NSEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
+        row.spacing = 4
+        row.edgeInsets = NSEdgeInsets(top: 2, left: 10, bottom: 2, right: 10)
         row.setViews(SearchKind.allCases.map { kind in
             let button = NSButton(title: kind.title, image: NSImage(systemSymbolName: kind.symbol, accessibilityDescription: nil)!,
                                   target: self, action: #selector(open(_:)))
             button.bezelStyle = .glass
             button.borderShape = .capsule
-            button.controlSize = .regular
+            // small, so the four fit a narrow sidebar.
+            button.controlSize = .small
             button.imagePosition = .imageLeading
             button.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
             button.setAccessibilityIdentifier("search-kind-\(kind.rawValue)")

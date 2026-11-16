@@ -46,6 +46,8 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         super.viewDidLoad()
         var list = UICollectionLayoutListConfiguration(appearance: .plain)
         list.headerMode = .supplementary
+        // the headers' own spacing is enough: no more over each section.
+        list.headerTopPadding = 0
         let layout = UICollectionViewCompositionalLayout { [weak self] index, environment in
             guard self?.dataSource.sectionIdentifier(for: index) == .photos else {
                 return NSCollectionLayoutSection.list(using: list, layoutEnvironment: environment)
@@ -126,9 +128,17 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         render()
     }
 
+    /// Shown again (back from a kind's list): the results follow the field's words.
+    var onAppear: (() -> Void)?
+    private var appeared = false
+
     /// Search opens: the kinds' buttons slide in under the field, quickly.
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // the results need no bar; a kind's list over them has one, with its back button.
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+        if appeared { onAppear?() }
+        appeared = true
         guard !UIAccessibility.isReduceMotionEnabled else { return }
         kinds.alpha = 0
         kinds.transform = CGAffineTransform(translationX: 0, y: -10).scaledBy(x: 0.96, y: 0.96)

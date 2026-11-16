@@ -1,11 +1,11 @@
 import LuxCore
 import UIKit
 
-/// One kind of what chats shared, all of it, on its own page ("Show All", or a kind's button over
-/// the results): photos as a grid, links, files and threads as rows, the newest first. Its own
-/// search field starts with the words searched, and finds in this kind only; the next page loads
-/// as the list nears its end.
-final class SearchListViewController: UIViewController, UICollectionViewDelegate, UISearchResultsUpdating {
+/// One kind of what chats shared, all of it, on its own page within search ("Show All", or a
+/// kind's button over the results): photos as a grid, links, files and threads as rows, the
+/// newest first. Search's field finds in this kind only while it shows, starting with the words
+/// searched; the next page loads as the list nears its end.
+final class SearchListViewController: UIViewController, UICollectionViewDelegate {
     private let model: SearchListModel
     private let images: ImagePipeline?
     private let open: (SearchTarget) -> Void
@@ -42,15 +42,6 @@ final class SearchListViewController: UIViewController, UICollectionViewDelegate
         collectionView.accessibilityIdentifier = "search-list"
         collectionView.topEdgeEffect.style = .soft
         view.addSubview(collectionView)
-
-        let search = UISearchController(searchResultsController: nil)
-        search.searchResultsUpdater = self
-        search.obscuresBackgroundDuringPresentation = false
-        search.searchBar.placeholder = String(localized: "Search \(kind.title)")
-        search.searchBar.text = model.query
-        navigationItem.searchController = search
-        navigationItem.hidesSearchBarWhenScrolling = false
-        navigationItem.preferredSearchBarPlacement = .stacked
 
         looking.isShown = false
         looking.translatesAutoresizingMaskIntoConstraints = false
@@ -122,8 +113,14 @@ final class SearchListViewController: UIViewController, UICollectionViewDelegate
         }
     }
 
-    func updateSearchResults(for searchController: UISearchController) {
-        model.search(searchController.searchBar.text ?? "")
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
+
+    /// Search's field changed while this list shows.
+    func search(_ text: String) {
+        model.search(text)
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
