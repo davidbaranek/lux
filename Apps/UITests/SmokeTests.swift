@@ -4,6 +4,7 @@ import XCTest
 /// search, Settings, and the app sent to the background and back. Fails on a crash (the app no
 /// longer running in the foreground) or a hang: every step waits at most `hang` for its screen,
 /// and a main thread that does not answer leaves the screen unreached. CI runs it on a simulator.
+@MainActor
 final class SmokeTests: XCTestCase {
     private let hang: TimeInterval = 10
     private var app: XCUIApplication!
