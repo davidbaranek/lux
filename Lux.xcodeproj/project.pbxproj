@@ -39,7 +39,6 @@
 		3070AFA29798B0CD0AE87E10 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */; };
 		316952910C4EE229C71D7C06 /* EmojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6062145D14EE693AA7E8CED /* EmojiPicker.swift */; };
 		328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00570185AFDD380CCE7DD74 /* SignInViewController.swift */; };
-		33DA290875C84A476B39620E /* PhotoReadingNow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82BDB9F7B6AE09A940386406 /* PhotoReadingNow.swift */; };
 		33DA6D51E00662CDDBE4C0B0 /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3137E9AE7652C1F1211E24B9 /* LuxCore */; };
 		33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49761B942919CA84E69B8699 /* SectionHeader.swift */; };
 		3782434E7EA7EF72FCEEF0B9 /* Info-iOS.plist in Resources */ = {isa = PBXBuildFile; fileRef = C2FF76B87AC1426AF30D3441 /* Info-iOS.plist */; };
@@ -126,7 +125,6 @@
 		C49CF522A44DCFC69D5B38C5 /* ChatTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74036405B2152475BBCC458 /* ChatTitleView.swift */; };
 		C575C6902C0594A0AE0F9E1E /* PerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */; };
 		C69D0F00C7AD9CFA40008641 /* NewConversationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC71AE3DBF5977DA99DC7E8 /* NewConversationController.swift */; };
-		C76D79C197E48417EA864003 /* PhotoReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF84BEA419C3DD7832826254 /* PhotoReading.swift */; };
 		CB917858113CEA60B6902902 /* ThreadController+QuickLook.swift in Sources */ = {isa = PBXBuildFile; fileRef = F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */; };
 		CCED9DD67B5C2015BE31E9D2 /* SidebarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3776EDAC6CDA5CF7A31983 /* SidebarController.swift */; };
 		CFA436A69A0242CBEB19E202 /* SearchResultsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */; };
@@ -314,7 +312,6 @@
 		80D030C126F85C86D0EA1320 /* SearchSettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchSettingsController.swift; sourceTree = "<group>"; };
 		8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTests.swift; sourceTree = "<group>"; };
 		8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIFont+Bold.swift"; sourceTree = "<group>"; };
-		82BDB9F7B6AE09A940386406 /* PhotoReadingNow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoReadingNow.swift; sourceTree = "<group>"; };
 		83A756DC00736E9731ED03F4 /* ThreadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadController.swift; sourceTree = "<group>"; };
 		84BC505E86E2BB171A5A694B /* SearchListController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchListController.swift; sourceTree = "<group>"; };
 		84F5A52224B0B6D81147524A /* ChatDetailsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailsController.swift; sourceTree = "<group>"; };
@@ -361,7 +358,6 @@
 		C74036405B2152475BBCC458 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
 		CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
-		CF84BEA419C3DD7832826254 /* PhotoReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoReading.swift; sourceTree = "<group>"; };
 		D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploads.swift; sourceTree = "<group>"; };
 		D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Composer.swift"; sourceTree = "<group>"; };
 		DE4A4506DA1C1DD8E5FB5EE2 /* NetworksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworksViewController.swift; sourceTree = "<group>"; };
@@ -531,8 +527,6 @@
 				4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */,
 				D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */,
 				45E4FC640AD4BBC4E431346A /* Notifications.swift */,
-				CF84BEA419C3DD7832826254 /* PhotoReading.swift */,
-				82BDB9F7B6AE09A940386406 /* PhotoReadingNow.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -1326,8 +1320,6 @@
 				DEC843A195F03049A897DEAC /* NewConversationViewController.swift in Sources */,
 				50126D1969796B2F94B31CF0 /* NotificationMenu.swift in Sources */,
 				B7AEA23C2F785A725402F3AF /* Notifications.swift in Sources */,
-				C76D79C197E48417EA864003 /* PhotoReading.swift in Sources */,
-				33DA290875C84A476B39620E /* PhotoReadingNow.swift in Sources */,
 				2C6C61D1739FD5E41B33D6E0 /* PinnedChatCell.swift in Sources */,
 				99746989F9BF6DCCE165A6AD /* PlacesSheetViewController.swift in Sources */,
 				08B199F4C47F89EEA44BF366 /* ProfileViewController.swift in Sources */,

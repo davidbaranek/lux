@@ -4,9 +4,8 @@ import Foundation
 /// messages sent near it. When the user turns semantic search on: how photos look too, by the
 /// search model (downloaded then, about 630 MB), so "dog on the beach" finds one with no
 /// words at all; the same model reads what messages mean (`MessageMeaning`).
-/// Nothing leaves the device. On the iPhone a few new photos are read while the app is open, the
-/// rest while it charges (`PhotoReading`, a background processing task); on the Mac all of them,
-/// quietly.
+/// Nothing leaves the device. Photos are read while the app is open, quietly (the iPhone gives an
+/// app's reading in the background too little time to be worth it).
 @MainActor
 public final class PhotoSearch {
     /// Where the search by how photos look is, for Settings.
@@ -38,14 +37,6 @@ public final class PhotoSearch {
     /// How far the model's download is, while it downloads, in whole percent: the download reports
     /// far more often than anyone reads it, and each change lays Settings out again.
     private var downloading: Double? { didSet { if downloading != oldValue { changes.send() } } }
-
-    /// How many new photos the iPhone reads at a time while the app is open; the rest wait for
-    /// it to charge.
-    #if os(iOS)
-    private static let foregroundLimit: Int? = 24
-    #else
-    private static let foregroundLimit: Int? = nil
-    #endif
 
     private let store: LocalStore
     private let indexer: PhotoIndexer
@@ -99,23 +90,20 @@ public final class PhotoSearch {
         update()
     }
 
-    /// New photos came: a few of them are read now (all on the Mac), unless the device saves its
-    /// battery or data; then they wait for the next time, or for it to charge.
+    /// New photos came: they are read now, unless the device saves its battery or data (then
+    /// they wait for the next time).
     func update() {
-        // while the model loads, the photos wait: they are read once, with it.
-        guard loading == nil, Saving.shared.reason == nil else { return }
+        // while the model loads, the photos wait: they are read once, with it. Stopped by the
+        // user, they wait for Read Now (or the next launch).
+        guard loading == nil, Saving.shared.reason == nil, !isPaused else { return }
         // below what the user does: the reading yields to the app.
-        Task(priority: .utility) { [indexer] in await indexer.read(limit: Self.foregroundLimit) }
+        Task(priority: .utility) { [indexer] in await indexer.read(limit: nil) }
     }
 
     /// Photos are being read now.
     public var isReading: Bool { progress.isReading }
     /// Some photos wait to be read.
     public var hasUnread: Bool { progress.read < progress.total }
-
-    /// Set by the iPhone app: reading every photo now runs as a continued processing task, which
-    /// the system shows as a Live Activity and keeps going when the user leaves the app.
-    public var onReadNow: (() -> Void)?
 
     /// Why photos cannot be read now: the device saves its battery or data. Nil when they can.
     public var readNowBlocked: Saving.Reason? { Saving.shared.reason }
@@ -124,20 +112,32 @@ public final class PhotoSearch {
     /// or data.
     public func readNow() {
         guard readNowBlocked == nil else { return }
-        if let onReadNow { onReadNow() } else { Task(priority: .utility) { await readAll() } }
+        isPaused = false
+        Task(priority: .utility) { await readAll() }
     }
 
-    /// Reads every photo not read yet (the iPhone's background tasks); true when none is left.
+    /// Reads every photo not read yet; true when none is left.
     public func readAll() async -> Bool {
         await loading?.value
         return await indexer.read(limit: nil)
     }
 
-    /// Stops the reading (the user, the system ending a background task, or the account closing);
-    /// what was read stays, and the rest is read the next time the app opens or charges.
+    /// Stops the reading (the system ending a background task, or the account closing); what was
+    /// read stays, and the rest is read the next time new photos come or the app opens.
     public func stop() async {
         await indexer.stop()
     }
+
+    /// The user stopped the reading: it stays stopped while the app runs, new photos or not,
+    /// until they read the waiting photos now (or the app opens again).
+    public func pause() async {
+        isPaused = true
+        await indexer.stop()
+        changes.send()
+    }
+
+    /// The user stopped the reading in Settings.
+    private var isPaused = false
 
     /// Someone is about to search: the text encoder loads now, off the main actor, so the first
     /// query finds photos by their look too. It loads in about a second once Core ML has compiled

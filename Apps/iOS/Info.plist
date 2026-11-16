@@ -12,8 +12,6 @@
 	<array>
 		<string>$(LUX_BUNDLE_ID).uploads</string>
 		<string>$(LUX_BUNDLE_ID).refresh</string>
-		<string>$(LUX_BUNDLE_ID).photos</string>
-		<string>$(LUX_BUNDLE_ID).photos-now</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>

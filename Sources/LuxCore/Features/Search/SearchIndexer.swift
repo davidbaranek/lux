@@ -96,14 +96,28 @@ public actor SearchIndexer {
         // to their start or as far as Settings asks.
         let quick = rooms.filter { room in
             guard let indexed = chats[room.id] else { return true }
-            return (room.date ?? .distantPast) > indexed.newest
+            // to the millisecond, as the store keeps it: a date finer than it is no newer message.
+            return Self.millis(room.date ?? .distantPast) > Self.millis(indexed.newest)
         }
         await read(quick, deep: false, back: horizon, from: account)
-        await read(rooms.filter { room in
+        let deep = rooms.filter { room in
             guard let indexed = chats[room.id] else { return true }
             return !indexed.complete && (indexed.oldest ?? .distantFuture) > horizon.addingTimeInterval(Self.slack)
-        }, deep: true, back: horizon, from: account)
+        }
+        if !deep.isEmpty {
+            let reasons = deep.map { room -> String in
+                guard let indexed = chats[room.id] else { return "new" }
+                return "oldest \(indexed.oldest.map { String(Int(-$0.timeIntervalSinceNow / 86_400)) + "d" } ?? "none"), older \(indexed.older == nil ? "none" : "some")"
+            }
+            let back = Int(-horizon.timeIntervalSinceNow / 86_400)
+            Log.app.notice("search index: back \(back, privacy: .public)d, \(quick.count, privacy: .public) quick, \(deep.count, privacy: .public) deep: \(reasons.prefix(8).joined(separator: "; "), privacy: .public)")
+        }
+        await read(deep, deep: true, back: horizon, from: account)
         report(Progress(chats: 0, total: 0, deep: true, isIndexing: false, messages: (try? await store.messageCount()) ?? 0))
+    }
+
+    private static func millis(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000).rounded(.down))
     }
 
     /// A room to read: its id, and its chat's newest message.
@@ -137,8 +151,17 @@ public actor SearchIndexer {
             let indexed = chats[room.id]
             let walksBack = deep || indexed == nil
             let since = walksBack ? horizon : indexed?.newest ?? horizon
-            guard let page = try? await account.indexHistory(roomId: room.id, since: since, from: deep ? indexed?.older : nil,
-                                                             maxPages: deep ? Self.deepPages : Self.quickPages) else { continue }
+            let page: IndexHistoryPage
+            do {
+                page = try await account.indexHistory(roomId: room.id, since: since, from: deep ? indexed?.older : nil,
+                                                      maxPages: deep ? Self.deepPages : Self.quickPages)
+            } catch {
+                Log.app.notice("""
+                    search index: a room's history not read (\(deep ? "deep" : "quick", privacy: .public)): \
+                    \(String(describing: error), privacy: .public)
+                    """)
+                continue
+            }
             do {
                 if let until = page.deletedUntil { try await store.forgetChat(room.id, until: until) }
                 try await store.add(page.messages)

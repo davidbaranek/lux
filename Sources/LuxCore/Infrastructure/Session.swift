@@ -346,26 +346,6 @@ public final class Session {
         return await account.refresh(within: seconds)
     }
 
-    /// The system's background processing task for photo search (while it charges): opens the
-    /// kept account if the app was not running, and its stores without the sync, reads the
-    /// photos not read yet, and closes the stores again unless the app came to the front. True
-    /// when every photo is read; the task's expiry cancels it (`stopReadingPhotos`).
-    public func readPhotosInBackground() async -> Bool {
-        guard await restore(), let account = try? await account.value,
-              let search = await openedSearch() else { return false }
-        await account.beginBackgroundWork()
-        // the photos, then what messages mean (both with the model, while semantic search is on).
-        let photos = await search.photos.readAll()
-        let messages = await search.readAllMeanings()
-        return photos && messages
-    }
-
-    /// The background task ran out of time: the reading stops where it is.
-    public func stopReadingPhotos() async {
-        await search?.photos.stop()
-        await search?.stopMeanings()
-    }
-
     /// The search, once its store has opened (a moment after the account).
     private func openedSearch() async -> MessageSearch? {
         if let search { return search }

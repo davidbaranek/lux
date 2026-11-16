@@ -35,8 +35,8 @@ public final class SettingsModel {
     }
 
     /// Where the photos stand now, in one line: what is happening, never what a button would do.
-    /// "Downloading the model · 34 %", "Reading · 120 of 224", "96 photos waiting · read while
-    /// charging", "All 224 photos read"; nil before the index opens.
+    /// "Downloading the model · 34 %", "Reading · 120 of 224", "96 photos waiting", "All 224
+    /// photos read"; nil before the index opens.
     public var photoStatus: String? {
         guard let photos = session.search?.photos else { return nil }
         let progress = photos.progress
@@ -51,11 +51,7 @@ public final class SettingsModel {
             status = switch photos.readNowBlocked {
             case .battery?: String(localized: "\(left) photos waiting · Low Power Mode is on")
             case .data?: String(localized: "\(left) photos waiting · Low Data Mode is on")
-            #if os(iOS)
-            case nil: String(localized: "\(left) photos waiting · read while charging")
-            #else
             case nil: String(localized: "\(left) photos waiting")
-            #endif
             }
         } else if progress.total == 0 {
             status = String(localized: "No photos yet")
@@ -88,13 +84,13 @@ public final class SettingsModel {
         session.search?.photos.readNow()
     }
 
-    /// Stops the reading; the rest is read the next time the app opens, or while it charges.
+    /// Stops the reading; the rest is read on Read Now, or the next time the app opens.
     public func stopReadingPhotos() async {
-        await session.search?.photos.stop()
+        await session.search?.photos.pause()
     }
 
     /// Turns the search by how photos look on (the model downloads; the photos are read again
-    /// while the device charges) or off (the model and what it read go).
+    /// while the app is open) or off (the model and what it read go).
     public func setSearchesPhotosByLook(_ on: Bool) async {
         await session.search?.photos.setSearchesByLook(on)
         changes.send()
