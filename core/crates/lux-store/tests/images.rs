@@ -153,6 +153,8 @@ async fn finds_a_photo_by_a_message_sent_near_it_in_its_chat() {
             room: "!a".into(),
             sender_name: "Anna".into(),
             body: "Fotky z dovolené v Chorvatsku".into(),
+            links: Vec::new(),
+            thread: None,
             date: at(1_000 - 30),
             is_own: false,
         }])

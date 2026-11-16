@@ -30,9 +30,9 @@ use crate::ports::{
 };
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
-    Draft, FileKind, IndexHistory, IndexedImage, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
-    Participant, Picture, Quote, Reaction, Reader, Receipt, SharedPost, ThreadReply, ThreadSummary, TimelineMessage,
-    Typist, html,
+    Draft, FileKind, IndexHistory, IndexedFile, IndexedImage, IndexedMessage, Media, MessageKind, OutgoingAttachment,
+    OutgoingKind, Participant, Picture, Quote, Reaction, Reader, Receipt, SharedPost, ThreadReply, ThreadSummary,
+    TimelineMessage, Typist, html,
 };
 
 /// The demo account's user.
@@ -477,12 +477,34 @@ impl ChatTimelines for DemoTimelines {
                     date: message.message.date,
                     is_own: message.is_own,
                 });
+            } else if let Some(Media::File {
+                name, size, mimetype, ..
+            }) = &message.media
+            {
+                history.files.push(IndexedFile {
+                    event_id,
+                    room: room.clone(),
+                    sender_name: message.sender_name.clone(),
+                    name: name.clone(),
+                    size: *size,
+                    mimetype: Some(mimetype.clone()).filter(|mimetype| !mimetype.is_empty()),
+                    date: message.message.date,
+                    is_own: message.is_own,
+                });
             } else if !message.message.body.is_empty() {
+                let mut links: Vec<String> = Vec::new();
+                for link in message::links(&message.message.body, &message.styles) {
+                    if !links.contains(&link.url) {
+                        links.push(link.url);
+                    }
+                }
                 history.messages.push(IndexedMessage {
                     event_id,
                     room: room.clone(),
                     sender_name: message.sender_name.clone(),
                     body: message.message.body.clone(),
+                    links,
+                    thread: None,
                     date: message.message.date,
                     is_own: message.is_own,
                 });

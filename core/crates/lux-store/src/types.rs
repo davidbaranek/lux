@@ -76,6 +76,83 @@ pub enum ImageReason {
         /// The cosine of the photo's and the words' embeddings.
         similarity: f32,
     },
+    /// Listed with the others, the newest first: no words were searched.
+    Listed,
+}
+
+/// What to list of one kind the index holds: all of it, or what has every word of `text`; the
+/// newest first, a page at a time.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Browse {
+    /// The typed words; empty lists all.
+    pub text: String,
+    /// One chat's only.
+    pub room_id: Option<RoomId>,
+    /// At most this many.
+    pub limit: u32,
+    /// After this many (the pages before).
+    pub offset: u32,
+}
+
+/// A web address a message sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkHit {
+    /// The message's event.
+    pub event_id: EventId,
+    /// Its chat.
+    pub room_id: RoomId,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// The address.
+    pub url: String,
+    /// The message's text.
+    pub text: String,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The user sent it.
+    pub is_own: bool,
+}
+
+/// A file a message sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileHit {
+    /// Its event.
+    pub event_id: EventId,
+    /// Its chat.
+    pub room_id: RoomId,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// Its name.
+    pub name: String,
+    /// Its size in bytes, when known.
+    pub size: Option<u64>,
+    /// Its type, when known.
+    pub mimetype: Option<String>,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The user sent it.
+    pub is_own: bool,
+}
+
+/// A thread: its root and how far its replies go.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadHit {
+    /// Its root's event.
+    pub root: EventId,
+    /// Its chat.
+    pub room_id: RoomId,
+    /// Who started it, when the index holds its root (a text message).
+    pub root_sender: Option<String>,
+    /// The root's text, when the index holds it.
+    pub root_text: Option<String>,
+    /// How many replies the index holds.
+    pub replies: u32,
+    /// Who sent the newest reply.
+    pub latest_sender: String,
+    /// The newest reply's text.
+    pub latest_text: String,
+    /// When the newest reply was sent.
+    pub latest: SystemTime,
 }
 
 /// A search for photos: by their words, the messages sent near them, and how they look.

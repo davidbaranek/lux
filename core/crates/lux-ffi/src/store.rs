@@ -3,8 +3,11 @@
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use lux_core::timeline::{IndexedImage, IndexedMessage};
-use lux_store::{Error, Hit, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, Store};
+use lux_core::timeline::{IndexedFile, IndexedImage, IndexedMessage};
+use lux_store::{
+    Browse, Error, FileHit, Hit, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, LinkHit, Store,
+    ThreadHit,
+};
 
 /// Why a store call failed.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -46,10 +49,109 @@ pub struct CoreStoreMessage {
     pub sender_name: String,
     /// Its text.
     pub body: String,
+    /// The web addresses in it.
+    pub links: Vec<String>,
+    /// The thread it replies in: its root's event id.
+    pub thread: Option<String>,
     /// When it was sent.
     pub date: SystemTime,
     /// The user sent it.
     pub is_own: bool,
+}
+
+/// A file for the search index.
+#[derive(uniffi::Record)]
+pub struct CoreStoreFile {
+    /// Its event id.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// Its name.
+    pub name: String,
+    /// Its size in bytes, when known.
+    pub size: Option<u64>,
+    /// Its type, when known.
+    pub mimetype: Option<String>,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The user sent it.
+    pub is_own: bool,
+}
+
+/// What to list of one kind: all, or what has the words; a page of it.
+#[derive(uniffi::Record)]
+pub struct CoreBrowse {
+    /// The typed words; empty lists all.
+    pub text: String,
+    /// One chat's only.
+    pub room_id: Option<String>,
+    /// At most this many.
+    pub limit: u32,
+    /// After this many.
+    pub offset: u32,
+}
+
+/// A web address a message sent.
+#[derive(uniffi::Record)]
+pub struct CoreLinkHit {
+    /// The message's event id.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// The address.
+    pub url: String,
+    /// The message's text.
+    pub text: String,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The user sent it.
+    pub is_own: bool,
+}
+
+/// A file a message sent.
+#[derive(uniffi::Record)]
+pub struct CoreFileHit {
+    /// Its event id.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// Its name.
+    pub name: String,
+    /// Its size in bytes, when known.
+    pub size: Option<u64>,
+    /// Its type, when known.
+    pub mimetype: Option<String>,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The user sent it.
+    pub is_own: bool,
+}
+
+/// A thread and its newest reply.
+#[derive(uniffi::Record)]
+pub struct CoreThreadHit {
+    /// Its root's event id.
+    pub root: String,
+    /// Its room.
+    pub room_id: String,
+    /// Who started it, when the index holds its root.
+    pub root_sender: Option<String>,
+    /// Its root's text, when the index holds it.
+    pub root_text: Option<String>,
+    /// How many replies the index holds.
+    pub replies: u32,
+    /// Who sent the newest reply.
+    pub latest_sender: String,
+    /// The newest reply's text.
+    pub latest_text: String,
+    /// When the newest reply was sent.
+    pub latest: SystemTime,
 }
 
 /// How far the index has read one chat.
@@ -171,6 +273,8 @@ pub enum CoreImageReason {
         /// The cosine of its and the words' embeddings.
         similarity: f32,
     },
+    /// Listed with the others: no words were searched.
+    Listed,
 }
 
 /// A photo a search found.
@@ -229,6 +333,8 @@ impl CoreStore {
                 room: message.room_id.into(),
                 sender_name: message.sender_name,
                 body: message.body,
+                links: message.links,
+                thread: message.thread.map(Into::into),
                 date: message.date,
                 is_own: message.is_own,
             })
@@ -310,6 +416,69 @@ impl CoreStore {
             })
             .collect();
         Ok(self.store.add_images(images).await?)
+    }
+
+    /// Adds files, or changes their names, in one transaction.
+    pub async fn add_files(&self, files: Vec<CoreStoreFile>) -> Result<(), CoreStoreError> {
+        let files = files
+            .into_iter()
+            .map(|file| IndexedFile {
+                event_id: file.event_id.into(),
+                room: file.room_id.into(),
+                sender_name: file.sender_name,
+                name: file.name,
+                size: file.size,
+                mimetype: file.mimetype,
+                date: file.date,
+                is_own: file.is_own,
+            })
+            .collect();
+        Ok(self.store.add_files(files).await?)
+    }
+
+    /// The photos, the newest first, a page of them.
+    pub async fn images(&self, browse: CoreBrowse) -> Result<Vec<CoreImageHit>, CoreStoreError> {
+        Ok(self
+            .store
+            .images(browse.into())
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    /// The web addresses messages sent, the newest first: all, or those of the messages with the
+    /// words.
+    pub async fn links(&self, browse: CoreBrowse) -> Result<Vec<CoreLinkHit>, CoreStoreError> {
+        Ok(self
+            .store
+            .links(browse.into())
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    /// The files, the newest first: all, or those whose name has the words.
+    pub async fn files(&self, browse: CoreBrowse) -> Result<Vec<CoreFileHit>, CoreStoreError> {
+        Ok(self
+            .store
+            .files(browse.into())
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    /// The threads by their newest reply: all, or those whose root or a reply has the words.
+    pub async fn threads(&self, browse: CoreBrowse) -> Result<Vec<CoreThreadHit>, CoreStoreError> {
+        Ok(self
+            .store
+            .threads(browse.into())
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     /// The photos `reader` has not read yet, the newest first, at most `limit`.
@@ -400,6 +569,7 @@ impl From<ImageHit> for CoreImageHit {
                     matches: matched(matches),
                 },
                 ImageReason::Looks { similarity } => CoreImageReason::Looks { similarity },
+                ImageReason::Listed => CoreImageReason::Listed,
             },
         }
     }
@@ -425,6 +595,61 @@ impl From<Hit> for CoreStoreHit {
             matches: matched(hit.matches),
             date: hit.date,
             is_own: hit.is_own,
+        }
+    }
+}
+
+impl From<CoreBrowse> for Browse {
+    fn from(browse: CoreBrowse) -> Self {
+        Self {
+            text: browse.text,
+            room_id: browse.room_id.map(Into::into),
+            limit: browse.limit,
+            offset: browse.offset,
+        }
+    }
+}
+
+impl From<LinkHit> for CoreLinkHit {
+    fn from(hit: LinkHit) -> Self {
+        Self {
+            event_id: hit.event_id.to_string(),
+            room_id: hit.room_id.to_string(),
+            sender_name: hit.sender_name,
+            url: hit.url,
+            text: hit.text,
+            date: hit.date,
+            is_own: hit.is_own,
+        }
+    }
+}
+
+impl From<FileHit> for CoreFileHit {
+    fn from(hit: FileHit) -> Self {
+        Self {
+            event_id: hit.event_id.to_string(),
+            room_id: hit.room_id.to_string(),
+            sender_name: hit.sender_name,
+            name: hit.name,
+            size: hit.size,
+            mimetype: hit.mimetype,
+            date: hit.date,
+            is_own: hit.is_own,
+        }
+    }
+}
+
+impl From<ThreadHit> for CoreThreadHit {
+    fn from(hit: ThreadHit) -> Self {
+        Self {
+            root: hit.root.to_string(),
+            room_id: hit.room_id.to_string(),
+            root_sender: hit.root_sender,
+            root_text: hit.root_text,
+            replies: hit.replies,
+            latest_sender: hit.latest_sender,
+            latest_text: hit.latest_text,
+            latest: hit.latest,
         }
     }
 }

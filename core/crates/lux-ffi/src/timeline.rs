@@ -283,6 +283,31 @@ pub struct CoreIndexedMessage {
     pub sender_name: String,
     /// Its text.
     pub body: String,
+    /// The web addresses in it.
+    pub links: Vec<String>,
+    /// The thread it replies in: its root's event id.
+    pub thread: Option<String>,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The account sent it.
+    pub is_own: bool,
+}
+
+/// A file as the search index keeps it.
+#[derive(uniffi::Record)]
+pub struct CoreIndexedFile {
+    /// Its event.
+    pub event_id: String,
+    /// Its room.
+    pub room_id: String,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// Its name.
+    pub name: String,
+    /// Its size in bytes, when known.
+    pub size: Option<u64>,
+    /// Its type, when known.
+    pub mimetype: Option<String>,
     /// When it was sent.
     pub date: SystemTime,
     /// The account sent it.
@@ -306,13 +331,15 @@ pub struct CoreIndexedImage {
     pub is_own: bool,
 }
 
-/// A chat's text messages and photos back to a date, newest first.
+/// A chat's text messages, photos and files back to a date, newest first.
 #[derive(uniffi::Record)]
 pub struct CoreIndexHistory {
     /// The text messages.
     pub messages: Vec<CoreIndexedMessage>,
     /// The photos.
     pub images: Vec<CoreIndexedImage>,
+    /// The files.
+    pub files: Vec<CoreIndexedFile>,
     /// Nothing is older.
     pub reached_start: bool,
     /// The read went back to `since`.
@@ -557,6 +584,8 @@ impl From<IndexedMessage> for CoreIndexedMessage {
             room_id: message.room.to_string(),
             sender_name: message.sender_name,
             body: message.body,
+            links: message.links,
+            thread: message.thread.map(|thread| thread.to_string()),
             date: message.date,
             is_own: message.is_own,
         }
@@ -577,6 +606,20 @@ impl From<IndexHistory> for CoreIndexHistory {
                     caption: image.caption,
                     date: image.date,
                     is_own: image.is_own,
+                })
+                .collect(),
+            files: history
+                .files
+                .into_iter()
+                .map(|file| CoreIndexedFile {
+                    event_id: file.event_id.to_string(),
+                    room_id: file.room.to_string(),
+                    sender_name: file.sender_name,
+                    name: file.name,
+                    size: file.size,
+                    mimetype: file.mimetype,
+                    date: file.date,
+                    is_own: file.is_own,
                 })
                 .collect(),
             reached_start: history.reached_start,

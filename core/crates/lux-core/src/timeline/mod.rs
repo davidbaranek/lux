@@ -332,6 +332,31 @@ pub struct IndexedMessage {
     pub sender_name: String,
     /// Its text.
     pub body: String,
+    /// The web addresses in it (a formatted link's too, whose text may differ), each once.
+    pub links: Vec<String>,
+    /// The thread it replies in: its root's event.
+    pub thread: Option<EventId>,
+    /// When it was sent.
+    pub date: SystemTime,
+    /// The account sent it.
+    pub is_own: bool,
+}
+
+/// A file, as the search index keeps it: its name, to find it by, and where it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexedFile {
+    /// Its event.
+    pub event_id: EventId,
+    /// Its room.
+    pub room: RoomId,
+    /// Its sender's name.
+    pub sender_name: String,
+    /// Its name.
+    pub name: String,
+    /// Its size in bytes, when its message says.
+    pub size: Option<u64>,
+    /// Its type, when its message says.
+    pub mimetype: Option<String>,
     /// When it was sent.
     pub date: SystemTime,
     /// The account sent it.
@@ -356,14 +381,16 @@ pub struct IndexedImage {
     pub is_own: bool,
 }
 
-/// A chat's messages for the search index back to a date, newest first: its text messages and
-/// its photos.
+/// A chat's messages for the search index back to a date, newest first: its text messages (with
+/// their links and threads), its photos and its files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct IndexHistory {
     /// The text messages, newest first.
     pub messages: Vec<IndexedMessage>,
     /// The photos, newest first.
     pub images: Vec<IndexedImage>,
+    /// The files, newest first.
+    pub files: Vec<IndexedFile>,
     /// The chat's first message is among them: there is nothing older.
     pub reached_start: bool,
     /// The read went back to `since`: what is older was not asked for.
