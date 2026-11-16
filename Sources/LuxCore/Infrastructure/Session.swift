@@ -49,37 +49,72 @@ public final class Session {
     }
 
     public let configuration: Configuration
-    /// The account in the Rust core, open or still opening (its kept list shows meanwhile); nil
-    /// when signed out.
-    private var opening: Task<RustAccount, any Error>?
-    private var watchingSessionEnd: Task<Void, Never>?
-    /// Where the chat lists come from: the Rust core's view model over the account.
-    private(set) var chatListSource: ChatListSource?
-    public private(set) var images: ImagePipeline?
+    /// Where the app keeps its files.
+    private let paths: AppPaths
+    /// The signed-in account and all that is its own; nil when signed out.
+    private var current: AccountSession? {
+        didSet { if current?.search !== oldValue?.search { searchChanges.send() } }
+    }
 
     /// An account is signed in (it may still be opening).
-    public var isSignedIn: Bool { opening != nil }
+    public var isSignedIn: Bool { current != nil }
 
     /// The account, once open: the models await it. Signed out, it fails at once.
     var account: Task<RustAccount, any Error> {
-        opening ?? Task { throw SessionLost() }
+        current?.account ?? Task { throw SessionLost() }
+    }
+
+    /// Where the chat lists come from: the Rust core's view model over the account.
+    var chatListSource: ChatListSource? { current?.chatListSource }
+    public var images: ImagePipeline? { current?.images }
+    /// Photos and files on their way, from every chat (made with the account).
+    public var uploads: Uploads? { current?.uploads }
+    /// The networks the server bridges, the account's logins on them and the history they bring
+    /// (made with the account).
+    public var networks: NetworksModel? { current?.networks }
+    /// What this device needs for encryption, and the verifications other devices ask for (made
+    /// with the account).
+    public var security: SecurityModel? { current?.security }
+    /// The account's own name and picture (made with the account).
+    public var profile: ProfileModel? { current?.profile }
+    /// Search: chats by name, messages from the encrypted index on this device.
+    public var search: MessageSearch? { current?.search }
+    /// The search index opened (a moment after the account) or closed.
+    public let searchChanges = Broadcast()
+    /// A message was scheduled from a chat: the list reads the waiting ones again.
+    public let scheduledChanges = Broadcast()
+
+    /// Originals opened from chats (photos, videos, files), kept in the caches with the thumbnails.
+    public var originalsDirectory: URL { paths.originals }
+    /// Attachments being sent, prepared from what the user picked.
+    public var outgoingDirectory: URL { paths.outgoing }
+
+    private let keychain: AccountKeychain
+    /// The browser sheet of a sign-in in progress.
+    private var authentication: WebAuthentication?
+
+    public convenience init(configuration: Configuration = .main) {
+        self.init(configuration: configuration, paths: .main)
+    }
+
+    init(configuration: Configuration, paths: AppPaths) {
+        // the core's runtime, before the first call into it.
+        CoreRuntime.start()
+        self.configuration = configuration
+        self.paths = paths
+        keychain = AccountKeychain(service: configuration.keychainService)
     }
 
     /// The app went to the background: the sync stops, before the system suspends it (the caller
     /// holds the time for it, a background task).
     public func enterBackground() async {
-        guard let opening else { return }
-        do {
-            try await opening.value.pauseSync()
-        } catch {
-            Log.app.error("the sync did not pause: \(error, privacy: .public)")
-        }
+        await current?.enterBackground()
     }
 
     /// The app is back in front (or the Mac woke): the sync runs again and the lists catch up.
     public func enterForeground() {
-        guard let opening else { return }
-        Task { try? await opening.value.resumeSync() }
+        guard let current else { return }
+        Task { await current.enterForeground() }
     }
 
     /// A chat's details screen, of a chat in `list`: it tells which place keeps the chat out of
@@ -92,45 +127,6 @@ public final class Session {
     /// none (a notification's room not synced yet).
     public func chat(ofRoom roomId: String) async -> ChatRow? {
         try? await account.value.chats(ofRooms: [roomId])[roomId]
-    }
-
-    /// Search: chats by name, messages from the encrypted index on this device.
-    public private(set) var search: MessageSearch? {
-        didSet { searchChanges.send() }
-    }
-    /// The search index opened (a moment after the account) or closed.
-    public let searchChanges = Broadcast()
-    /// Photos and files on their way, from every chat (made with the account).
-    public private(set) var uploads: Uploads?
-    /// The networks the server bridges, the account's logins on them and the history they bring
-    /// (made with the account).
-    public private(set) var networks: NetworksModel?
-    /// What this device needs for encryption, and the verifications other devices ask for (made
-    /// with the account).
-    public private(set) var security: SecurityModel?
-    /// The account's own name and picture (made with the account).
-    public private(set) var profile: ProfileModel?
-    /// A message was scheduled from a chat: the list reads the waiting ones again.
-    public let scheduledChanges = Broadcast()
-
-    private let keychain: AccountKeychain
-    private let storeRoot: URL
-    private let mediaDirectory: URL
-    /// Originals opened from chats (photos, videos, files), kept in the caches with the thumbnails.
-    public var originalsDirectory: URL { mediaDirectory.appendingPathComponent("originals", isDirectory: true) }
-    /// Attachments being sent, prepared from what the user picked.
-    public var outgoingDirectory: URL { mediaDirectory.appendingPathComponent("outgoing", isDirectory: true) }
-    /// The browser sheet of a sign-in in progress.
-    private var authentication: WebAuthentication?
-
-    public init(configuration: Configuration = .main) {
-        // the core's runtime, before the first call into it.
-        CoreRuntime.start()
-        self.configuration = configuration
-        keychain = AccountKeychain(service: configuration.keychainService)
-        storeRoot = SharedContainer.appRoot
-        mediaDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("lux-media", isDirectory: true)
     }
 
     /// Where the demo's encryption starts.
@@ -146,26 +142,24 @@ public final class Session {
     /// Demo data, for measurements and screenshots with no account (`-LuxDemo`): the Rust core's
     /// made-up account with `rooms` chats of `messagesPerRoom` messages, its encryption starting at
     /// `encryption`; with `verificationRequestAfter`, another of its devices asks to verify that
-    /// many seconds after the app listens.
+    /// many seconds after the app listens. Its files are its own, in a temporary folder: demo
+    /// sessions side by side (the tests) never share one.
     public static func demo(rooms: Int = 2_000, messagesPerRoom: Int = 3_000, encryption: DemoEncryption = .launched,
                             verificationRequestAfter: Int? = LaunchOptions.demoVerificationRequest ? 4 : nil) -> Session {
-        let session = Session()
-        session.open(RustAccount.demo(rooms: rooms, messagesPerRoom: messagesPerRoom, encryption: encryption,
-                                      verificationRequestAfter: verificationRequestAfter))
-        // a fresh index of the most recent made-up chats, its own: demo sessions side by side (the
-        // tests) never share, nor remove, another's file.
-        let file = FileManager.default.temporaryDirectory
-            .appending(path: "lux-demo-search/\(UUID().uuidString)/index.sqlite")
-        session.store = Self.openStore(file: file, key: { String(repeating: "0d", count: 32) })
-        session.index = session.store
-        session.startSearch(maxChats: 150)
+        let session = Session(configuration: .main, paths: .temporary())
+        let account = RustAccount.demo(rooms: rooms, messagesPerRoom: messagesPerRoom, encryption: encryption,
+                                       verificationRequestAfter: verificationRequestAfter)
+        let files = session.paths.account("demo")
+        // the index of the most recent made-up chats is the demo's only store.
+        let index = AccountSession.stores(files, key: { String(repeating: "0d", count: 32) }).index
+        session.open(Task { account }, chatListSource: .open(account), files: files, stores: (index, index), maxChats: 150)
         return session
     }
 
     /// Opens the saved account, if there is one. False when signed out. The scene and a
     /// notification's action may both ask at launch: the account opens once.
     public func restore() async -> Bool {
-        if opening != nil { return true }
+        if current != nil { return true }
         if let restoring { return await restoring.value }
         let restoring = Task { await restoreOnce() }
         self.restoring = restoring
@@ -191,18 +185,18 @@ public final class Session {
     /// encrypted store, opened first). Search starts with the store: it reads messages through the
     /// account once it is open.
     private func openAccount(_ stored: KeptAccount) {
-        let keychain = self.keychain, store = stored.store, stores = storeRoot
-        let local = openStore(store: store)
+        let keychain = self.keychain, store = stored.store, stores = paths.accounts
+        let files = paths.account(store)
+        let opened = Self.stores(files, store: store)
         let opening = Task {
-            guard let account = try await RustAccount.restore(stores: stores, keychain: keychain, store: store, local: await local.value)
+            guard let account = try await RustAccount.restore(stores: stores, keychain: keychain, store: store,
+                                                              local: await opened.kept.value)
             else { throw SessionLost() }
             Log.metrics.notice("launch: account open at \(Signposts.sinceProcessStart(), format: .fixed(precision: 3), privacy: .public) s")
             return account
         }
-        open(opening)
         // the list kept in the store shows while the account opens.
-        chatListSource = .opening(kept: local, account: opening)
-        startSearch()
+        open(opening, chatListSource: .opening(kept: opened.kept, account: opening), files: files, stores: opened)
         Task { [weak self] in
             guard case .failure(let error) = await opening.result else { return }
             Log.app.error("restore failed: \(String(describing: error), privacy: .public)")
@@ -214,24 +208,8 @@ public final class Session {
     public var onAccountLost: (() -> Void)?
 
     private func accountLost() {
-        release()
+        current = nil
         onAccountLost?()
-    }
-
-    /// Lets go of the account and all that is its own.
-    private func release() {
-        watchingSessionEnd?.cancel()
-        watchingSessionEnd = nil
-        opening = nil
-        chatListSource = nil
-        images = nil
-        uploads = nil
-        networks = nil
-        security = nil
-        profile = nil
-        search = nil
-        store = nil
-        index = nil
     }
 
     @concurrent
@@ -255,23 +233,25 @@ public final class Session {
     public func signIn(presentingFrom anchor: ASPresentationAnchor) async throws {
         guard let client = configuration.client else { throw NoOAuthClient() }
         let store = UUID().uuidString
-        let directory = storeRoot.appendingPathComponent(store, isDirectory: true)
-        let local = await openStore(store: store).value
-        let pending = try await RustAccount.beginOAuth(homeserver: homeserver, client: client, stores: storeRoot,
-                                                       keychain: keychain, store: store, local: local)
+        let files = paths.account(store)
+        let opened = Self.stores(files, store: store)
         do {
-            guard let url = pending.url else { throw URLError(.badURL) }
-            let web = WebAuthentication(anchor: anchor)
-            authentication = web
-            defer { authentication = nil }
-            let callback = try await web.run(url: url, callbackScheme: client.redirect.scheme ?? "")
-            open(try await pending.finish(callback: callback))
-            startSearch()
+            let pending = try await RustAccount.beginOAuth(homeserver: homeserver, client: client, stores: paths.accounts,
+                                                           keychain: keychain, store: store, local: await opened.kept.value)
+            do {
+                guard let url = pending.url else { throw URLError(.badURL) }
+                let web = WebAuthentication(anchor: anchor)
+                authentication = web
+                defer { authentication = nil }
+                let callback = try await web.run(url: url, callbackScheme: client.redirect.scheme ?? "")
+                let account = try await pending.finish(callback: callback)
+                open(Task { account }, chatListSource: .open(account), files: files, stores: opened)
+            } catch {
+                await pending.cancel()
+                throw error
+            }
         } catch {
-            await pending.cancel()
-            self.store = nil
-            index = nil
-            try? FileManager.default.removeItem(at: directory)
+            Self.discard(files)
             if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin { throw CancellationError() }
             throw error
         }
@@ -280,19 +260,25 @@ public final class Session {
     /// Signs in with a user name (`@anna:server`, or `anna`) and password, on a server that allows it.
     public func signIn(user: String, password: String) async throws {
         let store = UUID().uuidString
-        let directory = storeRoot.appendingPathComponent(store, isDirectory: true)
+        let files = paths.account(store)
+        let opened = Self.stores(files, store: store)
         do {
-            let local = await openStore(store: store).value
             let account = try await RustAccount.signIn(homeserver: homeserver, user: user, password: password,
-                                                       deviceName: Self.deviceName, stores: storeRoot, keychain: keychain,
-                                                       store: store, local: local)
-            open(account)
-            startSearch()
+                                                       deviceName: Self.deviceName, stores: paths.accounts, keychain: keychain,
+                                                       store: store, local: await opened.kept.value)
+            open(Task { account }, chatListSource: .open(account), files: files, stores: opened)
         } catch {
-            self.store = nil
-            index = nil
-            try? FileManager.default.removeItem(at: directory)
+            Self.discard(files)
             throw error
+        }
+    }
+
+    /// A sign-in that did not finish: its files go.
+    private static func discard(_ files: AccountPaths) {
+        do {
+            try files.remove()
+        } catch {
+            Log.app.error("a sign-in's files stay: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -322,13 +308,13 @@ public final class Session {
     /// Registers this device's push token with the account's server (each launch: the token
     /// may have changed, and the server renews the pusher).
     public func registerPusher(token: Data) async {
-        guard let opening, let push = configuration.push else { return }
+        guard let current, let push = configuration.push else { return }
         let pusher = Pusher(token: token, environment: .current, appId: push.appId, gateway: push.url,
                             appName: Configuration.appName, deviceName: Self.deviceName,
                             language: Locale.preferredLanguages.first ?? "en",
                             fallbackText: String(localized: "New message"))
         do {
-            try await opening.value.setPusher(pusher)
+            try await current.account.value.setPusher(pusher)
         } catch {
             Log.app.error("pusher: \(String(describing: error), privacy: .public)")
         }
@@ -361,134 +347,51 @@ public final class Session {
         return await account.refresh(within: seconds)
     }
 
-    /// The search, once its store has opened (a moment after the account).
-    private func openedSearch() async -> MessageSearch? {
-        if let search { return search }
-        guard let opening = store, await opening.value != nil else { return nil }
-        let (opened, announce) = AsyncStream<Void>.makeStream()
-        let following = searchChanges.observe { announce.yield() }
-        defer { withExtendedLifetime(following) {} }
-        if let search { return search }
-        for await _ in opened {
-            if let search { return search }
-        }
-        return nil
-    }
-
     /// Ends the account's work and lets its stores close, the account kept (a test's demo
     /// session as the test ends: no store is left to close as the process exits).
     public func close() async {
-        await search?.stop()
-        release()
+        await current?.close()
+        current = nil
     }
 
     public func signOut() async {
-        await search?.stop()
-        search = nil
-        store = nil
-        index = nil
-        try? await opening?.value.signOut()
+        guard let current else { return }
+        await current.close()
+        do {
+            try await current.account.value.signOut()
+        } catch {
+            Log.app.error("sign-out: \(String(describing: error), privacy: .public)")
+        }
         if let stored = try? keychain.read() {
-            // the account's folder, its search index (in the app's own container) and their key.
-            try? FileManager.default.removeItem(at: storeRoot.appendingPathComponent(stored.store))
-            try? FileManager.default.removeItem(at: Self.indexFile(store: stored.store).deletingLastPathComponent()
-                .deletingLastPathComponent())
+            // the account's folders (its stores, its search index) and their key.
+            Self.discard(paths.account(stored.store))
             SearchKey.delete(for: stored.store)
         }
         try? keychain.delete()
-        try? FileManager.default.removeItem(at: mediaDirectory)
-        release()
+        try? FileManager.default.removeItem(at: paths.media)
+        self.current = nil
         Preferences.shared.networksWelcomed = false
         Preferences.shared.recoverySetupOffered = false
     }
 
-    /// An account signed in, or the demo's: open at once.
-    private func open(_ account: RustAccount) {
-        open(Task { account })
-        chatListSource = .open(account)
-    }
-
-    private func open(_ account: Task<RustAccount, any Error>) {
-        opening = account
-        // the server may end the session (its tokens refused): the device is gone, sign in again.
-        watchingSessionEnd?.cancel()
-        watchingSessionEnd = Task { [weak self] in
-            guard let ends = try? await account.value.sessionEnd() else { return }
-            for await _ in ends {
-                Log.app.error("the server ended the session")
+    /// The account and all that is its own, made whole.
+    private func open(_ account: Task<RustAccount, any Error>, chatListSource: ChatListSource, files: AccountPaths,
+                      stores: (kept: Task<LocalStore?, Never>, index: Task<LocalStore?, Never>), maxChats: Int? = nil) {
+        current = AccountSession(
+            account: account, chatListSource: chatListSource, server: homeserver, files: files, paths: paths,
+            stores: stores, maxChats: maxChats,
+            searchChanged: { [weak self] in self?.searchChanges.send() },
+            ended: { [weak self] in
                 await self?.signOut()
                 self?.onAccountLost?()
-            }
-        }
-        images = ImagePipeline(account: account, directory: mediaDirectory)
-        uploads = Uploads(account: account, directory: outgoingDirectory)
-        networks = NetworksModel(account: account, server: homeserver)
-        security = SecurityModel(account: account)
-        profile = ProfileModel(account: account)
+            })
     }
 
-    /// The account's encrypted store (its folder's `lux-search/index.sqlite`).
-    private func storeFile(store: String) -> URL { Self.storeFile(in: storeRoot, store: store) }
-
-    /// The account's search index: a store of its own in the app's own container, which no
-    /// extension reads and the app writes all the time. In the group, a write under way as iOS
-    /// suspends the app ends it (0xdead10cc).
-    private static func indexFile(store: String) -> URL {
-        SharedContainer.ownRoot.appendingPathComponent(store, isDirectory: true).appendingPathComponent("lux-index/search.sqlite")
+    /// The account's stores, with their key from the Keychain: the core keeps its chat list in
+    /// the kept one, the app its search index in the other.
+    private static func stores(_ files: AccountPaths, store: String) -> (kept: Task<LocalStore?, Never>, index: Task<LocalStore?, Never>) {
+        AccountSession.stores(files, key: { try await SearchKey.key(for: store) })
     }
-
-    /// The encrypted store of the account kept in `store`, in the folder of stores `root`.
-    static func storeFile(in root: URL, store: String) -> URL {
-        root.appendingPathComponent(store, isDirectory: true).appendingPathComponent("lux-search/index.sqlite")
-    }
-
-    /// Opens the account's encrypted store, with its key from the Keychain: the core keeps its
-    /// chat list there, the app its search index.
-    private func openStore(store: String) -> Task<LocalStore?, Never> {
-        let opening = Self.openStore(file: storeFile(store: store), key: { try await SearchKey.key(for: store) })
-        self.store = opening
-        index = Self.openStore(file: Self.indexFile(store: store), key: { try await SearchKey.key(for: store) })
-        return opening
-    }
-
-    private static func openStore(file: URL, key: @escaping @Sendable () async throws -> String) -> Task<LocalStore?, Never> {
-        Task {
-            do {
-                return try await LocalStore.open(file: file, key: try await key())
-            } catch {
-                Log.app.error("local store: \(String(describing: error), privacy: .public)")
-                return nil
-            }
-        }
-    }
-
-    /// Starts filling the search index, once its store is open. The index the shared store
-    /// held before it had one of its own goes, once.
-    private func startSearch(maxChats: Int? = nil) {
-        guard let account = opening, let opening = index else { return }
-        let shared = store
-        Task {
-            guard let index = await opening.value, self.opening == account else { return }
-            search = MessageSearch(store: index, account: account, maxChats: maxChats)
-            guard let shared = await shared?.value, shared !== index,
-                  (try? await shared.kept(Self.indexMovedKey)) == nil else { return }
-            do {
-                try await shared.clearIndex()
-                try await shared.keep(Self.indexMovedKey, Data([1]))
-            } catch {
-                Log.app.error("local store: the old index stays: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
-    /// Kept in the shared store once its index is gone (moved to the app's own container).
-    private static let indexMovedKey = "index-moved"
-
-    /// The account's encrypted store in the group: the last chat list, which the share extension
-    /// reads too.
-    private var store: Task<LocalStore?, Never>?
-    /// The account's search index, in the app's own container.
-    private var index: Task<LocalStore?, Never>?
 }
 
 /// The kept account is gone: its session left the Keychain, or the core forgot it over a store it
