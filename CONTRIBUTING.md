@@ -13,11 +13,11 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo xtask apple --dev --only macos    # after a change the Swift side sees
-cd .. && swift test
+cd .. && sh scripts/check-swift-errors.sh && swift test
 ```
 
 `lux-core` does not depend on the SDK, so `cargo test -p lux-core` takes seconds. Use it as the
-inner loop. CI runs the three `cargo` checks on every pull request.
+inner loop. CI runs the three `cargo` checks and `check-swift-errors.sh` on every pull request.
 
 `xcodegen generate` writes `Lux.xcodeproj`, the Info.plists and the entitlements from
 `project.yml`. Edit `project.yml`, never the generated files, and commit the regenerated project
@@ -39,6 +39,8 @@ with it (Xcode Cloud builds from the committed project).
   items are documented. The full rules are in [docs/rust-core.md](docs/rust-core.md).
 - **Swift:** Swift 6 language mode with complete strict concurrency and zero warnings. UI and
   models are `@MainActor`, and only `Sendable` values cross threads. No force unwraps.
+  No `try!`, `as!`, `fatalError` or `try?`: an error is thrown up, shown (`onError`, `report`), or
+  logged as a best effort (`bestEffort`). `scripts/check-swift-errors.sh` checks it, in CI too.
   `@unchecked Sendable` and `nonisolated(unsafe)` are a last resort, each with a comment saying
   why it is safe.
 - Comments explain why, not what. Keep files and functions small, and remove layers that only
