@@ -271,11 +271,11 @@ impl RoomTimeline {
 
     /// When the latest of `events` was sent, of those the device holds.
     async fn latest_time_of(&self, events: impl Iterator<Item = &EventId>) -> Option<MilliSecondsSinceUnixEpoch> {
-        let cache = self.room.client().event_cache().cloned()?;
-        let (events_of_room, _handles) = cache.room(self.room.room_id()).await.ok()?;
         let mut latest = None;
         for event in events {
-            if let Ok(Some(found)) = events_of_room.find_event(event).await {
+            // the device's copy, else the server's: a receipt on an edit or a reaction, which no
+            // row shows, still says when the chat was read.
+            if let Ok(found) = self.room.load_or_fetch_event(event, None).await {
                 latest = latest.max(found.timestamp());
             }
         }
@@ -385,13 +385,12 @@ impl RoomTimeline {
     }
 
     /// The first message after the account's read receipt that another sent. The receipt is the
-    /// later of the timeline's own (the main thread's for the room's own timeline, the thread's
-    /// for a thread) and the room's unthreaded one, which covers every thread (what clients that
-    /// know no threads send, this app's earlier versions among them). When the timeline holds
-    /// neither receipt's event, it pages back for it, at most `UNREAD_PAGES` pages, or until it
-    /// reaches the time of the receipt's event as the device knows it (a thread's reply the room's
-    /// own timeline does not show): what came after it is unread. Then the oldest message another
-    /// sent of those it holds.
+    /// latest of the timeline's own (the main thread's for the room's own timeline, the thread's
+    /// for a thread) and the room's unthreaded ones, which cover every thread (what clients that
+    /// know no threads send, this app's earlier versions among them), by its event's time: a
+    /// receipt on an event no row shows (an edit, a reaction, a thread's reply) counts by it. The
+    /// timeline pages back until it holds that time, at most `UNREAD_PAGES` pages: what came
+    /// after it is unread. Then the oldest message another sent of those it holds.
     pub(crate) async fn first_unread(&self) -> Result<Option<MessageId>, BackendError> {
         let receipts = self.own_receipts().await;
         // never read.
@@ -402,31 +401,32 @@ impl RoomTimeline {
         let mut pages = 0;
         let (items, after) = loop {
             let items = self.timeline.items().await;
-            let read = receipts
+            // after the latest receipt the timeline shows, and after the latest receipt's time: an
+            // older receipt it shows does not undo a newer one on an event it does not (an edit).
+            let shown = receipts
                 .iter()
                 .filter_map(|(event, _)| {
                     items
                         .iter()
                         .position(|item| item.as_event().and_then(EventTimelineItem::event_id) == Some(&**event))
                 })
-                .max();
-            if let Some(read) = read {
-                break (items, read + 1);
-            }
+                .max()
+                .map(|read| read + 1);
+            let since = read_at.map(|read_at| {
+                items
+                    .iter()
+                    .position(|item| item.as_event().is_some_and(|event| event.timestamp() > read_at))
+                    .unwrap_or(items.len())
+            });
             let oldest = items
                 .iter()
                 .find_map(|item| item.as_event().map(EventTimelineItem::timestamp));
-            if let Some(read_at) = read_at
-                && (oldest.is_some_and(|oldest| oldest <= read_at) || *self.at_start.borrow())
-            {
-                let after = items
-                    .iter()
-                    .position(|item| item.as_event().is_some_and(|event| event.timestamp() > read_at))
-                    .unwrap_or(items.len());
-                break (items, after);
-            }
-            if pages >= UNREAD_PAGES || *self.at_start.borrow() {
-                break (items, 0);
+            let reached = match read_at {
+                Some(read_at) => oldest.is_some_and(|oldest| oldest <= read_at),
+                None => shown.is_some(),
+            };
+            if reached || *self.at_start.borrow() || pages >= UNREAD_PAGES {
+                break (items, shown.max(since).unwrap_or(0));
             }
             // read before what the timeline holds: a page back. The SDK applies a page after the
             // call returns: it is awaited before the items are read again.
@@ -443,6 +443,14 @@ impl RoomTimeline {
             .await;
             pages = if reached_start { UNREAD_PAGES } else { pages + 1 };
         };
+        // a message the account sent read what came before it, whatever the receipts say.
+        let after = items
+            .iter()
+            .rposition(|item| {
+                item.as_event()
+                    .is_some_and(|event| event.is_own() && event.content().as_msglike().is_some())
+            })
+            .map_or(after, |own| after.max(own + 1));
         // the messages others sent after it, as the SDK has them; the mapping may lag a page.
         let unread: Vec<&str> = items
             .iter()

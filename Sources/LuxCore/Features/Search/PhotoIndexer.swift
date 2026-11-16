@@ -87,17 +87,22 @@ public actor PhotoIndexer {
             if photos.isEmpty { return true }
             var reads: [PhotoRead] = []
             let started = ContinuousClock.now
+            var stopped = false
             for photo in photos where !Task.isCancelled {
-                if let read = await self.read(photo, by: reader, from: account) {
-                    reads.append(read)
-                } else {
-                    try? await store.imageUnread(photo.eventId)
+                switch await self.read(photo, by: reader, from: account) {
+                case .read(let read): reads.append(read)
+                case .unreadable: try? await store.imageUnread(photo.eventId)
+                case .notNow: stopped = true
                 }
+                if stopped { break }
             }
             do { try await store.setImagesRead(reads) } catch {
                 Log.app.error("photo search: \(String(describing: error), privacy: .public)")
                 return false
             }
+            // what failed is not the photos' (stopped, offline, no reading in the background):
+            // they wait for the next reading, their tries untouched.
+            if stopped || Task.isCancelled { return false }
             left -= photos.count
             let progress = await progress()
             let each = (ContinuousClock.now - started) / photos.count
@@ -110,19 +115,46 @@ public actor PhotoIndexer {
         return false
     }
 
-    /// One photo read: downloaded into its own folder, read, and deleted. Nil when it cannot be
-    /// had (deleted, not decrypted) or read: after a few tries it is left.
+    /// How reading one photo went.
+    private enum Outcome {
+        case read(PhotoRead)
+        /// The photo cannot be had (deleted, not allowed) or is no picture: a try is counted,
+        /// and after a few it is left.
+        case unreadable
+        /// The reading cannot go on now (stopped, offline, the system refused the work): the
+        /// photo is not at fault.
+        case notNow
+    }
+
+    /// One photo read: downloaded into its own folder, read, and deleted.
     private func read(_ photo: (eventId: String, roomId: String), by reader: PhotoReader,
-                      from account: RustAccount) async -> PhotoRead? {
+                      from account: RustAccount) async -> Outcome {
         let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: folder) }
         do {
             let file = try await account.sharedFile(roomId: photo.roomId, eventId: photo.eventId, directory: folder)
             let (words, embedding) = try await reader.read(file)
-            return PhotoRead(eventId: photo.eventId, reader: reader.name, words: words, embedding: embedding)
+            return .read(PhotoRead(eventId: photo.eventId, reader: reader.name, words: words, embedding: embedding))
         } catch {
-            Log.app.notice("photo search: a photo not read: \(String(describing: error), privacy: .public)")
-            return nil
+            let unreadable = !Task.isCancelled && Self.isThePhotos(error)
+            Log.app.notice("""
+                photo search: a photo not read (\(unreadable ? "unreadable" : "not now", privacy: .public)): \
+                \(String(describing: error), privacy: .public)
+                """)
+            return unreadable ? .unreadable : .notNow
+        }
+    }
+
+    /// Whether `error` is the photo's own: reading it again would fail the same way.
+    private static func isThePhotos(_ error: any Error) -> Bool {
+        switch error {
+        case PhotoSearchError.notAPicture: true
+        case let failure as AccountFailure:
+            switch failure {
+            case .unknownChat, .unknownMessage, .notAllowed, .forbidden, .serverRefused: true
+            default: false
+            }
+        default: false
         }
     }
 }
