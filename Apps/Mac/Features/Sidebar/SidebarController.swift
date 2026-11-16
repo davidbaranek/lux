@@ -35,12 +35,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
                               target: self, action: #selector(closeSearchClicked))
         button.bezelStyle = .glass
         button.borderShape = .circle
-        button.controlSize = .large
         button.toolTip = String(localized: "Close Search")
         button.setAccessibilityIdentifier("close-search")
-        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()
+    /// The field's end: short of the close button while search shows.
+    private var searchTrailing: NSLayoutConstraint!
     private let content = NSView()
     /// The shown place's colour over the whole sidebar.
     private let tint = ThemeTint(strength: ThemeTint.sidebar)
@@ -71,10 +72,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         // the field took the focus (a click, Cmd-F, Tab): what chats shared lately shows before
         // any words.
         search.onFocus = { [weak self] in self?.startSearching() }
+        closeSearch.alphaValue = 0
         closeSearch.isHidden = true
-        let field = NSStackView(views: [search, closeSearch])
-        field.spacing = 6
-        for view in [tint, rail.view, field, content] {
+        searchTrailing = search.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10)
+        for view in [tint, rail.view, search, closeSearch, content] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -86,12 +87,17 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             rail.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             rail.view.topAnchor.constraint(equalTo: container.topAnchor),
             rail.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            field.leadingAnchor.constraint(equalTo: rail.view.trailingAnchor, constant: 10),
-            field.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            field.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 6),
+            search.leadingAnchor.constraint(equalTo: rail.view.trailingAnchor, constant: 10),
+            searchTrailing,
+            search.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 6),
+            // as tall as the field, round, at the sidebar's edge: it comes out of the field's end.
+            closeSearch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            closeSearch.centerYAnchor.constraint(equalTo: search.centerYAnchor),
+            closeSearch.heightAnchor.constraint(equalTo: search.heightAnchor),
+            closeSearch.widthAnchor.constraint(equalTo: closeSearch.heightAnchor),
             content.leadingAnchor.constraint(equalTo: rail.view.trailingAnchor),
             content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            content.topAnchor.constraint(equalTo: field.bottomAnchor, constant: 6),
+            content.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 6),
             content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         view = container
@@ -204,6 +210,37 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
 
     @objc private func closeSearchClicked() { endSearch() }
 
+    /// The close button comes out of the field's end as the field gives it room, or goes back in.
+    private func showCloseSearch(_ shown: Bool) {
+        guard shown == closeSearch.isHidden else { return }
+        let side = search.frame.height
+        let room = side + 6
+        closeSearch.isHidden = false
+        closeSearch.wantsLayer = true
+        // from under the field's end (its own width to the left), small, to its place.
+        let slide = CABasicAnimation(keyPath: "transform")
+        let tucked = CATransform3DScale(CATransform3DMakeTranslation(-room / 2, 0, 0), 0.4, 0.4, 1)
+        slide.fromValue = shown ? tucked : CATransform3DIdentity
+        slide.toValue = shown ? CATransform3DIdentity : tucked
+        slide.duration = 0.3
+        slide.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.25, 0.5, 1)
+        slide.isRemovedOnCompletion = true
+        closeSearch.layer?.add(slide, forKey: "slide")
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            searchTrailing.animator().constant = shown ? -10 - room : -10
+            closeSearch.animator().alphaValue = shown ? 1 : 0
+            view.layoutSubtreeIfNeeded()
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.closeSearch.alphaValue == 0 else { return }
+                self.closeSearch.isHidden = true
+            }
+        }
+    }
+
     /// Back to the chats: a kind's list goes, the field empties, and the keyboard is the chats'.
     private func endSearch() {
         listing?.removeFromParent()
@@ -267,13 +304,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
 
     private func show(_ child: NSView, _ change: Change = .fade) {
         guard child.superview != content else { return }
-        // the close button shows while search does.
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            context.allowsImplicitAnimation = true
-            closeSearch.isHidden = child === list.view
-            view.layoutSubtreeIfNeeded()
-        }
+        showCloseSearch(child !== list.view)
         if content.window != nil {
             let fade = CATransition()
             fade.type = .fade
