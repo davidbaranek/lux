@@ -10,9 +10,9 @@ public final class ProfileModel {
     public private(set) var isSaving = false
     public let changes = Broadcast()
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any ProfilePort, any Error>
 
-    init(account: Task<RustAccount, any Error>) {
+    init(account: Task<any ProfilePort, any Error>) {
         self.account = account
     }
 
@@ -40,7 +40,7 @@ public final class ProfileModel {
     }
 
     /// Runs `change`, then reads the profile again, as the server now has it.
-    private func save(_ change: (RustAccount) async throws -> Void) async throws {
+    private func save(_ change: (any ProfilePort) async throws -> Void) async throws {
         isSaving = true
         changes.send()
         defer {
