@@ -198,14 +198,22 @@ enum PhotoSearchError: Error {
 
 /// Every token's input vector, as the model's embedding layer gives it: rows of float16 in id
 /// order, mapped from the file (only the rows a text uses are read; none stay in memory).
+///
+/// The values are copied as they are, 16 bits each, never read as numbers: Swift's `Float16`
+/// does not exist on Intel Macs, and the model takes them as they are.
 struct TokenTable: Sendable {
+    /// A float16 value's bits.
+    private typealias Half = UInt16
+    /// 1.0 as float16 (IEEE 754 binary16).
+    private static let one: Half = 0x3C00
+
     private let rows: Data
     private let tokens: Int
     private let width: Int
 
     init(file: URL, tokens: Int, width: Int) throws {
         rows = try Data(contentsOf: file, options: .alwaysMapped)
-        guard rows.count == tokens * width * MemoryLayout<Float16>.size else { throw PhotoSearchError.unexpectedModel }
+        guard rows.count == tokens * width * MemoryLayout<Half>.size else { throw PhotoSearchError.unexpectedModel }
         self.tokens = tokens
         self.width = width
     }
@@ -216,7 +224,7 @@ struct TokenTable: Sendable {
         let count = NSNumber(value: ids.count)
         let embeds = try MLMultiArray(shape: [1, count, NSNumber(value: width)], dataType: .float16)
         let mask = try MLMultiArray(shape: [1, count], dataType: .float16)
-        let rowBytes = width * MemoryLayout<Float16>.size
+        let rowBytes = width * MemoryLayout<Half>.size
         embeds.withUnsafeMutableBytes { target, _ in
             target.initializeMemory(as: UInt8.self, repeating: 0)
             rows.withUnsafeBytes { source in
@@ -226,8 +234,11 @@ struct TokenTable: Sendable {
                 }
             }
         }
-        mask.withUnsafeMutableBufferPointer(ofType: Float16.self) { values, _ in
-            for (index, id) in ids.enumerated() { values[index] = Int(id) == padId ? 0 : 1 }
+        mask.withUnsafeMutableBytes { target, _ in
+            let values = target.bindMemory(to: Half.self)
+            for (index, id) in ids.enumerated() where values.indices.contains(index) {
+                values[index] = Int(id) == padId ? 0 : Self.one
+            }
         }
         return (embeds, mask)
     }
