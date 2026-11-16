@@ -147,9 +147,15 @@ actor PhotoSearchModel {
         imageEncoder = nil
     }
 
+    /// An encoder: a function of the one model that holds both ("image", "text"), or, of a
+    /// model built before, its own model file.
     private static func load(_ name: String, from file: Files) throws -> MLModel {
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
+        if let both = try? file("Encoders.mlmodelc"), FileManager.default.fileExists(atPath: both.path) {
+            configuration.functionName = name == "ImageEncoder" ? "image" : "text"
+            return try MLModel(contentsOf: both, configuration: configuration)
+        }
         return try MLModel(contentsOf: file("\(name).mlmodelc"), configuration: configuration)
     }
 

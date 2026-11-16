@@ -61,13 +61,36 @@ private func receipt(_ lines: [String]) throws -> URL {
             let embedding = try #require(read.embedding)
             looks[name] = embedding
         }
+        func cosine(_ a: [Float], _ b: [Float]) -> Float { zip(a, b).map(*).reduce(0, +) }
         func best(_ words: String) async throws -> String? {
-            let embedding = try #require(try await model.embedding(of: words))
-            return looks.max { zip($0.value, embedding).map(*).reduce(0, +) < zip($1.value, embedding).map(*).reduce(0, +) }?.key
+            let embedding = try #require(try await model.embedding(ofQuery: words))
+            let found = looks.max { cosine($0.value, embedding) < cosine($1.value, embedding) }
+            // alike enough to be found by its look.
+            #expect(cosine(try #require(found).value, embedding) >= model.minSimilarity)
+            return found?.key
         }
         #expect(try await best("waves on a rocky coast") == "Big Sur Coastline")
         #expect(try await best("sand dunes in the desert") == "The Desert")
         #expect(try await best("kaktusy v noci") == "Big Sur Night Succulents")
+    }
+
+    @Test(.enabled(if: modelFolder != nil, "needs the model: LUX_PHOTO_MODEL"))
+    func findsAMessageByWhatItMeans() async throws {
+        let model = try PhotoSearchModel(folder: try #require(modelFolder))
+        await model.textEncoderLoaded()
+        let messages = ["Jedem v sobotu na Sněžku? Vezmi pohorky", "Posílám fakturu za září, splatnost do 15.",
+                        "Kocour zase rozškrábal gauč", "Objednal jsem pizzu, bude tu za půl hodiny"]
+        var meant: [[Float]] = []
+        for message in messages { meant.append(try #require(try await model.embedding(ofMessage: message))) }
+        func best(_ words: String) async throws -> String {
+            let query = try #require(try await model.embedding(ofQuery: words))
+            let scores = meant.map { zip($0, query).map(*).reduce(0, +) }
+            return messages[scores.indices.max { scores[$0] < scores[$1] }!]
+        }
+        #expect(try await best("výlet na hory") == messages[0])
+        #expect(try await best("platba za služby") == messages[1])
+        #expect(try await best("domácí mazlíček") == messages[2])
+        #expect(try await best("jídlo s sebou") == messages[3])
     }
 }
 

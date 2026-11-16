@@ -43,10 +43,13 @@ In Xcode: Product › Xcode Cloud › Create Workflow, for the `Lux-iOS` scheme:
 
 ## Photo search's model
 
-Photo search downloads its model as an Apple-hosted asset pack (`PhotoSearch`, on-demand), which
-App Store Connect hosts apart from the builds. Build it from the official SigLIP 2 weights, then
-upload `PhotoSearch.aar` with Transporter and submit it with the build that first uses it; a new
-pack only when the model changes (the app reads every photo again with a new one).
+Semantic search (photos by what they show, messages by what they mean) downloads its model as an
+Apple-hosted asset pack (`PhotoSearch`, on-demand), which App Store Connect hosts apart from the
+builds. Build it from the official EmbeddingGemma 2 weights, then upload `PhotoSearch.aar` and the
+`Manifest.json` beside it as a new version of the pack (Transporter, or the App Store Connect API:
+a `backgroundAssetVersions` with its `backgroundAssetUploadFiles`, MANIFEST and ASSET); a new
+version goes to internal TestFlight testers once processed. A new pack only when the model
+changes: the app reads every photo and message again with a new one.
 
 ```sh
 uv run scripts/image-search/convert.py build/image-search/model
