@@ -17,15 +17,25 @@ use crate::search::{Ranked, fuse, query, unmark};
 use crate::types::{from_millis, to_millis};
 use crate::{
     Browse, Error, FileHit, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, LinkHit,
-    Result, ThreadHit, schema,
+    MessageEmbedding, Result, TextSearch, ThreadHit, schema,
 };
 
 /// Adds a message, or changes its text and sender (an edit keeps its event id); an unchanged
 /// message writes nothing, so the index does not grow its deleted rows.
 const UPSERT_MESSAGE: &str = "
     INSERT INTO messages(event_id, room_id, sender, body, ts, own, thread) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-    ON CONFLICT(event_id) DO UPDATE SET body = excluded.body, sender = excluded.sender, thread = excluded.thread
+    ON CONFLICT(event_id) DO UPDATE SET body = excluded.body, sender = excluded.sender, thread = excluded.thread,
+        embedding = iif(body = excluded.body, embedding, NULL), embedder = iif(body = excluded.body, embedder, NULL)
     WHERE body != excluded.body OR sender != excluded.sender OR thread IS NOT excluded.thread";
+
+/// The messages whose meaning is most like the query's embedding (`?1`), at least `?3` alike.
+const SEARCH_MEANING: &str = "
+    SELECT event_id, room_id, sender, body, ts, own, similarity(embedding, ?1) AS alike FROM messages
+    WHERE embedding IS NOT NULL AND (?2 IS NULL OR room_id = ?2) AND alike >= ?3
+    ORDER BY alike DESC LIMIT ?4";
+
+/// How long a found message's excerpt is when it was found by its meaning, not by its words.
+const MEANING_EXCERPT: usize = 160;
 
 /// Adds a file, or changes its name and sender.
 const UPSERT_FILE: &str = "
@@ -697,31 +707,137 @@ impl Store {
             .await
     }
 
-    /// The messages with every word of `text`, each word matched by its start, without case or
-    /// accents; the newest first, at most `limit`. `room_id` keeps one chat's.
+    /// The messages with every word of `search.text`, each word matched by its start, without
+    /// case or accents, the newest first; and, with the words' embedding, those whose meaning is
+    /// like the words', the most alike first: the two merged, a message found by both first. At
+    /// most `search.limit`; `search.room_id` keeps one chat's.
     ///
     /// # Errors
     /// SQLite's, or [`Error::Closed`].
-    pub async fn search(&self, text: &str, room_id: Option<RoomId>, limit: u32) -> Result<Vec<Hit>> {
-        let Some(query) = query(text) else {
+    pub async fn search(&self, search: TextSearch) -> Result<Vec<Hit>> {
+        let words = query(&search.text);
+        if words.is_none() && search.embedding.is_none() {
             return Ok(Vec::new());
-        };
+        }
         self.worker
             .run(move |connection| {
-                let mut statement = connection.prepare_cached(SEARCH)?;
-                let rows = statement.query_map(params![query, room_id.as_ref().map(RoomId::as_str), limit], |row| {
-                    let (excerpt, matches) = unmark(&row.get::<_, String>(3)?);
-                    Ok(Hit {
-                        event_id: EventId::from(row.get::<_, String>(0)?),
-                        room_id: RoomId::from(row.get::<_, String>(1)?),
-                        sender_name: row.get(2)?,
-                        excerpt,
-                        matches,
-                        date: from_millis(row.get(4)?),
-                        is_own: row.get(5)?,
-                    })
+                let room = search.room_id.as_ref().map(RoomId::as_str);
+                let mut rankings: Vec<Ranked<Hit>> = Vec::with_capacity(2);
+                if let Some(words) = &words {
+                    let mut statement = connection.prepare_cached(SEARCH)?;
+                    let rows = statement.query_map(params![words, room, search.limit], |row| {
+                        let (excerpt, matches) = unmark(&row.get::<_, String>(3)?);
+                        hit(row, excerpt, matches)
+                    })?;
+                    rankings.push(ranked(rows)?);
+                }
+                if let Some(embedding) = &search.embedding {
+                    let mut statement = connection.prepare_cached(SEARCH_MEANING)?;
+                    let rows = statement.query_map(
+                        params![
+                            embedding::query_bytes(embedding),
+                            room,
+                            f64::from(search.min_similarity),
+                            search.limit
+                        ],
+                        |row| {
+                            let body: String = row.get(3)?;
+                            let excerpt = match body.char_indices().nth(MEANING_EXCERPT) {
+                                Some((end, _)) => format!("{}…", &body[..end]),
+                                None => body,
+                            };
+                            hit(row, excerpt, Vec::new())
+                        },
+                    )?;
+                    rankings.push(ranked(rows)?);
+                }
+                if rankings.len() == 1 {
+                    return Ok(rankings.remove(0).into_iter().map(|(_, hit)| hit).collect());
+                }
+                Ok(fuse(rankings, search.limit as usize))
+            })
+            .await
+    }
+
+    /// Messages the index has not read the meaning of, the newest first, at most `limit`: each
+    /// with its text. A message shorter than `min_chars` is left (too little to mean).
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn messages_to_embed(&self, min_chars: u32, limit: u32) -> Result<Vec<(EventId, String)>> {
+        self.worker
+            .run(move |connection| {
+                let mut statement = connection.prepare_cached(
+                    "SELECT event_id, body FROM messages WHERE embedder IS NULL AND length(body) >= ?1 \
+                     ORDER BY ts DESC LIMIT ?2",
+                )?;
+                let rows = statement.query_map(params![min_chars, limit], |row| {
+                    Ok((EventId::from(row.get::<_, String>(0)?), row.get(1)?))
                 })?;
                 Ok(rows.collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+
+    /// Keeps what a model read of messages' meaning, in one transaction.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn set_message_embeddings(&self, embeddings: Vec<MessageEmbedding>) -> Result<()> {
+        if embeddings.is_empty() {
+            return Ok(());
+        }
+        self.worker
+            .run(move |connection| {
+                let transaction = connection.transaction()?;
+                {
+                    let mut statement = transaction
+                        .prepare_cached("UPDATE messages SET embedding = ?2, embedder = ?3 WHERE event_id = ?1")?;
+                    for read in &embeddings {
+                        statement.execute(params![
+                            read.event_id.as_str(),
+                            read.embedding.as_deref().map(embedding::kept),
+                            read.embedder,
+                        ])?;
+                    }
+                }
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Forgets the messages' embeddings but `keep`'s (the model that reads them now): search by
+    /// meaning was turned off (`None`), or another model reads them again.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn forget_message_embeddings(&self, keep: Option<String>) -> Result<()> {
+        self.worker
+            .run(move |connection| {
+                connection
+                    .prepare_cached(
+                        "UPDATE messages SET embedding = NULL, embedder = NULL \
+                         WHERE embedder IS NOT NULL AND embedder IS NOT ?1",
+                    )?
+                    .execute([keep])?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// How many messages are long enough to have a meaning (`min_chars`), and how many of them the
+    /// index has read the meaning of.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn embedding_counts(&self, min_chars: u32) -> Result<(u64, u64)> {
+        self.worker
+            .run(move |connection| {
+                let counts: (i64, i64) = connection
+                    .prepare_cached("SELECT count(*), count(embedder) FROM messages WHERE length(body) >= ?1")?
+                    .query_row([min_chars], |row| Ok((row.get(0)?, row.get(1)?)))?;
+                Ok((counts.0.unsigned_abs(), counts.1.unsigned_abs()))
             })
             .await
     }
@@ -818,6 +934,29 @@ fn image_hits(
         hits.push((event_id, hit));
     }
     Ok(hits)
+}
+
+/// A found message from its row: event, room, sender, (text), date, own.
+fn hit(row: &rusqlite::Row<'_>, excerpt: String, matches: Vec<std::ops::Range<u32>>) -> rusqlite::Result<Hit> {
+    Ok(Hit {
+        event_id: EventId::from(row.get::<_, String>(0)?),
+        room_id: RoomId::from(row.get::<_, String>(1)?),
+        sender_name: row.get(2)?,
+        excerpt,
+        matches,
+        date: from_millis(row.get(4)?),
+        is_own: row.get(5)?,
+    })
+}
+
+/// Found messages as a ranking to merge, by their event ids.
+fn ranked(rows: impl Iterator<Item = rusqlite::Result<Hit>>) -> Result<Ranked<Hit>> {
+    let mut ranking = Vec::new();
+    for hit in rows {
+        let hit = hit?;
+        ranking.push((hit.event_id.to_string(), hit));
+    }
+    Ok(ranking)
 }
 
 /// The SQL function `covers(asked, reader)`: whether what `reader` read of a photo is all that

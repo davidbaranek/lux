@@ -226,3 +226,29 @@ mod tests {
         }
     }
 }
+
+/// A search for messages: by their words, and by their meaning when it has the words' embedding.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TextSearch {
+    /// The typed words.
+    pub text: String,
+    /// The words' embedding, in the messages' space; `None` finds by words only.
+    pub embedding: Option<Vec<f32>>,
+    /// The least cosine a message found by its meaning has to the words'.
+    pub min_similarity: f32,
+    /// One chat's only.
+    pub room_id: Option<RoomId>,
+    /// At most this many.
+    pub limit: u32,
+}
+
+/// What a model read of a message's meaning, for search by meaning.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MessageEmbedding {
+    /// Its event.
+    pub event_id: EventId,
+    /// The model, with its version: another reads every message again.
+    pub embedder: String,
+    /// Its unit embedding; `None` when it has too little to mean (it is not asked for again).
+    pub embedding: Option<Vec<f32>>,
+}

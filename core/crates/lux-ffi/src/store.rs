@@ -5,8 +5,8 @@ use std::time::SystemTime;
 
 use lux_core::timeline::{IndexedFile, IndexedImage, IndexedMessage};
 use lux_store::{
-    Browse, Error, FileHit, Hit, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, LinkHit, Store,
-    ThreadHit,
+    Browse, Error, FileHit, Hit, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, LinkHit,
+    MessageEmbedding, Store, TextSearch, ThreadHit,
 };
 
 /// Why a store call failed.
@@ -152,6 +152,35 @@ pub struct CoreThreadHit {
     pub latest_text: String,
     /// When the newest reply was sent.
     pub latest: SystemTime,
+}
+
+/// A message whose meaning is to be read.
+#[derive(uniffi::Record)]
+pub struct CoreMessageToEmbed {
+    /// Its event id.
+    pub event_id: String,
+    /// Its text.
+    pub body: String,
+}
+
+/// What a model read of a message's meaning.
+#[derive(uniffi::Record)]
+pub struct CoreMessageEmbedding {
+    /// Its event id.
+    pub event_id: String,
+    /// The model, with its version.
+    pub embedder: String,
+    /// Its unit embedding; none when it has too little to mean.
+    pub embedding: Option<Vec<f32>>,
+}
+
+/// How many messages mean something, and how many were read.
+#[derive(uniffi::Record)]
+pub struct CoreEmbeddingCounts {
+    /// Long enough to mean something.
+    pub total: u64,
+    /// Of them, read.
+    pub read: u64,
 }
 
 /// How far the index has read one chat.
@@ -388,15 +417,73 @@ impl CoreStore {
     }
 
     /// The messages with every word of `text` (each by its start, without case or accents), the
-    /// newest first; `room_id` keeps one chat's.
+    /// newest first, and with `embedding` those whose meaning is like the words' (at least
+    /// `min_similarity`), merged; `room_id` keeps one chat's.
     pub async fn search(
         &self,
         text: String,
+        embedding: Option<Vec<f32>>,
+        min_similarity: f32,
         room_id: Option<String>,
         limit: u32,
     ) -> Result<Vec<CoreStoreHit>, CoreStoreError> {
-        let hits = self.store.search(&text, room_id.map(Into::into), limit).await?;
+        let hits = self
+            .store
+            .search(TextSearch {
+                text,
+                embedding,
+                min_similarity,
+                room_id: room_id.map(Into::into),
+                limit,
+            })
+            .await?;
         Ok(hits.into_iter().map(CoreStoreHit::from).collect())
+    }
+
+    /// Messages whose meaning is not read yet, the newest first, at least `min_chars` long.
+    pub async fn messages_to_embed(
+        &self,
+        min_chars: u32,
+        limit: u32,
+    ) -> Result<Vec<CoreMessageToEmbed>, CoreStoreError> {
+        Ok(self
+            .store
+            .messages_to_embed(min_chars, limit)
+            .await?
+            .into_iter()
+            .map(|(event_id, body)| CoreMessageToEmbed {
+                event_id: event_id.to_string(),
+                body,
+            })
+            .collect())
+    }
+
+    /// Keeps what a model read of messages' meaning.
+    pub async fn set_message_embeddings(&self, embeddings: Vec<CoreMessageEmbedding>) -> Result<(), CoreStoreError> {
+        Ok(self
+            .store
+            .set_message_embeddings(
+                embeddings
+                    .into_iter()
+                    .map(|read| MessageEmbedding {
+                        event_id: read.event_id.into(),
+                        embedder: read.embedder,
+                        embedding: read.embedding,
+                    })
+                    .collect(),
+            )
+            .await?)
+    }
+
+    /// Forgets the messages' embeddings but `keep`'s.
+    pub async fn forget_message_embeddings(&self, keep: Option<String>) -> Result<(), CoreStoreError> {
+        Ok(self.store.forget_message_embeddings(keep).await?)
+    }
+
+    /// How many messages are long enough to mean something, and how many were read.
+    pub async fn embedding_counts(&self, min_chars: u32) -> Result<CoreEmbeddingCounts, CoreStoreError> {
+        let (total, read) = self.store.embedding_counts(min_chars).await?;
+        Ok(CoreEmbeddingCounts { total, read })
     }
 }
 

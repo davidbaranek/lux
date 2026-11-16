@@ -22,7 +22,8 @@ pub use error::Error;
 pub use key::Key;
 pub use store::Store;
 pub use types::{
-    Browse, FileHit, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, LinkHit, ThreadHit,
+    Browse, FileHit, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, LinkHit,
+    MessageEmbedding, TextSearch, ThreadHit,
 };
 
 /// What the store's calls return.

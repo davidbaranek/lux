@@ -63,9 +63,13 @@ const MIGRATIONS: &[&str] = &[
     UPDATE chats SET complete = 0;
     ",
     // 4: what search lists besides messages and photos: the web addresses in messages, the
-    // files, and the thread each message replies in. Every chat is read again for them.
+    // files, and the thread each message replies in; and each message's embedding, for search
+    // by meaning, with the model that made it. Every chat is read again for them.
     "
     ALTER TABLE messages ADD COLUMN thread TEXT;
+    ALTER TABLE messages ADD COLUMN embedding BLOB;
+    ALTER TABLE messages ADD COLUMN embedder TEXT;
+    CREATE INDEX messages_to_embed ON messages(ts) WHERE embedder IS NULL;
     CREATE INDEX messages_by_thread ON messages(thread) WHERE thread IS NOT NULL;
     CREATE TABLE links(event_id TEXT NOT NULL, url TEXT NOT NULL, PRIMARY KEY(event_id, url)) WITHOUT ROWID;
     CREATE TRIGGER messages_removed_links AFTER DELETE ON messages BEGIN
