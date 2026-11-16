@@ -79,10 +79,10 @@ public actor SearchIndexer {
 
     private func pass() async {
         if !loaded {
-            chats = (try? await store.chats()) ?? [:]
+            chats = await bestEffort("search index: the indexed chats") { try await store.chats() } ?? [:]
             loaded = true
         }
-        guard let account = try? await account.value else { return }
+        guard let account = await bestEffort("search index: the account", { try await account.value }) else { return }
         let all = await account.chats()
         firstFill = chats.isEmpty
         await forgetGone(listed: all)
@@ -112,7 +112,8 @@ public actor SearchIndexer {
             Log.app.notice("search index: back \(back, privacy: .public)d, \(quick.count, privacy: .public) quick, \(deep.count, privacy: .public) deep: \(reasons.prefix(8).joined(separator: "; "), privacy: .public)")
         }
         await read(deep, deep: true, back: horizon, from: account)
-        report(Progress(chats: 0, total: 0, deep: true, isIndexing: false, messages: (try? await store.messageCount()) ?? 0))
+        let messages = await bestEffort("search index: count") { try await store.messageCount() } ?? 0
+        report(Progress(chats: 0, total: 0, deep: true, isIndexing: false, messages: messages))
     }
 
     private static func millis(_ date: Date) -> Int64 {

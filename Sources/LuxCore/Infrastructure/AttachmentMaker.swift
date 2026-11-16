@@ -32,8 +32,14 @@ public enum AttachmentMaker {
         let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let type = UTType(filenameExtension: source.pathExtension) ?? .data
-        if type.conforms(to: .image), let photo = try? photo(source, name: name, type: type, in: folder) { return photo }
-        if type.conforms(to: .movie), let video = try? await video(source, name: name, type: type, in: folder) { return video }
+        // a photo or video that cannot be made smaller goes as it is, a file.
+        if type.conforms(to: .image), let photo = bestEffort("attachment: the photo", { try photo(source, name: name, type: type, in: folder) }) {
+            return photo
+        }
+        if type.conforms(to: .movie),
+           let video = await bestEffort("attachment: the video", { try await video(source, name: name, type: type, in: folder) }) {
+            return video
+        }
         let file = folder.appendingPathComponent(name)
         try FileManager.default.copyItem(at: source, to: file)
         return OutgoingAttachment(file: file, name: name, mimetype: type.preferredMIMEType ?? "application/octet-stream",

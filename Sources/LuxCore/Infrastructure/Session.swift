@@ -126,7 +126,7 @@ public final class Session {
     /// The chat that shows a room (its own, or the merged chat it is in); nil when the list has
     /// none (a notification's room not synced yet).
     public func chat(ofRoom roomId: String) async -> ChatRow? {
-        try? await account.value.chats(ofRooms: [roomId])[roomId]
+        await bestEffort("the chat of a room") { try await account.value.chats(ofRooms: [roomId])[roomId] } ?? nil
     }
 
     /// Where the demo's encryption starts.
@@ -214,7 +214,7 @@ public final class Session {
 
     @concurrent
     private static func read(_ keychain: AccountKeychain) async -> KeptAccount? {
-        try? keychain.read()
+        bestEffort("keychain read") { try keychain.read() } ?? nil
     }
 
     /// The server to sign in to: the last one chosen, else Lux's own.
@@ -334,7 +334,7 @@ public final class Session {
     /// The notifications of what the sync brings while the app runs (the Mac shows them
     /// itself); an empty stream when signed out.
     public func liveNotifications() async -> AsyncStream<PushedMessage> {
-        guard let account = try? await account.value else { return AsyncStream { $0.finish() } }
+        guard let account = await bestEffort("live notifications", { try await account.value }) else { return AsyncStream { $0.finish() } }
         return account.liveNotifications()
     }
 
@@ -343,7 +343,7 @@ public final class Session {
     /// and the store are then fresh for the next time the app opens. False when signed out or
     /// the server did not answer in time.
     public func refreshInBackground(within seconds: Double) async -> Bool {
-        guard await restore(), let account = try? await account.value else { return false }
+        guard await restore(), let account = await bestEffort("background refresh", { try await account.value }) else { return false }
         return await account.refresh(within: seconds)
     }
 
@@ -362,13 +362,13 @@ public final class Session {
         } catch {
             Log.app.error("sign-out: \(String(describing: error), privacy: .public)")
         }
-        if let stored = try? keychain.read() {
+        if let stored = bestEffort("keychain read", { try keychain.read() }) ?? nil {
             // the account's folders (its stores, its search index) and their key.
             Self.discard(paths.account(stored.store))
             SearchKey.delete(for: stored.store)
         }
-        try? keychain.delete()
-        try? FileManager.default.removeItem(at: paths.media)
+        bestEffort("the kept account stays in the keychain") { try keychain.delete() }
+        bestEffort("the media cache stays") { try FileManager.default.removeItemIfPresent(at: paths.media) }
         self.current = nil
         Preferences.shared.networksWelcomed = false
         Preferences.shared.recoverySetupOffered = false

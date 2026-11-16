@@ -35,7 +35,9 @@ final class MacNotifications: NSObject, @MainActor UNUserNotificationCenterDeleg
     func start() {
         guard following == nil else { return }
         following = Task { [weak self, session] in
-            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            await bestEffort("notifications: ask to notify") {
+                try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            }
             for await message in await session.liveNotifications() {
                 self?.show(message)
             }

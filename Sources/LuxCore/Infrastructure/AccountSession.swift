@@ -55,7 +55,7 @@ final class AccountSession {
         profile = ProfileModel(account: account)
         // the server may end the session (its tokens refused): the device is gone, sign in again.
         watchingEnd = Task {
-            guard let ends = try? await account.value.sessionEnd() else { return }
+            guard let ends = await bestEffort("watch the session's end", { try await account.value.sessionEnd() }) else { return }
             for await _ in ends {
                 Log.app.error("the server ended the session")
                 await ended()

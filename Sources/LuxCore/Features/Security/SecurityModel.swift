@@ -22,7 +22,7 @@ public final class SecurityModel {
         self.account = account
         following = [
             Task { [weak self, account] in
-                guard let account = try? await account.value else { return }
+                guard let account = await bestEffort("follow the encryption setup", { try await account.value }) else { return }
                 let (setups, handle) = account.encryptionSetups()
                 self?.handles.append(handle)
                 for await setup in setups {
@@ -30,7 +30,7 @@ public final class SecurityModel {
                 }
             },
             Task { [weak self, account] in
-                guard let account = try? await account.value else { return }
+                guard let account = await bestEffort("follow verification requests", { try await account.value }) else { return }
                 let (requests, handle) = account.verificationRequests()
                 self?.handles.append(handle)
                 for await request in requests {
@@ -59,9 +59,8 @@ public final class SecurityModel {
     }
 
     /// Reads the account's devices again.
-    public func loadDevices() async {
-        guard let account = try? await account.value, let devices = try? await account.ownDevices() else { return }
-        self.devices = devices
+    public func loadDevices() async throws {
+        devices = try await account.value.ownDevices()
         changes.send()
     }
 
@@ -76,7 +75,7 @@ public final class SecurityModel {
         try await account.value.signOut(device: device.id, password: password)
         devices.removeAll { $0.id == device.id }
         changes.send()
-        await loadDevices()
+        try await loadDevices()
     }
 
     /// Sets up recovery for an account that has none: the recovery key, for the user to save.

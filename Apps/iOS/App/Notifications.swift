@@ -32,7 +32,9 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
     /// Signed in: asks once to show notifications (the system asks the user only the first
     /// time), then registers for pushes; each launch registers again, as the token may change.
     func enable() async {
-        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        let granted = await bestEffort("notifications: ask to notify") {
+            try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        } ?? false
         guard granted else { return }
         UIApplication.shared.registerForRemoteNotifications()
     }

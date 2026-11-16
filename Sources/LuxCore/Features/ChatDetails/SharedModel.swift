@@ -120,7 +120,7 @@ public final class SharedModel {
         if let known = self.rooms {
             rooms = known
         } else {
-            guard let info = try? await account.value.chatInfo(chatId: chatId) else { return }
+            guard let info = await bestEffort("shared photos: the chat's rooms", { try await account.value.chatInfo(chatId: chatId) }) else { return }
             rooms = info.rooms.map(\.id)
             self.rooms = rooms
         }

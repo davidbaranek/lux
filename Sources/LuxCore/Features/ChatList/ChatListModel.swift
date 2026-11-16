@@ -199,10 +199,10 @@ public final class ChatListModel {
         let previous = prefetching, account = account
         prefetching = Task(priority: .utility) {
             await previous?.value
-            guard let account = try? await account.value else { return }
             let state = Signposts.thread.beginInterval("prefetch")
-            await account.prefetch(roomId: roomId)
-            Signposts.thread.endInterval("prefetch", state)
+            defer { Signposts.thread.endInterval("prefetch", state) }
+            // ahead of the user: a failure costs only the head start, the chat opens as usual.
+            await bestEffort("prefetch a chat") { try await account.value.prefetch(roomId: roomId) }
         }
     }
 

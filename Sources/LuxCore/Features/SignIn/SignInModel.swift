@@ -55,7 +55,8 @@ public final class SignInModel {
         checking = Task { [session] in
             try? await Task.sleep(for: pause)
             guard !Task.isCancelled else { return }
-            let methods = try? await session.loginMethods(for: server)
+            // the field says the server cannot be reached; why goes to the log.
+            let methods = await bestEffort("sign in: the server's ways in") { try await session.loginMethods(for: server) }
             guard !Task.isCancelled, server == homeserver else { return }
             state = methods.map(State.ready) ?? .unreachable
         }

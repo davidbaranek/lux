@@ -33,7 +33,7 @@ public final class NewConversationModel {
         isSearching = true
         onUpdate?()
         running = Task { [account] in
-            let byName = (try? await account.value.findChats(text, limit: .max)) ?? []
+            let byName = await bestEffort("new conversation: find chats") { try await account.value.findChats(text, limit: .max) } ?? []
             guard !Task.isCancelled else { return }
             chats = Array(byName.filter { !$0.isGroup && $0.folder != .archive }.prefix(text.isEmpty ? 8 : 20))
             onUpdate?()

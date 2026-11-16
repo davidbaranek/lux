@@ -20,6 +20,9 @@ final class ShareViewController: UIViewController {
     /// The shared items, read from their providers.
     private var items = SharedItems()
     private var pictures: [String: UIImage] = [:]
+    /// Draws a chat's picture for its row.
+    private let avatar = AvatarView()
+    private static let chatCell = "chat"
     /// Where the shared files are copied for sending: the extension's own temporary folder.
     private let folder = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)", isDirectory: true)
 
@@ -44,7 +47,9 @@ final class ShareViewController: UIViewController {
         search.delegate = self
         list.dataSource = self
         list.delegate = self
-        list.register(ShareChatCell.self, forCellReuseIdentifier: ShareChatCell.reuse)
+        list.register(UITableViewCell.self, forCellReuseIdentifier: Self.chatCell)
+        avatar.side = 36
+        avatar.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
         list.keyboardDismissMode = .onDrag
 
         let card = UIStackView(arrangedSubviews: [preview, message])
@@ -79,7 +84,13 @@ final class ShareViewController: UIViewController {
     private func load() async {
         let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
         let opening = Task { try await ShareSender.open() }
-        items = await SharedItems.read(providers, into: folder)
+        do {
+            items = try await SharedItems.read(providers, into: folder)
+        } catch {
+            Log.app.error("share: \(String(describing: error), privacy: .public)")
+            fail(String(localized: "What you shared could not be read."), retry: false)
+            return
+        }
         do {
             sender = try await opening.value
         } catch {
@@ -153,12 +164,12 @@ final class ShareViewController: UIViewController {
     }
 
     private func finish() {
-        try? FileManager.default.removeItem(at: folder)
+        bestEffort("share: the copied files stay") { try FileManager.default.removeItemIfPresent(at: folder) }
         extensionContext?.completeRequest(returningItems: nil)
     }
 
     private func cancel() {
-        try? FileManager.default.removeItem(at: folder)
+        bestEffort("share: the copied files stay") { try FileManager.default.removeItemIfPresent(at: folder) }
         extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
     }
 }
@@ -167,9 +178,17 @@ extension ShareViewController: UITableViewDataSource, UITableViewDelegate, UISea
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { shown.count }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: ShareChatCell.reuse, for: indexPath) as! ShareChatCell
+        let cell = tableView.dequeueReusableCell(withIdentifier: Self.chatCell, for: indexPath)
         let chat = shown[indexPath.row]
-        cell.show(chat, picture: picture(for: chat), chosen: chat.id == chosen?.id)
+        var content = UIListContentConfiguration.subtitleCell()
+        content.text = chat.name
+        content.secondaryText = Networks.name(chat.network)
+        content.secondaryTextProperties.color = .secondaryLabel
+        avatar.show(picture(for: chat), name: chat.name)
+        content.image = avatar.snapshot()
+        content.imageProperties.maximumSize = CGSize(width: 36, height: 36)
+        cell.contentConfiguration = content
+        cell.accessoryType = chat.id == chosen?.id ? .checkmark : .none
         return cell
     }
 
@@ -181,32 +200,6 @@ extension ShareViewController: UITableViewDataSource, UITableViewDelegate, UISea
     }
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) { filter(searchText) }
-}
-
-/// A chat in the list: its picture, its name and network, a checkmark when chosen.
-private final class ShareChatCell: UITableViewCell {
-    static let reuse = "chat"
-    private let avatar = AvatarView()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: .subtitle, reuseIdentifier: reuseIdentifier)
-        avatar.side = 36
-        avatar.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
-    }
-
-    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
-
-    func show(_ chat: ShareChat, picture: UIImage?, chosen: Bool) {
-        var content = defaultContentConfiguration()
-        content.text = chat.name
-        content.secondaryText = Networks.name(chat.network)
-        content.secondaryTextProperties.color = .secondaryLabel
-        avatar.show(picture, name: chat.name)
-        content.image = avatar.snapshot()
-        content.imageProperties.maximumSize = CGSize(width: 36, height: 36)
-        contentConfiguration = content
-        accessoryType = chosen ? .checkmark : .none
-    }
 }
 
 private extension UIView {

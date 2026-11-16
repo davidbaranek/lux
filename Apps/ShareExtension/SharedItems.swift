@@ -9,8 +9,8 @@ struct SharedItems {
 
     /// Reads `providers` into `folder`: each its file if it has one, else its link or text.
     @MainActor
-    static func read(_ providers: [NSItemProvider], into folder: URL) async -> SharedItems {
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    static func read(_ providers: [NSItemProvider], into folder: URL) async throws -> SharedItems {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var items = SharedItems()
         var lines: [String] = []
         for provider in providers {

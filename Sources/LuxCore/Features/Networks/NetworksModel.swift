@@ -87,9 +87,8 @@ public final class NetworksModel {
 
     private func loadOnce() async {
         startFollowing()
-        guard let account = try? await account.value else { return }
         do {
-            switch try await account.networkOffers() {
+            switch try await account.value.networkOffers() {
             case .notSet:
                 offers = .notSet(server: server)
             case .offered(let found):
@@ -111,9 +110,8 @@ public final class NetworksModel {
 
     /// Asks `offer`'s bridge for the account there again.
     public func refresh(_ offer: NetworkOffer) async {
-        guard let account = try? await account.value else { return }
         do {
-            statuses[offer] = .account(try await account.networkAccount(offer))
+            statuses[offer] = .account(try await account.value.networkAccount(offer))
         } catch let failure as BridgeFailure {
             statuses[offer] = .failed(failure)
         } catch {
@@ -140,7 +138,7 @@ public final class NetworksModel {
     private func startFollowing() {
         guard following == nil else { return }
         following = Task { [weak self, account] in
-            guard let account = try? await account.value else { return }
+            guard let account = await bestEffort("networks: follow the catching up", { try await account.value }) else { return }
             let (changes, handle) = account.catchingUp()
             self?.handle = handle
             for await networks in changes {
@@ -210,7 +208,7 @@ public final class NetworkSignIn {
         guard let current else { return }
         self.current = nil
         let (account, offer) = (account, offer)
-        Task { await (try? await account.value)?.cancelNetworkLogin(offer, step: current) }
+        Task { await bestEffort("network sign-in: cancel", { try await account.value })?.cancelNetworkLogin(offer, step: current) }
     }
 
     private func went(_ step: NetworkLoginStep) async -> NetworkLoginStep {

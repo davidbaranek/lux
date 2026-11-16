@@ -143,14 +143,14 @@ public final class SettingsModel {
     }
 
     private func loadSecurity() async {
-        guard let account = try? await account.value else { return }
+        guard let account = await bestEffort("settings: the account", { try await account.value }) else { return }
         isVerified = await account.isDeviceVerified()
         recovery = account.recoveryState()
         changes.send()
     }
 
     private func loadSearchIndex() async {
-        searchIndex = await session.search?.summary()
+        searchIndex = await bestEffort("settings: the search index") { try await session.search?.summary() } ?? nil
         changes.send()
     }
 

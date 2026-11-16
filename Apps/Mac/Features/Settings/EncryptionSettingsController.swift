@@ -77,7 +77,7 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
         securityObservation = session.security?.changes.observe { [weak self] in self?.updateDevices() }
         update()
         updateDevices()
-        Task { await session.security?.loadDevices() }
+        reloadDevices()
         // back from the account page in the browser: a device may have signed out there.
         activation = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -91,7 +91,9 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
     }
 
     private func reloadDevices() {
-        Task { await session.security?.loadDevices() }
+        Task {
+            do { try await session.security?.loadDevices() } catch { report(error, of: "devices") }
+        }
     }
 
     private func update() {

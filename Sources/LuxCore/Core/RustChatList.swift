@@ -38,7 +38,8 @@ final class RustChatList: Sendable {
             self.list = list
             Task {
                 list.showKept(store: await kept.value?.store)
-                if let account = try? await opening.value { list.attach(account: account.account) }
+                // an account that does not open is the session's to handle: it signs in again.
+                if case .success(let account) = await opening.result { list.attach(account: account.account) }
             }
         }
     }

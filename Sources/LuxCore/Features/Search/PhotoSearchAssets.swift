@@ -17,7 +17,8 @@ enum PhotoSearchAssets {
         if #available(iOS 26.4, macOS 26.4, *) {
             return AssetPackManager.shared.assetPackIsAvailableLocally(withID: packID)
         }
-        return (try? await AssetPackManager.shared.status(ofAssetPackWithID: packID))?.contains(.downloaded) ?? false
+        let status = await bestEffort("photo search: the model's status") { try await AssetPackManager.shared.status(ofAssetPackWithID: packID) }
+        return status?.contains(.downloaded) ?? false
     }
 
     /// Where each of the model's files is, downloading the pack first when it is not on the

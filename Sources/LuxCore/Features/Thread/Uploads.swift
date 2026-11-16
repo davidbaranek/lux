@@ -57,7 +57,8 @@ public final class Uploads {
         onProgress?()
         if files == urls.count { onStart?() }
         Task { [account, directory] in
-            let limit = try? await account.value.maxUploadSize()
+            // unknown, the server refuses what is too large itself.
+            let limit = await bestEffort("the server's upload limit") { try await account.value.maxUploadSize() } ?? nil
             var replyTo = replyTo
             var caption = caption
             for url in urls {
@@ -82,17 +83,22 @@ public final class Uploads {
     /// Follows one file's upload until it is sent or fails.
     private func follow(_ messageId: String, in roomId: String, size: Int64) {
         Task { [account] in
-            guard let account = try? await account.value else { return done(id: messageId, size: size, ok: false) }
-            while true {
-                switch await account.upload(roomId: roomId, messageId: messageId) {
-                case .uploading(let fraction):
-                    moved(messageId, to: Int64(Double(size) * fraction))
-                case .sent:
-                    return done(id: messageId, size: size, ok: true)
-                case .failed:
-                    return done(id: messageId, size: size, ok: false)
+            do {
+                let account = try await account.value
+                while true {
+                    switch try await account.upload(roomId: roomId, messageId: messageId) {
+                    case .uploading(let fraction):
+                        moved(messageId, to: Int64(Double(size) * fraction))
+                    case .sent:
+                        return done(id: messageId, size: size, ok: true)
+                    case .failed:
+                        return done(id: messageId, size: size, ok: false)
+                    }
+                    try? await Task.sleep(for: Self.polling)
                 }
-                try? await Task.sleep(for: Self.polling)
+            } catch {
+                onError?(error)
+                done(id: messageId, size: size, ok: false)
             }
         }
     }

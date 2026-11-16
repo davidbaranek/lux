@@ -18,7 +18,7 @@ public final class WebsiteLoginReader: NSObject, WKNavigationDelegate {
     public init(step: NetworkLoginStep.Website, finished: @escaping ([String: String]) -> Void) {
         self.step = step
         self.finished = finished
-        done = step.doneURLPattern.flatMap { try? Regex($0) }
+        done = step.doneURLPattern.flatMap { pattern in bestEffort("website sign-in: the bridge's done pattern") { try Regex(pattern) } }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -94,8 +94,11 @@ public final class WebsiteLoginReader: NSObject, WKNavigationDelegate {
                 cookie.name == name && domain.map { Self.domain(cookie.domain, isIn: $0) } != false
             }?.value
         case .localStorage(let name):
-            let key = String(data: (try? JSONEncoder().encode(name)) ?? Data(), encoding: .utf8) ?? "\"\""
-            return try? await webView.evaluateJavaScript("window.localStorage.getItem(\(key))") as? String
+            guard let key = bestEffort("website sign-in: quote a key", { String(decoding: try JSONEncoder().encode(name), as: UTF8.self) })
+            else { return nil }
+            return await bestEffort("website sign-in: local storage") {
+                try await webView.evaluateJavaScript("window.localStorage.getItem(\(key))")
+            } as? String
         case .script(let name):
             return scripted[name]
         case .unreadable:
@@ -106,10 +109,11 @@ public final class WebsiteLoginReader: NSObject, WKNavigationDelegate {
     /// The bridge's script: a promise of the fields it finds, as an object of strings.
     private func evaluate(_ script: String) async -> [String: String] {
         let body = "const result = await (\(script)); return result ? JSON.stringify(result) : null;"
-        guard let json = try? await webView.callAsyncJavaScript(body, contentWorld: .defaultClient) as? String,
-              let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
-        else { return [:] }
-        return object.compactMapValues { $0 as? String }
+        let object = await bestEffort("website sign-in: the bridge's script") { () async throws -> [String: Any]? in
+            guard let json = try await webView.callAsyncJavaScript(body, contentWorld: .defaultClient) as? String else { return nil }
+            return try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        }
+        return (object ?? nil)?.compactMapValues { $0 as? String } ?? [:]
     }
 
     /// A cookie's domain (`.facebook.com`, `www.facebook.com`) is `domain` or under it.

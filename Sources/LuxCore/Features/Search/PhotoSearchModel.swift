@@ -174,11 +174,12 @@ actor PhotoSearchModel {
     private static func load(_ name: String, from file: Files) throws -> MLModel {
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
-        if let both = try? file("Encoders.mlmodelc"), FileManager.default.fileExists(atPath: both.path) {
-            configuration.functionName = name == "ImageEncoder" ? "image" : "text"
-            return try MLModel(contentsOf: both, configuration: configuration)
+        let both = try file("Encoders.mlmodelc")
+        guard FileManager.default.fileExists(atPath: both.path) else {
+            return try MLModel(contentsOf: file("\(name).mlmodelc"), configuration: configuration)
         }
-        return try MLModel(contentsOf: file("\(name).mlmodelc"), configuration: configuration)
+        configuration.functionName = name == "ImageEncoder" ? "image" : "text"
+        return try MLModel(contentsOf: both, configuration: configuration)
     }
 
     private func floats(_ output: any MLFeatureProvider) throws -> [Float] {

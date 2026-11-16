@@ -41,3 +41,11 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+
+  # Swift that forces or silently swallows an error. A grep, so it needs no Xcode or core build.
+  swift-errors:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No try!, as!, try? or fatalError
+        run: sh scripts/check-swift-errors.sh
