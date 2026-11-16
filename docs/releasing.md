@@ -21,6 +21,8 @@ on pushes to them, so a crash or a broken build shows there rather than in a Tes
 - **swift**: the shared package's tests (`swift test`), then again under Thread Sanitizer.
 - **apps**: both apps built (`Lux-iOS` for the simulator, unsigned; `Lux-Mac` signed ad hoc and
   universal, as Xcode Cloud archives it, so code the Intel slice cannot compile fails here).
+  Each build's log is checked for warnings in our sources as well (`scripts/check-build-warnings.sh`):
+  a concurrency warning softened by `@preconcurrency` is not promoted to an error.
 - **smoke**: `Apps/UITests/SmokeTests.swift` on a simulator, the demo account (`-LuxDemo`): a
   chat, search, Settings, the app sent to the background and back. It fails on a crash or a step
   that does not answer within 10 s; a failed run keeps the result bundle and any crash report as
