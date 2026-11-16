@@ -70,3 +70,31 @@ struct ProfileTests {
         return CGSize(width: width, height: height)
     }
 }
+
+/// The profile model over its port alone: a rename goes to the server and the profile shows
+/// what the server then has.
+@MainActor
+struct ProfilePortTests {
+    private actor Server: ProfilePort {
+        private var name: String?
+
+        func profile() async throws -> Profile {
+            Profile(userId: "@anna:example.org", name: name ?? "anna", displayName: name, avatar: nil,
+                    canChangeName: true, canChangeAvatar: false)
+        }
+        func setProfileName(_ name: String) async throws { self.name = name.isEmpty ? nil : name }
+        func setProfilePicture(jpeg: Data) async throws {}
+        func removeProfilePicture() async throws {}
+    }
+
+    @Test func aRenameShowsWhatTheServerNowHas() async throws {
+        let model = ProfileModel(account: Task { Server() })
+        await model.load()
+        #expect(model.profile?.name == "anna" && model.profile?.displayName == nil)
+        try await model.rename(to: "Anna Nováková")
+        #expect(model.profile?.displayName == "Anna Nováková")
+        #expect(!model.isSaving)
+        try await model.rename(to: "")
+        #expect(model.profile?.name == "anna")
+    }
+}
