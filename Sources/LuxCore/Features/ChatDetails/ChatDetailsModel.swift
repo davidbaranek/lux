@@ -110,6 +110,10 @@ public final class ChatDetailsModel {
     /// Marks it read (or unread) on the server, as the chat's menu does.
     public func markRead(_ read: Bool) async throws {
         try await save { try await $0.change(chatId: self.row.id, read ? .read : .unread) }
+        // the details show it as it now is, before the list's next update.
+        row.unreadCount = read ? 0 : row.unreadCount
+        row.isMarkedUnread = !read
+        changes.send()
     }
 
     public func rename(to name: String) async throws {
