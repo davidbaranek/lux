@@ -87,7 +87,7 @@ public final class PhotoSearch {
         downloading = nil
         await indexer.stop()
         await indexer.use(nil)
-        try? await store.forgetImageEmbeddings(reader: PhotoReader(model: nil).name)
+        await bestEffort("photo search: forget the looks") { try await store.forgetImageEmbeddings(reader: PhotoReader(model: nil).name) }
         await PhotoSearchAssets.remove()
         progress = await indexer.progress()
         update()
@@ -210,11 +210,15 @@ public final class PhotoSearch {
     func search(_ text: String, embedding: [Float]?, in roomIds: [String]? = nil, limit: Int = 30) async -> [ImageHit] {
         let minSimilarity = model?.minSimilarity ?? 1
         guard let roomIds else {
-            return (try? await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity, limit: limit)) ?? []
+            return await bestEffort("photo search") {
+                try await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity, limit: limit)
+            } ?? []
         }
         var hits: [ImageHit] = []
         for roomId in roomIds {
-            hits += (try? await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity, in: roomId, limit: 120)) ?? []
+            hits += await bestEffort("photo search in a chat") {
+                try await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity, in: roomId, limit: 120)
+            } ?? []
         }
         return hits
     }

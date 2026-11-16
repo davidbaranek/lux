@@ -8,7 +8,7 @@ import LuxBindings
 extension RustAccount {
     /// Opens a chat's timeline ahead of time (its first page from the server if the device has
     /// none), so the chat opens at once.
-    func prefetch(roomId: String, thread: String? = nil) async { try? await account.prefetchThread(roomId: roomId, threadRoot: thread) }
+    func prefetch(roomId: String, thread: String? = nil) async throws { try await account.prefetchThread(roomId: roomId, threadRoot: thread) }
 
     /// A chat's text messages and photos, the newest first, back to `since`, the chat's start, or
     /// `maxPages` pages: what the search index reads (`SearchIndexer`). From the newest, or on
@@ -35,9 +35,9 @@ extension RustAccount {
     }
 
     /// Where a sent photo or file is: uploading, sent, failed.
-    func upload(roomId: String, messageId: String) async -> UploadState {
+    func upload(roomId: String, messageId: String) async throws -> UploadState {
         // gone from the timeline: it went (the chat shows it as sent).
-        switch try? await account.sendState(roomId: roomId, messageId: messageId) {
+        switch try await account.sendState(roomId: roomId, messageId: messageId) {
         case .sending(let upload): .uploading(upload ?? 0)
         case .failed: .failed
         case .sent, nil: .sent

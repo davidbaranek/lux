@@ -653,7 +653,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         alert.addAction(UIAlertAction(title: String(localized: "Create"), style: .default) { [weak self, weak alert] _ in
             guard let self, let name = alert?.textFields?.first?.text, !name.isEmpty else { return }
             Task {
-                guard let id = try? await self.model.createRoom(name: name) else { return }
+                let id: String
+                do { id = try await self.model.createRoom(name: name) } catch { return self.report(error, of: "new chat") }
                 let row = ChatRow(id: id, name: name, preview: "", date: nil)
                 self.navigationController?.pushViewController(ThreadViewController(session: self.session, row: row, theme: self.model.theme, list: self.model), animated: true)
             }

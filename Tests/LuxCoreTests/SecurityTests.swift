@@ -37,7 +37,7 @@ struct SecurityTests {
     @Test func anotherDeviceSignsOutWithThePassword() async throws {
         let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2)
         let security = try #require(session.security)
-        await security.loadDevices()
+        try await security.loadDevices()
         let web = try #require(security.devices.first { $0.id == "WEBLAPTOP2" })
         #expect(try await security.signOutMethod(for: web) == .withPassword)
         let this = try #require(security.devices.first)
@@ -99,7 +99,7 @@ struct SecurityTests {
     @Test func aDeviceOfTheAccountIsVerifiedFromThisOne() async throws {
         let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2)
         let security = try #require(session.security)
-        await security.loadDevices()
+        try await security.loadDevices()
         #expect(security.devices.first?.isThisDevice == true)
         let unverified = try #require(security.devices.first { !$0.isVerified })
 
@@ -109,7 +109,7 @@ struct SecurityTests {
         await steps.until({ verification.isComparing }, within: .seconds(15))
         verification.confirm()
         await steps.until { verification.step == .done }
-        await security.loadDevices()
+        try await security.loadDevices()
         #expect(security.devices.first { $0.id == unverified.id }?.isVerified == true)
     }
 

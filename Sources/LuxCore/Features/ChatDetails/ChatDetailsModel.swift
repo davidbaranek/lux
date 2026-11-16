@@ -160,7 +160,8 @@ public final class ChatDetailsModel {
             changes.send()
         }
         try await change(try await account.value)
-        if reload { try? await load() }
+        // the change is made; the screen shows it with the next load.
+        if reload { await bestEffort("chat details: reload after a change") { try await load() } }
     }
 
     // MARK: Members and what it shared

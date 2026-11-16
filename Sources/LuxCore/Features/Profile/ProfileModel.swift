@@ -18,7 +18,7 @@ public final class ProfileModel {
 
     /// Reads the profile from the server; keeps the last one when it cannot.
     public func load() async {
-        guard let account = try? await account.value, let profile = try? await account.profile() else { return }
+        guard let profile = await bestEffort("profile", { try await account.value.profile() }) else { return }
         self.profile = profile
         changes.send()
     }

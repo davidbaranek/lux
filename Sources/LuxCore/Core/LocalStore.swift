@@ -19,8 +19,10 @@ public final class LocalStore: Sendable {
         let store = try await CoreStore.open(path: file.path, key: key)
         #if os(iOS)
         // readable after the first unlock, so the index can grow in the background.
-        try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-                                               ofItemAtPath: file.path)
+        bestEffort("local store: readable after the first unlock") {
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                                                  ofItemAtPath: file.path)
+        }
         #endif
         return LocalStore(store: store)
     }

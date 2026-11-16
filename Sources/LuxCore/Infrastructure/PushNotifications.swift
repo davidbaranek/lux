@@ -111,6 +111,7 @@ extension PushNotifications {
         let content = UNMutableNotificationContent()
         content.title = String(localized: "Not sent")
         content.body = String(localized: "Your reply could not be sent. Open the chat to try again.")
-        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        await bestEffort("notification: reply not sent") { try await UNUserNotificationCenter.current().add(request) }
     }
 }

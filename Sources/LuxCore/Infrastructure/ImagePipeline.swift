@@ -36,7 +36,7 @@ public final class ImagePipeline: Sendable {
         return await loads.run(key) { [account, directory, memory] in
             let state = Signposts.images.beginInterval("image", id: Signposts.images.makeSignpostID())
             defer { Signposts.images.endInterval("image", state) }
-            guard let file = try? await account.value.imageFile(ref, directory: directory),
+            guard let file = await bestEffort("image", { try await account.value.imageFile(ref, directory: directory) }) ?? nil,
                   var image = Self.decode(file, pixels: pixels) else { return nil }
             if shape == .circle, let round = Self.circle(image, side: pixels) { image = round }
             memory.setObject(image, forKey: key, cost: image.bytesPerRow * image.height)

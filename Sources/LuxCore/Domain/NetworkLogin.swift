@@ -109,7 +109,8 @@ public enum NetworkLoginStep: Sendable {
             /// pattern when one is given.
             public func accepts(_ value: String) -> Bool {
                 if value.isEmpty { return optional }
-                guard let pattern, let expression = try? Regex(pattern) else { return true }
+                // a pattern this device cannot read: the bridge checks the value itself.
+                guard let pattern, let expression = bestEffort("network sign-in: a field's pattern", { try Regex(pattern) }) else { return true }
                 return value.wholeMatch(of: expression) != nil
             }
         }

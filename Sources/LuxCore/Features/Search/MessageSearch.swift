@@ -58,7 +58,7 @@ public final class MessageSearch {
         // a chat changed (a new message), in any place, not only the one on screen: the index
         // reads what is new, at most every few seconds.
         following = Task {
-            guard let changes = try? await account.value.chatChanges() else { return }
+            guard let changes = await bestEffort("search: follow the chats", { try await account.value.chatChanges() }) else { return }
             let throttle = Throttle(interval: .seconds(3))
             for await _ in changes {
                 throttle.schedule { await MainActor.run { Self.update(indexer, in: work) } }
@@ -101,8 +101,8 @@ public final class MessageSearch {
     }
 
     /// The index for Settings: "12 340 messages · complete", or how far it is reading.
-    public func summary() async -> String {
-        let messages = (try? await store.messageCount()) ?? 0
+    public func summary() async throws -> String {
+        let messages = try await store.messageCount()
         let count = messages.formatted(.number)
         if let note = progress.flatMap({ $0.isIndexing ? $0 : nil }), note.total > 0 {
             return String(localized: "\(count) messages · reading \(note.chats) of \(note.total) chats")
@@ -114,16 +114,19 @@ public final class MessageSearch {
     /// word, the newest first, each with the chat that shows its room; the photos that match, the
     /// best first; and the first few links, files and threads with the words.
     public func search(_ text: String) async -> SearchHits {
-        guard text.contains(where: { $0.isLetter || $0.isNumber }), let account = try? await account.value else { return SearchHits() }
+        guard text.contains(where: { $0.isLetter || $0.isNumber }),
+              let account = await bestEffort("search", { try await account.value }) else { return SearchHits() }
         async let chats = account.findChats(text, limit: 20)
         // the words' embedding once: photos by their look, messages by their meaning.
         let embedding = await photos.embedding(of: text)
         let meant = await meaning.query(embedding)
         let minSimilarity = await meaning.minSimilarity ?? 1
         async let foundPhotos = photos.search(text, embedding: embedding)
-        async let found = store.search(text, embedding: meant, minSimilarity: minSimilarity, limit: 60)
+        async let found = bestEffort("search: messages") {
+            try await store.search(text, embedding: meant, minSimilarity: minSimilarity, limit: 60)
+        } ?? []
         async let shares = shares(text, kinds: [.links, .files, .threads], offset: 0, limit: SearchKind.links.preview + 1)
-        let messages = (try? await found) ?? []
+        let messages = await found
         let images = await foundPhotos
         let shown = await account.chats(ofRooms: Array(Set(messages.map(\.roomId) + images.map(\.roomId))))
         var hits = await shares
@@ -150,22 +153,23 @@ public final class MessageSearch {
 
     /// `kinds`' pages, each with the chat that shows its room.
     private func shares(_ text: String, kinds: [SearchKind], offset: Int, limit: Int) async -> SearchHits {
-        guard let account = try? await account.value else { return SearchHits() }
+        guard let account = await bestEffort("search: shared", { try await account.value }) else { return SearchHits() }
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let wants = Set(kinds)
         var images: [ImageHit] = []
         if wants.contains(.photos) {
             if text.isEmpty {
-                images = (try? await store.images(offset: offset, limit: limit)) ?? []
+                images = await bestEffort("search: photos") { try await store.images(offset: offset, limit: limit) } ?? []
             } else {
                 // ranked, not dated: a page is the best `offset + limit`, less those shown.
                 images = Array(await photos.search(text, limit: offset + limit).dropFirst(offset))
             }
         }
-        async let links = wants.contains(.links) ? store.links(text, offset: offset, limit: limit) : []
-        async let files = wants.contains(.files) ? store.files(text, offset: offset, limit: limit) : []
-        async let threads = wants.contains(.threads) ? store.threads(text, offset: offset, limit: limit) : []
-        let (foundLinks, foundFiles, foundThreads) = ((try? await links) ?? [], (try? await files) ?? [], (try? await threads) ?? [])
+        async let links = wants.contains(.links) ? bestEffort("search: links") { try await store.links(text, offset: offset, limit: limit) } ?? [] : []
+        async let files = wants.contains(.files) ? bestEffort("search: files") { try await store.files(text, offset: offset, limit: limit) } ?? [] : []
+        async let threads = wants.contains(.threads)
+            ? bestEffort("search: threads") { try await store.threads(text, offset: offset, limit: limit) } ?? [] : []
+        let (foundLinks, foundFiles, foundThreads) = await (links, files, threads)
         let rooms = images.map(\.roomId) + foundLinks.map(\.roomId) + foundFiles.map(\.roomId) + foundThreads.map(\.roomId)
         let shown = await account.chats(ofRooms: Array(Set(rooms)))
         return SearchHits(

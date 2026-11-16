@@ -29,7 +29,7 @@ public enum PushEnvironment: Sendable, Equatable {
     /// through production.
     public static let current: PushEnvironment = {
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-              let data = try? Data(contentsOf: url) else { return .production }
+              let data = bestEffort("push: read the provisioning profile", { try Data(contentsOf: url) }) else { return .production }
         return environment(ofProfile: data)
     }()
 

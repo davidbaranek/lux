@@ -66,7 +66,7 @@ final class DevicesViewController: UIViewController, UICollectionViewDelegate {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                Task { await self.security.loadDevices() }
+                self.loadDevices()
             }
         }
         update()
@@ -79,7 +79,13 @@ final class DevicesViewController: UIViewController, UICollectionViewDelegate {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         // back from a verification: the device may be verified now.
-        Task { await security.loadDevices() }
+        loadDevices()
+    }
+
+    private func loadDevices() {
+        Task {
+            do { try await security.loadDevices() } catch { report(error, of: "devices") }
+        }
     }
 
     private func update() {
@@ -159,7 +165,7 @@ final class DevicesViewController: UIViewController, UICollectionViewDelegate {
         collectionView.deselectItem(at: indexPath, animated: true)
         guard let device = dataSource.itemIdentifier(for: indexPath) else { return }
         let verification = VerificationViewController(model: VerificationModel(session: session, kind: .device(device))) { [weak self] in
-            Task { await self?.security.loadDevices() }
+            self?.loadDevices()
         }
         navigationController?.pushViewController(verification, animated: true)
     }

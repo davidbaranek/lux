@@ -110,7 +110,10 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
             for result in results {
                 let provider = result.itemProvider
                 guard let type = [UTType.movie, .image].first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) else { continue }
-                if let file = try? await Self.copy(from: provider, type: type, into: copies) { files.append(file) }
+                // the others still go; the log says why this one did not.
+                if let file = await bestEffort("picked media: copy", { try await Self.copy(from: provider, type: type, into: copies) }) {
+                    files.append(file)
+                }
             }
             picked(files)
         }

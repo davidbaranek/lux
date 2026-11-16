@@ -42,7 +42,7 @@ public actor PhotoIndexer {
     /// photo the last reader gave up on is tried again by this one.
     func use(_ model: PhotoSearchModel?) async {
         reader = PhotoReader(model: model)
-        try? await store.retryUnreadImages()
+        await bestEffort("photo search: retry unread photos") { try await store.retryUnreadImages() }
     }
 
     /// Reads the photos not read yet, the newest first: at most `limit` (nil: all of them).
@@ -73,18 +73,21 @@ public actor PhotoIndexer {
 
     /// How many photos the index has, and how many the current reader read.
     func progress() async -> Progress {
-        guard let counts = try? await store.imageCounts(reader: reader.name) else { return Progress(isReading: running != nil) }
+        guard let counts = await bestEffort("photo search: counts", { try await store.imageCounts(reader: reader.name) }) else {
+            return Progress(isReading: running != nil)
+        }
         return Progress(total: counts.total, read: counts.read, withWords: counts.withWords, withEmbedding: counts.withEmbedding,
                         isReading: running != nil)
     }
 
     private func readUnread(limit: Int?, lease: ForegroundLease) async -> Bool {
-        guard let account = try? await account.value else { return false }
+        guard let account = await bestEffort("photo search: the account", { try await account.value }) else { return false }
         let reader = self.reader
         var left = limit ?? .max
         defer { Task { await reader.model?.releaseImageEncoder() } }
         while left > 0, !Task.isCancelled {
-            guard let photos = try? await store.imagesToRead(by: reader.name, limit: min(left, Self.batch)) else { return false }
+            guard let photos = await bestEffort("photo search: photos to read", { try await store.imagesToRead(by: reader.name, limit: min(left, Self.batch)) })
+            else { return false }
             if photos.isEmpty { return true }
             var reads: [PhotoRead] = []
             let started = ContinuousClock.now
@@ -92,7 +95,7 @@ public actor PhotoIndexer {
             for photo in photos where !Task.isCancelled {
                 switch await self.read(photo, by: reader, from: account, lease: lease) {
                 case .read(let read): reads.append(read)
-                case .unreadable: try? await store.imageUnread(photo.eventId)
+                case .unreadable: await bestEffort("photo search: count a try") { try await store.imageUnread(photo.eventId) }
                 case .notNow: stopped = true
                 }
                 if stopped { break }
@@ -131,7 +134,7 @@ public actor PhotoIndexer {
     private func read(_ photo: (eventId: String, roomId: String), by reader: PhotoReader,
                       from account: RustAccount, lease: ForegroundLease) async -> Outcome {
         let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        defer { bestEffort("photo search: the photo's folder stays") { try FileManager.default.removeItemIfPresent(at: folder) } }
         do {
             let file = try await account.sharedFile(roomId: photo.roomId, eventId: photo.eventId, directory: folder)
             let (words, embedding) = try await reader.read(file, lease: lease)

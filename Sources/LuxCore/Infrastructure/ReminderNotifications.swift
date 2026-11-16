@@ -12,7 +12,7 @@ final class ReminderNotifications {
 
     /// Asks once to show notifications; the first reminder the user sets asks.
     func requestPermission() async {
-        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        await bestEffort("reminders: ask to notify") { try await center.requestAuthorization(options: [.alert, .sound, .badge]) }
     }
 
     /// Schedules the reminders that are new or moved and removes those that went.
