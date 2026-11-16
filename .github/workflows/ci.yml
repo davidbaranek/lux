@@ -10,7 +10,7 @@ name: ci
 
 on:
   push:
-    branches: [main, dev, claude/ci-smoke-53ec48]
+    branches: [main, dev]
   pull_request:
     branches: [main, dev]
   # by hand, from the Actions tab.
@@ -106,7 +106,7 @@ jobs:
       - name: Test
         run: swift test
       - name: Test under Thread Sanitizer
-        run: swift test -Xswiftc -sanitize=thread --sanitize=thread --scratch-path .build/tsan
+        run: swift test --sanitize=thread --scratch-path .build/tsan
         env:
           TSAN_OPTIONS: halt_on_error=1
 
