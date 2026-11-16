@@ -145,8 +145,7 @@ mod tests {
     #[test]
     fn events_reach_the_sink_by_level_and_target() {
         let kept = Arc::new(Kept::default());
-        let subscriber = tracing_subscriber::registry()
-            .with(SinkLayer { sink: kept.clone() }.with_filter(targets()));
+        let subscriber = tracing_subscriber::registry().with(SinkLayer { sink: kept.clone() }.with_filter(targets()));
         tracing::subscriber::with_default(subscriber, || {
             let error = "the server went away";
             tracing::warn!(target: "lux_matrix::room_list", %error, room = "!a:b", "the list is not available");
