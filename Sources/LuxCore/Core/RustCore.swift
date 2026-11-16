@@ -1,5 +1,6 @@
 import Foundation
 import LuxBindings
+import os
 
 // The mappings between the Rust core's records (`lux-ffi`) and the app's own types, shared by
 // `Core/`: the rest of LuxCore keeps its own types, and the generated ones never leak past `Core/`.
@@ -55,10 +56,34 @@ extension AccountFailure {
 }
 
 /// The core's runtime: its worker threads are set before the first call into the core (the
-/// listeners' calls into Swift come on them).
+/// listeners' calls into Swift come on them), and its log goes to `Log.core`.
 enum CoreRuntime {
-    static func start() { startCore(process: .app) }
-    static func startInExtension() { startCore(process: .notificationExtension) }
+    static func start() { startCore(process: .app, log: CoreLog()) }
+    static func startInExtension() { startCore(process: .notificationExtension, log: CoreLog()) }
+}
+
+/// The core's log in the unified log, beside the app's: `Log.core`, at the matching level. Where
+/// it comes from and what happened are the code's own words, public; the event's values (an error,
+/// a room) may name people or servers, so they stay private.
+private final class CoreLog: CoreLogSink {
+    func log(event: CoreLogEvent) {
+        let logger = Log.core
+        let target = event.target
+        let message = event.message
+        let fields = event.fields
+        switch event.level {
+        case .trace:
+            logger.trace("\(target, privacy: .public): \(message, privacy: .public) \(fields, privacy: .private)")
+        case .debug:
+            logger.debug("\(target, privacy: .public): \(message, privacy: .public) \(fields, privacy: .private)")
+        case .info:
+            logger.info("\(target, privacy: .public): \(message, privacy: .public) \(fields, privacy: .private)")
+        case .warn:
+            logger.warning("\(target, privacy: .public): \(message, privacy: .public) \(fields, privacy: .private)")
+        case .error:
+            logger.error("\(target, privacy: .public): \(message, privacy: .public) \(fields, privacy: .private)")
+        }
+    }
 }
 
 // MARK: The timeline's footers

@@ -2274,6 +2274,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tokenizers",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uniffi",
 ]
 
