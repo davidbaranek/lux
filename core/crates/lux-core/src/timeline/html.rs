@@ -122,14 +122,14 @@ impl Scanner {
     fn entity(&mut self) -> String {
         let start = self.at;
         let mut end = start + 1;
-        while end < self.chars.len() && end - start < 12 && !matches!(self.chars[end], ';' | '<' | '&') {
+        while end - start < 12 && self.chars.get(end).is_some_and(|next| !matches!(next, ';' | '<' | '&')) {
             end += 1;
         }
         if self.chars.get(end) != Some(&';') {
             self.at += 1;
             return "&".to_owned();
         }
-        let name: String = self.chars[start + 1..end].iter().collect();
+        let name: String = self.chars.get(start + 1..end).unwrap_or_default().iter().collect();
         self.at = end + 1;
         match name.as_str() {
             "amp" => "&".to_owned(),
@@ -158,7 +158,7 @@ impl Scanner {
         // a comment
         if chars.get(at + 1..at + 4) == Some(&['!', '-', '-'][..]) {
             let mut end = at + 4;
-            while end + 2 < chars.len() && chars[end..end + 3] != ['-', '-', '>'] {
+            while chars.get(end..end + 3).is_some_and(|next| next != ['-', '-', '>']) {
                 end += 1;
             }
             self.at = chars.len().min(end + 3);
@@ -175,7 +175,11 @@ impl Scanner {
             }
             end += 1;
         }
-        let inside: String = chars[at + 1..end.min(chars.len())].iter().collect();
+        let inside: String = chars
+            .get(at + 1..end.min(chars.len()))
+            .unwrap_or_default()
+            .iter()
+            .collect();
         self.at = chars.len().min(end + 1);
         let (closing, body) = match inside.strip_prefix('/') {
             Some(body) => (true, body),
@@ -184,15 +188,15 @@ impl Scanner {
         let name_length = body
             .find(|character: char| !(character.is_alphanumeric() || character == '-'))
             .unwrap_or(body.len());
-        let name = body[..name_length].to_lowercase();
+        let (name, attributes) = body.split_at_checked(name_length).unwrap_or((body, ""));
+        let name = name.to_lowercase();
         if name.is_empty() {
             return;
         }
         if closing {
             self.close(&name);
         } else {
-            let attributes = body[name_length..].to_owned();
-            self.start(name, &attributes, inside.ends_with('/'));
+            self.start(name, attributes, inside.ends_with('/'));
         }
     }
 
@@ -371,10 +375,15 @@ fn has_scheme(href: &str) -> bool {
 fn attribute(name: &str, attributes: &str) -> Option<String> {
     let lower = attributes.to_ascii_lowercase();
     let found = lower.find(&format!("{name}="))? + name.len() + 1;
-    let rest = &attributes[found..];
+    let rest = attributes.get(found..)?;
     let first = rest.chars().next()?;
     if first == '"' || first == '\'' {
-        let value = rest[1..].split(first).next().unwrap_or_default();
+        let value = rest
+            .get(first.len_utf8()..)
+            .unwrap_or_default()
+            .split(first)
+            .next()
+            .unwrap_or_default();
         return Some(parse(value).0);
     }
     Some(
@@ -388,6 +397,36 @@ fn attribute(name: &str, attributes: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn broken_html_reads_without_failing() {
+        for html in [
+            "<",
+            "&",
+            "&#",
+            "&#x;",
+            "&#xFFFFFFFF;",
+            "&ž;",
+            "<!--",
+            "<!-- ž -",
+            "ž<",
+            "<ž",
+            "</",
+            "<a href=",
+            "<a href=\"ž",
+            "<a href='",
+            "<a href=ž>x</a>",
+            "<b><i>ž</b>",
+            "</b>ž",
+            "<mx-reply>ž",
+        ] {
+            let (text, styles) = parse(html);
+            let length = text.encode_utf16().count();
+            assert!(styles.iter().all(|style| style.range.end <= length), "{html:?}");
+        }
+        assert_eq!(parse("a &amp b").0, "a &amp b");
+        assert_eq!(parse("&#x17E;").0, "ž");
+    }
 
     fn style(kind: StyleKind, start: usize, end: usize) -> TextStyle {
         TextStyle {

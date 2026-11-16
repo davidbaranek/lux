@@ -122,7 +122,7 @@ impl RoomMessages {
     /// The messages shown, oldest first.
     pub(crate) fn shown(&mut self) -> &[Arc<TimelineMessage>] {
         let start = self.window.start(&self.messages, FIRST_SCREEN);
-        &self.messages[start..]
+        self.messages.get(start..).unwrap_or_default()
     }
 
     /// How many messages the timeline holds before the shown ones.
@@ -226,16 +226,21 @@ pub(crate) fn present(
     );
     message::present(&messages, zone)
         .into_iter()
-        .map(|row| {
-            let room = &rooms[origins[row.message]].room;
-            let lead = &messages[row.message];
-            Arc::new(ThreadRow {
+        .filter_map(|row| {
+            let room = &rooms.get(*origins.get(row.message)?)?.room;
+            let lead = messages.get(row.message)?;
+            Some(Arc::new(ThreadRow {
                 shows: RowShows {
                     detail: unfolded.details.contains(&lead.message.id),
                     whole_post: unfolded.posts.contains(&lead.message.id),
                 },
                 message: Arc::clone(lead),
-                album: row.album.iter().map(|&index| Arc::clone(&messages[index])).collect(),
+                album: row
+                    .album
+                    .iter()
+                    .filter_map(|&index| messages.get(index))
+                    .map(Arc::clone)
+                    .collect(),
                 room: room.id.clone(),
                 network: merged.then(|| room.network.clone()),
                 starts_run: row.starts_run,
@@ -243,7 +248,7 @@ pub(crate) fn present(
                 separator: row.separator,
                 links: row.links,
                 footer: row.footer,
-            })
+            }))
         })
         .collect()
 }

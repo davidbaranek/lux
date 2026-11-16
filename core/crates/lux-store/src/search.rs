@@ -72,8 +72,8 @@ pub(crate) fn fuse<T>(rankings: Vec<Ranked<T>>, limit: usize) -> Vec<T> {
             // a place is far below 2^52.
             #[allow(clippy::cast_precision_loss)]
             let score = 1.0 / (K + place as f64 + 1.0);
-            if let Some(&index) = at.get(&id) {
-                scored[index].1 += score;
+            if let Some(scored) = at.get(&id).and_then(|&index| scored.get_mut(index)) {
+                scored.1 += score;
             } else {
                 at.insert(id.clone(), scored.len());
                 let order = scored.len();

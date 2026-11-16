@@ -304,12 +304,16 @@ impl<B: ThreadBackend> Thread<B> {
     fn event(&mut self, event: Event) {
         match event {
             Event::Diffs(index, diffs) => {
-                self.rooms[index].apply(diffs);
+                if let Some(room) = self.rooms.get_mut(index) {
+                    room.apply(diffs);
+                }
                 self.reveal_waiting();
                 self.dirty.rows = true;
             }
             Event::Unreadable(index) => {
-                self.rooms[index].loaded = true;
+                if let Some(room) = self.rooms.get_mut(index) {
+                    room.loaded = true;
+                }
                 self.dirty.rows = true;
             }
             Event::FirstUnread(found) => {
@@ -323,7 +327,9 @@ impl<B: ThreadBackend> Thread<B> {
                 self.dirty.rows = true;
             }
             Event::Filled(index, at_start) => {
-                self.rooms[index].at_start = at_start;
+                if let Some(room) = self.rooms.get_mut(index) {
+                    room.at_start = at_start;
+                }
                 self.filling = self.filling.saturating_sub(1);
                 if self.filling == 0 {
                     for waiter in self.loaded_waiters.drain(..) {
@@ -333,11 +339,12 @@ impl<B: ThreadBackend> Thread<B> {
                 self.dirty.state = true;
             }
             Event::Paged(index, at_start) => {
-                let room = &mut self.rooms[index];
-                if let Some(at_start) = at_start {
-                    room.at_start = at_start;
+                if let Some(room) = self.rooms.get_mut(index) {
+                    if let Some(at_start) = at_start {
+                        room.at_start = at_start;
+                    }
+                    room.paging = false;
                 }
-                room.paging = false;
                 self.dirty.rows = true;
                 self.paging = self.paging.saturating_sub(1);
                 self.dirty.state = true;
@@ -346,7 +353,7 @@ impl<B: ThreadBackend> Thread<B> {
                 self.jumping = self.jumping.saturating_sub(1);
                 self.dirty.state = true;
                 match found {
-                    Some((index, id)) if self.rooms[index].reveal(&id) => {
+                    Some((index, id)) if self.rooms.get_mut(index).is_some_and(|room| room.reveal(&id)) => {
                         self.dirty.rows = true;
                         self.jumped.push((id, answer));
                     }
@@ -358,7 +365,9 @@ impl<B: ThreadBackend> Thread<B> {
                 }
             }
             Event::Typing(index, typists) => {
-                self.typing_by_room.insert(self.rooms[index].room.id.clone(), typists);
+                if let Some(room) = self.rooms.get(index) {
+                    self.typing_by_room.insert(room.room.id.clone(), typists);
+                }
                 self.update_typists();
             }
             Event::CanSendLater(room, can) => {
@@ -418,7 +427,10 @@ impl<B: ThreadBackend> Thread<B> {
     /// found), the room a new message goes to, the read state.
     fn after_rows(&mut self) {
         self.decide_first_unread();
-        let shown = self.shown.map(|index| &self.rooms[index].room.id);
+        let shown = self
+            .shown
+            .and_then(|index| self.rooms.get(index))
+            .map(|room| &room.room.id);
         let send_room =
             merge::send_room(shown, self.rows.iter().map(|row| Some(&row.room)), &self.default_room).clone();
         if send_room != self.send_room {
@@ -486,7 +498,9 @@ impl<B: ThreadBackend> Thread<B> {
             },
             needs_read_receipt: self.read.needs_receipt,
             typists: self.typists.clone(),
-            shown_room: shown.map(|index| self.rooms[index].room.id.clone()),
+            shown_room: shown
+                .and_then(|index| self.rooms.get(index))
+                .map(|room| room.room.id.clone()),
             send_room: self.send_room.clone(),
             mode: self.mode.clone(),
             pending_files: self.pending_files.clone(),
@@ -658,8 +672,12 @@ impl<B: ThreadBackend> Thread<B> {
         }
         let shown: Vec<usize> = self.shown_rooms().collect();
         for index in shown {
-            let timeline = self.timeline(&self.rooms[index].room.id);
-            let room = &mut self.rooms[index];
+            let Some(timeline) = self.rooms.get(index).map(|room| self.timeline(&room.room.id)) else {
+                continue;
+            };
+            let Some(room) = self.rooms.get_mut(index) else {
+                continue;
+            };
             room.older_due = OLDER;
             let missing = OLDER.saturating_sub(room.held_before());
             if missing == 0 || room.at_start {
@@ -710,8 +728,10 @@ impl<B: ThreadBackend> Thread<B> {
     /// Brings the message of `event` into the thread, from the first of `rooms` that has it.
     fn jump(&mut self, rooms: Vec<usize>, event: EventId, answer: oneshot::Sender<Option<MessageId>>) {
         for &index in &rooms {
-            if let Some(id) = self.rooms[index].find_event(&event) {
-                self.rooms[index].reveal(&id);
+            if let Some(room) = self.rooms.get_mut(index)
+                && let Some(id) = room.find_event(&event)
+            {
+                room.reveal(&id);
                 self.dirty.rows = true;
                 self.jumped.push((id, answer));
                 return;
@@ -721,7 +741,7 @@ impl<B: ThreadBackend> Thread<B> {
         self.dirty.state = true;
         let ids: Vec<(usize, TimelineId)> = rooms
             .into_iter()
-            .map(|index| (index, self.timeline(&self.rooms[index].room.id)))
+            .filter_map(|index| Some((index, self.timeline(&self.rooms.get(index)?.room.id))))
             .collect();
         let (backend, events, listener) = (
             Arc::clone(&self.backend),
@@ -882,7 +902,8 @@ impl<B: ThreadBackend> Thread<B> {
         let mut watching = JoinSet::new();
         let shown: Vec<usize> = self.shown_rooms().collect();
         for index in shown {
-            match self.backend.timelines().typing(&self.rooms[index].room.id) {
+            let Some(room) = self.rooms.get(index) else { continue };
+            match self.backend.timelines().typing(&room.room.id) {
                 Ok(mut typing) => {
                     let events = self.events.clone();
                     watching.spawn(async move {
@@ -908,7 +929,7 @@ impl<B: ThreadBackend> Thread<B> {
     fn update_typists(&mut self) {
         let rooms: Vec<RoomId> = self
             .shown_rooms()
-            .map(|index| self.rooms[index].room.id.clone())
+            .filter_map(|index| self.rooms.get(index).map(|room| room.room.id.clone()))
             .collect();
         let typists = decide::typists(rooms.into_iter(), &self.typing_by_room);
         if typists != self.typists {

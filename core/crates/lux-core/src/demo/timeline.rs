@@ -21,7 +21,7 @@ use tokio::sync::broadcast;
 
 use super::SentMessages;
 use super::data::stable;
-use super::seeded::text;
+use super::seeded::{self, text};
 use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, TimelineId, UserId};
 use crate::message::{self, Attachment, Message, SendState};
 use crate::ports::{
@@ -313,7 +313,7 @@ impl DemoTimelines {
             std::cmp::Reverse(thread.summary.latest.as_ref().map_or(thread.date, |latest| latest.date))
         });
         let skip: usize = from.and_then(|from| from.parse().ok()).unwrap_or(0);
-        let end = (skip + THREADS_PAGE).min(threads.len());
+        let end = skip.saturating_add(THREADS_PAGE).min(threads.len());
         crate::ports::ThreadPage {
             next: (end < threads.len()).then(|| end.to_string()),
             threads: threads.drain(skip.min(end)..end).collect(),
@@ -623,7 +623,7 @@ impl ChatSending for DemoTimelines {
             for (index, body) in JOINED_REPLIES.iter().enumerate() {
                 let mut reply = self.own_message(room, body);
                 reply.message.sender = UserId::from(format!("@friend{index}:demo"));
-                PEOPLE[index % PEOPLE.len()].clone_into(&mut reply.sender_name);
+                seeded::round_name(&PEOPLE, index).clone_into(&mut reply.sender_name);
                 reply.sender_avatar = Some(MediaId::from(format!("demo-@friend{index}:demo")));
                 reply.is_own = false;
                 reply.is_editable = false;
@@ -752,16 +752,20 @@ impl ChatSending for DemoTimelines {
 /// Adds the account's reaction `key`, or takes it away.
 fn toggle(reactions: &mut Vec<Reaction>, key: &str) {
     match reactions.iter().position(|reaction| reaction.key == key) {
-        Some(index) if reactions[index].is_mine => {
-            reactions[index].is_mine = false;
-            reactions[index].count = reactions[index].count.saturating_sub(1);
-            if reactions[index].count == 0 {
-                reactions.remove(index);
-            }
-        }
         Some(index) => {
-            reactions[index].is_mine = true;
-            reactions[index].count += 1;
+            let Some(reaction) = reactions.get_mut(index) else {
+                return;
+            };
+            if reaction.is_mine {
+                reaction.is_mine = false;
+                reaction.count = reaction.count.saturating_sub(1);
+                if reaction.count == 0 {
+                    reactions.remove(index);
+                }
+            } else {
+                reaction.is_mine = true;
+                reaction.count = reaction.count.saturating_add(1);
+            }
         }
         None => reactions.push(Reaction {
             key: key.to_owned(),
@@ -817,7 +821,7 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
             // a reel shared from another network, its caption long enough to fold.
             let shared = (index % 90 == 19 || index + 6 == count).then(|| SharedPost {
                 url: format!("https://www.instagram.com/reel/demo{index}/"),
-                title: Some(format!("{} on Instagram", PEOPLE[index % 3])),
+                title: Some(format!("{} on Instagram", seeded::round_name(&PEOPLE, index))),
                 description: Some(REEL_CAPTION.to_owned()),
             });
             if index % 45 == 19 || shared.is_some() {
@@ -851,7 +855,7 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
             };
             let reply = (index % 12 == 5 && index >= 10).then(|| Quote {
                 event_id: EventId::from(format!("{room}/{}", index - 10)),
-                sender_name: PEOPLE[(index - 10) % 3].to_owned(),
+                sender_name: seeded::round_name(&PEOPLE, index.saturating_sub(10)).to_owned(),
                 sender_avatar: ((index - 10) % 3 != 2)
                     .then(|| MediaId::from(format!("demo-@friend{}:demo", (index - 10) % 3))),
                 kind: Some(PreviewKind::Text(text((i - 10) * 31 + 7))),
@@ -873,7 +877,7 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
             }
             let mut styles = Vec::new();
             if index % 11 == 3 {
-                (body, styles) = html::parse(FORMATTED[index % FORMATTED.len()]);
+                (body, styles) = html::parse(seeded::round_name(&FORMATTED, index));
             }
             let links = message::links(&body, &styles);
             // the history covers several days.
@@ -897,7 +901,7 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
                 sender_name: if is_own {
                     "Me".to_owned()
                 } else {
-                    PEOPLE[index % 3].to_owned()
+                    seeded::round_name(&PEOPLE, index).to_owned()
                 },
                 sender_avatar,
                 is_own,
@@ -1009,7 +1013,7 @@ fn thread_replies(root: &TimelineMessage) -> Vec<Arc<TimelineMessage>> {
                 } else if is_own {
                     "Me".to_owned()
                 } else {
-                    PEOPLE[friend].to_owned()
+                    seeded::round_name(&PEOPLE, friend).to_owned()
                 },
                 sender_avatar: (!notice && !is_own).then(|| MediaId::from(format!("demo-{sender}"))),
                 is_own,

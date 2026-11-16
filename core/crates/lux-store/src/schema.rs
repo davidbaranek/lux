@@ -105,7 +105,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
     if found > supported {
         return Err(Error::NewerSchema { found, supported });
     }
-    for (version, migration) in (found + 1..).zip(&MIGRATIONS[found as usize..]) {
+    for (version, migration) in (found + 1..).zip(MIGRATIONS.iter().skip(usize::try_from(found).unwrap_or(usize::MAX)))
+    {
         let transaction = connection.transaction()?;
         transaction.execute_batch(migration)?;
         transaction.pragma_update(None, "user_version", version)?;

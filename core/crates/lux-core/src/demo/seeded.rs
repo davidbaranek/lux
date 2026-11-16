@@ -26,6 +26,17 @@ impl Seeded {
     }
 }
 
+/// The item `index` counts to, going round `items` from the start again past its end: `None`
+/// only when there are none.
+pub(crate) fn round<T>(items: &[T], index: usize) -> Option<&T> {
+    items.get(index.checked_rem(items.len())?)
+}
+
+/// The name `index` counts to, going round `names` (none: no name).
+pub(crate) fn round_name(names: &[&'static str], index: usize) -> &'static str {
+    round(names, index).copied().unwrap_or_default()
+}
+
 /// The made-up words.
 const WORDS: &str = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut \
     labore et dolore magna aliqua tomorrow tonight coffee train photo meeting weekend sounds good see you later";
@@ -40,7 +51,7 @@ pub(crate) fn text(seed: u64) -> String {
         if index > 0 {
             text.push(' ');
         }
-        text.push_str(words[generator.below(words.len())]);
+        text.push_str(round_name(&words, generator.below(words.len())));
     }
     text
 }

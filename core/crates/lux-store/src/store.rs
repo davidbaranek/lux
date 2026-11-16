@@ -743,7 +743,7 @@ impl Store {
                         |row| {
                             let body: String = row.get(3)?;
                             let excerpt = match body.char_indices().nth(MEANING_EXCERPT) {
-                                Some((end, _)) => format!("{}…", &body[..end]),
+                                Some((end, _)) => format!("{}…", body.get(..end).unwrap_or_default()),
                                 None => body,
                             };
                             hit(row, excerpt, Vec::new())

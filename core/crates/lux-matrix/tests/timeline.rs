@@ -5,7 +5,13 @@
 // the sdk's futures nest deeply.
 #![recursion_limit = "256"]
 // a test crate: a failed step is the test failing.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    reason = "a test's helpers fail it as its asserts do"
+)]
 
 use std::sync::Arc;
 use std::time::Duration;

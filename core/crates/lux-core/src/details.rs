@@ -116,7 +116,8 @@ impl SharedHistory {
     /// # Errors
     /// When a room's history cannot be read.
     pub async fn next<B: ChatDetails>(&mut self, backend: &B, want: usize) -> Result<Vec<SharedItem>, BackendError> {
-        let mut given = Vec::with_capacity(want);
+        // `want` comes from the apps as is: a huge one must not reserve memory up front.
+        let mut given = Vec::new();
         let mut pages = 0;
         while given.len() < want {
             // an item is given only when no room still to read could have a newer one.
@@ -327,6 +328,17 @@ mod tests {
         assert_eq!(minutes(history.next(&pages, 10).await.unwrap()), [50, 40, 20, 10]);
         assert!(history.is_at_start());
         assert!(history.next(&pages, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn asking_for_more_items_than_memory_holds_gives_what_there_is() {
+        let a = RoomId::from("!a:test");
+        let pages = Pages {
+            rooms: HashMap::from([(a.clone(), vec![(90, true), (70, true)])]),
+        };
+        let mut history = SharedHistory::new(vec![a], SharedKind::Media);
+        assert_eq!(history.next(&pages, usize::MAX).await.unwrap().len(), 2);
+        assert!(history.is_at_start());
     }
 
     #[tokio::test]

@@ -248,28 +248,29 @@ impl Names {
         }
     }
 
-    async fn profile(&mut self, user: &SdkUserId) -> &(String, Option<MediaId>) {
-        if !self.known.contains_key(user) {
-            let profile = match self.room.get_member_no_sync(user).await {
-                Ok(Some(member)) => (
-                    member
-                        .display_name()
-                        .map_or_else(|| user.localpart().to_owned(), str::to_owned),
-                    member.avatar_url().map(|url| MediaId::from(url.as_str())),
-                ),
-                _ => (user.localpart().to_owned(), None),
-            };
-            self.known.insert(user.to_owned(), profile);
+    async fn profile(&mut self, user: &SdkUserId) -> (String, Option<MediaId>) {
+        if let Some(profile) = self.known.get(user) {
+            return profile.clone();
         }
-        &self.known[user]
+        let profile = match self.room.get_member_no_sync(user).await {
+            Ok(Some(member)) => (
+                member
+                    .display_name()
+                    .map_or_else(|| user.localpart().to_owned(), str::to_owned),
+                member.avatar_url().map(|url| MediaId::from(url.as_str())),
+            ),
+            _ => (user.localpart().to_owned(), None),
+        };
+        self.known.insert(user.to_owned(), profile.clone());
+        profile
     }
 
     async fn name(&mut self, user: &SdkUserId) -> String {
-        self.profile(user).await.0.clone()
+        self.profile(user).await.0
     }
 
     async fn typist(&mut self, user: &SdkUserId) -> Typist {
-        let (name, avatar) = self.profile(user).await.clone();
+        let (name, avatar) = self.profile(user).await;
         Typist {
             user: UserId::from(user.as_str()),
             name,

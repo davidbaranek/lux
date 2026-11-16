@@ -76,13 +76,13 @@ where
     // the staying rows are in place, and each new row goes where it shows.
     let mut diffs: Vec<VectorDiff<T>> = (0..old.len())
         .rev()
-        .filter(|index| !stays[*index])
+        .filter(|&index| stays.get(index) != Some(&true))
         .map(|index| VectorDiff::Remove { index })
         .collect();
     for (index, (row, from)) in new.iter().zip(from).enumerate() {
         match from {
-            Some(from) if stays[from] => {
-                if !same(&old[from], row) {
+            Some(from) if stays.get(from) == Some(&true) => {
+                if old.get(from).is_none_or(|old| !same(old, row)) {
                     diffs.push(VectorDiff::Set {
                         index,
                         value: row.clone(),
@@ -104,24 +104,29 @@ where
 /// Which old positions stay: those of the longest increasing run in `from` (distinct old
 /// positions, in the new order), by patience sorting. Indexed by old position, `len` of them.
 fn longest_increasing(from: &[Option<usize>], len: usize) -> Vec<bool> {
-    let positions: Vec<usize> = from.iter().flatten().copied().collect();
-    // `tails[k]`: where in `positions` the run of length k + 1 with the lowest end ends.
-    let mut tails: Vec<usize> = Vec::new();
-    let mut before: Vec<Option<usize>> = Vec::with_capacity(positions.len());
-    for (at, &position) in positions.iter().enumerate() {
-        let length = tails.partition_point(|&tail| positions[tail] < position);
-        before.push(length.checked_sub(1).map(|shorter| tails[shorter]));
-        if length == tails.len() {
-            tails.push(at);
-        } else {
-            tails[length] = at;
+    // each run's link: the old position at this step, and the step before it in the run.
+    let mut links: Vec<(usize, Option<usize>)> = Vec::with_capacity(from.len());
+    // `tails[k]`: the old position and the step of the run of length k + 1 with the lowest end.
+    let mut tails: Vec<(usize, usize)> = Vec::new();
+    for (step, &position) in from.iter().flatten().enumerate() {
+        let length = tails.partition_point(|&(tail, _)| tail < position);
+        let before = length
+            .checked_sub(1)
+            .and_then(|shorter| tails.get(shorter))
+            .map(|&(_, at)| at);
+        links.push((position, before));
+        match tails.get_mut(length) {
+            Some(tail) => *tail = (position, step),
+            None => tails.push((position, step)),
         }
     }
     let mut stays = vec![false; len];
-    let mut next = tails.last().copied();
-    while let Some(at) = next {
-        stays[positions[at]] = true;
-        next = before[at];
+    let mut next = tails.last().map(|&(_, step)| step);
+    while let Some(&(position, before)) = next.and_then(|step| links.get(step)) {
+        if let Some(stays) = stays.get_mut(position) {
+            *stays = true;
+        }
+        next = before;
     }
     stays
 }

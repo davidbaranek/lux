@@ -1,6 +1,10 @@
 //! The store as the app uses it: the index, the kept values, the file's encryption.
 
-#![allow(clippy::unwrap_used, reason = "a test's helpers fail it as its asserts do")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test's helpers fail it as its asserts do"
+)]
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};

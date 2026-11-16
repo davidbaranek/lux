@@ -93,7 +93,9 @@ impl Organized {
             rooms.first().cloned().unwrap_or_else(|| default_room.clone())
         };
         // a room is in one merge only.
-        let id = existing.map_or(new_id, |index| merges[index].id.clone());
+        let id = existing
+            .and_then(|index| merges.get(index))
+            .map_or(new_id, |merge| merge.id.clone());
         merges.retain(|merge| merge.id == id || !merge.rooms.iter().any(|room| rooms.contains(room)));
         let merge = Merge {
             id: id.clone(),

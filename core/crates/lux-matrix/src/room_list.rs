@@ -263,16 +263,18 @@ async fn map_chats(
                     continue;
                 }
                 chat_rows.notifications = crate::actions::room_notifications(&settings).await;
-                for index in 0..rooms.len() {
-                    let mode = rooms[index].id.room().map(|room| chat_rows.mode_of(room.as_str()));
-                    if let Some(mode) = mode.filter(|&mode| rooms[index].notifications != Some(mode)) {
-                        let chat = Chat {
-                            is_muted: mode.is_quiet(),
-                            notifications: Some(mode),
-                            ..Chat::clone(&rooms[index])
-                        };
-                        rooms.set(index, Arc::new(chat));
-                    }
+                let changed: Vec<(usize, Chat)> = rooms
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, chat)| {
+                        let mode = chat_rows.mode_of(chat.id.room()?.as_str());
+                        (chat.notifications != Some(mode)).then(|| {
+                            (index, Chat { is_muted: mode.is_quiet(), notifications: Some(mode), ..Chat::clone(chat) })
+                        })
+                    })
+                    .collect();
+                for (index, chat) in changed {
+                    rooms.set(index, Arc::new(chat));
                 }
             }
         }
