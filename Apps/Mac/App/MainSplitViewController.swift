@@ -194,11 +194,11 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         // the sidebar button and the filter at the sidebar's right edge, by the chat.
         [Self.placeTitle, .flexibleSpace, Self.newMessage, Self.filter, .toggleSidebar, .sidebarTrackingSeparator, Self.chatTitle, .flexibleSpace, Self.networks,
-         .inspectorTrackingSeparator, Self.threadTitle, .flexibleSpace, Self.closeThread, Self.chatInfo]
+         .inspectorTrackingSeparator, .flexibleSpace, Self.chatInfo]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
+        toolbarDefaultItemIdentifiers(toolbar) + [Self.threadTitle, Self.closeThread]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {
@@ -246,8 +246,6 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             item.view = names
             item.label = String(localized: "Thread")
             item.isBordered = false
-            item.isHidden = true
-            threadTitleItem = item
             return item
         }
         if id == Self.closeThread {
@@ -257,8 +255,6 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             item.toolTip = String(localized: "Close Thread")
             item.action = #selector(closeThread(_:))
             item.target = self
-            item.isHidden = true
-            closeThreadItem = item
             return item
         }
         if id == Self.newMessage {
@@ -303,15 +299,23 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     static let threadTitle = NSToolbarItem.Identifier("thread-title")
     static let closeThread = NSToolbarItem.Identifier("close-thread")
     private let threadChatName = NSTextField(labelWithString: "")
-    private var threadTitleItem: NSToolbarItem?
-    private var closeThreadItem: NSToolbarItem?
 
-    /// A thread in the inspector: its title and close button show in the toolbar over it.
+    /// A thread in the inspector: its title and close button go in the toolbar over it (after
+    /// the inspector's separator, and before the info button), and leave with it. Inserted, not
+    /// hidden: a hidden item still keeps its spacing in the toolbar.
     private func updateThreadItems(_ shown: NSViewController?) {
         let thread = shown as? ThreadController
         threadChatName.stringValue = thread?.row.name ?? ""
-        threadTitleItem?.isHidden = thread == nil
-        closeThreadItem?.isHidden = thread == nil
+        let ids = toolbar.items.map(\.itemIdentifier)
+        if thread != nil, !ids.contains(Self.threadTitle),
+           let separator = ids.firstIndex(of: .inspectorTrackingSeparator), let info = ids.firstIndex(of: Self.chatInfo) {
+            toolbar.insertItem(withItemIdentifier: Self.closeThread, at: info)
+            toolbar.insertItem(withItemIdentifier: Self.threadTitle, at: separator + 1)
+        } else if thread == nil {
+            for id in [Self.closeThread, Self.threadTitle] {
+                if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == id }) { toolbar.removeItem(at: index) }
+            }
+        }
     }
 
     @objc private func closeThread(_ sender: Any?) { closeInspector() }

@@ -26,7 +26,7 @@ final class ChatDetailsController: NSViewController {
     private lazy var markRead = QuickAction(target: self, action: #selector(toggleRead))
     private lazy var edit = QuickAction(target: self, action: #selector(openEdit))
     private let tabs = CapsuleTabs()
-    private let tabsScroll = NSScrollView()
+    private lazy var tabStrip = OverflowStrip(document: tabs)
     private let pane = NSView()
     private var tabKinds: [Tab] = []
     private var shown: NSViewController?
@@ -76,15 +76,10 @@ final class ChatDetailsController: NSViewController {
 
         // capsule tabs, as Messages' details; they scroll sideways when the inspector is narrow.
         tabs.onSelect = { [weak self] in self?.chooseTab() }
-        tabsScroll.documentView = tabs
-        tabsScroll.hasHorizontalScroller = false
-        tabsScroll.drawsBackground = false
-        tabsScroll.horizontalScrollElasticity = .allowed
-        tabsScroll.verticalScrollElasticity = .none
-        tabsScroll.translatesAutoresizingMaskIntoConstraints = false
+        tabStrip.translatesAutoresizingMaskIntoConstraints = false
         pane.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [header, actions, tabsScroll, pane])
+        let stack = NSStackView(views: [header, actions, tabStrip, pane])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 14
@@ -105,8 +100,8 @@ final class ChatDetailsController: NSViewController {
             topic.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -40),
             actions.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -32),
             // the tabs start where the sections under them do, and scroll when they are wider.
-            tabsScroll.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -2 * Self.inset),
-            tabsScroll.heightAnchor.constraint(equalToConstant: 28),
+            tabStrip.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -2 * Self.inset),
+            tabStrip.heightAnchor.constraint(equalToConstant: 28),
             pane.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
         ])
@@ -155,7 +150,8 @@ final class ChatDetailsController: NSViewController {
             isEncrypted: model.info.map(\.isEncrypted),
             networks: model.row.chatRooms.map(\.network),
             address: model.mainRoom?.address,
-            isGroup: model.isGroup
+            isGroup: model.isGroup,
+            canSeparate: model.canSeparate
         )
     }
 
@@ -170,6 +166,11 @@ final class ChatDetailsController: NSViewController {
             chatStyle: { [weak self] index in
                 guard let self else { return }
                 model.chatStyleOverride = model.chatStyleChoices[safe: index]?.style
+            },
+            separate: { [weak self] in
+                // its rooms go back to the list as their own chats: this one is gone.
+                self?.model.separate()
+                self?.onLeave?()
             },
             leave: { [weak self] in self?.confirmLeave() }
         )
@@ -275,6 +276,98 @@ final class ChatDetailsController: NSViewController {
 }
 
 /// Tabs as Messages' details draws them: titles side by side, the chosen one on a capsule.
+/// A row wider than its place, scrolled sideways: an end with more beyond it fades out, with an
+/// arrow that scrolls on.
+private final class OverflowStrip: NSView {
+    let scroll = NSScrollView()
+    private let fade = CAGradientLayer()
+    private let back = OverflowStrip.arrow("chevron.left", label: String(localized: "Scroll Back"))
+    private let forward = OverflowStrip.arrow("chevron.right", label: String(localized: "Scroll On"))
+    private static let fadeWidth: CGFloat = 32
+
+    init(document: NSView) {
+        super.init(frame: .zero)
+        scroll.documentView = document
+        scroll.hasHorizontalScroller = false
+        scroll.drawsBackground = false
+        scroll.horizontalScrollElasticity = .allowed
+        scroll.verticalScrollElasticity = .none
+        scroll.wantsLayer = true
+        scroll.layer?.mask = fade
+        fade.startPoint = CGPoint(x: 0, y: 0.5)
+        fade.endPoint = CGPoint(x: 1, y: 0.5)
+        back.target = self
+        back.action = #selector(scrollBack)
+        forward.target = self
+        forward.action = #selector(scrollOn)
+        for view in [scroll, back, forward] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            back.leadingAnchor.constraint(equalTo: leadingAnchor),
+            back.centerYAnchor.constraint(equalTo: centerYAnchor),
+            forward.trailingAnchor.constraint(equalTo: trailingAnchor),
+            forward.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
+                                               object: scroll.contentView)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    private static func arrow(_ symbol: String, label: String) -> NSButton {
+        let button = NSButton(image: NSImage.symbol(symbol, label: label), target: nil, action: nil)
+        button.isBordered = false
+        button.symbolConfiguration = .init(pointSize: 12, weight: .semibold)
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = label
+        return button
+    }
+
+    override func layout() {
+        super.layout()
+        update()
+    }
+
+    @objc private func scrolled() { update() }
+
+    /// The fade and the arrow at each end that has more of the row beyond it.
+    private func update() {
+        let clip = scroll.contentView.bounds, width = scroll.documentView?.frame.width ?? 0
+        let before = clip.minX > 1, after = clip.maxX < width - 1
+        back.isHidden = !before
+        forward.isHidden = !after
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fade.frame = scroll.bounds
+        let edge = scroll.bounds.width > 0 ? Self.fadeWidth / scroll.bounds.width : 0
+        let shown = NSColor.black.cgColor, gone = NSColor.clear.cgColor
+        fade.colors = [before ? gone : shown, shown, shown, after ? gone : shown]
+        fade.locations = [0, NSNumber(value: Double(edge)), NSNumber(value: Double(1 - edge)), 1]
+        CATransaction.commit()
+    }
+
+    @objc private func scrollBack() { scroll(by: -1) }
+    @objc private func scrollOn() { scroll(by: 1) }
+
+    /// Most of a width further along, as far as the row goes.
+    private func scroll(by direction: CGFloat) {
+        let clip = scroll.contentView, width = scroll.documentView?.frame.width ?? 0
+        let x = min(max(0, clip.bounds.minX + direction * clip.bounds.width * 0.6), max(0, width - clip.bounds.width)).rounded()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            clip.animator().setBoundsOrigin(NSPoint(x: x, y: clip.bounds.minY))
+        }
+        scroll.reflectScrolledClipView(clip)
+    }
+}
+
 private final class CapsuleTabs: NSView {
     var onSelect: (() -> Void)?
     private let row = NSStackView()
@@ -351,6 +444,8 @@ private final class CapsuleTabs: NSView {
     /// a little off its own centre), as wide as the tab.
     override func layout() {
         super.layout()
+        // the tabs placed first: on the first pass the glass would measure them before they are.
+        row.layoutSubtreeIfNeeded()
         glass.frame = glassFrame
         if centresChosen, let clip = enclosingScrollView?.contentView, clip.bounds.width > 0 {
             centresChosen = false
@@ -472,12 +567,14 @@ struct ChatInfoForm: View {
         var networks: [String]
         var address: String?
         var isGroup: Bool
+        var canSeparate: Bool
     }
 
     struct Actions {
         var notifications: (NotificationSetting) -> Void
         var lowPriority: (Bool) -> Void
         var chatStyle: (Int) -> Void
+        var separate: () -> Void
         var leave: () -> Void
     }
 
@@ -531,6 +628,13 @@ struct ChatInfoForm: View {
                         networks(named: false)
                     }
                     .foregroundStyle(.secondary)
+                }
+                if state.canSeparate {
+                    Button(action: actions.separate) {
+                        Label(String(localized: "Separate Chats"), systemImage: "arrow.triangle.branch")
+                            .foregroundStyle(.tint)
+                    }
+                    .buttonStyle(.borderless)
                 }
                 if let address = state.address {
                     LabeledContent {
