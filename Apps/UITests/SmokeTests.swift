@@ -35,9 +35,10 @@ final class SmokeTests: XCTestCase {
         field.typeText("hello")
         reach(app.collectionViews["search-results"], "search's results")
         alive("search")
-        // closing search: its cancel (close) button, or, failing that, clearing the field.
-        let close = app.buttons["Close"].firstMatch
-        if close.waitForExistence(timeout: 2) { close.tap() } else { app.buttons["Cancel"].firstMatch.tap() }
+        // closing search: the field's close button (its label is the system's, lowercase).
+        let close = app.buttons.matching(NSPredicate(format: "label ==[c] 'close'")).firstMatch
+        reach(close, "search's close button")
+        close.tap()
         reach(chats, "the chat list, back from search")
 
         // Settings.
