@@ -48,6 +48,7 @@ mod sign_in;
 mod spaces;
 mod store;
 mod streams;
+mod task;
 mod thread;
 mod timeline;
 

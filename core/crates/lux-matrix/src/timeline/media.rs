@@ -2,7 +2,6 @@
 //! videos' posters) and originals. Loaded once each; the SDK decrypts encrypted media, and keeps
 //! the pictures in its own cache besides (not the originals, which the files keep).
 
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use lux_core::ids::{EventId, MediaId, MessageId, RoomId};
@@ -207,12 +206,12 @@ fn original(source: MediaSource) -> MediaRequestParameters {
 fn file_name(request: &MediaRequestParameters) -> String {
     let key: MediaId = media_key(&request.source);
     let mut name = String::with_capacity(64 + 12);
-    // writing to a string cannot fail.
-    for byte in Sha256::digest(key.as_str()) {
-        let _ = write!(name, "{byte:02x}");
-    }
+    lux_core::hex::push_hex(&mut name, &Sha256::digest(key.as_str()));
     if let MediaFormat::Thumbnail(settings) = &request.format {
-        let _ = write!(name, "-{}x{}", settings.width, settings.height);
+        name.push('-');
+        name.push_str(&settings.width.to_string());
+        name.push('x');
+        name.push_str(&settings.height.to_string());
     }
     name
 }
@@ -221,10 +220,7 @@ fn file_name(request: &MediaRequestParameters) -> String {
 fn event_file_name(event: &EventId) -> String {
     let mut name = String::with_capacity(6 + 64);
     name.push_str("event-");
-    // writing to a string cannot fail.
-    for byte in Sha256::digest(event.as_str()) {
-        let _ = write!(name, "{byte:02x}");
-    }
+    lux_core::hex::push_hex(&mut name, &Sha256::digest(event.as_str()));
     name
 }
 
@@ -262,7 +258,9 @@ async fn write(file: &Path, data: Vec<u8>) -> Result<(), BackendError> {
         partial.push(format!(".{}.partial", Uuid::new_v4().simple()));
         std::fs::write(&partial, data)?;
         std::fs::rename(&partial, &file).or_else(|error| {
-            let _ = std::fs::remove_file(&partial);
+            if let Err(error) = std::fs::remove_file(&partial) {
+                tracing::warn!(%error, "a partial download stays behind");
+            }
             if file.is_file() { Ok(()) } else { Err(error) }
         })
     })

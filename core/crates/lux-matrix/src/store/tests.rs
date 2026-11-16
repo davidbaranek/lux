@@ -1,6 +1,7 @@
 //! The stores' encryption against the SDK's mock server: a new account's stores are encrypted,
 //! and a kept session is opened only over its own encrypted store.
 
+use lux_core::gone::OtherEndGone;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -79,7 +80,7 @@ async fn closed<T: Send + 'static>(setup: impl Future<Output = T> + Send + 'stat
         let value = runtime.block_on(setup);
         // waits for the tasks and the stores' blocking work to end.
         drop(runtime);
-        let _ = sender.send(value);
+        sender.send(value).other_end_may_be_gone("the test");
     });
     done.await.unwrap()
 }

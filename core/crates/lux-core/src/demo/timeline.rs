@@ -7,8 +7,8 @@
 //! [`DemoTimelines`] implements [`ChatTimelines`] and [`ChatSending`]; the made-up account holds
 //! them as a thread's backend.
 
+use crate::gone::OtherEndGone;
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -131,7 +131,9 @@ impl DemoTimelines {
             change(self.timeline(&mut state, timeline))
         };
         // nobody listening is no error.
-        let _ = self.changes.send(timeline.room.clone());
+        self.changes
+            .send(timeline.room.clone())
+            .other_end_may_be_gone("the room's change listeners");
         answer
     }
 
@@ -873,7 +875,8 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
                 Vec::new()
             };
             if index % 20 == 7 {
-                let _ = write!(body, " https://example.org/page{index}");
+                body.push_str(" https://example.org/page");
+                body.push_str(&index.to_string());
             }
             let mut styles = Vec::new();
             if index % 11 == 3 {

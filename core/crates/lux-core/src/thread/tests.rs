@@ -1,5 +1,6 @@
 //! The view model over the demo's timelines, in paused time: what it sends, and when.
 
+use crate::gone::OtherEndGone;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,11 +28,11 @@ enum Heard {
 
 impl ThreadListener for Ear {
     fn on_update(&self, update: ThreadUpdate) {
-        let _ = self.0.send(Heard::Update(update));
+        self.0.send(Heard::Update(update)).other_end_may_be_gone("the test");
     }
 
     fn on_upload(&self, upload: Upload) {
-        let _ = self.0.send(Heard::Upload(upload));
+        self.0.send(Heard::Upload(upload)).other_end_may_be_gone("the test");
     }
 
     fn on_error(&self, error: BackendError) {

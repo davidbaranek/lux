@@ -7,6 +7,7 @@
 //! places' arrangement in the app's own account data, which no bridge reads, so none of it reaches
 //! the chat's network.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -409,7 +410,7 @@ impl Organizing for MatrixAccount {
             .change(Box::new(move |documents| {
                 let organized = documents.organized();
                 let (merges, chat) = organized.merging(&rooms, &name, &default_room, new_id);
-                let _ = sender.send(chat);
+                sender.send(chat).other_end_may_be_gone("the merge's caller");
                 let content = documents.content(formats::MERGES);
                 Ok(vec![Write::new(
                     formats::MERGES,

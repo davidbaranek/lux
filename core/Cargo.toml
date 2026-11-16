@@ -43,6 +43,8 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 sha2 = "0.11"
 uuid = { version = "1", default-features = false, features = ["v4"] }
 tokio = { version = "1.54", default-features = false, features = ["sync", "rt", "macros"] }
+# tasks that end with their owner (lux-matrix's `task`); the version the sdk uses.
+tokio-util = { version = "0.7.20", default-features = false, features = ["rt"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 # the core's log, handed to the app (lux-ffi).
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
@@ -63,6 +65,8 @@ const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a
 unsafe_code = "deny"
 missing_docs = "warn"
 unused_qualifications = "warn"
+# a `let _ =` of a value with a meaningful drop (a lock, a task's handle) ends it at once.
+let_underscore_drop = "deny"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -75,6 +79,12 @@ unreachable = "deny"
 panic = "deny"
 indexing_slicing = "deny"
 string_slice = "deny"
+# a dropped `Result` says nothing of what it lost: handled, or `lux_core::gone::OtherEndGone`.
+let_underscore_must_use = "deny"
+# nor any other `let _ =` without its type: what is dropped is said.
+let_underscore_untyped = "deny"
+# `tokio::spawn` (clippy.toml): a task has an owner that ends it.
+disallowed_methods = "deny"
 
 [profile.dev]
 debug = 0

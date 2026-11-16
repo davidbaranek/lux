@@ -59,7 +59,7 @@ final class RustAccount: Sendable {
         }
         return RustAccount(openDemo(rooms: UInt32(clamping: rooms), messagesPerRoom: UInt32(clamping: messagesPerRoom),
                                     encryption: start,
-                                    verificationRequestAfterSeconds: verificationRequestAfter.map { UInt32(clamping: $0) }),
+                                    verificationRequestAfter: verificationRequestAfter.map { .seconds($0) }),
                            demo: DemoMedia())
     }
 
@@ -145,9 +145,9 @@ final class RustAccount: Sendable {
         try await worded { try await account.markReadUpTo(roomId: roomId, threadRoot: threadRoot, eventId: eventId) }
     }
 
-    /// A background refresh: syncs until the server answered (at most `seconds`), then stops.
+    /// A background refresh: syncs until the server answered (at most `within`), then stops.
     /// True when the server answered.
-    func refresh(within seconds: Double) async -> Bool { await account.refresh(seconds: seconds) }
+    func refresh(within: Duration) async -> Bool { await account.refresh(within: within) }
 
     /// The notifications of what the sync brings (noisy messages from others, new and unread,
     /// each once), while the account is open and the stream followed: where no push wakes an

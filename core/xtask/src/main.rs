@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::process::Command;
-use std::{env, fs};
+use std::{env, fs, io};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use uniffi_bindgen::bindings::{GenerateOptions, TargetLanguage, generate};
@@ -126,7 +126,7 @@ fn build_apple(profile: &str, targets: &[Target]) -> Result<()> {
     let root = workspace()?;
     let vendor = root.parent().ok_or("core/ lives in the project")?.join("Vendor");
     let generated = root.join("target/apple");
-    let _ = fs::remove_dir_all(&generated);
+    remove_dir(&generated)?;
     fs::create_dir_all(&generated)?;
 
     let mut libraries = Vec::new();
@@ -201,7 +201,7 @@ fn build_apple(profile: &str, targets: &[Target]) -> Result<()> {
 
     println!("-- Packing {MODULE}.xcframework");
     let framework = vendor.join(format!("{MODULE}.xcframework"));
-    let _ = fs::remove_dir_all(&framework);
+    remove_dir(&framework)?;
     let mut command = Command::new("xcodebuild");
     command.arg("-create-xcframework");
     for library in &libraries {
@@ -210,7 +210,7 @@ fn build_apple(profile: &str, targets: &[Target]) -> Result<()> {
     run(command.arg("-output").arg(&framework))?;
 
     let swift_target = vendor.join(BINDINGS);
-    let _ = fs::remove_dir_all(&swift_target);
+    remove_dir(&swift_target)?;
     fs::create_dir_all(&swift_target)?;
     for entry in swift.read_dir_utf8()? {
         let path = entry?.into_path();
@@ -226,7 +226,9 @@ fn import_module(source: &str) -> String {
     let mut lines = source.lines().peekable();
     while let Some(line) = lines.next() {
         if line.starts_with("#if canImport(") && line.ends_with("FFI)") {
-            let _ = write!(out, "#if canImport({MODULE})\nimport {MODULE}\n");
+            for part in ["#if canImport(", MODULE, ")\nimport ", MODULE, "\n"] {
+                out.push_str(part);
+            }
             // the next line is the crate's own import.
             lines.next();
             continue;
@@ -274,7 +276,7 @@ fn localize_private_symbols(library: &Utf8Path) -> Result<()> {
         return Err(format!("no member of {library} defines {PRIVATE_SYMBOLS:?}; nm: {unreadable}").into());
     }
 
-    let _ = fs::remove_dir_all(&objects);
+    remove_dir(&objects)?;
     fs::create_dir_all(&objects)?;
     run(Command::new("ar")
         .current_dir(&objects)
@@ -319,4 +321,12 @@ fn crate_of(member: &str) -> &str {
             })
         })
         .map_or(member, |(name, _)| name)
+}
+
+/// Removes `path` and what it holds; nothing to remove is no error.
+fn remove_dir(path: &Utf8Path) -> io::Result<()> {
+    match fs::remove_dir_all(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        removed => removed,
+    }
 }

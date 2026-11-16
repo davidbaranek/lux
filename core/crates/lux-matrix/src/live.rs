@@ -7,6 +7,7 @@
 //! names it, the merged chat it is part of) while someone follows, and each follower keeps its own
 //! [`LiveNotifications`] (what is new to it, each once).
 
+use lux_core::gone::OtherEndGone;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -23,7 +24,6 @@ use matrix_sdk::ruma::push::{Action, Tweak};
 use matrix_sdk::sync::Notification as SdkNotification;
 use matrix_sdk::{Client, Room};
 use tokio::sync::{broadcast, mpsc, watch};
-use tokio::task::JoinHandle;
 
 use crate::convert::system_time;
 use crate::mapping;
@@ -42,7 +42,7 @@ struct Candidate {
 /// the channel its followers listen to.
 pub(crate) struct LiveFeed {
     candidates: broadcast::Sender<Arc<Candidate>>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl LiveFeed {
@@ -55,13 +55,18 @@ impl LiveFeed {
         client
             .register_notification_handler(move |notification: SdkNotification, room: Room, _: Client| {
                 // the task may have ended with the account: then nobody follows.
-                let _ = synced.send((notification, room));
+                synced
+                    .send((notification, room))
+                    .other_end_may_be_gone("the notifications' task");
                 async {}
             })
             .await;
         let (candidates, _) = broadcast::channel(Self::BACKLOG);
-        let task = tokio::spawn(run(receiver, candidates.clone(), own, organized));
-        Self { candidates, task }
+        let task = crate::task::spawn(run(receiver, candidates.clone(), own, organized));
+        Self {
+            candidates,
+            _task: task,
+        }
     }
 
     /// The notifications of what the sync brings from now on.
@@ -92,12 +97,6 @@ impl LiveFeed {
     }
 }
 
-impl Drop for LiveFeed {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
 /// Words each event the handler passes on, while anyone follows.
 async fn run(
     mut synced: mpsc::UnboundedReceiver<(SdkNotification, Room)>,
@@ -112,7 +111,9 @@ async fn run(
         let merges = Arc::clone(&organized.borrow());
         if let Some(candidate) = candidate(&notification, &room, &own, &merges).await {
             // nobody followed by now: nothing lost.
-            let _ = candidates.send(Arc::new(candidate));
+            candidates
+                .send(Arc::new(candidate))
+                .other_end_may_be_gone("the notifications' followers");
         }
     }
 }

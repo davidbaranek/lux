@@ -20,7 +20,6 @@ use matrix_sdk::ruma::OwnedRoomId;
 use matrix_sdk::{Client, Room};
 use matrix_sdk_ui::spaces::{SpaceFilter, SpaceService};
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 
 use crate::account::MatrixAccount;
 use crate::bridge_state::{bridge_states, bridge_states_on_server};
@@ -35,25 +34,19 @@ impl lux_core::ports::Spaces for MatrixAccount {
 /// The spaces, kept by one task.
 pub(crate) struct SpaceList {
     spaces: watch::Receiver<Arc<[Space]>>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl SpaceList {
     pub(crate) fn start(client: Client) -> Self {
         let (sender, spaces) = watch::channel(Arc::from(Vec::new()));
-        let task = tokio::spawn(follow(client, sender));
-        Self { spaces, task }
+        let task = crate::task::spawn(follow(client, sender));
+        Self { spaces, _task: task }
     }
 
     /// The spaces now, then each time they change.
     pub(crate) fn subscribe(&self) -> ValueStream<Arc<[Space]>> {
         watched(self.spaces.clone())
-    }
-}
-
-impl Drop for SpaceList {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 

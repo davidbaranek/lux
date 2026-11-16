@@ -26,6 +26,7 @@ mod security;
 mod share;
 mod store;
 mod thread;
+mod time_span;
 mod timeline;
 
 uniffi::setup_scaffolding!();

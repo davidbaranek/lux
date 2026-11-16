@@ -33,12 +33,9 @@ impl Key {
     /// The key as the `key` pragma takes it raw, with the file's salt after it: `x'…'`, lowercase
     /// hex digits only, so it can be written into the statement.
     pub(crate) fn pragma_value(&self) -> String {
-        use fmt::Write as _;
         let mut value = String::with_capacity(99);
         value.push_str("x'");
-        for byte in self.0.iter().chain(&SALT) {
-            let _ = write!(value, "{byte:02x}");
-        }
+        lux_core::hex::push_hex(&mut value, self.0.iter().chain(&SALT));
         value.push('\'');
         value
     }

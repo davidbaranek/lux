@@ -7,6 +7,7 @@
 //! time. Each command runs to its end before the next, so a refresh's opening and start cannot
 //! be split by a pause, and a caller that gives up waiting never leaves them half-way.
 
+use lux_core::gone::OtherEndGone;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -84,6 +85,9 @@ impl Lifecycle {
             foreground: true,
             paused: false,
         };
+        // it ends by itself once this drops its sender, after the command at hand: aborted, a
+        // close could stop half-way (the sync stopped, the stores open).
+        #[expect(clippy::disallowed_methods, reason = "ends when `Lifecycle`, its only sender, drops")]
         tokio::spawn(owner.run(received));
         Self { commands }
     }
@@ -136,7 +140,7 @@ impl Lifecycle {
     async fn ask(&self, command: impl FnOnce(oneshot::Sender<()>) -> Command) {
         let (reply, done) = oneshot::channel();
         if self.commands.send(command(reply)).is_ok() {
-            let _ = done.await;
+            done.await.other_end_may_be_gone("the caller");
         }
     }
 }
@@ -153,7 +157,7 @@ impl RefreshEnd {
         let Some(commands) = self.commands.take() else { return };
         let (reply, done) = oneshot::channel();
         if commands.send(Command::EndWork(reply)).is_ok() {
-            let _ = done.await;
+            done.await.other_end_may_be_gone("the caller");
         }
     }
 }
@@ -161,9 +165,12 @@ impl RefreshEnd {
 impl Drop for RefreshEnd {
     fn drop(&mut self) {
         if let Some(commands) = self.commands.take() {
-            // no one waits for it: the task carries it out all the same.
+            // no one waits for it: the task carries it out all the same. The task holds the
+            // stores, so with it gone there is nothing left open to close.
             let (reply, _) = oneshot::channel();
-            let _ = commands.send(Command::EndWork(reply));
+            commands
+                .send(Command::EndWork(reply))
+                .other_end_may_be_gone("the lifecycle's task");
         }
     }
 }
@@ -189,16 +196,16 @@ impl Owner {
                     // the send queues too, which the pause turned off.
                     self.open().await;
                     self.sync.start().await;
-                    let _ = done.send(());
+                    done.send(()).other_end_may_be_gone("the caller");
                 }
                 Command::Background(done) => {
                     self.foreground = false;
                     self.close().await;
-                    let _ = done.send(());
+                    done.send(()).other_end_may_be_gone("the caller");
                 }
                 Command::BeginWork(done) => {
                     self.open().await;
-                    let _ = done.send(());
+                    done.send(()).other_end_may_be_gone("the caller");
                 }
                 Command::BeginRefresh(reply) => {
                     self.open().await;
@@ -214,11 +221,11 @@ impl Owner {
                     if !self.foreground {
                         self.close().await;
                     }
-                    let _ = done.send(());
+                    done.send(()).other_end_may_be_gone("the caller");
                 }
                 Command::Stop(done) => {
                     self.sync.stop().await;
-                    let _ = done.send(());
+                    done.send(()).other_end_may_be_gone("the caller");
                 }
             }
         }

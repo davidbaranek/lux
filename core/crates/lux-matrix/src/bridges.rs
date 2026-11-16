@@ -5,6 +5,7 @@
 //! sends an `OpenID` token (`openid:<token>`, which the bridge checks with the account's server),
 //! asked for once an hour.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -23,7 +24,6 @@ use matrix_sdk::{Client, Room};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
-use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::convert::system_time;
@@ -39,7 +39,8 @@ pub(crate) struct BridgeLink {
     client: Client,
     openid: tokio::sync::Mutex<Option<(String, Instant)>>,
     catching_up: watch::Receiver<Vec<CatchUp>>,
-    _arrivals: Arrivals,
+    /// The task that turns the sync's events into the networks catching up.
+    _arrivals: crate::task::Owned,
 }
 
 impl BridgeLink {
@@ -47,12 +48,14 @@ impl BridgeLink {
     pub(crate) fn start(client: &Client) -> Self {
         let (arrived, arrivals) = mpsc::unbounded_channel();
         client.add_event_handler(move |event: AnySyncTimelineEvent, room: Room| {
-            let _ = arrived.send(Arrival {
-                room,
-                sender: event.sender().to_owned(),
-                sent: system_time(event.origin_server_ts()),
-                at: SystemTime::now(),
-            });
+            arrived
+                .send(Arrival {
+                    room,
+                    sender: event.sender().to_owned(),
+                    sent: system_time(event.origin_server_ts()),
+                    at: SystemTime::now(),
+                })
+                .other_end_may_be_gone("the bridges' task");
             async {}
         });
         let (sender, catching_up) = watch::channel(Vec::new());
@@ -60,7 +63,7 @@ impl BridgeLink {
             client: client.clone(),
             openid: tokio::sync::Mutex::new(None),
             catching_up,
-            _arrivals: Arrivals(tokio::spawn(follow_arrivals(arrivals, sender))),
+            _arrivals: crate::task::spawn(follow_arrivals(arrivals, sender)),
         }
     }
 
@@ -145,15 +148,6 @@ struct Arrival {
     sender: OwnedUserId,
     sent: SystemTime,
     at: SystemTime,
-}
-
-/// The task that turns the sync's events into the networks catching up.
-struct Arrivals(JoinHandle<()>);
-
-impl Drop for Arrivals {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
 }
 
 /// Follows the events the sync brings: each old one is history of its room's network, and the

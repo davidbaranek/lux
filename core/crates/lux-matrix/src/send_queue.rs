@@ -13,7 +13,6 @@ use matrix_sdk::Client;
 use matrix_sdk::ruma::OwnedRoomId;
 use matrix_sdk_ui::sync_service::State;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep_until};
 use tracing::debug;
 
@@ -22,21 +21,15 @@ const RETRY_AFTER: Duration = Duration::from_secs(5);
 
 /// The task that turns the rooms' send queues on again; it ends when this goes.
 pub(crate) struct QueueKeeper {
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl QueueKeeper {
     /// Starts keeping `client`'s queues sending, by the sync's `states`.
     pub(crate) fn start(client: Client, states: Subscriber<State>) -> Self {
         Self {
-            task: tokio::spawn(keep_sending(client, states)),
+            _task: crate::task::spawn(keep_sending(client, states)),
         }
-    }
-}
-
-impl Drop for QueueKeeper {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 

@@ -12,6 +12,8 @@ pub mod chat;
 pub mod demo;
 pub mod details;
 pub mod diff;
+pub mod gone;
+pub mod hex;
 pub mod ids;
 pub mod list;
 pub mod markdown;

@@ -2,13 +2,13 @@
 //! apps hold (a chat or a thread on screen). One task owns the set; a timeline it lets go closes
 //! once no call still uses it.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use lux_core::ports::TimelineHold;
 use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::{OnceCell, mpsc, oneshot};
-use tokio::task::JoinHandle;
 
 use super::room::RoomTimeline;
 
@@ -41,20 +41,14 @@ enum Command {
 /// the app then has nothing to keep).
 pub(crate) struct Opened {
     commands: mpsc::UnboundedSender<Command>,
-    task: JoinHandle<()>,
-}
-
-impl Drop for Opened {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
+    _task: crate::task::Owned,
 }
 
 impl Opened {
     /// Starts the task, which keeps `kept` timelines open besides the held ones.
     pub(crate) fn new(kept: usize) -> Self {
         let (commands, mut received) = mpsc::unbounded_channel();
-        let task = tokio::spawn(async move {
+        let task = crate::task::spawn(async move {
             let mut rooms = Rooms::new(kept);
             while let Some(command) = received.recv().await {
                 match command {
@@ -67,7 +61,7 @@ impl Opened {
                 }
             }
         });
-        Self { commands, task }
+        Self { commands, _task: task }
     }
 
     /// The timeline's slot, now the one used last; `None` once the account closes.
@@ -101,10 +95,14 @@ impl Opened {
     /// Keeps the timeline open until the hold goes.
     pub(crate) fn hold(&self, room: Key) -> TimelineHold {
         // once the task is gone, nothing is open to keep.
-        let _ = self.commands.send(Command::Hold(room.clone()));
+        self.commands
+            .send(Command::Hold(room.clone()))
+            .other_end_may_be_gone("the open timelines' task");
         let commands = self.commands.clone();
         TimelineHold::new(move || {
-            let _ = commands.send(Command::Release(room));
+            commands
+                .send(Command::Release(room))
+                .other_end_may_be_gone("the open timelines' task");
         })
     }
 }

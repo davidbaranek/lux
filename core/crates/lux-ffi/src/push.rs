@@ -1,8 +1,8 @@
 //! Push notifications, as the apps see them: the device's pusher and a notification's actions on
 //! the account, and the notification extension's reader of one pushed event.
 
+use crate::time_span::TimeSpan;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::timeline::timeline_id;
 use futures_util::StreamExt;
@@ -133,14 +133,13 @@ impl CoreAccount {
     }
 
     /// A background refresh (the system's app refresh task): syncs until the server answered,
-    /// at most `seconds`, then stops the sync as `pause_sync` does, unless the app came to the
+    /// at most `within`, then stops the sync as `pause_sync` does, unless the app came to the
     /// front meanwhile. True when the server answered (the demo has none to ask).
-    pub async fn refresh(&self, seconds: f64) -> bool {
+    pub async fn refresh(&self, within: TimeSpan) -> bool {
         let Backend::Matrix(account) = self.backend() else {
             return true;
         };
-        let within = Duration::try_from_secs_f64(seconds).unwrap_or(Duration::ZERO);
-        account.refresh_within(within).await
+        account.refresh_within(within.into()).await
     }
 }
 

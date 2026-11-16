@@ -1,6 +1,7 @@
 //! The chat list's view model: one task owns the list's state, follows the account's streams,
 //! runs the user's intents against the ports, and sends its listener one batch per frame.
 
+use crate::gone::OtherEndGone;
 use std::collections::HashSet;
 use std::future::Future;
 use std::mem;
@@ -153,7 +154,7 @@ impl ChatListViewModel {
 
     fn send(&self, intent: Intent) {
         // the task ends only when this handle goes.
-        let _ = self.intents.send(intent);
+        self.intents.send(intent).other_end_may_be_gone("the list's task");
     }
 
     /// Shows `place`.
@@ -381,6 +382,10 @@ impl<B: ChatListBackend> Actor<B> {
         match target {
             Some(target) => actions.push(target, job),
             None => {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "a user's action runs to its end, even once the view that asked for it has closed"
+                )]
                 tokio::spawn(job);
             }
         }
@@ -420,7 +425,7 @@ async fn perform<B: ChatListBackend>(
         Action::Unmerge(chat) => account.unmerge(&chat).await,
         Action::Arrange(arrangement) => {
             let written = account.set_arrangement(&arrangement).await;
-            let _ = outbox.send(Intent::Arranged);
+            outbox.send(Intent::Arranged).other_end_may_be_gone("the list's task");
             written
         }
         Action::ReadScheduled => {
@@ -435,7 +440,9 @@ async fn perform<B: ChatListBackend>(
 /// ones shown.
 async fn read_scheduled<B: ChatListBackend>(account: &B, outbox: &mpsc::UnboundedSender<Intent>) {
     if let Ok(scheduled) = account.scheduled().await {
-        let _ = outbox.send(Intent::Scheduled(scheduled));
+        outbox
+            .send(Intent::Scheduled(scheduled))
+            .other_end_may_be_gone("the list's task");
     }
 }
 
@@ -638,6 +645,7 @@ mod tests {
     use super::{ChatListViewModel, ListListener, ListSetup};
     use crate::chat::{Chat, Folder};
     use crate::demo::{DemoAccount, DemoConfig};
+    use crate::gone::OtherEndGone;
     use crate::ids::ChatId;
     use crate::list::{ListRow, ListUpdate, LoadState};
     use crate::network::Network;
@@ -648,7 +656,7 @@ mod tests {
 
     impl ListListener for Relay {
         fn on_update(&self, update: ListUpdate) {
-            let _ = self.0.send(update);
+            self.0.send(update).other_end_may_be_gone("the test");
         }
 
         fn on_error(&self, error: BackendError) {
@@ -962,7 +970,7 @@ mod tests {
         shown.apply(&first);
         assert_eq!(shown.ids(&SectionId::All), ["!room5:demo"]);
         nothing_more(&mut batches).await;
-        let _ = open.send(Arc::clone(&demo));
+        assert!(open.send(Arc::clone(&demo)).is_ok());
         let batch = next(&mut batches).await;
         assert!(matches!(batch.loading.unwrap().state, LoadState::Syncing { .. }));
         shown.apply(&batch);
@@ -983,7 +991,7 @@ mod tests {
         );
         let archive = PlaceId::Folder(Folder::Archive);
         list.select_place(archive.clone());
-        let _ = keep.send(Vec::new());
+        keep.send(Vec::new()).unwrap();
         assert_eq!(next(&mut batches).await.place, archive);
     }
 }

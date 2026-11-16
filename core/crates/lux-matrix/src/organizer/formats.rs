@@ -6,7 +6,6 @@
 //! the account, and no bridge reads it.
 
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lux_core::chat::{SavedKind, SavedMessage};
@@ -482,9 +481,7 @@ fn label_record_type(record: &LabelRecord) -> String {
     let mut name = String::with_capacity(LABEL_RECORD_PREFIX.len() + field.len() + 64);
     name.push_str(LABEL_RECORD_PREFIX);
     name.push_str(field);
-    for byte in digest {
-        let _ = write!(name, "{byte:02x}");
-    }
+    lux_core::hex::push_hex(&mut name, &digest);
     name
 }
 

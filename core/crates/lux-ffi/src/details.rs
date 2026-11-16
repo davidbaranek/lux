@@ -17,6 +17,7 @@ use crate::chat::CorePreviewKind;
 use crate::chat::path_text;
 use crate::organizing::CoreChatChange;
 use crate::profile::CorePictureFormat;
+use crate::time_span::TimeSpan;
 use crate::timeline::{CoreParticipant, CorePicture, CoreThreadSummary, picture};
 
 /// When a chat's messages notify.
@@ -243,8 +244,8 @@ pub enum CoreSharedContent {
     Video {
         /// Its poster.
         poster: Option<CorePicture>,
-        /// Its length, in seconds.
-        seconds: Option<f64>,
+        /// Its length.
+        duration: Option<TimeSpan>,
     },
     /// A file or a sound.
     File {
@@ -292,7 +293,7 @@ impl From<SharedItem> for CoreSharedItem {
                 },
                 SharedContent::Video { poster, duration, .. } => CoreSharedContent::Video {
                     poster: poster.as_ref().map(picture),
-                    seconds: duration.map(|duration| duration.as_secs_f64()),
+                    duration: duration.map(TimeSpan),
                 },
                 SharedContent::File { name, size, mimetype } => CoreSharedContent::File { name, size, mimetype },
                 SharedContent::Link { url, text } => CoreSharedContent::Link { url, text },

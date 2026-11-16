@@ -7,6 +7,7 @@
 //! Rows are shared: a chat nothing changed stays the same allocation from the mapping to the
 //! apps' list. A keeper task writes the list to the store for the next launch.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,7 +25,6 @@ use matrix_sdk_ui::room_list_service::filters::{
     new_filter_all, new_filter_invite, new_filter_joined, new_filter_not, new_filter_space,
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
-use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep_until};
 use tracing::warn;
 
@@ -45,7 +45,7 @@ const KEEP_INTERVAL: Duration = Duration::from_secs(5);
 pub(crate) struct ChatList {
     pub(crate) rows: LiveList<Arc<Chat>>,
     keeper: Option<Keeper>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 /// What the chat list's task reads besides the rooms: what the user organized.
@@ -76,8 +76,12 @@ impl ChatList {
             }
             None => (None, None),
         };
-        let task = tokio::spawn(map_chats(client, service, own, rows.clone(), to_keep, organizing));
-        Self { rows, keeper, task }
+        let task = crate::task::spawn(map_chats(client, service, own, rows.clone(), to_keep, organizing));
+        Self {
+            rows,
+            keeper,
+            _task: task,
+        }
     }
 
     /// A handle that writes what the kept list misses (the app goes to the background); none
@@ -87,20 +91,11 @@ impl ChatList {
     }
 }
 
-impl Drop for ChatList {
-    fn drop(&mut self) {
-        self.task.abort();
-        if let Some(keeper) = &self.keeper {
-            keeper.task.abort();
-        }
-    }
-}
-
 /// The task that writes the chat list to the kept list: one write at a time, the latest list,
 /// at most every [`KEEP_INTERVAL`] while the list changes and once more after the last change.
 struct Keeper {
     flush: Flush,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 /// Asks the keeper to write the list now.
@@ -113,7 +108,7 @@ impl Flush {
     pub(crate) async fn run(&self) {
         let (done, written) = oneshot::channel();
         if self.0.send(done).is_ok() {
-            let _ = written.await;
+            written.await.other_end_may_be_gone("the chat list's task");
         }
     }
 }
@@ -123,12 +118,12 @@ impl Keeper {
     fn start(kept: KeptList, rows: LiveList<Arc<Chat>>) -> (watch::Sender<()>, Self) {
         let (to_keep, list_changes) = watch::channel(());
         let (flushes, asked) = mpsc::unbounded_channel();
-        let task = tokio::spawn(keep(kept, rows, list_changes, asked));
+        let task = crate::task::spawn(keep(kept, rows, list_changes, asked));
         (
             to_keep,
             Self {
                 flush: Flush(flushes),
-                task,
+                _task: task,
             },
         )
     }
@@ -166,7 +161,7 @@ async fn keep(
                     written = Some(Instant::now());
                     write(&rows).await;
                 }
-                let _ = done.send(());
+                done.send(()).other_end_may_be_gone("the caller");
             }
         }
     }
@@ -175,20 +170,14 @@ async fn keep(
 /// The invitations.
 pub(crate) struct RequestList {
     pub(crate) rows: LiveList<Request>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl RequestList {
     pub(crate) fn start(service: Arc<RoomListService>) -> Self {
         let rows = LiveList::new(Vector::new());
-        let task = tokio::spawn(map_requests(service, rows.clone()));
-        Self { rows, task }
-    }
-}
-
-impl Drop for RequestList {
-    fn drop(&mut self) {
-        self.task.abort();
+        let task = crate::task::spawn(map_requests(service, rows.clone()));
+        Self { rows, _task: task }
     }
 }
 

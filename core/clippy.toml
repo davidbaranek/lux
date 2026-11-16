@@ -4,3 +4,7 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
+# a task has an owner that ends it: an owned handle (lux-matrix's `task::spawn`), a `JoinSet`.
+disallowed-methods = [
+    { path = "tokio::task::spawn", reason = "a detached task outlives its owner: start it owned (lux-matrix's `task::spawn`, a `JoinSet`)" },
+]

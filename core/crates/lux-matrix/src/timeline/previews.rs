@@ -3,6 +3,7 @@
 //! never reaches the site. One task asks, each address once; what it learns goes out as one
 //! shared map, with which the open timelines map their messages again.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -10,7 +11,6 @@ use matrix_sdk::Client;
 use matrix_sdk::ruma::api::client::authenticated_media::get_media_preview;
 use serde::Deserialize;
 use tokio::sync::{mpsc, watch};
-use tokio::task::JoinHandle;
 use tracing::warn;
 
 /// What a page says about itself (its Open Graph title and description).
@@ -28,27 +28,19 @@ pub(crate) type Known = Arc<HashMap<String, Option<LinkPreview>>>;
 pub(crate) struct LinkPreviews {
     asks: mpsc::UnboundedSender<String>,
     known: watch::Receiver<Known>,
-    _task: Arc<Task>,
-}
-
-/// The task, aborted with the last handle.
-struct Task(JoinHandle<()>);
-
-impl Drop for Task {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
+    /// The task, ended with the last handle.
+    _task: Arc<crate::task::Owned>,
 }
 
 impl LinkPreviews {
     pub(crate) fn start(client: Client) -> Self {
         let (asks, asked) = mpsc::unbounded_channel();
         let (learned, known) = watch::channel(Known::default());
-        let task = tokio::spawn(read(client, asked, learned));
+        let task = crate::task::spawn(read(client, asked, learned));
         Self {
             asks,
             known,
-            _task: Arc::new(Task(task)),
+            _task: Arc::new(task),
         }
     }
 
@@ -57,7 +49,9 @@ impl LinkPreviews {
     pub(crate) fn get(&self, url: &str) -> Option<LinkPreview> {
         let known = self.known.borrow().get(url).cloned();
         if known.is_none() {
-            let _ = self.asks.send(url.to_owned());
+            self.asks
+                .send(url.to_owned())
+                .other_end_may_be_gone("the previews' task");
         }
         known.flatten()
     }

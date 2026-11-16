@@ -7,6 +7,7 @@
 //! Requests from the account's other devices arrive as to-device events; a handler passes each
 //! one on to whoever listens.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,7 +36,6 @@ use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::ruma::events::key::verification::cancel::CancelCode;
 use matrix_sdk::ruma::events::key::verification::request::ToDeviceKeyVerificationRequestEvent;
 use tokio::sync::{broadcast, watch};
-use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep};
 use tracing::warn;
 
@@ -412,7 +412,9 @@ impl IncomingVerifications {
                         && !request.we_started()
                     {
                         // no listener: the app is not up to show it; the request times out.
-                        let _ = requests.send((request, event.content.from_device));
+                        requests
+                            .send((request, event.content.from_device))
+                            .other_end_may_be_gone("the verification requests' listener");
                     }
                 }
             }
@@ -441,7 +443,7 @@ pub struct MatrixVerification {
     other: Option<OwnDevice>,
     steps: watch::Receiver<VerificationStep>,
     sas: watch::Receiver<Option<SasVerification>>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl MatrixVerification {
@@ -453,13 +455,13 @@ impl MatrixVerification {
         };
         let (step, steps) = watch::channel(first);
         let (sas_sender, sas) = watch::channel(None);
-        let task = tokio::spawn(follow(request.clone(), step, sas_sender));
+        let task = crate::task::spawn(follow(request.clone(), step, sas_sender));
         Self {
             request,
             other,
             steps,
             sas,
-            task,
+            _task: task,
         }
     }
 
@@ -469,12 +471,6 @@ impl MatrixVerification {
             .clone()
             // no emojis to compare yet.
             .ok_or(BackendError::NotAllowed)
-    }
-}
-
-impl Drop for MatrixVerification {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 
