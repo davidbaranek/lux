@@ -2,3 +2,5 @@ doc-valid-idents = ["XCFramework", "SQLCipher", "SQLite", "WhatsApp", "UniFFI", 
 # tests may unwrap: a failed step is the test failing.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

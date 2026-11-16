@@ -6,8 +6,6 @@
 
 // the sdk's futures nest deeply.
 #![recursion_limit = "256"]
-// UniFFI's generated scaffolding is the only unsafe code, and it is generated.
-#![allow(unsafe_code)]
 
 mod account;
 mod bridges;

@@ -68,6 +68,11 @@ unwrap_used = "deny"
 expect_used = "deny"
 dbg_macro = "deny"
 todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
 
 [profile.dev]
 debug = 0
