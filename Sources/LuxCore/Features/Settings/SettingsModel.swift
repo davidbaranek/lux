@@ -15,6 +15,19 @@ public final class SettingsModel {
     /// The search index on this device: how many messages, and whether it is still reading.
     public private(set) var searchIndex: String?
 
+    /// How far back search reads each chat; changing it reads on at once.
+    public var searchHistory: SearchHistory {
+        get { Preferences.shared.searchHistory }
+        set {
+            if let search = session.search {
+                search.readHistory(newValue)
+            } else {
+                Preferences.shared.searchHistory = newValue
+            }
+            changes.send()
+        }
+    }
+
     /// Search finds photos by how they look too (the model, on this device); the words in them
     /// and the messages near them it finds always.
     public var searchesPhotosByLook: Bool {

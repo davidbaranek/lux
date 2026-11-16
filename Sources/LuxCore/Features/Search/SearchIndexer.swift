@@ -2,7 +2,9 @@ import Foundation
 
 /// Fills the search index from the account, chat by chat, the most recent chats first: a quick
 /// first pass reads each chat's newest messages, so search finds recent ones within moments; a
-/// second pass reads back three months. Afterwards each change to a chat reads only what is new.
+/// second pass reads back as far as Settings asks (three months, a year, all), a few pages of
+/// each chat at a time, going on where the last stopped. Afterwards each change to a chat reads
+/// only what is new.
 /// Runs off the main thread, one chat at a time, so the app stays quick while it works.
 public actor SearchIndexer {
     /// How far the index is, for the UI.
@@ -32,8 +34,9 @@ public actor SearchIndexer {
         }
     }
 
-    /// How far back the second pass reads.
-    static let history: TimeInterval = 90 * 24 * 3600
+    /// The horizon moves with the clock: a chat read back to it is read further a week at a time,
+    /// not a page on every pass.
+    static let slack: TimeInterval = 7 * 24 * 3600
     static let quickPages = 4
     static let deepPages = 40
 
@@ -88,13 +91,18 @@ public actor SearchIndexer {
         let rooms = (maxChats.map { Array(all.prefix($0)) } ?? all).flatMap { row in
             (row.isMerged ? row.rooms.map(\.id) : [row.id]).map { IndexedRoom(id: $0, date: row.date) }
         }
-        // quick: rooms with nothing indexed, or with newer messages; deep: rooms not read back yet.
+        let horizon = await MainActor.run { Preferences.shared.searchHistory.since(.now) }
+        // quick: rooms with nothing indexed, or with newer messages; deep: rooms not read back
+        // to their start or as far as Settings asks.
         let quick = rooms.filter { room in
             guard let indexed = chats[room.id] else { return true }
             return (room.date ?? .distantPast) > indexed.newest
         }
-        await read(quick, deep: false, from: account)
-        await read(rooms.filter { chats[$0.id]?.complete != true }, deep: true, from: account)
+        await read(quick, deep: false, back: horizon, from: account)
+        await read(rooms.filter { room in
+            guard let indexed = chats[room.id] else { return true }
+            return !indexed.complete && (indexed.oldest ?? .distantFuture) > horizon.addingTimeInterval(Self.slack)
+        }, deep: true, back: horizon, from: account)
         report(Progress(chats: 0, total: 0, deep: true, isIndexing: false, messages: (try? await store.messageCount()) ?? 0))
     }
 
@@ -120,14 +128,16 @@ public actor SearchIndexer {
         }
     }
 
-    private func read(_ rooms: [IndexedRoom], deep: Bool, from account: RustAccount) async {
+    /// Reads `rooms`: `deep`, a few pages further back from where each stopped, to `horizon`;
+    /// else what came since each's newest indexed (back to `horizon`, a room not read before).
+    private func read(_ rooms: [IndexedRoom], deep: Bool, back horizon: Date, from account: RustAccount) async {
         for (done, room) in rooms.enumerated() {
             if Task.isCancelled { return }
             report(Progress(chats: done, total: rooms.count, deep: deep, isIndexing: true, messages: 0, isFirstFill: firstFill))
             let indexed = chats[room.id]
-            // history back three months; afterwards only what came since the newest indexed.
-            let since = if let indexed, indexed.complete { indexed.newest } else { Date.now.addingTimeInterval(-Self.history) }
-            guard let page = try? await account.indexHistory(roomId: room.id, since: since,
+            let walksBack = deep || indexed == nil
+            let since = walksBack ? horizon : indexed?.newest ?? horizon
+            guard let page = try? await account.indexHistory(roomId: room.id, since: since, from: deep ? indexed?.older : nil,
                                                              maxPages: deep ? Self.deepPages : Self.quickPages) else { continue }
             do {
                 if let until = page.deletedUntil { try await store.forgetChat(room.id, until: until) }
@@ -138,7 +148,15 @@ public actor SearchIndexer {
                 try await store.remove(page.removed)
                 let newest = [page.messages.map(\.date).max(), page.images.map(\.date).max(), room.date, indexed?.newest]
                     .compactMap(\.self).max() ?? .distantPast
-                let chat = IndexedChat(newest: newest, complete: indexed?.complete == true || deep)
+                var chat = indexed ?? IndexedChat(newest: newest, complete: false)
+                chat.newest = newest
+                if walksBack {
+                    // how far back it is read now, and where a walk further back goes on.
+                    let read = page.messages.map(\.date) + page.images.map(\.date)
+                    chat.complete = page.reachedStart || page.deletedUntil != nil
+                    chat.oldest = page.reachedSince ? horizon : (read + [chat.oldest].compactMap(\.self)).min()
+                    chat.older = page.older
+                }
                 try await store.setChat(room.id, chat)
                 chats[room.id] = chat
             } catch {

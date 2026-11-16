@@ -21,6 +21,12 @@ public final class Preferences {
         set { defaults.set(newValue, forKey: "searchesPhotosByLook") }
     }
 
+    /// How far back search reads each chat. Three months until the user changes it.
+    public var searchHistory: SearchHistory {
+        get { defaults.string(forKey: "searchHistory").flatMap(SearchHistory.init(rawValue:)) ?? .threeMonths }
+        set { defaults.set(newValue.rawValue, forKey: "searchHistory") }
+    }
+
     /// The places pinned on the iPhone (place keys), in order: the first `toolbarPlaces` of them
     /// show in the bottom toolbar. The inbox and the archive until the user changes them.
     public var pinnedPlaces: [String] {

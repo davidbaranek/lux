@@ -5,7 +5,7 @@ import UIKit
 /// key backup), privacy, search, and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
-    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, photoLooks, photoStatus, photoAction, signOut }
+    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, searchHistory, photoLooks, photoStatus, photoAction, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -97,6 +97,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.text = String(localized: "Messages")
                 content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
+            case .searchHistory:
+                content.text = String(localized: "Search Back")
+                content.image = UIImage(systemName: "clock.arrow.circlepath")
+                cell.accessories = [.popUpMenu(historyMenu, displayed: .always)]
             case .photoStatus:
                 content = .subtitleCell()
                 content.text = String(localized: "Photos")
@@ -203,6 +207,15 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     }
 
     /// The profile row's picture, when the account's changed.
+    /// How far back search reads each chat; the current choice ticked.
+    private var historyMenu: UIMenu {
+        UIMenu(options: .singleSelection, children: SearchHistory.allCases.map { history in
+            UIAction(title: history.title, state: model.searchHistory == history ? .on : .off) { [weak self] _ in
+                self?.model.searchHistory = history
+            }
+        })
+    }
+
     private func loadProfilePicture() {
         let ref = model.profile?.avatar
         guard ref != shownPicture else { return }
@@ -249,7 +262,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
 
     /// The Search section's rows: the action only while there is one.
     private var searchItems: [Item] {
-        [.searchIndex, .photoLooks, .photoStatus] + (model.photoAction == nil ? [] : [.photoAction])
+        [.searchIndex, .searchHistory, .photoLooks, .photoStatus] + (model.photoAction == nil ? [] : [.photoAction])
     }
 
     private func makeSwitch(_ changed: @escaping (Bool) -> Void) -> UISwitch {

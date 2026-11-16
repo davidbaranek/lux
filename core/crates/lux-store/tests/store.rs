@@ -112,8 +112,10 @@ async fn a_deleted_chat_forgets_its_messages_up_to_the_delete_and_a_gone_chat_al
     let complete = IndexedChat {
         newest: at(2),
         complete: true,
+        oldest: None,
+        older: None,
     };
-    store.set_chat("!a".into(), complete).await.unwrap();
+    store.set_chat("!a".into(), complete.clone()).await.unwrap();
     store.set_chat("!b".into(), complete).await.unwrap();
 
     store.forget_chat("!a".into(), Some(at(1))).await.unwrap();
@@ -164,7 +166,7 @@ async fn dropping_the_store_closes_the_file_before_it_returns() {
 }
 
 #[tokio::test]
-async fn keeps_how_far_each_chat_is_read() {
+async fn keeps_how_far_each_chat_is_read_and_where_it_reads_on() {
     let folder = TempDir::new().unwrap();
     let store = Store::open(file(&folder), key()).await.unwrap();
     let long_ago = SystemTime::UNIX_EPOCH - Duration::from_hours(17_259_888);
@@ -174,6 +176,8 @@ async fn keeps_how_far_each_chat_is_read() {
             IndexedChat {
                 newest: at(5),
                 complete: false,
+                oldest: Some(at(1)),
+                older: Some("t1-older".into()),
             },
         )
         .await
@@ -184,6 +188,8 @@ async fn keeps_how_far_each_chat_is_read() {
             IndexedChat {
                 newest: long_ago,
                 complete: true,
+                oldest: None,
+                older: None,
             },
         )
         .await
@@ -193,7 +199,9 @@ async fn keeps_how_far_each_chat_is_read() {
             "!a".into(),
             IndexedChat {
                 newest: at(9),
-                complete: true,
+                complete: false,
+                oldest: Some(at(0)),
+                older: Some("t0-older".into()),
             },
         )
         .await
@@ -204,7 +212,9 @@ async fn keeps_how_far_each_chat_is_read() {
         chats[&RoomId::from("!a")],
         IndexedChat {
             newest: at(9),
-            complete: true
+            complete: false,
+            oldest: Some(at(0)),
+            older: Some("t0-older".into()),
         }
     );
     assert_eq!(chats[&RoomId::from("!b")].newest, long_ago);

@@ -160,10 +160,14 @@ public struct IndexHistoryPage: Sendable {
     /// The chat was deleted when its newest message was this one's: the index forgets what it
     /// holds up to it (none of it is among `messages`).
     public var deletedUntil: Date?
+    /// The walk went back as far as it was asked.
+    public var reachedSince: Bool
+    /// Where a walk further back goes on from, when the pages ran out first.
+    public var older: String?
     public init(messages: [IndexedMessage], images: [IndexedImage] = [], reachedStart: Bool, removed: [String] = [],
-                deletedUntil: Date? = nil) {
+                deletedUntil: Date? = nil, reachedSince: Bool = false, older: String? = nil) {
         self.messages = messages; self.images = images; self.reachedStart = reachedStart; self.removed = removed
-        self.deletedUntil = deletedUntil
+        self.deletedUntil = deletedUntil; self.reachedSince = reachedSince; self.older = older
     }
 }
 
@@ -222,6 +226,40 @@ public struct IndexHit: Sendable, Equatable {
 public struct IndexedChat: Sendable, Equatable {
     /// The newest message indexed.
     public var newest: Date
-    /// Its history is indexed as far back as the index goes (or to its start).
+    /// Its history is indexed to its start.
     public var complete: Bool
+    /// How far back it is indexed, when not to its start.
+    public var oldest: Date?
+    /// Where a read further back goes on from; none: from the newest.
+    public var older: String?
+
+    public init(newest: Date, complete: Bool, oldest: Date? = nil, older: String? = nil) {
+        self.newest = newest; self.complete = complete; self.oldest = oldest; self.older = older
+    }
+}
+
+/// How far back search reads each chat's history, as Settings has it. Reading back further reads
+/// on from where it stopped; reading back less keeps what was read.
+public enum SearchHistory: String, CaseIterable, Sendable {
+    case month, threeMonths, year, all
+
+    public var title: String {
+        switch self {
+        case .month: String(localized: "1 Month")
+        case .threeMonths: String(localized: "3 Months")
+        case .year: String(localized: "1 Year")
+        case .all: String(localized: "All")
+        }
+    }
+
+    /// The oldest message it reads, from `now`.
+    public func since(_ now: Date) -> Date {
+        let days: Double? = switch self {
+        case .month: 31
+        case .threeMonths: 90
+        case .year: 365
+        case .all: nil
+        }
+        return days.map { now.addingTimeInterval(-$0 * 24 * 3600) } ?? .distantPast
+    }
 }

@@ -366,6 +366,11 @@ pub struct IndexHistory {
     pub images: Vec<IndexedImage>,
     /// The chat's first message is among them: there is nothing older.
     pub reached_start: bool,
+    /// The read went back to `since`: what is older was not asked for.
+    pub reached_since: bool,
+    /// Where to read on, older: the pages ran out before `since` or the start. Kept, a later read
+    /// goes on from there instead of reading the newer history again.
+    pub older: Option<String>,
     /// The messages deleted in that time, which the index may hold from before.
     pub removed: Vec<EventId>,
     /// The chat was deleted when its newest message was this one's: nothing up to it shows any

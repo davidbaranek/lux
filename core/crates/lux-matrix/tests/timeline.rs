@@ -506,7 +506,7 @@ async fn the_index_history_holds_each_messages_newest_text_and_the_deleted_ones(
     let timelines = MatrixTimelines::new(client);
 
     let history = timelines
-        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, 3)
+        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, None, 3)
         .await
         .unwrap();
     assert!(history.reached_start);
@@ -578,7 +578,7 @@ async fn the_index_history_holds_photos_with_their_captions_and_one_loads_by_its
     let timelines = MatrixTimelines::new(client);
 
     let history = timelines
-        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, 3)
+        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, None, 3)
         .await
         .unwrap();
     assert!(history.messages.is_empty());
@@ -765,4 +765,63 @@ async fn messages_of_different_rooms_never_share_an_id() {
     let ids: std::collections::HashSet<&MessageId> =
         first.iter().chain(&second).map(|message| &message.message.id).collect();
     assert_eq!(ids.len(), 4, "the rooms' messages share ids: {ids:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_index_history_reads_on_from_where_its_pages_ran_out() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id!("!chat:example.org")))
+        .await;
+    let factory = EventFactory::new()
+        .room(room_id!("!chat:example.org"))
+        .sender(user_id!("@alice:example.org"));
+    server
+        .mock_room_messages()
+        .match_from("older")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            factory
+                .text_msg("long ago")
+                .event_id(event_id!("$old"))
+                .server_ts(1_700_000_001_000_u64)
+                .into_raw_timeline(),
+        ]))
+        .mount()
+        .await;
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![
+                factory
+                    .text_msg("lately")
+                    .event_id(event_id!("$new"))
+                    .server_ts(1_700_000_002_000_u64)
+                    .into_raw_timeline(),
+            ])
+            .end_token("older"))
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+
+    // one page: the newest, and where to read on.
+    let first = timelines
+        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, None, 1)
+        .await
+        .unwrap();
+    let bodies = |history: &lux_core::timeline::IndexHistory| -> Vec<String> {
+        history.messages.iter().map(|message| message.body.clone()).collect()
+    };
+    assert_eq!(bodies(&first), ["lately"]);
+    assert!(!first.reached_start);
+    assert_eq!(first.older.as_deref(), Some("older"));
+    assert!(!first.reached_since);
+
+    // on from there: the older message, to the start, and nothing more to read.
+    let next = timelines
+        .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, first.older, 1)
+        .await
+        .unwrap();
+    assert_eq!(bodies(&next), ["long ago"]);
+    assert!(next.older.is_none());
 }

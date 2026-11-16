@@ -59,8 +59,12 @@ pub struct CoreStoreChat {
     pub room_id: String,
     /// The newest message indexed.
     pub newest: SystemTime,
-    /// Its history is indexed as far back as the index goes.
+    /// Its history is indexed to its start.
     pub complete: bool,
+    /// The oldest time read back to, when not to the start.
+    pub oldest: Option<SystemTime>,
+    /// Where a read further back goes on from.
+    pub older: Option<String>,
 }
 
 /// A run of found words in an excerpt, in UTF-16 code units.
@@ -251,6 +255,8 @@ impl CoreStore {
         let indexed = IndexedChat {
             newest: chat.newest,
             complete: chat.complete,
+            oldest: chat.oldest,
+            older: chat.older,
         };
         Ok(self.store.set_chat(chat.room_id.into(), indexed).await?)
     }
@@ -264,6 +270,8 @@ impl CoreStore {
                 room_id: room_id.to_string(),
                 newest: chat.newest,
                 complete: chat.complete,
+                oldest: chat.oldest,
+                older: chat.older,
             })
             .collect())
     }
