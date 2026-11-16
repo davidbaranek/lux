@@ -24,7 +24,8 @@ the Neural Engine unpacks them, so they take more memory, not less):
     uv run scripts/image-search/convert.py <out folder>
 
 The folder then holds `Encoders.mlpackage` (both, as its functions "image" and "text", sharing the
-text model's weights), `tokenizer.json` and `model.json`: sizes, the prompts a query and a message are read with, and the least similarity
+text model's weights), `embeddings.bin` (every token's input vector, which the app looks up),
+`tokenizer.json` and `model.json`: sizes, the prompts a query and a message are read with, and the least similarity
 a photo or a message must have to the words to be found (measured here). The script checks that
 each Core ML model gives the embeddings PyTorch gives before it writes them.
 
@@ -95,16 +96,62 @@ def mean_pooled(states, mask):
 
 
 class TextEncoder(torch.nn.Module):
-    """Token ids, padded with 0, to the text's unit embedding; the padding is masked here."""
+    """The tokens' vectors (looked up by the app in `embeddings.bin`, padding's left zero) and
+    which are real (1) or padding (0), both floats, to the text's unit embedding. No integers in
+    the graph: the token lookup and its index checks are integer ops the Neural Engine cannot run,
+    and iOS 27's compiler for it fails on them instead of leaving them to the CPU."""
 
     def __init__(self, language):
         super().__init__()
         self.language = language
 
-    def forward(self, ids):
-        mask = (ids != 0).to(torch.float32)
-        states = self.language(input_ids=ids, attention_mask=mask).last_hidden_state
+    def forward(self, embeds, mask):
+        states = self.language(inputs_embeds=embeds, attention_mask=mask).last_hidden_state
         return mean_pooled(states, mask)
+
+
+def token_table(language):
+    """Every token's input vector, as the model's embedding layer gives it (its scale included):
+    rows of float16, in id order, for the app to read by id from a mapped file."""
+    layer = language.get_input_embeddings()
+    with torch.no_grad():
+        rows = layer(torch.arange(layer.weight.shape[0])[None])[0]
+    return rows.to(torch.float16).numpy()
+
+
+# the off-Neural-Engine ops each function may have, and why: the image's pixels scaled to [0, 1]
+# as they come in (Core ML's image input), before any of the model runs.
+OFF_ENGINE = {"image": {"cast", "mul"}, "text": set()}
+
+
+def check_engine(name, built):
+    """Fails the build unless every op of `built` runs on the Neural Engine (but those
+    `OFF_ENGINE` names): a model that falls back is slow to compile on the iPhone, and its
+    compiler for the Neural Engine has crashed on ops it cannot run (iOS 27)."""
+    from coremltools.models.compute_plan import MLComputePlan
+
+    plan = MLComputePlan.load_from_path(built.get_compiled_model_path(), compute_units=ct.ComputeUnit.CPU_AND_NE)
+    off, total = {}, 0
+
+    def walk(block):
+        nonlocal total
+        for op in block.operations:
+            for inner in op.blocks:
+                walk(inner)
+            kind = op.operator_name.split(".")[-1]
+            if kind == "const":
+                continue
+            total += 1
+            usage = plan.get_compute_device_usage_for_mlprogram_operation(op)
+            if usage is None or type(usage.preferred_compute_device).__name__ != "MLNeuralEngineComputeDevice":
+                off[kind] = off.get(kind, 0) + 1
+
+    for function in plan.model_structure.program.functions.values():
+        walk(function.block)
+    unexpected = {kind: count for kind, count in off.items() if kind not in OFF_ENGINE[name]}
+    print(f"{name}: {total - sum(off.values())} of {total} ops on the Neural Engine; off: {off or 'none'}")
+    if unexpected:
+        sys.exit(f"{name}: ops off the Neural Engine: {unexpected}")
 
 
 class ImageEncoder(torch.nn.Module):
@@ -250,14 +297,30 @@ def main(out: Path):
                          truncation=True)["input_ids"].int()
 
     print("converting the text encoder", flush=True)
+    table = token_table(model.language_model)
+
+    def token_inputs(texts):
+        """What the app gives the text encoder for each text: its tokens' rows of the table
+        (zeros for padding) and its mask."""
+        batch = ids(texts).numpy()
+        mask = (batch != 0).astype(np.float32)
+        embeds = table[batch].astype(np.float32) * mask[..., None]
+        return embeds, mask
+
     text = TextEncoder(model.language_model).eval()
+    example_embeds, example_mask = token_inputs([QUERY + "výlet na hory"])
+    with torch.no_grad():
+        graph = torch.export.export(text, (torch.from_numpy(example_embeds), torch.from_numpy(example_mask)))
+        graph = graph.run_decompositions({})
     text_model = ct.convert(
-        exported(text, ids([QUERY + "výlet na hory"])),
-        inputs=[ct.TensorType(name="ids", shape=(1, TEXT_LENGTH), dtype=np.int32)],
+        graph,
+        inputs=[ct.TensorType(name="embeds", shape=example_embeds.shape, dtype=np.float16),
+                ct.TensorType(name="mask", shape=example_mask.shape, dtype=np.float16)],
         outputs=[ct.TensorType(name="embedding")],
         minimum_deployment_target=ct.target.iOS18,
         compute_precision=ct.precision.FLOAT16,
     )
+    check_engine("text", text_model)
 
     print("converting the image encoder", flush=True)
     square = Image.radial_gradient("L").convert("RGB").resize((SIDE, SIDE))
@@ -273,6 +336,8 @@ def main(out: Path):
         compute_precision=ct.precision.FLOAT16,
     )
 
+    check_engine("image", image_model)
+
     # the Core ML models give what the library gives.
     photos_cs = pd.read_parquet(hf_hub_download("floschne/xm3600_1k", "data/cs-00000-of-00001.parquet",
                                                 repo_type="dataset")).iloc[:200]
@@ -282,7 +347,10 @@ def main(out: Path):
     got_photos = [image_model.predict({"image": photo})["embedding"][0] for photo in photos[:20]]
     words = [QUERY + "pes na pláži", DOCUMENT + "Zítra jedeme na hory, vezmi lyže"]
     library_words = eg.encode(words, normalize_embeddings=True)
-    got_words = [text_model.predict({"ids": ids([w]).numpy()})["embedding"][0] for w in words]
+    got_words = []
+    for w in words:
+        embeds, mask = token_inputs([w])
+        got_words.append(text_model.predict({"embeds": embeds.astype(np.float16), "mask": mask.astype(np.float16)})["embedding"][0])
     image_match, text_match = float(cosines(library_photos, got_photos).min()), float(cosines(library_words, got_words).min())
     print(f"Core ML vs the library: image {image_match:.4f}, text {text_match:.4f}")
     # the image encoder on the Neural Engine drifts in float16 (about 0.9 to 0.95 to PyTorch's,
@@ -328,6 +396,8 @@ def main(out: Path):
     ct.utils.save_multifunction(encoders, str(target))
     shutil.rmtree(parts)
     # the cache's file is read-only: a copy of its bytes, not of its mode.
+    # the tokens' rows, float16, in id order: the app maps the file and reads a row by its id.
+    table.astype("<f2").tofile(out / "embeddings.bin")
     (out / "tokenizer.json").unlink(missing_ok=True)
     shutil.copyfile(hf_hub_download(MODEL, "tokenizer.json", revision=REVISION), out / "tokenizer.json")
     (out / "model.json").write_text(json.dumps({
@@ -338,6 +408,8 @@ def main(out: Path):
         "lowercase": False,
         "padId": int(tokenizer.pad_token_id),
         "eosId": int(tokenizer.eos_token_id),
+        "tokens": int(table.shape[0]),
+        "width": int(table.shape[1]),
         "queryPrompt": QUERY,
         "documentPrompt": DOCUMENT,
         "photoSimilarity": round(photo_threshold, 3),

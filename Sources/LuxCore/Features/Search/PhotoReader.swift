@@ -18,14 +18,14 @@ struct PhotoReader: Sendable {
     private static let largestSide = 2_048
 
     /// What `file` shows: its words, one line each in reading order, and its embedding.
-    func read(_ file: URL) async throws -> (words: String, embedding: [Float]?) {
+    func read(_ file: URL, lease: ForegroundLease) async throws -> (words: String, embedding: [Float]?) {
         let image = try Self.picture(file)
         var text = RecognizeTextRequest()
         text.recognitionLevel = .accurate
         // the language of each line is its own: a Czech receipt, an English screenshot.
         text.automaticallyDetectsLanguage = true
         let lines = try await text.perform(on: image).compactMap { $0.topCandidates(1).first?.string }
-        let embedding = try await model?.embedding(of: image)
+        let embedding = try await model?.embedding(of: image, lease: lease)
         return (lines.joined(separator: "\n"), embedding)
     }
 

@@ -480,6 +480,11 @@ impl CoreStore {
         Ok(self.store.forget_message_embeddings(keep).await?)
     }
 
+    /// Forgets the whole search index, keeping the kept values.
+    pub async fn clear_index(&self) -> Result<(), CoreStoreError> {
+        Ok(self.store.clear_index().await?)
+    }
+
     /// Keeps a value with the index, encrypted with the rest.
     pub async fn keep(&self, key: String, value: Vec<u8>) -> Result<(), CoreStoreError> {
         Ok(self.store.keep(key, value).await?)

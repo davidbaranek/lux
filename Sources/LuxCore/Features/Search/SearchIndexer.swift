@@ -47,7 +47,8 @@ public actor SearchIndexer {
     private var loaded = false
     /// The pass under way started with an empty index.
     private var firstFill = false
-    private var running: Task<Void, Never>?
+    private var isRunning = false
+    private var stopped = false
     private var again = false
     private let report: @Sendable (Progress) -> Void
 
@@ -59,23 +60,21 @@ public actor SearchIndexer {
         self.report = report
     }
 
-    /// Brings the index up to date: now, or once the run in progress ends.
-    public func update() {
-        if running != nil { again = true; return }
-        running = Task { await run() }
-    }
-
-    public func stop() {
-        running?.cancel()
-        running = nil
-    }
-
-    private func run() async {
+    /// Brings the index up to date, in the caller's task (cancelling it ends the reading): now,
+    /// or, while a run is under way, once more when it ends.
+    public func update(lease _: ForegroundLease) async {
+        if isRunning { again = true; return }
+        isRunning = true
+        defer { isRunning = false }
         repeat {
             again = false
             await pass()
-        } while again && !Task.isCancelled
-        running = nil
+        } while again && !Task.isCancelled && !stopped
+    }
+
+    /// The account closes: no run goes on.
+    public func stop() {
+        stopped = true
     }
 
     private func pass() async {
@@ -146,7 +145,7 @@ public actor SearchIndexer {
     /// else what came since each's newest indexed (back to `horizon`, a room not read before).
     private func read(_ rooms: [IndexedRoom], deep: Bool, back horizon: Date, from account: RustAccount) async {
         for (done, room) in rooms.enumerated() {
-            if Task.isCancelled { return }
+            if Task.isCancelled || stopped { return }
             report(Progress(chats: done, total: rooms.count, deep: deep, isIndexing: true, messages: 0, isFirstFill: firstFill))
             let indexed = chats[room.id]
             let walksBack = deep || indexed == nil

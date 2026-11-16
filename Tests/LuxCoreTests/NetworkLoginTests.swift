@@ -5,8 +5,9 @@ import Testing
 /// The server's networks over the Rust core's demo account: what it offers, signing in, and
 /// what the chat list's bubble says of them.
 @MainActor
+@Suite(.closesDemoSessions)
 struct NetworksModelTests {
-    private let session = Session.demo(rooms: 10, messagesPerRoom: 2)
+    private let session = DemoSessions.open(rooms: 10, messagesPerRoom: 2)
 
     @Test func theDemoServerOffersItsNetworksWithMessengerConnected() async throws {
         let networks = try #require(session.networks)

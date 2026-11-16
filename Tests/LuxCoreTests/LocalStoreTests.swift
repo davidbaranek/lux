@@ -36,7 +36,7 @@ import Testing
         let account = Task<RustAccount, any Error> { RustAccount.demo(rooms: 2_000, messagesPerRoom: 3_000) }
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let indexer = SearchIndexer(store: store, account: account, maxChats: 3) { report.yield($0) }
-        await indexer.update()
+        try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
         let first = try await store.messageCount()
         #expect(first > 0)
@@ -44,7 +44,7 @@ import Testing
         let any = try #require(try await store.search("coff").first)
         #expect(any.excerpt.lowercased().contains("coff"))
         // nothing new: a second run adds nothing.
-        await indexer.update()
+        try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
         #expect(try await store.messageCount() == first)
     }
@@ -60,7 +60,7 @@ import Testing
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let indexer = SearchIndexer(store: store, account: account, maxChats: 3) { report.yield($0) }
 
-        await indexer.update()
+        try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
 
         #expect(try await store.search("farewell").isEmpty)
@@ -69,9 +69,10 @@ import Testing
 }
 
 @MainActor
+@Suite(.closesDemoSessions)
 struct MergedChatSearchTests {
     @Test func everyRoomOfAMergedChatIsIndexed() async throws {
-        let session = Session.demo(rooms: 20, messagesPerRoom: 5)
+        let session = DemoSessions.open(rooms: 20, messagesPerRoom: 5)
         let list = ChatListModel(session: session)
         let shown = list.changes()
         await shown.until { list.rows.count >= 2 }
@@ -83,7 +84,7 @@ struct MergedChatSearchTests {
         let store = try await LocalStore.open(file: file, key: String(repeating: "ef", count: 32))
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let indexer = SearchIndexer(store: store, account: session.account, maxChats: 1) { report.yield($0) }
-        await indexer.update()
+        try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
 
         let indexed = try await store.chats()
@@ -93,9 +94,10 @@ struct MergedChatSearchTests {
 
 /// The search index follows the whole account, not the place on screen.
 @MainActor
+@Suite(.closesDemoSessions)
 struct MessageSearchTests {
     @Test func aChangeInAChatOutsideThePlaceOnScreenMakesTheIndexReadAgain() async throws {
-        let session = Session.demo(rooms: 40, messagesPerRoom: 5)
+        let session = DemoSessions.open(rooms: 40, messagesPerRoom: 5)
         let account = try await session.account.value
         // the list shows Signal's chats; the change comes in a chat elsewhere.
         let list = ChatListModel(session: session)
@@ -116,5 +118,6 @@ struct MessageSearchTests {
         list.change(elsewhere.id, .pin)
         await read.until { reports > filled }
         withExtendedLifetime((token, counting)) {}
+        await search.stop()
     }
 }

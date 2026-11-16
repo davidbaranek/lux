@@ -44,11 +44,12 @@ actor MessageMeaning {
     /// Reads the messages not read yet, the newest first: at most `limit` (nil: all of them).
     /// True when none is left.
     @discardableResult
-    func read(limit: Int?) async -> Bool {
+    func read(limit: Int?, lease: ForegroundLease) async -> Bool {
         if let running { return await running.value }
-        let run = Task { await readUnread(limit: limit) }
+        let run = Task { await readUnread(limit: limit, lease: lease) }
         running = run
-        let done = await run.value
+        // the caller's cancel (the app leaving the front) ends the reading too.
+        let done = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
         running = nil
         return done
     }
@@ -69,9 +70,9 @@ actor MessageMeaning {
         return Self.centred(embedding, less: mean)
     }
 
-    private func readUnread(limit: Int?) async -> Bool {
+    private func readUnread(limit: Int?, lease: ForegroundLease) async -> Bool {
         guard let model else { return false }
-        await model.textEncoderLoaded()
+        await model.textEncoderLoaded(lease: lease)
         var left = limit ?? .max
         while left > 0, !Task.isCancelled {
             let wanted = mean == nil ? Self.meanOver : Self.batch

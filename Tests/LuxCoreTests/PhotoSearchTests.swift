@@ -43,7 +43,9 @@ private func receipt(_ lines: [String]) throws -> URL {
 @Suite struct PhotoReaderTests {
     @Test func readsTheWordsInAPhotoWithoutTheModel() async throws {
         let reader = PhotoReader(model: nil)
-        let read = try await reader.read(try receipt(["Faktura 2024-118", "Celkem 1 250 Kč"]))
+        let read = try await leased { [file = try receipt(["Faktura 2024-118", "Celkem 1 250 Kč"])] lease in
+            try await reader.read(file, lease: lease)
+        }
         #expect(read.words.contains("Faktura"))
         #expect(read.words.contains("Celkem"))
         #expect(read.embedding == nil)
@@ -53,11 +55,12 @@ private func receipt(_ lines: [String]) throws -> URL {
     @Test(.enabled(if: modelFolder != nil, "needs the model: LUX_PHOTO_MODEL"))
     func findsAPhotoByHowItLooks() async throws {
         let model = try PhotoSearchModel(folder: try #require(modelFolder))
-        await model.textEncoderLoaded()
+        try await leased { lease in await model.textEncoderLoaded(lease: lease) }
         let pictures = URL(fileURLWithPath: "/System/Library/Desktop Pictures/.thumbnails")
         var looks: [String: [Float]] = [:]
         for name in ["Big Sur Coastline", "The Desert", "Big Sur Night Succulents"] {
-            let read = try await PhotoReader(model: model).read(pictures.appending(path: "\(name).heic"))
+            let file = pictures.appending(path: "\(name).heic")
+            let read = try await leased { lease in try await PhotoReader(model: model).read(file, lease: lease) }
             let embedding = try #require(read.embedding)
             looks[name] = embedding
         }
@@ -77,7 +80,7 @@ private func receipt(_ lines: [String]) throws -> URL {
     @Test(.enabled(if: modelFolder != nil, "needs the model: LUX_PHOTO_MODEL"))
     func findsAMessageByWhatItMeans() async throws {
         let model = try PhotoSearchModel(folder: try #require(modelFolder))
-        await model.textEncoderLoaded()
+        try await leased { lease in await model.textEncoderLoaded(lease: lease) }
         let messages = ["Jedem v sobotu na Sněžku? Vezmi pohorky", "Posílám fakturu za září, splatnost do 15.",
                         "Kocour zase rozškrábal gauč", "Objednal jsem pizzu, bude tu za půl hodiny"]
         var meant: [[Float]] = []
@@ -100,13 +103,13 @@ private func receipt(_ lines: [String]) throws -> URL {
         let account = Task<RustAccount, any Error> { RustAccount.demo(rooms: 20, messagesPerRoom: 60) }
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let texts = SearchIndexer(store: store, account: account, maxChats: 2) { report.yield($0) }
-        await texts.update()
+        try await leased { lease in await texts.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
         let kept = try await store.imageCounts(reader: PhotoReader(model: nil).name)
         #expect(kept.total > 0 && kept.read == 0)
 
         let photos = PhotoIndexer(store: store, account: account, directory: folder(), model: nil) { _ in }
-        #expect(await photos.read(limit: nil))
+        #expect(try await leased { lease in await photos.read(limit: nil, lease: lease) })
         #expect(try await store.imageCounts(reader: PhotoReader(model: nil).name).withWords == kept.total)
         // nothing is left to read, and the downloads are gone.
         #expect(try await store.imagesToRead(by: PhotoReader(model: nil).name, limit: 10).isEmpty)

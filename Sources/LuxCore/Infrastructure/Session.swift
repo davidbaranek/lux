@@ -65,10 +65,15 @@ public final class Session {
         opening ?? Task { throw SessionLost() }
     }
 
-    /// The app went to the background: the sync stops, before the system suspends it.
-    public func enterBackground() {
+    /// The app went to the background: the sync stops, before the system suspends it (the caller
+    /// holds the time for it, a background task).
+    public func enterBackground() async {
         guard let opening else { return }
-        Task { try? await opening.value.pauseSync() }
+        do {
+            try await opening.value.pauseSync()
+        } catch {
+            Log.app.error("the sync did not pause: \(error, privacy: .public)")
+        }
     }
 
     /// The app is back in front (or the Mac woke): the sync runs again and the lists catch up.
@@ -147,10 +152,12 @@ public final class Session {
         let session = Session()
         session.open(RustAccount.demo(rooms: rooms, messagesPerRoom: messagesPerRoom, encryption: encryption,
                                       verificationRequestAfter: verificationRequestAfter))
-        // a fresh index of the most recent made-up chats each run.
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-demo-search/index.sqlite")
-        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        // a fresh index of the most recent made-up chats, its own: demo sessions side by side (the
+        // tests) never share, nor remove, another's file.
+        let file = FileManager.default.temporaryDirectory
+            .appending(path: "lux-demo-search/\(UUID().uuidString)/index.sqlite")
         session.store = Self.openStore(file: file, key: { String(repeating: "0d", count: 32) })
+        session.index = session.store
         session.startSearch(maxChats: 150)
         return session
     }
@@ -207,6 +214,12 @@ public final class Session {
     public var onAccountLost: (() -> Void)?
 
     private func accountLost() {
+        release()
+        onAccountLost?()
+    }
+
+    /// Lets go of the account and all that is its own.
+    private func release() {
         watchingSessionEnd?.cancel()
         watchingSessionEnd = nil
         opening = nil
@@ -218,7 +231,7 @@ public final class Session {
         profile = nil
         search = nil
         store = nil
-        onAccountLost?()
+        index = nil
     }
 
     @concurrent
@@ -257,6 +270,7 @@ public final class Session {
         } catch {
             await pending.cancel()
             self.store = nil
+            index = nil
             try? FileManager.default.removeItem(at: directory)
             if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin { throw CancellationError() }
             throw error
@@ -276,6 +290,7 @@ public final class Session {
             startSearch()
         } catch {
             self.store = nil
+            index = nil
             try? FileManager.default.removeItem(at: directory)
             throw error
         }
@@ -360,27 +375,29 @@ public final class Session {
         return nil
     }
 
+    /// Ends the account's work and lets its stores close, the account kept (a test's demo
+    /// session as the test ends: no store is left to close as the process exits).
+    public func close() async {
+        await search?.stop()
+        release()
+    }
+
     public func signOut() async {
         await search?.stop()
         search = nil
         store = nil
+        index = nil
         try? await opening?.value.signOut()
         if let stored = try? keychain.read() {
-            // the search index is in the account's folder; its key goes too.
+            // the account's folder, its search index (in the app's own container) and their key.
             try? FileManager.default.removeItem(at: storeRoot.appendingPathComponent(stored.store))
+            try? FileManager.default.removeItem(at: Self.indexFile(store: stored.store).deletingLastPathComponent()
+                .deletingLastPathComponent())
             SearchKey.delete(for: stored.store)
         }
         try? keychain.delete()
         try? FileManager.default.removeItem(at: mediaDirectory)
-        watchingSessionEnd?.cancel()
-        watchingSessionEnd = nil
-        opening = nil
-        chatListSource = nil
-        images = nil
-        uploads = nil
-        networks = nil
-        security = nil
-        profile = nil
+        release()
         Preferences.shared.networksWelcomed = false
         Preferences.shared.recoverySetupOffered = false
     }
@@ -413,6 +430,13 @@ public final class Session {
     /// The account's encrypted store (its folder's `lux-search/index.sqlite`).
     private func storeFile(store: String) -> URL { Self.storeFile(in: storeRoot, store: store) }
 
+    /// The account's search index: a store of its own in the app's own container, which no
+    /// extension reads and the app writes all the time. In the group, a write under way as iOS
+    /// suspends the app ends it (0xdead10cc).
+    private static func indexFile(store: String) -> URL {
+        SharedContainer.ownRoot.appendingPathComponent(store, isDirectory: true).appendingPathComponent("lux-index/search.sqlite")
+    }
+
     /// The encrypted store of the account kept in `store`, in the folder of stores `root`.
     static func storeFile(in root: URL, store: String) -> URL {
         root.appendingPathComponent(store, isDirectory: true).appendingPathComponent("lux-search/index.sqlite")
@@ -423,6 +447,7 @@ public final class Session {
     private func openStore(store: String) -> Task<LocalStore?, Never> {
         let opening = Self.openStore(file: storeFile(store: store), key: { try await SearchKey.key(for: store) })
         self.store = opening
+        index = Self.openStore(file: Self.indexFile(store: store), key: { try await SearchKey.key(for: store) })
         return opening
     }
 
@@ -437,17 +462,33 @@ public final class Session {
         }
     }
 
-    /// Starts filling the search index in the account's store, once it is open.
+    /// Starts filling the search index, once its store is open. The index the shared store
+    /// held before it had one of its own goes, once.
     private func startSearch(maxChats: Int? = nil) {
-        guard let account = opening, let opening = store else { return }
+        guard let account = opening, let opening = index else { return }
+        let shared = store
         Task {
-            guard let store = await opening.value, self.opening == account else { return }
-            search = MessageSearch(store: store, account: account, maxChats: maxChats)
+            guard let index = await opening.value, self.opening == account else { return }
+            search = MessageSearch(store: index, account: account, maxChats: maxChats)
+            guard let shared = await shared?.value, shared !== index,
+                  (try? await shared.kept(Self.indexMovedKey)) == nil else { return }
+            do {
+                try await shared.clearIndex()
+                try await shared.keep(Self.indexMovedKey, Data([1]))
+            } catch {
+                Log.app.error("local store: the old index stays: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
-    /// The account's encrypted store on this device (the search index, the last chat list).
+    /// Kept in the shared store once its index is gone (moved to the app's own container).
+    private static let indexMovedKey = "index-moved"
+
+    /// The account's encrypted store in the group: the last chat list, which the share extension
+    /// reads too.
     private var store: Task<LocalStore?, Never>?
+    /// The account's search index, in the app's own container.
+    private var index: Task<LocalStore?, Never>?
 }
 
 /// The kept account is gone: its session left the Keychain, or the core forgot it over a store it

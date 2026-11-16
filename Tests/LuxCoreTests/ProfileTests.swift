@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 /// The account's profile over the Rust core's demo account: renaming it, and setting and removing
 /// its picture, as every screen sees them.
 @MainActor
+@Suite(.closesDemoSessions)
 struct ProfileTests {
-    private let session = Session.demo(rooms: 4, messagesPerRoom: 2)
+    private let session = DemoSessions.open(rooms: 4, messagesPerRoom: 2)
 
     @Test func renamingTrimsTheNameAndAnEmptyOneShowsTheUserId() async throws {
         let profile = try #require(session.profile)

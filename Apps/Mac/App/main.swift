@@ -40,6 +40,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// The long work (index, photos, the model) ends before the app does: a store still writing
+    /// as the process exits crashes it.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Task {
+            await ForegroundWork.shared.leave()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     private func show(signedIn: Bool) {
         // a new content view controller would size the window to its view: keep the window's size.
         let frame = window.frame

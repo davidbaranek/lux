@@ -54,16 +54,34 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private var backgroundUploads: BackgroundUploads?
 
     func sceneDidEnterBackground(_ scene: UIScene) {
-        // an upload in a continued processing task keeps the app running: its sync stays.
-        if session.uploads?.isActive != true { session.enterBackground() }
+        // the long work (index, photos, the model) and the sync end before iOS suspends the app:
+        // a file held as it is suspended ends it. A background task gives the time to end them.
+        endingWork = UIApplication.shared.beginBackgroundTask(withName: "leaving") { [weak self] in self?.endedWork() }
+        let session = self.session
+        Task {
+            await ForegroundWork.shared.leave()
+            // an upload in a continued processing task keeps the app running: its sync stays.
+            if session.uploads?.isActive != true { await session.enterBackground() }
+            endedWork()
+        }
         // signed in: the chats refresh now and then while the app is away.
         if session.isSignedIn {
             AppDelegate.refresh?.schedule()
         }
     }
 
+    /// The background task that ends the long work as the app leaves.
+    private var endingWork = UIBackgroundTaskIdentifier.invalid
+
+    private func endedWork() {
+        guard endingWork != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(endingWork)
+        endingWork = .invalid
+    }
+
     func sceneWillEnterForeground(_ scene: UIScene) {
         session.enterForeground()
+        ForegroundWork.shared.enter()
     }
 
     private func show(signedIn: Bool) {

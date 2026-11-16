@@ -157,6 +157,11 @@ public final class LocalStore: Sendable {
         return (Int(clamping: counts.total), Int(clamping: counts.read))
     }
 
+    /// Forgets the whole search index, keeping the kept values.
+    func clearIndex() async throws {
+        try await store.clearIndex()
+    }
+
     /// A value kept with the index (encrypted with it).
     func kept(_ key: String) async throws -> Data? {
         try await store.kept(key: key)
