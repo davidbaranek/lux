@@ -33,9 +33,9 @@ import Testing
     @Test func indexesTheNewestChatsAndThenOnlyWhatIsNew() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-indexer-\(UUID().uuidString)/index.sqlite")
         let store = try await LocalStore.open(file: file, key: String(repeating: "ef", count: 32))
-        let account = Task<RustAccount, any Error> { RustAccount.demo(rooms: 2_000, messagesPerRoom: 3_000) }
+        let account = RustAccount.demo(rooms: 2_000, messagesPerRoom: 3_000)
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
-        let indexer = SearchIndexer(store: store, account: account, maxChats: 3) { report.yield($0) }
+        let indexer = SearchIndexer(store: store, account: Task { account }, maxChats: 3) { report.yield($0) }
         try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
         let first = try await store.messageCount()
@@ -56,9 +56,9 @@ import Testing
         try await store.add([IndexedMessage(eventId: "$left", roomId: "!left", senderName: "Anna", body: "farewell",
                                             date: .now, isOwn: false)])
         try await store.setChat("!left", IndexedChat(newest: .now, complete: true))
-        let account = Task<RustAccount, any Error> { RustAccount.demo(rooms: 20, messagesPerRoom: 5) }
+        let account = RustAccount.demo(rooms: 20, messagesPerRoom: 5)
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
-        let indexer = SearchIndexer(store: store, account: account, maxChats: 3) { report.yield($0) }
+        let indexer = SearchIndexer(store: store, account: Task { account }, maxChats: 3) { report.yield($0) }
 
         try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
@@ -83,7 +83,7 @@ struct MergedChatSearchTests {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-indexer-\(UUID().uuidString)/index.sqlite")
         let store = try await LocalStore.open(file: file, key: String(repeating: "ef", count: 32))
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
-        let indexer = SearchIndexer(store: store, account: session.account, maxChats: 1) { report.yield($0) }
+        let indexer = SearchIndexer(store: store, account: Task { [account = session.account] in try await account.value }, maxChats: 1) { report.yield($0) }
         try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
 
@@ -108,7 +108,7 @@ struct MessageSearchTests {
 
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-search-\(UUID().uuidString)/index.sqlite")
         let search = MessageSearch(store: try await LocalStore.open(file: file, key: String(repeating: "5e", count: 32)),
-                                   account: session.account, photos: file.deletingLastPathComponent(), maxChats: 3)
+                                   account: Task { [account = session.account] in try await account.value }, photos: file.deletingLastPathComponent(), maxChats: 3)
         let (read, token) = search.changes()
         var reports = 0
         let counting = search.progressChanges.observe { reports += 1 }
@@ -119,5 +119,30 @@ struct MessageSearchTests {
         await read.until { reports > filled }
         withExtendedLifetime((token, counting)) {}
         await search.stop()
+    }
+}
+
+/// The search index over its port alone: a made-up server with two chats, one message each.
+@Suite struct IndexSourcePortTests {
+    private struct Server: IndexSourcePort {
+        let now = Date()
+
+        func chats() async -> [ChatRow] {
+            [ChatRow(id: "!a", name: "Anna", preview: "", date: now), ChatRow(id: "!b", name: "Bob", preview: "", date: now)]
+        }
+        func indexHistory(roomId: String, since: Date, from: String?, maxPages: Int) async throws -> IndexHistoryPage {
+            IndexHistoryPage(messages: [IndexedMessage(eventId: "$\(roomId)", roomId: roomId, senderName: "Anna",
+                                                       body: "pizza in \(roomId)", date: now, isOwn: false)],
+                             reachedStart: true)
+        }
+    }
+
+    @Test func readsEveryChatsHistoryIntoTheIndex() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-indexer-\(UUID().uuidString)/index.sqlite")
+        let store = try await LocalStore.open(file: file, key: String(repeating: "ef", count: 32))
+        let indexer = SearchIndexer(store: store, account: Task { Server() }) { _ in }
+        try await leased { lease in await indexer.update(lease: lease) }
+        #expect(try await store.messageCount() == 2)
+        #expect(try await store.search("pizz").count == 2)
     }
 }

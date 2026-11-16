@@ -46,7 +46,7 @@ public final class PhotoSearch {
     /// The system's memory pressure: the text encoder goes when memory runs short.
     private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
 
-    init(store: LocalStore, account: Task<RustAccount, any Error>, directory: URL) {
+    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL) {
         self.store = store
         let (reports, report) = AsyncStream<PhotoIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
         indexer = PhotoIndexer(store: store, account: account, directory: directory, model: nil) { report.yield($0) }

@@ -20,7 +20,7 @@ public actor PhotoIndexer {
     private static let batch = 8
 
     private let store: LocalStore
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any MediaSourcePort, any Error>
     private let directory: URL
     private let report: @Sendable (Progress) -> Void
     private var reader: PhotoReader
@@ -29,7 +29,7 @@ public actor PhotoIndexer {
     /// after a stop.
     private var stops = 0
 
-    init(store: LocalStore, account: Task<RustAccount, any Error>, directory: URL, model: PhotoSearchModel?,
+    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, model: PhotoSearchModel?,
          report: @escaping @Sendable (Progress) -> Void) {
         self.store = store
         self.account = account
@@ -132,7 +132,7 @@ public actor PhotoIndexer {
 
     /// One photo read: downloaded into its own folder, read, and deleted.
     private func read(_ photo: (eventId: String, roomId: String), by reader: PhotoReader,
-                      from account: RustAccount, lease: ForegroundLease) async -> Outcome {
+                      from account: any MediaSourcePort, lease: ForegroundLease) async -> Outcome {
         let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { bestEffort("photo search: the photo's folder stays") { try FileManager.default.removeItemIfPresent(at: folder) } }
         do {

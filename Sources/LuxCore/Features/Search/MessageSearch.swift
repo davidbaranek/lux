@@ -16,7 +16,7 @@ public final class MessageSearch {
 
     private let store: LocalStore
     private let indexer: SearchIndexer
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any SearchSourcePort, any Error>
     private var following: Task<Void, Never>?
     /// What follows the index's progress: it ends with the search.
     private var listening: Task<Void, Never>?
@@ -24,13 +24,13 @@ public final class MessageSearch {
     private let work = ForegroundJobs()
 
     /// Search over `store`, filled from `account`; photos are downloaded to `photos` to be read.
-    init(store: LocalStore, account: Task<RustAccount, any Error>, photos directory: URL, maxChats: Int? = nil) {
+    init(store: LocalStore, account: Task<any SearchSourcePort, any Error>, photos directory: URL, maxChats: Int? = nil) {
         self.store = store
         self.account = account
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let indexer = SearchIndexer(store: store, account: account, maxChats: maxChats) { report.yield($0) }
+        let indexer = SearchIndexer(store: store, account: Task { try await account.value }, maxChats: maxChats) { report.yield($0) }
         self.indexer = indexer
-        let photos = PhotoSearch(store: store, account: account, directory: directory)
+        let photos = PhotoSearch(store: store, account: Task { try await account.value }, directory: directory)
         self.photos = photos
         let meaning = MessageMeaning(store: store)
         self.meaning = meaning

@@ -64,7 +64,7 @@ final class AccountSession {
         }
         opening = Task { [weak self, index = stores.index, kept = stores.kept, photos = paths.photoReading] in
             guard let index = await index.value, !Task.isCancelled else { return }
-            self?.search = MessageSearch(store: index, account: account, photos: photos, maxChats: maxChats)
+            self?.search = MessageSearch(store: index, account: Task { try await account.value }, photos: photos, maxChats: maxChats)
             await Self.clearOldIndex(in: kept, besides: index)
         }
     }

@@ -100,15 +100,15 @@ private func receipt(_ lines: [String]) throws -> URL {
 @Suite struct PhotoIndexerTests {
     @Test func readsEveryPhotoOfTheDemoOnce() async throws {
         let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
-        let account = Task<RustAccount, any Error> { RustAccount.demo(rooms: 20, messagesPerRoom: 60) }
+        let account = RustAccount.demo(rooms: 20, messagesPerRoom: 60)
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
-        let texts = SearchIndexer(store: store, account: account, maxChats: 2) { report.yield($0) }
+        let texts = SearchIndexer(store: store, account: Task { account }, maxChats: 2) { report.yield($0) }
         try await leased { lease in await texts.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
         let kept = try await store.imageCounts(reader: PhotoReader(model: nil).name)
         #expect(kept.total > 0 && kept.read == 0)
 
-        let photos = PhotoIndexer(store: store, account: account, directory: folder(), model: nil) { _ in }
+        let photos = PhotoIndexer(store: store, account: Task { account }, directory: folder(), model: nil) { _ in }
         #expect(try await leased { lease in await photos.read(limit: nil, lease: lease) })
         #expect(try await store.imageCounts(reader: PhotoReader(model: nil).name).withWords == kept.total)
         // nothing is left to read, and the downloads are gone.
