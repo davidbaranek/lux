@@ -1,8 +1,8 @@
 import AppKit
 import LuxCore
 
-/// Search: the index on this Mac (messages, and the photos read for their words), and whether
-/// photos are found by what they show too, by a model that reads them on this Mac.
+/// Search: the index on this Mac (messages, and the photos read for their words), and semantic
+/// search: photos found by what they show and messages by what they mean, by a model on this Mac.
 final class SearchSettingsController: NSViewController {
     private let model: SettingsModel
     private let index = NSTextField(labelWithString: "")
@@ -13,14 +13,15 @@ final class SearchSettingsController: NSViewController {
     private let photoSpinner = NSProgressIndicator()
     /// Stop, or read the waiting photos now; hidden when there is nothing to do.
     private lazy var photoAction = NSButton(title: "", target: self, action: #selector(photoActionClicked))
-    private lazy var looks = NSButton(checkboxWithTitle: String(localized: "Find photos by what they show"), target: self,
+    private lazy var looks = NSButton(checkboxWithTitle: String(localized: "Semantic search"), target: self,
                                       action: #selector(looksChanged))
     private let looksNote = NSTextField(wrappingLabelWithString: "")
     private var observation: AnyObject?
 
     private static let looksAbout = String(localized: """
-        Photos are always found by their words and the messages around them. This also finds them by what they \
-        show ("dog on the beach"), with a model of about 450 MB read on this Mac. Nothing leaves this Mac.
+        Search always finds words. This also finds photos by what they show ("dog on the beach") and messages by \
+        what they mean ("trip to the mountains"), with a model of about 450 MB read on this Mac. Nothing leaves \
+        this Mac.
         """)
 
     init(model: SettingsModel) {

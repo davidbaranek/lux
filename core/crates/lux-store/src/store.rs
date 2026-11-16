@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use lux_core::ids::{EventId, RoomId};
-use lux_core::timeline::{IndexedImage, IndexedMessage};
+use lux_core::timeline::{IndexedFile, IndexedImage, IndexedMessage};
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -15,14 +15,71 @@ use crate::connection::Worker;
 use crate::embedding;
 use crate::search::{Ranked, fuse, query, unmark};
 use crate::types::{from_millis, to_millis};
-use crate::{Error, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, Result, schema};
+use crate::{
+    Browse, Error, FileHit, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, LinkHit,
+    MessageEmbedding, Result, TextSearch, ThreadHit, schema,
+};
 
 /// Adds a message, or changes its text and sender (an edit keeps its event id); an unchanged
 /// message writes nothing, so the index does not grow its deleted rows.
 const UPSERT_MESSAGE: &str = "
-    INSERT INTO messages(event_id, room_id, sender, body, ts, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-    ON CONFLICT(event_id) DO UPDATE SET body = excluded.body, sender = excluded.sender
-    WHERE body != excluded.body OR sender != excluded.sender";
+    INSERT INTO messages(event_id, room_id, sender, body, ts, own, thread) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    ON CONFLICT(event_id) DO UPDATE SET body = excluded.body, sender = excluded.sender, thread = excluded.thread,
+        embedding = iif(body = excluded.body, embedding, NULL), embedder = iif(body = excluded.body, embedder, NULL)
+    WHERE body != excluded.body OR sender != excluded.sender OR thread IS NOT excluded.thread";
+
+/// The messages whose meaning is most like the query's embedding (`?1`), at least `?3` alike.
+const SEARCH_MEANING: &str = "
+    SELECT event_id, room_id, sender, body, ts, own, similarity(embedding, ?1) AS alike FROM messages
+    WHERE embedding IS NOT NULL AND (?2 IS NULL OR room_id = ?2) AND alike >= ?3
+    ORDER BY alike DESC LIMIT ?4";
+
+/// How long a found message's excerpt is when it was found by its meaning, not by its words.
+const MEANING_EXCERPT: usize = 160;
+
+/// Adds a file, or changes its name and sender.
+const UPSERT_FILE: &str = "
+    INSERT INTO files(event_id, room_id, sender, name, size, mimetype, ts, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+    ON CONFLICT(event_id) DO UPDATE SET name = excluded.name, sender = excluded.sender
+    WHERE name != excluded.name OR sender != excluded.sender";
+
+/// The photos, the newest first.
+const LIST_IMAGES: &str = "
+    SELECT event_id, room_id, sender, ts, own FROM images
+    WHERE ?1 IS NULL OR room_id = ?1 ORDER BY ts DESC LIMIT ?2 OFFSET ?3";
+
+/// The addresses messages sent, the newest first; with words (`?1`), those of the messages that
+/// have them.
+const LIST_LINKS: &str = "
+    SELECT m.event_id, m.room_id, m.sender, l.url, m.body, m.ts, m.own
+    FROM links l JOIN messages m ON m.event_id = l.event_id
+    WHERE (?1 IS NULL OR m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1))
+    AND (?2 IS NULL OR m.room_id = ?2)
+    ORDER BY m.ts DESC, l.url LIMIT ?3 OFFSET ?4";
+
+/// The files, the newest first; with words (`?1`), those whose name has them.
+const LIST_FILES: &str = "
+    SELECT event_id, room_id, sender, name, size, mimetype, ts, own FROM files
+    WHERE (?1 IS NULL OR id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?1))
+    AND (?2 IS NULL OR room_id = ?2)
+    ORDER BY ts DESC LIMIT ?3 OFFSET ?4";
+
+/// The threads, by their newest reply, the newest first: each with its root when the index holds
+/// it; with words (`?1`), those whose root or a reply has them.
+const LIST_THREADS: &str = "
+    WITH replies AS (
+        SELECT thread, room_id, count(*) AS replies, max(ts) AS latest FROM messages
+        WHERE thread IS NOT NULL AND (?2 IS NULL OR room_id = ?2)
+        AND (?1 IS NULL OR thread IN (
+            SELECT coalesce(m.thread, m.event_id) FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid
+            WHERE messages_fts MATCH ?1))
+        GROUP BY thread ORDER BY latest DESC LIMIT ?3 OFFSET ?4)
+    SELECT r.thread, r.room_id, root.sender, root.body, r.replies, newest.sender, newest.body, r.latest
+    FROM replies r
+    LEFT JOIN messages root ON root.event_id = r.thread
+    JOIN messages newest ON newest.id = (
+        SELECT id FROM messages WHERE thread = r.thread ORDER BY ts DESC LIMIT 1)
+    ORDER BY r.latest DESC";
 
 /// The messages that match, newest first, each with its text around the found words; the
 /// markers are `search::OPEN` and `search::CLOSE`.
@@ -116,6 +173,9 @@ impl Store {
                 let transaction = connection.transaction()?;
                 {
                     let mut statement = transaction.prepare_cached(UPSERT_MESSAGE)?;
+                    let mut forget_links = transaction.prepare_cached("DELETE FROM links WHERE event_id = ?1")?;
+                    let mut link =
+                        transaction.prepare_cached("INSERT OR IGNORE INTO links(event_id, url) VALUES (?1, ?2)")?;
                     for message in &messages {
                         statement.execute(params![
                             message.event_id.as_str(),
@@ -124,7 +184,13 @@ impl Store {
                             message.body,
                             to_millis(message.date),
                             message.is_own,
+                            message.thread.as_ref().map(EventId::as_str),
                         ])?;
+                        // an edit may have changed them.
+                        forget_links.execute([message.event_id.as_str()])?;
+                        for url in &message.links {
+                            link.execute(params![message.event_id.as_str(), url])?;
+                        }
                     }
                 }
                 transaction.commit()?;
@@ -133,8 +199,8 @@ impl Store {
             .await
     }
 
-    /// Removes messages (deleted in their chat), photos too; the index forgets their text and
-    /// what was read in them.
+    /// Removes messages (deleted in their chat), photos and files too; the index forgets their
+    /// text, links and what was read in them.
     ///
     /// # Errors
     /// SQLite's, or [`Error::Closed`].
@@ -148,9 +214,11 @@ impl Store {
                 {
                     let mut messages = transaction.prepare_cached("DELETE FROM messages WHERE event_id = ?1")?;
                     let mut images = transaction.prepare_cached("DELETE FROM images WHERE event_id = ?1")?;
+                    let mut files = transaction.prepare_cached("DELETE FROM files WHERE event_id = ?1")?;
                     for event in &events {
                         messages.execute([event.as_str()])?;
                         images.execute([event.as_str()])?;
+                        files.execute([event.as_str()])?;
                     }
                 }
                 transaction.commit()?;
@@ -185,6 +253,168 @@ impl Store {
                 }
                 transaction.commit()?;
                 Ok(())
+            })
+            .await
+    }
+
+    /// Adds files, or changes their names, in one transaction.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn add_files(&self, files: Vec<IndexedFile>) -> Result<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+        self.worker
+            .run(move |connection| {
+                let transaction = connection.transaction()?;
+                {
+                    let mut statement = transaction.prepare_cached(UPSERT_FILE)?;
+                    for file in &files {
+                        statement.execute(params![
+                            file.event_id.as_str(),
+                            file.room.as_str(),
+                            file.sender_name,
+                            file.name,
+                            file.size.and_then(|size| i64::try_from(size).ok()),
+                            file.mimetype,
+                            to_millis(file.date),
+                            file.is_own,
+                        ])?;
+                    }
+                }
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// The photos, the newest first, a page of them (`browse`'s words are not looked at: a search
+    /// by words is [`Store::search_images`]).
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn images(&self, browse: Browse) -> Result<Vec<ImageHit>> {
+        self.worker
+            .run(move |connection| {
+                let mut statement = connection.prepare_cached(LIST_IMAGES)?;
+                let rows = statement.query_map(
+                    params![browse.room_id.as_ref().map(RoomId::as_str), browse.limit, browse.offset],
+                    |row| {
+                        Ok(ImageHit {
+                            event_id: EventId::from(row.get::<_, String>(0)?),
+                            room_id: RoomId::from(row.get::<_, String>(1)?),
+                            sender_name: row.get(2)?,
+                            date: from_millis(row.get(3)?),
+                            is_own: row.get(4)?,
+                            reason: ImageReason::Listed,
+                        })
+                    },
+                )?;
+                Ok(rows.collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+
+    /// The web addresses messages sent, the newest first: all, or those of the messages with
+    /// every word of `browse.text`.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn links(&self, browse: Browse) -> Result<Vec<LinkHit>> {
+        let words = query(&browse.text);
+        self.worker
+            .run(move |connection| {
+                let mut statement = connection.prepare_cached(LIST_LINKS)?;
+                let rows = statement.query_map(
+                    params![
+                        words,
+                        browse.room_id.as_ref().map(RoomId::as_str),
+                        browse.limit,
+                        browse.offset
+                    ],
+                    |row| {
+                        Ok(LinkHit {
+                            event_id: EventId::from(row.get::<_, String>(0)?),
+                            room_id: RoomId::from(row.get::<_, String>(1)?),
+                            sender_name: row.get(2)?,
+                            url: row.get(3)?,
+                            text: row.get(4)?,
+                            date: from_millis(row.get(5)?),
+                            is_own: row.get(6)?,
+                        })
+                    },
+                )?;
+                Ok(rows.collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+
+    /// The files, the newest first: all, or those whose name has every word of `browse.text`.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn files(&self, browse: Browse) -> Result<Vec<FileHit>> {
+        let words = query(&browse.text);
+        self.worker
+            .run(move |connection| {
+                let mut statement = connection.prepare_cached(LIST_FILES)?;
+                let rows = statement.query_map(
+                    params![
+                        words,
+                        browse.room_id.as_ref().map(RoomId::as_str),
+                        browse.limit,
+                        browse.offset
+                    ],
+                    |row| {
+                        Ok(FileHit {
+                            event_id: EventId::from(row.get::<_, String>(0)?),
+                            room_id: RoomId::from(row.get::<_, String>(1)?),
+                            sender_name: row.get(2)?,
+                            name: row.get(3)?,
+                            size: row.get::<_, Option<i64>>(4)?.map(i64::unsigned_abs),
+                            mimetype: row.get(5)?,
+                            date: from_millis(row.get(6)?),
+                            is_own: row.get(7)?,
+                        })
+                    },
+                )?;
+                Ok(rows.collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+
+    /// The threads, by their newest reply, the newest first: all, or those whose root or a reply
+    /// has every word of `browse.text`.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn threads(&self, browse: Browse) -> Result<Vec<ThreadHit>> {
+        let words = query(&browse.text);
+        self.worker
+            .run(move |connection| {
+                let mut statement = connection.prepare_cached(LIST_THREADS)?;
+                let rows = statement.query_map(
+                    params![
+                        words,
+                        browse.room_id.as_ref().map(RoomId::as_str),
+                        browse.limit,
+                        browse.offset
+                    ],
+                    |row| {
+                        Ok(ThreadHit {
+                            root: EventId::from(row.get::<_, String>(0)?),
+                            room_id: RoomId::from(row.get::<_, String>(1)?),
+                            root_sender: row.get(2)?,
+                            root_text: row.get(3)?,
+                            replies: row.get(4)?,
+                            latest_sender: row.get(5)?,
+                            latest_text: row.get(6)?,
+                            latest: from_millis(row.get(7)?),
+                        })
+                    },
+                )?;
+                Ok(rows.collect::<rusqlite::Result<_>>()?)
             })
             .await
     }
@@ -377,7 +607,7 @@ impl Store {
         self.worker.release().await
     }
 
-    /// Forgets a chat's messages and photos: up to `until` (the chat was deleted then), or all of them and
+    /// Forgets a chat's messages, photos and files: up to `until` (the chat was deleted then), or all of them and
     /// how far the index read it (`None`: the chat is gone from the account's list).
     ///
     /// # Errors
@@ -390,6 +620,7 @@ impl Store {
                     for forget in [
                         "DELETE FROM messages WHERE room_id = ?1 AND ts <= ?2",
                         "DELETE FROM images WHERE room_id = ?1 AND ts <= ?2",
+                        "DELETE FROM files WHERE room_id = ?1 AND ts <= ?2",
                     ] {
                         transaction
                             .prepare_cached(forget)?
@@ -399,6 +630,7 @@ impl Store {
                     for forget in [
                         "DELETE FROM messages WHERE room_id = ?1",
                         "DELETE FROM images WHERE room_id = ?1",
+                        "DELETE FROM files WHERE room_id = ?1",
                     ] {
                         transaction.prepare_cached(forget)?.execute([room_id.as_str()])?;
                     }
@@ -475,31 +707,137 @@ impl Store {
             .await
     }
 
-    /// The messages with every word of `text`, each word matched by its start, without case or
-    /// accents; the newest first, at most `limit`. `room_id` keeps one chat's.
+    /// The messages with every word of `search.text`, each word matched by its start, without
+    /// case or accents, the newest first; and, with the words' embedding, those whose meaning is
+    /// like the words', the most alike first: the two merged, a message found by both first. At
+    /// most `search.limit`; `search.room_id` keeps one chat's.
     ///
     /// # Errors
     /// SQLite's, or [`Error::Closed`].
-    pub async fn search(&self, text: &str, room_id: Option<RoomId>, limit: u32) -> Result<Vec<Hit>> {
-        let Some(query) = query(text) else {
+    pub async fn search(&self, search: TextSearch) -> Result<Vec<Hit>> {
+        let words = query(&search.text);
+        if words.is_none() && search.embedding.is_none() {
             return Ok(Vec::new());
-        };
+        }
         self.worker
             .run(move |connection| {
-                let mut statement = connection.prepare_cached(SEARCH)?;
-                let rows = statement.query_map(params![query, room_id.as_ref().map(RoomId::as_str), limit], |row| {
-                    let (excerpt, matches) = unmark(&row.get::<_, String>(3)?);
-                    Ok(Hit {
-                        event_id: EventId::from(row.get::<_, String>(0)?),
-                        room_id: RoomId::from(row.get::<_, String>(1)?),
-                        sender_name: row.get(2)?,
-                        excerpt,
-                        matches,
-                        date: from_millis(row.get(4)?),
-                        is_own: row.get(5)?,
-                    })
+                let room = search.room_id.as_ref().map(RoomId::as_str);
+                let mut rankings: Vec<Ranked<Hit>> = Vec::with_capacity(2);
+                if let Some(words) = &words {
+                    let mut statement = connection.prepare_cached(SEARCH)?;
+                    let rows = statement.query_map(params![words, room, search.limit], |row| {
+                        let (excerpt, matches) = unmark(&row.get::<_, String>(3)?);
+                        hit(row, excerpt, matches)
+                    })?;
+                    rankings.push(ranked(rows)?);
+                }
+                if let Some(embedding) = &search.embedding {
+                    let mut statement = connection.prepare_cached(SEARCH_MEANING)?;
+                    let rows = statement.query_map(
+                        params![
+                            embedding::query_bytes(embedding),
+                            room,
+                            f64::from(search.min_similarity),
+                            search.limit
+                        ],
+                        |row| {
+                            let body: String = row.get(3)?;
+                            let excerpt = match body.char_indices().nth(MEANING_EXCERPT) {
+                                Some((end, _)) => format!("{}…", &body[..end]),
+                                None => body,
+                            };
+                            hit(row, excerpt, Vec::new())
+                        },
+                    )?;
+                    rankings.push(ranked(rows)?);
+                }
+                if rankings.len() == 1 {
+                    return Ok(rankings.remove(0).into_iter().map(|(_, hit)| hit).collect());
+                }
+                Ok(fuse(rankings, search.limit as usize))
+            })
+            .await
+    }
+
+    /// Messages the index has not read the meaning of, the newest first, at most `limit`: each
+    /// with its text. A message shorter than `min_chars` is left (too little to mean).
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn messages_to_embed(&self, min_chars: u32, limit: u32) -> Result<Vec<(EventId, String)>> {
+        self.worker
+            .run(move |connection| {
+                let mut statement = connection.prepare_cached(
+                    "SELECT event_id, body FROM messages WHERE embedder IS NULL AND length(body) >= ?1 \
+                     ORDER BY ts DESC LIMIT ?2",
+                )?;
+                let rows = statement.query_map(params![min_chars, limit], |row| {
+                    Ok((EventId::from(row.get::<_, String>(0)?), row.get(1)?))
                 })?;
                 Ok(rows.collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+
+    /// Keeps what a model read of messages' meaning, in one transaction.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn set_message_embeddings(&self, embeddings: Vec<MessageEmbedding>) -> Result<()> {
+        if embeddings.is_empty() {
+            return Ok(());
+        }
+        self.worker
+            .run(move |connection| {
+                let transaction = connection.transaction()?;
+                {
+                    let mut statement = transaction
+                        .prepare_cached("UPDATE messages SET embedding = ?2, embedder = ?3 WHERE event_id = ?1")?;
+                    for read in &embeddings {
+                        statement.execute(params![
+                            read.event_id.as_str(),
+                            read.embedding.as_deref().map(embedding::kept),
+                            read.embedder,
+                        ])?;
+                    }
+                }
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Forgets the messages' embeddings but `keep`'s (the model that reads them now): search by
+    /// meaning was turned off (`None`), or another model reads them again.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn forget_message_embeddings(&self, keep: Option<String>) -> Result<()> {
+        self.worker
+            .run(move |connection| {
+                connection
+                    .prepare_cached(
+                        "UPDATE messages SET embedding = NULL, embedder = NULL \
+                         WHERE embedder IS NOT NULL AND embedder IS NOT ?1",
+                    )?
+                    .execute([keep])?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// How many messages are long enough to have a meaning (`min_chars`), and how many of them the
+    /// index has read the meaning of.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn embedding_counts(&self, min_chars: u32) -> Result<(u64, u64)> {
+        self.worker
+            .run(move |connection| {
+                let counts: (i64, i64) = connection
+                    .prepare_cached("SELECT count(*), count(embedder) FROM messages WHERE length(body) >= ?1")?
+                    .query_row([min_chars], |row| Ok((row.get(0)?, row.get(1)?)))?;
+                Ok((counts.0.unsigned_abs(), counts.1.unsigned_abs()))
             })
             .await
     }
@@ -596,6 +934,29 @@ fn image_hits(
         hits.push((event_id, hit));
     }
     Ok(hits)
+}
+
+/// A found message from its row: event, room, sender, (text), date, own.
+fn hit(row: &rusqlite::Row<'_>, excerpt: String, matches: Vec<std::ops::Range<u32>>) -> rusqlite::Result<Hit> {
+    Ok(Hit {
+        event_id: EventId::from(row.get::<_, String>(0)?),
+        room_id: RoomId::from(row.get::<_, String>(1)?),
+        sender_name: row.get(2)?,
+        excerpt,
+        matches,
+        date: from_millis(row.get(4)?),
+        is_own: row.get(5)?,
+    })
+}
+
+/// Found messages as a ranking to merge, by their event ids.
+fn ranked(rows: impl Iterator<Item = rusqlite::Result<Hit>>) -> Result<Ranked<Hit>> {
+    let mut ranking = Vec::new();
+    for hit in rows {
+        let hit = hit?;
+        ranking.push((hit.event_id.to_string(), hit));
+    }
+    Ok(ranking)
 }
 
 /// The SQL function `covers(asked, reader)`: whether what `reader` read of a photo is all that

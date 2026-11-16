@@ -62,6 +62,40 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE chats ADD COLUMN older TEXT;
     UPDATE chats SET complete = 0;
     ",
+    // 4: what search lists besides messages and photos: the web addresses in messages, the
+    // files, and the thread each message replies in; and each message's embedding, for search
+    // by meaning, with the model that made it. Every chat is read again for them.
+    "
+    ALTER TABLE messages ADD COLUMN thread TEXT;
+    ALTER TABLE messages ADD COLUMN embedding BLOB;
+    ALTER TABLE messages ADD COLUMN embedder TEXT;
+    CREATE INDEX messages_to_embed ON messages(ts) WHERE embedder IS NULL;
+    CREATE INDEX messages_by_thread ON messages(thread) WHERE thread IS NOT NULL;
+    CREATE TABLE links(event_id TEXT NOT NULL, url TEXT NOT NULL, PRIMARY KEY(event_id, url)) WITHOUT ROWID;
+    CREATE TRIGGER messages_removed_links AFTER DELETE ON messages BEGIN
+        DELETE FROM links WHERE event_id = old.event_id;
+    END;
+    CREATE TABLE files(
+        id INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, room_id TEXT NOT NULL,
+        sender TEXT NOT NULL, name TEXT NOT NULL, size INTEGER, mimetype TEXT,
+        ts INTEGER NOT NULL, own INTEGER NOT NULL);
+    CREATE INDEX files_by_room ON files(room_id, ts);
+    CREATE INDEX files_by_time ON files(ts);
+    CREATE VIRTUAL TABLE files_fts USING fts5(
+        name, content='files', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2', prefix='2 3');
+    CREATE TRIGGER files_added AFTER INSERT ON files BEGIN
+        INSERT INTO files_fts(rowid, name) VALUES (new.id, new.name);
+    END;
+    CREATE TRIGGER files_removed AFTER DELETE ON files BEGIN
+        INSERT INTO files_fts(files_fts, rowid, name) VALUES ('delete', old.id, old.name);
+    END;
+    CREATE TRIGGER files_changed AFTER UPDATE OF name ON files BEGIN
+        INSERT INTO files_fts(files_fts, rowid, name) VALUES ('delete', old.id, old.name);
+        INSERT INTO files_fts(rowid, name) VALUES (new.id, new.name);
+    END;
+    DELETE FROM chats;
+    ",
 ];
 
 /// Brings the file's schema up to this version's, each migration in its own transaction.

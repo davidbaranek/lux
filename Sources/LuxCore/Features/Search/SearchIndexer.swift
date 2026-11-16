@@ -145,14 +145,16 @@ public actor SearchIndexer {
                 // photos are kept from the start: turning photo search on reads them, with no
                 // walk back through every chat again.
                 try await store.addImages(page.images)
+                try await store.addFiles(page.files)
                 try await store.remove(page.removed)
-                let newest = [page.messages.map(\.date).max(), page.images.map(\.date).max(), room.date, indexed?.newest]
+                let newest = [page.messages.map(\.date).max(), page.images.map(\.date).max(), page.files.map(\.date).max(),
+                              room.date, indexed?.newest]
                     .compactMap(\.self).max() ?? .distantPast
                 var chat = indexed ?? IndexedChat(newest: newest, complete: false)
                 chat.newest = newest
                 if walksBack {
                     // how far back it is read now, and where a walk further back goes on.
-                    let read = page.messages.map(\.date) + page.images.map(\.date)
+                    let read = page.messages.map(\.date) + page.images.map(\.date) + page.files.map(\.date)
                     chat.complete = page.reachedStart || page.deletedUntil != nil
                     chat.oldest = page.reachedSince ? horizon : (read + [chat.oldest].compactMap(\.self)).min()
                     chat.older = page.older

@@ -21,7 +21,10 @@ mod types;
 pub use error::Error;
 pub use key::Key;
 pub use store::Store;
-pub use types::{Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat};
+pub use types::{
+    Browse, FileHit, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, LinkHit,
+    MessageEmbedding, TextSearch, ThreadHit,
+};
 
 /// What the store's calls return.
 pub type Result<T, E = Error> = std::result::Result<T, E>;

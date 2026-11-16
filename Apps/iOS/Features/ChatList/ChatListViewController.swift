@@ -12,6 +12,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     let model: ChatListModel
     private let signOut: () -> Void
     private lazy var searchModel = SearchModel(session: session)
+    /// Search's own navigation: the results, and a kind's list over them.
+    private let resultsNavigation = UINavigationController()
     private var rows: [String: ChatRow] = [:]
     private var shownFirst = false
     /// The first sync's progress, over the top of the list.
@@ -54,10 +56,19 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         })
         navigationItem.leftBarButtonItem?.accessibilityLabel = String(localized: "Settings")
 
-        let results = SearchResultsViewController(images: session.images) { [weak self] row, focusEvent in
-            self?.open(row, focusEvent: focusEvent)
+        let results = SearchResultsViewController(images: session.images, open: { [weak self] target in
+            self?.open(target)
+        }, showAll: { [weak self] kind in
+            self?.showAll(kind)
+        })
+        // a kind's list ("Show All") is pushed within search, which the field then searches.
+        resultsNavigation.setViewControllers([results], animated: false)
+        results.onAppear = { [weak self] in
+            guard let self, let field = navigationItem.searchController?.searchBar else { return }
+            field.placeholder = String(localized: "Search")
+            searchModel.search(field.text ?? "")
         }
-        let search = UISearchController(searchResultsController: results)
+        let search = UISearchController(searchResultsController: resultsNavigation)
         search.searchResultsUpdater = self
         search.searchBar.placeholder = String(localized: "Search")
         navigationItem.searchController = search
@@ -305,7 +316,14 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             if LaunchOptions.isBenchmark { benchmark(new) }
         } else {
             snapshot.reconfigureItems(changed)
-            dataSource.apply(snapshot, animatingDifferences: samePlace && view.window != nil)
+            if samePlace || view.window == nil {
+                dataSource.apply(snapshot, animatingDifferences: view.window != nil)
+            } else {
+                // another place: its chats cross-fade in, quickly, in place of the last one's.
+                UIView.transition(with: collectionView, duration: 0.18, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+                    self.dataSource.applySnapshotUsingReloadData(snapshot)
+                }
+            }
         }
         Signposts.list.endInterval("apply", state, "\(changed.count) changed")
     }
@@ -502,6 +520,25 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         }
     }
 
+    /// A search result: its chat (at its message), its thread, or a link's page.
+    private func open(_ target: SearchTarget) {
+        switch target {
+        case .chat(let row, let focusEvent): open(row, focusEvent: focusEvent)
+        case .thread(let row, let thread): open(row, thread: thread)
+        case .link(let url): UIApplication.shared.open(url)
+        }
+    }
+
+    /// One kind of what chats shared, all of it, on its own page within search: the field
+    /// searches it, starting with the words typed; back returns to the results.
+    private func showAll(_ kind: SearchKind) {
+        let list = SearchListViewController(model: searchModel.list(kind), images: session.images) { [weak self] target in
+            self?.open(target)
+        }
+        resultsNavigation.pushViewController(list, animated: true)
+        navigationItem.searchController?.searchBar.placeholder = String(localized: "Search \(kind.title)")
+    }
+
     private func open(_ row: ChatRow, focusEvent: String? = nil, thread: MatrixThread? = nil) {
         let chat = ThreadViewController(session: session, row: row, theme: model.theme, list: model, focusEvent: focusEvent)
         navigationController?.pushViewController(chat, animated: thread == nil)
@@ -530,6 +567,18 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     func updateSearchResults(for searchController: UISearchController) {
         // the field took the focus: photo search gets ready before the first letter.
         if searchController.isActive { searchModel.prepare() }
+        // the results show from the field's first focus: what chats shared lately, before words.
+        searchController.showsSearchResultsController = searchController.isActive
+        // search closed: it opens on its results next time.
+        if !searchController.isActive {
+            searchModel.close()
+            if resultsNavigation.viewControllers.count > 1 { resultsNavigation.popToRootViewController(animated: false) }
+        }
+        // while a kind's list shows, the field searches it.
+        if let list = resultsNavigation.topViewController as? SearchListViewController {
+            list.search(searchController.searchBar.text ?? "")
+            return
+        }
         searchModel.search(searchController.searchBar.text ?? "")
     }
 

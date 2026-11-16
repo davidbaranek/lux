@@ -43,6 +43,12 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         addSplitViewItem(inspectorItem)
         self.inspectorItem = inspectorItem
         sidebarController.onOpen = { [weak self] row, focusEvent in self?.open(row, focusEvent: focusEvent) }
+        // a thread search found: its chat, and the thread beside it.
+        sidebarController.onOpenThread = { [weak self] row, thread in
+            guard let self else { return }
+            if openRow?.id != row.id { open(row) }
+            showThread(thread)
+        }
         sidebarController.onPlaceTitle = { [weak self] title in self?.placeLabel.stringValue = title }
         sidebarController.onTheme = { [weak self] theme in
             self?.detail.theme = theme
@@ -56,6 +62,9 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    /// What the keyboard starts at when the window opens: the chats.
+    var initialFocus: NSView { sidebarController.initialFocus }
 
     override func viewDidLayout() {
         super.viewDidLayout()
