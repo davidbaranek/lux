@@ -164,7 +164,7 @@ fn build_apple(profile: &str, targets: &[Target]) -> Result<()> {
     let bindings = generated.join("bindings");
     generate(GenerateOptions {
         languages: vec![TargetLanguage::Swift],
-        source: libraries[0].clone(),
+        source: libraries.first().cloned().ok_or("no library was built")?,
         out_dir: bindings.clone(),
         ..GenerateOptions::default()
     })?;
@@ -314,7 +314,9 @@ fn crate_of(member: &str) -> &str {
     member
         .split_once('-')
         .filter(|(_, rest)| {
-            rest.len() > 16 && rest.as_bytes()[16] == b'.' && rest[..16].bytes().all(|byte| byte.is_ascii_hexdigit())
+            rest.split_at_checked(16).is_some_and(|(hash, after)| {
+                after.starts_with('.') && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
         })
         .map_or(member, |(name, _)| name)
 }

@@ -335,8 +335,9 @@ impl BridgedPost {
     fn of(event: &Raw<AnySyncTimelineEvent>) -> Option<Self> {
         let content = event.get_field::<serde_json::Value>("content").ok().flatten()?;
         let text = |key: &str| {
-            content[key]
-                .as_str()
+            content
+                .get(key)
+                .and_then(serde_json::Value::as_str)
                 .map(str::trim)
                 .filter(|text| !text.is_empty())
                 .map(str::to_owned)
@@ -377,7 +378,7 @@ fn without_address<'a>(body: &'a str, url: &str) -> Option<&'a str> {
     let body = body.trim_end();
     let last = body.rsplit(char::is_whitespace).next()?;
     let shortened = last.starts_with("http") && url.starts_with(last.trim_end_matches('/'));
-    (last == url || shortened).then(|| body[..body.len() - last.len()].trim_end())
+    (last == url || shortened).then(|| body.strip_suffix(last).unwrap_or(body).trim_end())
 }
 
 /// A message's text (its formatted body's when it has formatting), media and runs.

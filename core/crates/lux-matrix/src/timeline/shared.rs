@@ -44,11 +44,13 @@ pub(crate) async fn page(room: &Room, from: Option<&str>) -> Result<SharedPage, 
         if contents.is_empty() {
             continue;
         }
-        if !names.contains_key(&event.sender) {
+        let sender_name = if let Some(name) = names.get(&event.sender) {
+            name.clone()
+        } else {
             let name = member_name(room, &event.sender).await;
-            names.insert(event.sender.clone(), name);
-        }
-        let sender_name = names[&event.sender].clone();
+            names.insert(event.sender.clone(), name.clone());
+            name
+        };
         let event_id = EventId::from(event.event_id.as_str());
         let date = system_time(event.origin_server_ts);
         items.extend(contents.into_iter().map(|content| SharedItem {

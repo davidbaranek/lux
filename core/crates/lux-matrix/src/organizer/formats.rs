@@ -154,7 +154,7 @@ pub(crate) fn merges(content: &Content) -> Vec<Merge> {
             let chosen = text(merge, "default").map(RoomId::from);
             let default_room = chosen
                 .filter(|room| rooms.contains(room))
-                .unwrap_or_else(|| rooms[0].clone());
+                .or_else(|| rooms.first().cloned())?;
             Some(Merge {
                 id: text(merge, "id")?.into(),
                 name: text(merge, "name").unwrap_or_default().to_owned(),
