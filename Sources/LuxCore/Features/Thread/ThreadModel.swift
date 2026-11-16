@@ -1,6 +1,6 @@
 import Foundation
 
-/// One chat's messages, oldest first, as the core's view model of the thread (`ThreadCore`)
+/// One chat's messages, oldest first, as the core's view model of the thread (`ThreadView`)
 /// decides them: it follows the chat's rooms (one, or a merged chat's, shown as one conversation
 /// or one room alone), presents the rows, picks where a new message goes (`sendRoom`), and keeps
 /// the composer's mode, the read state and who is typing. This model applies its batches on the
@@ -43,12 +43,12 @@ public final class ThreadModel {
     }
     public var onLoading: ((Bool) -> Void)?
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any ThreadPort, any Error>
     private weak var session: Session?
     /// The core's thread, once it opened; the intents before wait for it, in order.
-    private var core: ThreadCore?
-    private var waiting: [(ThreadCore) -> Void] = []
-    private var opening: Task<ThreadCore?, Never>?
+    private var core: (any ThreadView)?
+    private var waiting: [(any ThreadView) -> Void] = []
+    private var opening: Task<(any ThreadView)?, Never>?
     private var following: Task<Void, Never>?
     /// Older messages were asked for and no frame came since: scrolling asks once.
     private var olderAsked = false
@@ -62,7 +62,7 @@ public final class ThreadModel {
         defaultRoom = thread?.roomId ?? row.defaultRoom ?? row.chatRooms[0].id
         sendRoom = defaultRoom
         self.session = session
-        account = session.account
+        account = Task { [account = session.account] in try await account.value }
         let receipts = Preferences.shared.readReceipts(in: row.id)
         opening = Task { [weak self, account] in
             do {
@@ -80,7 +80,7 @@ public final class ThreadModel {
         following?.cancel()
     }
 
-    private func opened(_ core: ThreadCore) {
+    private func opened(_ core: any ThreadView) {
         self.core = core
         following = Task { [weak self, events = core.events] in
             for await event in events {
@@ -93,18 +93,18 @@ public final class ThreadModel {
     }
 
     /// Runs `action` on the core's thread now, or once it opened.
-    private func withCore(_ action: @escaping (ThreadCore) -> Void) {
+    private func withCore(_ action: @escaping (any ThreadView) -> Void) {
         if let core { action(core) } else { waiting.append(action) }
     }
 
-    private func openedCore() async -> ThreadCore? {
+    private func openedCore() async -> (any ThreadView)? {
         if let core { return core }
         return await opening?.value
     }
 
     // MARK: The core's frames
 
-    private func handle(_ event: ThreadCore.Event) {
+    private func handle(_ event: ThreadEvent) {
         switch event {
         case .update(let batch): apply(batch)
         case .upload(let files, let roomId, let threadRoot, let caption, let replyTo):
@@ -113,7 +113,7 @@ public final class ThreadModel {
         }
     }
 
-    private func apply(_ batch: ThreadCore.Batch) {
+    private func apply(_ batch: ThreadBatch) {
         let interval = Signposts.thread.beginInterval("messages")
         let unreadBefore = firstUnreadId
         // the state first: the rows are measured with its first unread message.
@@ -160,7 +160,7 @@ public final class ThreadModel {
         if !first, let found = firstUnreadId, found != unreadBefore { onFirstUnread?(found) }
     }
 
-    private func apply(_ state: ThreadCore.State) {
+    private func apply(_ state: ThreadState) {
         firstUnreadId = state.firstUnread
         isAtStart = state.isAtStart
         olderAllowed = state.canLoadOlder
