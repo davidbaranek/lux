@@ -24,7 +24,10 @@ final class SmokeTests: XCTestCase {
         alive("launch")
         chats.cells.element(boundBy: 1).tap()
         reach(app.collectionViews["messages"].cells.firstMatch, "a chat's messages")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        // the back button by its identifier: the bar's first button can be the chat's title.
+        let back = app.navigationBars.buttons["BackButton"].firstMatch
+        reach(back, "the chat's back button")
+        back.tap()
         reach(chats, "the chat list, back from the chat")
 
         // search: the toolbar's button, a query, its results.
