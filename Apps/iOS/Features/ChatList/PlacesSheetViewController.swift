@@ -21,6 +21,8 @@ final class PlacesSheetViewController: UIViewController, UICollectionViewDelegat
     private let choose: (Place) -> Void
     private let pinsChanged: () -> Void
     private var items: [Place: PlaceItem] = [:]
+    /// Spaces' pictures loading: they end with the sheet.
+    private let pictures = TaskBag()
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Group, Place>!
     private var observer: AnyObject?
@@ -261,7 +263,7 @@ final class PlacesSheetViewController: UIViewController, UICollectionViewDelegat
             if let cached = images.cached(ref, pixels: pixels) {
                 return UIImage(cgImage: cached, scale: traitCollection.displayScale, orientation: .up)
             }
-            Task { [weak self] in
+            pictures.run { [weak self] in
                 guard await images.image(ref, pixels: pixels) != nil, let self else { return }
                 var snapshot = dataSource.snapshot()
                 guard snapshot.indexOfItem(place) != nil else { return }

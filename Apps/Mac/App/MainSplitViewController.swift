@@ -18,6 +18,8 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         get { sidebarController.onBadge }
         set { sidebarController.onBadge = newValue }
     }
+    /// The window's own work (a notification's chat, waiting for the list): it ends with the window.
+    private let tasks = TaskBag()
     private let detail = ChatContainerController()
     private let inspector = InspectorController()
     private var inspectorItem: NSSplitViewItem!
@@ -184,16 +186,12 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
     /// else the room's own; a thread's reply, with the thread beside it. Right after launch the
     /// account's chats may not have come yet: it waits for them a few seconds.
     func openChat(roomId: String, thread: String? = nil) {
-        Task { [weak self] in
-            for _ in 0..<20 {
-                guard let self, session.isSignedIn else { return }
-                if let row = await session.chat(ofRoom: roomId) {
-                    if openRow?.id != row.id { open(row) }
-                    if let thread { showThread(MatrixThread(roomId: roomId, rootEventId: thread)) }
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(250))
-            }
+        guard session.isSignedIn else { return }
+        // a newer notification's chat replaces one still waiting for the list.
+        tasks.run("notification") { [weak self, listModel] in
+            guard let row = await listModel.chat(ofRoom: roomId), let self else { return }
+            if openRow?.id != row.id { open(row) }
+            if let thread { showThread(MatrixThread(roomId: roomId, rootEventId: thread)) }
         }
     }
 

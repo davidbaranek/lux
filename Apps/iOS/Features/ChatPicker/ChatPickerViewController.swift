@@ -52,7 +52,7 @@ final class ChatPickerViewController: UIViewController, UICollectionViewDelegate
             self?.rows = sections.flatMap(\.rows)
             self?.update()
         }
-        Task { await model.reload() }
+        model.reload()
     }
 
     func updateSearchResults(for searchController: UISearchController) {

@@ -7,19 +7,20 @@ import UIKit
 /// the places (the Mac's rail: the inbox, the archive and the current place, every place behind the
 /// chevron) and the search.
 final class ChatListViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
-    UISearchResultsUpdating {
+    UISearchResultsUpdating, ChatListScreen {
     let session: Session
-    let model: ChatListModel
+    /// The list's logic, shared with the Mac: updates, the activity bubble.
+    private let presenter: ChatListPresenter
+    var model: ChatListModel { presenter.model }
+    /// The list's own work (a new chat, the welcome, notifications' chats): it ends with the list.
+    let tasks = TaskBag()
     private let signOut: () -> Void
     private lazy var searchModel = SearchModel(session: session)
     /// Search's own navigation: the results, and a kind's list over them.
     private let resultsNavigation = UINavigationController()
     private var rows: [String: ChatRow] = [:]
-    private var shownFirst = false
     /// The first sync's progress, over the top of the list.
     private let loading = LoadingBubble(text: String(localized: "Loading chats…"))
-    /// The place the list showed last: another place replaces the list at once, with no animation.
-    private var shownPlace: Place?
     private var indexProgress: AnyObject?
     private var searchOpened: AnyObject?
     private var collectionView: UICollectionView!
@@ -39,7 +40,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         self.session = session
         self.badge = badge
         self.signOut = signOut
-        model = ChatListModel(session: session)
+        presenter = ChatListPresenter(session: session, model: ChatListModel(session: session))
         super.init(nibName: nil, bundle: nil)
         title = String(localized: "Chats")
     }
@@ -80,16 +81,10 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         searchOpened = session.searchChanges.observe { [weak self, weak results] in
             guard let self, let search = session.search else { return }
             results?.showProgress(search.progress)
-            indexProgress = search.progressChanges.observe { [weak self, weak results, weak search] in
-                results?.showProgress(search?.progress)
-                self?.updateActivity()
-            }
+            indexProgress = search.progressChanges.observe { [weak results, weak search] in results?.showProgress(search?.progress) }
         }
         if let search = session.search {
-            indexProgress = search.progressChanges.observe { [weak self, weak results, weak search] in
-                results?.showProgress(search?.progress)
-                self?.updateActivity()
-            }
+            indexProgress = search.progressChanges.observe { [weak results, weak search] in results?.showProgress(search?.progress) }
         }
 
         // a space's own spaces head their chats (Discord's categories); other sections have no header.
@@ -141,10 +136,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         collectionView.accessibilityIdentifier = "chats"
         // the action's sender is not the control here: end the control the list owns.
         collectionView.refreshControl = UIRefreshControl(frame: .zero, primaryAction: UIAction { [weak self] _ in
-            Task {
-                await self?.model.reload()
-                self?.collectionView.refreshControl?.endRefreshing()
-            }
+            self?.model.reload()
+            self?.collectionView.refreshControl?.endRefreshing()
         })
         collectionView.backgroundColor = .systemBackground
         collectionView.addSubview(band)
@@ -186,21 +179,18 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
 
         // the bubble sits in the top bar, between Settings and New Message: nothing in the list moves.
         navigationItem.titleView = loading
-        loading.set(visible: true)
-        model.onLoadState = { [weak self] _ in self?.updateActivity() }
-        model.onUpdate = { [weak self] sections, changed in self?.show(sections, changed: changed) }
         model.onPlaces = { [weak self] places in
             if let inbox = places.first(where: { $0.id == .inbox }) { self?.badge(inbox.unread) }
             self?.updatePlaces()
             self?.placesSheet?.show(places)
         }
         model.onError = { [weak self] error in self?.report(error, of: "chat list") }
-        networksObservation = session.networks?.changes.observe { [weak self] in self?.updateActivity() }
-        Task { await model.reload() }
-        Task {
+        presenter.screen = self
+        presenter.start()
+        tasks.run { [weak self] in
             // encryption first: the networks' welcome waits until this device can read.
-            await offerEncryptionSetup()
-            welcomeToNetworks()
+            await self?.offerEncryptionSetup()
+            await self?.welcomeToNetworks()
         }
     }
 
@@ -222,22 +212,15 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
 
     /// The bubble says what the app is doing (connecting, updating chats, preparing search) and how
     /// far it is.
-    private func updateActivity() {
-        let activity = ListActivity.describe(model.loadState, search: session.search?.progress,
-                                             networks: session.networks?.attention ?? [])
+    func showActivity(_ activity: ListActivity?, toggles: Bool) {
         if let activity {
             loading.text = activity.title
             loading.detail = activity.detail
             loading.isWarning = activity.isWarning
             loading.onTap = activity.action.map { action in { [weak self] in self?.perform(action) } }
         }
-        guard (activity != nil) != bubbleShown else { return }
-        bubbleShown = activity != nil
-        loading.set(visible: bubbleShown)
+        if toggles { loading.set(visible: activity != nil) }
     }
-
-    private var bubbleShown = true
-    private var networksObservation: AnyObject?
 
     /// The bubble's tap: a network's chats while its history arrives, a sign-in for one signed out.
     private func perform(_ action: ListActivity.Action) {
@@ -273,50 +256,42 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     /// After signing in, once: the server's networks, to pick the ones to bring.
-    private func welcomeToNetworks() {
+    private func welcomeToNetworks() async {
         guard let networks = session.networks else { return }
-        Task {
-            // the bubble tells of a network signed out, too.
-            await networks.load()
-            let welcomed = Preferences.shared.networksWelcomed && !LaunchOptions.showsNetworksWelcome
-            guard !welcomed, !LaunchOptions.isDemo || LaunchOptions.showsNetworksWelcome, presentedViewController == nil else { return }
-            // the demo never marks the account's welcome as shown.
-            if !LaunchOptions.isDemo { Preferences.shared.networksWelcomed = true }
-            // a server with networks the account already has, or none at all after a restore: nothing to welcome to.
-            guard !networks.offered.isEmpty, networks.hasNoLogins else { return }
-            let welcome = UINavigationController(rootViewController: NetworksViewController(model: networks, mode: .welcome))
-            welcome.navigationBar.prefersLargeTitles = true
-            present(welcome, animated: true)
-        }
+        // the bubble tells of a network signed out, too.
+        await networks.load()
+        let welcomed = Preferences.shared.networksWelcomed && !LaunchOptions.showsNetworksWelcome
+        guard !welcomed, !LaunchOptions.isDemo || LaunchOptions.showsNetworksWelcome, presentedViewController == nil else { return }
+        // the demo never marks the account's welcome as shown.
+        if !LaunchOptions.isDemo { Preferences.shared.networksWelcomed = true }
+        // a server with networks the account already has, or none at all after a restore: nothing to welcome to.
+        guard !networks.offered.isEmpty, networks.hasNoLogins else { return }
+        let welcome = UINavigationController(rootViewController: NetworksViewController(model: networks, mode: .welcome))
+        welcome.navigationBar.prefersLargeTitles = true
+        present(welcome, animated: true)
     }
 
-    private func show(_ sections: [ChatSection], changed: [String]) {
-        let first = !shownFirst
-        shownFirst = true
-        let samePlace = shownPlace == model.place
-        shownPlace = model.place
-        let new = sections.flatMap(\.rows)
+    func show(_ update: ChatListUpdate) {
+        let sections = update.sections, first = update.isFirst
         // a grid item has its own id: a chat moving into the grid or out of it is a new item with
         // the other kind of cell, not the old cell configured again.
         func itemId(_ row: ChatRow, in section: ChatSection) -> String { section.style == .grid ? Self.gridPrefix + row.id : row.id }
         rows = Dictionary(sections.flatMap { section in section.rows.map { (itemId($0, in: section), $0) } },
                           uniquingKeysWith: { first, _ in first })
-        titles = Dictionary(sections.compactMap { section in section.title.map { (section.id, $0) } }, uniquingKeysWith: { first, _ in first })
-        gridSections = Set(sections.filter { $0.style == .grid }.map(\.id))
+        titles = update.titles
+        gridSections = update.gridSections
         var snapshot = NSDiffableDataSourceSnapshot<String, String>()
         for section in sections {
             snapshot.appendSections([section.id])
             snapshot.appendItems(section.rows.map { itemId($0, in: section) }, toSection: section.id)
         }
-        let changed = changed.flatMap { [$0, Self.gridPrefix + $0] }.filter { snapshot.indexOfItem($0) != nil }
+        let changed = update.changed.flatMap { [$0, Self.gridPrefix + $0] }.filter { snapshot.indexOfItem($0) != nil }
         let state = Signposts.list.beginInterval("apply")
         if first {
             dataSource.applySnapshotUsingReloadData(snapshot)
-            Signposts.firstChatsShown(count: new.count)
-            if LaunchOptions.isBenchmark { benchmark(new) }
         } else {
             snapshot.reconfigureItems(changed)
-            if samePlace || view.window == nil {
+            if !update.isNewPlace || view.window == nil {
                 dataSource.apply(snapshot, animatingDifferences: view.window != nil)
             } else {
                 // another place: its chats cross-fade in, quickly, in place of the last one's.
@@ -329,14 +304,10 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     /// `-LuxBenchmark`: scroll the list down and back, then open a chat (which scrolls itself).
-    private func benchmark(_ rows: [ChatRow]) {
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard let collectionView = self?.collectionView else { return }
-            ScrollBenchmark(collectionView, name: "chat list", direction: 1).run { [weak self] in
-                guard let self, let row = rows.first(where: \.isGroup) else { return }
-                navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme, list: model), animated: false)
-            }
+    func runBenchmark(_ rows: [ChatRow]) {
+        ScrollBenchmark(collectionView, name: "chat list", direction: 1).run { [weak self] in
+            guard let self, let row = rows.first(where: \.isGroup) else { return }
+            navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme, list: model), animated: false)
         }
     }
 
@@ -548,19 +519,15 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
 
     /// Opens the chat of a notification the user tapped: the merged chat its room is part of,
     /// else the room's own, over whatever was on screen; a thread's reply, at the thread. Right
-    /// after launch the account's chats may not have come yet: it waits for them a few seconds.
+    /// after launch the account's chats may not have come yet: the list waits for them a few seconds.
     func openChat(roomId: String, thread: String? = nil) {
-        Task { [weak self] in
-            for _ in 0..<20 {
-                guard let self, session.isSignedIn else { return }
-                if let row = await session.chat(ofRoom: roomId) {
-                    presentedViewController?.dismiss(animated: false)
-                    navigationController?.popToRootViewController(animated: false)
-                    open(row, thread: thread.map { MatrixThread(roomId: roomId, rootEventId: $0) })
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(250))
-            }
+        guard session.isSignedIn else { return }
+        // a newer notification's chat replaces one still waiting.
+        tasks.run("notification") { [weak self, model] in
+            guard let row = await model.chat(ofRoom: roomId), let self else { return }
+            presentedViewController?.dismiss(animated: false)
+            navigationController?.popToRootViewController(animated: false)
+            open(row, thread: thread.map { MatrixThread(roomId: roomId, rootEventId: $0) })
         }
     }
 
@@ -652,11 +619,12 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "Create"), style: .default) { [weak self, weak alert] _ in
             guard let self, let name = alert?.textFields?.first?.text, !name.isEmpty else { return }
-            Task {
+            tasks.run { [weak self, model] in
                 let id: String
-                do { id = try await self.model.createRoom(name: name) } catch { return self.report(error, of: "new chat") }
+                do { id = try await model.createRoom(name: name) } catch { self?.report(error, of: "new chat"); return }
+                guard let self else { return }
                 let row = ChatRow(id: id, name: name, preview: "", date: nil)
-                self.navigationController?.pushViewController(ThreadViewController(session: self.session, row: row, theme: self.model.theme, list: self.model), animated: true)
+                navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: model.theme, list: model), animated: true)
             }
         })
         present(alert, animated: true)
