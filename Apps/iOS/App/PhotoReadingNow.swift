@@ -74,7 +74,7 @@ final class PhotoReadingNow {
 
     private func finish(_ done: Bool) {
         following = nil
-        task?.progress.completedUnitCount = task?.progress.totalUnitCount ?? 0
+        if done { task?.progress.completedUnitCount = task?.progress.totalUnitCount ?? 0 }
         task?.setTaskCompleted(success: done)
         task = nil
     }
