@@ -1,0 +1,9 @@
+# Thread Sanitizer suppressions for `swift test --sanitize=thread` (.github/workflows/ci.yml).
+#
+# UniFFI's async calls (Vendor/LuxBindings, generated): Swift suspends in withUnsafeContinuation
+# and passes the continuation's handle to the Rust future; a tokio thread resumes it from
+# `uniffiFutureContinuationCallback` once the future is ready. The hand-off goes through Rust
+# (tokio's wakers and atomics), which is not built with the sanitizer, so TSan sees the write and
+# the resume with no ordering between them and reports a race that is not one. Only that callback:
+# a race anywhere else in the bindings or in LuxCore is still reported.
+race:uniffiFutureContinuationCallback

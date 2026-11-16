@@ -112,7 +112,8 @@ jobs:
       - name: Test under Thread Sanitizer
         run: swift test --sanitize=thread --scratch-path .build/tsan
         env:
-          TSAN_OPTIONS: halt_on_error=1
+          # one false race at the Rust boundary is suppressed (Tests/tsan-suppressions.txt).
+          TSAN_OPTIONS: halt_on_error=1 suppressions=${{ github.workspace }}/Tests/tsan-suppressions.txt
 
   apps:
     needs: sdk
