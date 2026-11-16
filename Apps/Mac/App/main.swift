@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             split.onAccount = { [weak self] in self?.showSettings(nil) }
             split.onBadge = { [weak self] in self?.notifications?.setBadge($0) }
             window.contentViewController = split
+            window.initialFirstResponder = split.initialFocus
+            window.makeFirstResponder(split.initialFocus)
             window.toolbar = split.toolbar
             window.toolbarStyle = .unified
             // the toolbar shows the open chat's picture and name itself (`ChatTitleView`).

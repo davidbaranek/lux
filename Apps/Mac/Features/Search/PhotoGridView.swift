@@ -26,7 +26,7 @@ final class PhotoGridView: NSTableCellView {
         return CGFloat(rows) * (side(width) + spacing) - spacing + 2 * spacing
     }
 
-    private static func columns(_ width: CGFloat) -> Int {
+    static func columns(_ width: CGFloat) -> Int {
         max(1, Int((width + spacing) / (minSide + spacing)))
     }
 

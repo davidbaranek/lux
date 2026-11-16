@@ -90,12 +90,15 @@ private func receipt(_ lines: [String]) throws -> URL {
     }
 }
 
-@Test func theScopeShowsAllTheTextOnesOrThePhotos() {
+@Test func aKindsNextPageAddsWhatItHasNotShownYet() {
     let chat = ChatRow(id: "!a", name: "Anna", preview: "", date: nil, unreadCount: 0)
-    let message = FoundItem(id: "$m", chat: chat, senderName: "Anna", body: "pláž", date: .now, isOwn: false)
-    let photo = FoundPhoto(id: "$p", roomId: "!a", chat: chat, senderName: "Anna", date: .now, isOwn: false, reason: .looks)
-    let hits = SearchHits(chats: [chat], messages: [message], photos: [photo])
-    #expect(hits.scoped(.all) == hits)
-    #expect(hits.scoped(.text) == SearchHits(chats: [chat], messages: [message]))
-    #expect(hits.scoped(.images) == SearchHits(photos: [photo]))
+    func link(_ id: String) -> FoundLink {
+        FoundLink(eventId: id, chat: chat, senderName: "Anna", url: "https://lux.chat/\(id)", text: "", date: .now, isOwn: false)
+    }
+    var hits = SearchHits(links: [link("$1"), link("$2")])
+    hits.append(SearchHits(links: [link("$2"), link("$3")], files: []), of: .links)
+    #expect(hits.links.map(\.eventId) == ["$1", "$2", "$3"])
+    #expect(hits.count(of: .links) == 3)
+    #expect(hits.count(of: .photos) == 0)
+    #expect(link("$1").host == "lux.chat")
 }

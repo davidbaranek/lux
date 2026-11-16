@@ -66,6 +66,8 @@
 		5F25ADA8CB7A06BAEC4A88A1 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */; };
 		6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */; };
 		657C45CA956C202D41ADF97C /* DevicesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D38CDE5B816C247508144E /* DevicesViewController.swift */; };
+		6663B8F79407333B1217E1A2 /* SearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21EF94A531D184754316BE96 /* SearchViews.swift */; };
+		67D8A17C409125F6A69E99F8 /* SearchListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B487AA2CB13F54C7555A8DDF /* SearchListViewController.swift */; };
 		683DD25022320CAE2D32D91F /* ChatListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C63259781CAA212711C097 /* ChatListViewController.swift */; };
 		685C068BDF01C5CD0ECC80C8 /* ThreadSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */; };
 		6948CB74315F9E166913736C /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */; };
@@ -130,6 +132,7 @@
 		CFA436A69A0242CBEB19E202 /* SearchResultsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */; };
 		CFDD81976E553FAE1C1F0BA1 /* ChatContainerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */; };
 		D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */; };
+		D19F67D51508D8D8BFB70B3E /* SearchListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84BC505E86E2BB171A5A694B /* SearchListController.swift */; };
 		D7B0A9CFAEB084A4BADA352E /* NetworkSignInViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C74C4E666E59AC2A96EBBDE /* NetworkSignInViewController.swift */; };
 		D9F5BB596C18FA8E3AA08B01 /* RecoverySetupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E3E60D668BFA91A83F63D0 /* RecoverySetupController.swift */; };
 		DEC843A195F03049A897DEAC /* NewConversationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */; };
@@ -152,6 +155,7 @@
 		F91924DF587B1C2B946408C7 /* ConfirmIdentityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B8C9E1BC81A5D35C0C13AC /* ConfirmIdentityController.swift */; };
 		FA7B9102187DE1BB0B565AF4 /* ScrollBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1797AF77AA495AC53B1A7899 /* ScrollBenchmark.swift */; };
 		FA8C719FA0213F63F8924662 /* ThreadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83A756DC00736E9731ED03F4 /* ThreadController.swift */; };
+		FB5910E6EE9EDFF4C14ADD78 /* SearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188F38A0D0456D6088CF9096 /* SearchViews.swift */; };
 		FBFB8C67453A709BC001A3FE /* ChatRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11450DD99B4486ADBCA386C /* ChatRowView.swift */; };
 		FCC55AB5A2F19938C4179CC4 /* ConfirmIdentityViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E889EBAD13A8573958DF1452 /* ConfirmIdentityViewController.swift */; };
 		FFF3696333526B49D846EA30 /* EmojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A911F525CB872B6D4D247132 /* EmojiPicker.swift */; };
@@ -249,6 +253,7 @@
 		15FEC04EBFB23CAD58D2F384 /* Lux-iOS-Assets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = "Lux-iOS-Assets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		174D3FC543FE2C85E34E61F6 /* ChatListViewController+Places.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatListViewController+Places.swift"; sourceTree = "<group>"; };
 		1797AF77AA495AC53B1A7899 /* ScrollBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollBenchmark.swift; sourceTree = "<group>"; };
+		188F38A0D0456D6088CF9096 /* SearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViews.swift; sourceTree = "<group>"; };
 		1B95FD76E2F9E651B3873CF2 /* RailButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailButton.swift; sourceTree = "<group>"; };
 		1D889010E1B2AC08BF46E266 /* FilledTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilledTextField.swift; sourceTree = "<group>"; };
 		1E4568CFB0703D28EFF82DF4 /* ChatPickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPickerViewController.swift; sourceTree = "<group>"; };
@@ -256,6 +261,7 @@
 		1FF13B6AE3AAD0FE241761F3 /* Lux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lux.entitlements; sourceTree = "<group>"; };
 		20A7CAA9E7FA199F4817C483 /* Lux-Mac-Assets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = "Lux-Mac-Assets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2180360AB5C0E986ABBBF07D /* ChatListController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListController.swift; sourceTree = "<group>"; };
+		21EF94A531D184754316BE96 /* SearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViews.swift; sourceTree = "<group>"; };
 		221E1270C13A8CD9D9D32FEC /* NetworkSignInController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSignInController.swift; sourceTree = "<group>"; };
 		2229367875593093149B0ED6 /* ChatCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCellView.swift; sourceTree = "<group>"; };
 		22D3FD7678E40CA2462EDF09 /* RecoverySetupViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySetupViewController.swift; sourceTree = "<group>"; };
@@ -287,9 +293,9 @@
 		5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViewController.swift; sourceTree = "<group>"; };
 		585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeLabel.swift; sourceTree = "<group>"; };
 		5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
-		BB39620C0DF9FF91919295A9 /* lux-native-verify */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-verify"; path = .; sourceTree = SOURCE_ROOT; };
 		5F2C98214DB4409B4C68E2DF /* InboxMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxMenu.swift; sourceTree = "<group>"; };
 		60079532E50D716748C497E7 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		6035B78A9E0E9DE9B085F258 /* lux-native-details */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-details"; path = .; sourceTree = SOURCE_ROOT; };
 		61650F6A784137B4735B8EA7 /* MessageTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTableView.swift; sourceTree = "<group>"; };
 		62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadViewController+Menu.swift"; sourceTree = "<group>"; };
 		682B4E67D96FE38FA2A235C7 /* NotificationMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationMenu.swift; sourceTree = "<group>"; };
@@ -310,6 +316,7 @@
 		8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIFont+Bold.swift"; sourceTree = "<group>"; };
 		82BDB9F7B6AE09A940386406 /* PhotoReadingNow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoReadingNow.swift; sourceTree = "<group>"; };
 		83A756DC00736E9731ED03F4 /* ThreadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadController.swift; sourceTree = "<group>"; };
+		84BC505E86E2BB171A5A694B /* SearchListController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchListController.swift; sourceTree = "<group>"; };
 		84F5A52224B0B6D81147524A /* ChatDetailsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailsController.swift; sourceTree = "<group>"; };
 		852B16F659B28F03F4478AB8 /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsController.swift; sourceTree = "<group>"; };
@@ -341,6 +348,7 @@
 		B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
 		B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewController.swift; sourceTree = "<group>"; };
 		B3F9F303512F73FF420E0869 /* AppIcon.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = AppIcon.xcassets; sourceTree = "<group>"; };
+		B487AA2CB13F54C7555A8DDF /* SearchListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchListViewController.swift; sourceTree = "<group>"; };
 		B6B8C9E1BC81A5D35C0C13AC /* ConfirmIdentityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmIdentityController.swift; sourceTree = "<group>"; };
 		B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
 		BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkImage.swift; sourceTree = "<group>"; };
@@ -467,7 +475,9 @@
 		25A15AD36777B2BDED3FC261 /* Search */ = {
 			isa = PBXGroup;
 			children = (
+				B487AA2CB13F54C7555A8DDF /* SearchListViewController.swift */,
 				A7500EBE1026C7C9F429679C /* SearchResultsViewController.swift */,
+				188F38A0D0456D6088CF9096 /* SearchViews.swift */,
 			);
 			path = Search;
 			sourceTree = "<group>";
@@ -499,7 +509,9 @@
 			isa = PBXGroup;
 			children = (
 				E7B20AF00D700E184F762839 /* PhotoGridView.swift */,
+				84BC505E86E2BB171A5A694B /* SearchListController.swift */,
 				85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */,
+				21EF94A531D184754316BE96 /* SearchViews.swift */,
 			);
 			path = Search;
 			sourceTree = "<group>";
@@ -845,7 +857,7 @@
 		DC93430DB5458DAF85591C76 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				BB39620C0DF9FF91919295A9 /* lux-native-verify */,
+				6035B78A9E0E9DE9B085F258 /* lux-native-details */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -1225,8 +1237,10 @@
 				27B057F73D3889A613A56B2E /* RailController.swift in Sources */,
 				D9F5BB596C18FA8E3AA08B01 /* RecoverySetupController.swift in Sources */,
 				FA7B9102187DE1BB0B565AF4 /* ScrollBenchmark.swift in Sources */,
+				D19F67D51508D8D8BFB70B3E /* SearchListController.swift in Sources */,
 				CFA436A69A0242CBEB19E202 /* SearchResultsController.swift in Sources */,
 				1A161C3182667ECEC8DD7744 /* SearchSettingsController.swift in Sources */,
+				6663B8F79407333B1217E1A2 /* SearchViews.swift in Sources */,
 				33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */,
 				BC0306C758185E08AECE4715 /* SendLaterMenu.swift in Sources */,
 				39E0ADF22084E1A99A293F55 /* SettingsWindowController.swift in Sources */,
@@ -1320,7 +1334,9 @@
 				DECA8F2F35AC1DF95C3406C0 /* RecoveryKeyViewController.swift in Sources */,
 				478267813ABE0BBC663B3827 /* RecoverySetupViewController.swift in Sources */,
 				4A7B4DEEA8CBD32189398BF5 /* ScrollBenchmark.swift in Sources */,
+				67D8A17C409125F6A69E99F8 /* SearchListViewController.swift in Sources */,
 				1BCA865F8FF6EF1EE6695A87 /* SearchResultsViewController.swift in Sources */,
+				FB5910E6EE9EDFF4C14ADD78 /* SearchViews.swift in Sources */,
 				A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */,
 				1F56A7740537C8A360EE3B04 /* SharedViewController.swift in Sources */,
 				328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */,

@@ -150,9 +150,9 @@ public final class PhotoSearch {
         }
     }
 
-    /// Why a search's photos may be incomplete, in words; nil when nothing is missing.
-    /// `lookPending`: the text encoder still loads.
-    public func searchNote(lookPending: Bool) -> String? {
+    /// Why a search's photos may be incomplete, in words; nil when nothing is missing. (While
+    /// the text encoder loads, `isLookPending`, the photos found by their look follow.)
+    public func searchNote() -> String? {
         switch looks {
         case .off:
             return nil
@@ -161,7 +161,6 @@ public final class PhotoSearch {
         case .on(hasModel: false):
             return String(localized: "Photos are found by their words only: the model is not available.")
         case .on(hasModel: true):
-            if lookPending { return String(localized: "Looking for photos by what they show…") }
             guard hasUnread else { return nil }
             let left = max(progress.total - progress.read, 0)
             return String(localized: "\(left.formatted(.number)) photos not read yet: some may be missing.")
@@ -183,7 +182,7 @@ public final class PhotoSearch {
 
     /// The photos that match `text`, the best first; `roomIds` keeps those rooms' (a chat's
     /// details), each room's best first.
-    func search(_ text: String, in roomIds: [String]? = nil) async -> [ImageHit] {
+    func search(_ text: String, in roomIds: [String]? = nil, limit: Int = 30) async -> [ImageHit] {
         let model = self.model
         var embedding: [Float]?
         do { embedding = try await model?.embedding(of: text) } catch {
@@ -191,7 +190,7 @@ public final class PhotoSearch {
         }
         let minSimilarity = model?.minSimilarity ?? 1
         guard let roomIds else {
-            return (try? await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity)) ?? []
+            return (try? await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity, limit: limit)) ?? []
         }
         var hits: [ImageHit] = []
         for roomId in roomIds {

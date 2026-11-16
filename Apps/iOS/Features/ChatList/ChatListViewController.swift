@@ -54,9 +54,11 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         })
         navigationItem.leftBarButtonItem?.accessibilityLabel = String(localized: "Settings")
 
-        let results = SearchResultsViewController(images: session.images) { [weak self] row, focusEvent in
-            self?.open(row, focusEvent: focusEvent)
-        }
+        let results = SearchResultsViewController(images: session.images, open: { [weak self] target in
+            self?.open(target)
+        }, showAll: { [weak self] kind in
+            self?.showAll(kind)
+        })
         let search = UISearchController(searchResultsController: results)
         search.searchResultsUpdater = self
         search.searchBar.placeholder = String(localized: "Search")
@@ -305,7 +307,14 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             if LaunchOptions.isBenchmark { benchmark(new) }
         } else {
             snapshot.reconfigureItems(changed)
-            dataSource.apply(snapshot, animatingDifferences: samePlace && view.window != nil)
+            if samePlace || view.window == nil {
+                dataSource.apply(snapshot, animatingDifferences: view.window != nil)
+            } else {
+                // another place: its chats cross-fade in, quickly, in place of the last one's.
+                UIView.transition(with: collectionView, duration: 0.18, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+                    self.dataSource.applySnapshotUsingReloadData(snapshot)
+                }
+            }
         }
         Signposts.list.endInterval("apply", state, "\(changed.count) changed")
     }
@@ -500,6 +509,24 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             collectionView.deselectItem(at: indexPath, animated: true)
             answer(request, from: cell)
         }
+    }
+
+    /// A search result: its chat (at its message), its thread, or a link's page.
+    private func open(_ target: SearchTarget) {
+        switch target {
+        case .chat(let row, let focusEvent): open(row, focusEvent: focusEvent)
+        case .thread(let row, let thread): open(row, thread: thread)
+        case .link(let url): UIApplication.shared.open(url)
+        }
+    }
+
+    /// One kind of what chats shared, all of it, on its own page over the search: its field
+    /// starts with the words typed.
+    private func showAll(_ kind: SearchKind) {
+        let list = SearchListViewController(model: searchModel.list(kind), images: session.images) { [weak self] target in
+            self?.open(target)
+        }
+        navigationController?.pushViewController(list, animated: true)
     }
 
     private func open(_ row: ChatRow, focusEvent: String? = nil, thread: MatrixThread? = nil) {

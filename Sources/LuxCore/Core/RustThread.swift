@@ -310,10 +310,13 @@ extension IndexHistoryPage {
     init(_ history: CoreIndexHistory) {
         self.init(messages: history.messages.map { message in
             IndexedMessage(eventId: message.eventId, roomId: message.roomId, senderName: message.senderName, body: message.body,
-                           date: message.date, isOwn: message.isOwn)
+                           links: message.links, thread: message.thread, date: message.date, isOwn: message.isOwn)
         }, images: history.images.map { image in
             IndexedImage(eventId: image.eventId, roomId: image.roomId, senderName: image.senderName, caption: image.caption,
                          date: image.date, isOwn: image.isOwn)
+        }, files: history.files.map { file in
+            IndexedFile(eventId: file.eventId, roomId: file.roomId, senderName: file.senderName, name: file.name,
+                        size: file.size, mimetype: file.mimetype, date: file.date, isOwn: file.isOwn)
         }, reachedStart: history.reachedStart, removed: history.removed, deletedUntil: history.deletedUntil,
                   reachedSince: history.reachedSince, older: history.older)
     }

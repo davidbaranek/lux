@@ -73,25 +73,88 @@ public final class MessageSearch {
     }
 
     /// Chats whose name has every word (without case or accents), then the messages with every
-    /// word, the newest first, each with the chat that shows its room; and the photos that match,
-    /// the best first, when photo search is on.
+    /// word, the newest first, each with the chat that shows its room; the photos that match, the
+    /// best first; and the first few links, files and threads with the words.
     public func search(_ text: String) async -> SearchHits {
         guard text.contains(where: { $0.isLetter || $0.isNumber }), let account = try? await account.value else { return SearchHits() }
         async let chats = account.findChats(text, limit: 20)
         async let foundPhotos = photos.search(text)
-        let found = (try? await store.search(text, limit: 60)) ?? []
+        async let found = store.search(text, limit: 60)
+        async let shares = shares(text, kinds: [.links, .files, .threads], offset: 0, limit: SearchKind.links.preview + 1)
+        let messages = (try? await found) ?? []
         let images = await foundPhotos
-        let shown = await account.chats(ofRooms: Array(Set(found.map(\.roomId) + images.map(\.roomId))))
-        let messages = found.compactMap { hit -> FoundItem? in
+        let shown = await account.chats(ofRooms: Array(Set(messages.map(\.roomId) + images.map(\.roomId))))
+        var hits = await shares
+        hits.chats = await chats
+        hits.messages = messages.compactMap { hit -> FoundItem? in
             guard let chat = shown[hit.roomId] else { return nil }
             return FoundItem(id: hit.eventId, chat: chat, senderName: hit.senderName, body: hit.excerpt, date: hit.date,
                              isOwn: hit.isOwn, matches: hit.matches)
         }
-        let photos = images.compactMap { hit -> FoundPhoto? in
-            guard let chat = shown[hit.roomId] else { return nil }
-            return FoundPhoto(id: hit.eventId, roomId: hit.roomId, chat: chat, senderName: hit.senderName, date: hit.date,
-                              isOwn: hit.isOwn, reason: hit.reason)
+        hits.photos = Self.photos(images, in: shown)
+        return hits
+    }
+
+    /// What chats shared lately, before any words are typed: a few of each kind, the newest first.
+    public func lately() async -> SearchHits {
+        await shares("", kinds: SearchKind.allCases, offset: 0, limit: SearchKind.photos.preview + 1)
+    }
+
+    /// A page of one kind for its own list: all of it, or what has the words of `text` (photos
+    /// the best first, then by their look too), `limit` after `offset`.
+    public func list(_ kind: SearchKind, _ text: String, offset: Int, limit: Int) async -> SearchHits {
+        await shares(text, kinds: [kind], offset: offset, limit: limit)
+    }
+
+    /// `kinds`' pages, each with the chat that shows its room.
+    private func shares(_ text: String, kinds: [SearchKind], offset: Int, limit: Int) async -> SearchHits {
+        guard let account = try? await account.value else { return SearchHits() }
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wants = Set(kinds)
+        var images: [ImageHit] = []
+        if wants.contains(.photos) {
+            if text.isEmpty {
+                images = (try? await store.images(offset: offset, limit: limit)) ?? []
+            } else {
+                // ranked, not dated: a page is the best `offset + limit`, less those shown.
+                images = Array(await photos.search(text, limit: offset + limit).dropFirst(offset))
+            }
         }
-        return SearchHits(chats: await chats, messages: messages, photos: photos)
+        async let links = wants.contains(.links) ? store.links(text, offset: offset, limit: limit) : []
+        async let files = wants.contains(.files) ? store.files(text, offset: offset, limit: limit) : []
+        async let threads = wants.contains(.threads) ? store.threads(text, offset: offset, limit: limit) : []
+        let (foundLinks, foundFiles, foundThreads) = ((try? await links) ?? [], (try? await files) ?? [], (try? await threads) ?? [])
+        let rooms = images.map(\.roomId) + foundLinks.map(\.roomId) + foundFiles.map(\.roomId) + foundThreads.map(\.roomId)
+        let shown = await account.chats(ofRooms: Array(Set(rooms)))
+        return SearchHits(
+            photos: Self.photos(images, in: shown),
+            links: foundLinks.compactMap { hit in
+                shown[hit.roomId].map {
+                    FoundLink(eventId: hit.eventId, chat: $0, senderName: hit.senderName, url: hit.url, text: hit.text,
+                              date: hit.date, isOwn: hit.isOwn)
+                }
+            },
+            files: foundFiles.compactMap { hit in
+                shown[hit.roomId].map {
+                    FoundFile(id: hit.eventId, roomId: hit.roomId, chat: $0, senderName: hit.senderName, name: hit.name,
+                              size: hit.size, mimetype: hit.mimetype, date: hit.date, isOwn: hit.isOwn)
+                }
+            },
+            threads: foundThreads.compactMap { hit in
+                shown[hit.roomId].map {
+                    FoundThread(id: hit.root, roomId: hit.roomId, chat: $0, rootSender: hit.rootSender, rootText: hit.rootText,
+                                replies: Int(hit.replies), latestSender: hit.latestSender, latestText: hit.latestText,
+                                latest: hit.latest)
+                }
+            })
+    }
+
+    private static func photos(_ hits: [ImageHit], in shown: [String: ChatRow]) -> [FoundPhoto] {
+        hits.compactMap { hit in
+            shown[hit.roomId].map {
+                FoundPhoto(id: hit.eventId, roomId: hit.roomId, chat: $0, senderName: hit.senderName, date: hit.date,
+                           isOwn: hit.isOwn, reason: hit.reason)
+            }
+        }
     }
 }

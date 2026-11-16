@@ -11,6 +11,9 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
     private var rows: [String: ChatRow] = [:]
     private var titles: [String: String] = [:]
     private let table = NSTableView()
+    /// What the keyboard starts at when the window opens: the chats, not the search field
+    /// (which would open search).
+    var initialFocus: NSView { table }
     private var scroll: NSScrollView!
     /// Moves the list down under the sync's bubble, and back.
     private var scrollTop: NSLayoutConstraint!
@@ -245,6 +248,15 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         }
     }
 
+    /// A quick cross-fade, from one place's chats to another's.
+    private static var fade: CATransition {
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.18
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        return fade
+    }
+
     private func show(_ sections: [ChatSection], changed: [String]) {
         let first = !shownFirst
         shownFirst = true
@@ -274,6 +286,11 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         // table would drop the selection, and with it close the chat.
         let selected = table.selectedRow >= 0 ? dataSource.itemIdentifier(forRow: table.selectedRow) : nil
         applying = true
+        if !first, !samePlace {
+            // another place: its chats cross-fade in, quickly, in place of the last one's.
+            scroll.wantsLayer = true
+            scroll.layer?.add(Self.fade, forKey: "place")
+        }
         dataSource.apply(snapshot, animatingDifferences: !first && samePlace)
         if let selected, let index = dataSource.row(forItemIdentifier: selected), index != table.selectedRow {
             table.selectRowIndexes([index], byExtendingSelection: false)

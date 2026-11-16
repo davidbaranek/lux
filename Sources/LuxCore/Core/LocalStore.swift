@@ -31,8 +31,17 @@ public final class LocalStore: Sendable {
     public func add(_ messages: [IndexedMessage]) async throws {
         guard !messages.isEmpty else { return }
         try await store.add(messages: messages.map {
-            CoreStoreMessage(eventId: $0.eventId, roomId: $0.roomId, senderName: $0.senderName, body: $0.body, date: $0.date,
-                         isOwn: $0.isOwn)
+            CoreStoreMessage(eventId: $0.eventId, roomId: $0.roomId, senderName: $0.senderName, body: $0.body, links: $0.links,
+                             thread: $0.thread, date: $0.date, isOwn: $0.isOwn)
+        })
+    }
+
+    /// Adds files from a chat's history, or changes their names.
+    public func addFiles(_ files: [IndexedFile]) async throws {
+        guard !files.isEmpty else { return }
+        try await store.addFiles(files: files.map {
+            CoreStoreFile(eventId: $0.eventId, roomId: $0.roomId, senderName: $0.senderName, name: $0.name, size: $0.size,
+                          mimetype: $0.mimetype, date: $0.date, isOwn: $0.isOwn)
         })
     }
 
@@ -113,10 +122,41 @@ public final class LocalStore: Sendable {
             case .words(let excerpt, let matches): .words(excerpt, matches: matches.map(\.range))
             case .nearby(let excerpt, let matches): .nearby(excerpt, matches: matches.map(\.range))
             case .looks: .looks
+            case .listed: .listed
             }
             return ImageHit(eventId: hit.eventId, roomId: hit.roomId, senderName: hit.senderName, date: hit.date,
                             isOwn: hit.isOwn, reason: reason)
         }
+    }
+
+    // MARK: Lists
+
+    /// The photos, the newest first: `limit` after `offset`; `roomId` keeps one room's.
+    func images(in roomId: String? = nil, offset: Int, limit: Int) async throws -> [ImageHit] {
+        try await store.images(browse: browse("", roomId, offset, limit)).map {
+            ImageHit(eventId: $0.eventId, roomId: $0.roomId, senderName: $0.senderName, date: $0.date, isOwn: $0.isOwn,
+                     reason: .listed)
+        }
+    }
+
+    /// The web addresses messages sent, the newest first: all, or those of the messages with
+    /// every word of `text`.
+    func links(_ text: String, in roomId: String? = nil, offset: Int, limit: Int) async throws -> [CoreLinkHit] {
+        try await store.links(browse: browse(text, roomId, offset, limit))
+    }
+
+    /// The files, the newest first: all, or those whose name has every word of `text`.
+    func files(_ text: String, in roomId: String? = nil, offset: Int, limit: Int) async throws -> [CoreFileHit] {
+        try await store.files(browse: browse(text, roomId, offset, limit))
+    }
+
+    /// The threads by their newest reply: all, or those whose root or a reply has every word.
+    func threads(_ text: String, in roomId: String? = nil, offset: Int, limit: Int) async throws -> [CoreThreadHit] {
+        try await store.threads(browse: browse(text, roomId, offset, limit))
+    }
+
+    private func browse(_ text: String, _ roomId: String?, _ offset: Int, _ limit: Int) -> CoreBrowse {
+        CoreBrowse(text: text, roomId: roomId, limit: UInt32(clamping: limit), offset: UInt32(clamping: offset))
     }
 
     // MARK: Reading

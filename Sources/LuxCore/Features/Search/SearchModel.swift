@@ -1,7 +1,7 @@
 import Foundation
 
-/// Search as you type, as Messages does: chats by name, then messages by their words, from the
-/// index on this device. Each keystroke waits 120 ms for the next, and a newer query drops an
+/// Search as you type, as Messages does: chats by name, messages by their words, photos, links,
+/// files and threads, from the index on this device; before any words, what chats shared lately. Each keystroke waits 120 ms for the next, and a newer query drops an
 /// older answer.
 @MainActor
 public final class SearchModel {
@@ -23,6 +23,24 @@ public final class SearchModel {
     /// photos by their look.
     public func prepare() {
         session.search?.photos.prepareForSearch()
+        if query.isEmpty { showLately() }
+    }
+
+    /// What chats shared lately, shown before any words are typed (as Messages does).
+    private func showLately() {
+        running?.cancel()
+        running = Task { [session] in
+            guard let search = session.search else { return }
+            let lately = await search.lately()
+            guard !Task.isCancelled, query.isEmpty else { return }
+            hits = lately
+            onUpdate?(lately)
+        }
+    }
+
+    /// A list of one kind, all of it or what has the words typed now: for its own page.
+    public func list(_ kind: SearchKind) -> SearchListModel {
+        SearchListModel(session: session, kind: kind, query: query)
     }
 
     public func search(_ text: String) {
@@ -32,8 +50,7 @@ public final class SearchModel {
         query = text
         running?.cancel()
         guard !text.isEmpty else {
-            hits = SearchHits()
-            onUpdate?(hits)
+            showLately()
             return
         }
         running = Task { [session] in
@@ -43,7 +60,8 @@ public final class SearchModel {
             var found = await search.search(text)
             Signposts.list.endInterval("search", state, "\(found.chats.count) chats, \(found.messages.count) messages")
             guard !Task.isCancelled, text == query else { return }
-            found.photoNote = search.photos.searchNote(lookPending: await search.photos.isLookPending)
+            found.photoNote = search.photos.searchNote()
+            found.isLookPending = await search.photos.isLookPending
             hits = found
             onUpdate?(found)
             // the words' hits show at once; the photos found by their look follow once the text
@@ -51,7 +69,7 @@ public final class SearchModel {
             guard await search.photos.waitForLook(), !Task.isCancelled, text == query else { return }
             var again = await search.search(text)
             guard !Task.isCancelled, text == query else { return }
-            again.photoNote = search.photos.searchNote(lookPending: false)
+            again.photoNote = search.photos.searchNote()
             hits = again
             onUpdate?(again)
         }
