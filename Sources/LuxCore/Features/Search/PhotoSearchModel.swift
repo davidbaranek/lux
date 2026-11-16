@@ -3,9 +3,10 @@ import CoreML
 import Foundation
 import Vision
 
-/// The model photo search finds photos with: SigLIP 2 (`scripts/image-search/convert.py`), an
-/// image encoder and a text encoder whose embeddings share one space, so the words "dog on the
-/// beach" lie near a photo of one, in any of the languages it learned. Both run on the device
+/// The model semantic search finds photos and messages with: EmbeddingGemma 2
+/// (`scripts/image-search/convert.py`), an image encoder and a text encoder whose embeddings share
+/// one space, so the words "dog on the beach" lie near a photo of one and near a message about
+/// one, in any of the languages it learned. Both run on the device
 /// (Core ML, on the Neural Engine where there is one); each loads when first needed, as each is
 /// large: the image encoder while photos are read, the text encoder from the first search on
 /// (until it is loaded, a search finds photos by their words).
@@ -18,15 +19,25 @@ actor PhotoSearchModel {
         var dimension: Int
         var lowercase: Bool
         var padId: Int
+        /// What the model reads before a search's words, and before a message ("task: search
+        /// result | query: "); none for a model that learned without.
+        var queryPrompt: String?
+        var documentPrompt: String?
+        /// The least cosine of the words' embedding and a photo's, or a message's (both less the
+        /// messages' mean), to be found; measured for the model when it is built.
+        var photoSimilarity: Float?
+        var messageSimilarity: Float?
     }
 
     /// The model's name and version, kept with each embedding: a newer model reads every photo
     /// again.
     nonisolated let name: String
     /// The least cosine of a photo's and the words' embeddings for the photo to be found by its
-    /// look. SigLIP's cosines are small: a photo of what the words say is about 0.1 alike, others
-    /// below 0.07 (measured on the base model in English and Czech).
-    nonisolated let minSimilarity: Float = 0.085
+    /// look: the model's own (`model.json`), else SigLIP's (a photo of what the words say is about
+    /// 0.1 alike, others below 0.07).
+    nonisolated let minSimilarity: Float
+    /// The least cosine of a message's and the words' embeddings, both less the messages' mean.
+    nonisolated let messageSimilarity: Float
 
     /// Where each of the model's files is (`model.json`, an encoder's `.mlmodelc`).
     typealias Files = @Sendable (String) throws -> URL
@@ -44,6 +55,8 @@ actor PhotoSearchModel {
         self.file = file
         description = try JSONDecoder().decode(Description.self, from: Data(contentsOf: file("model.json")))
         name = "\(description.model)@\(description.side)"
+        minSimilarity = description.photoSimilarity ?? 0.085
+        messageSimilarity = description.messageSimilarity ?? 0.25
     }
 
     /// The model in `folder` (a model built on this Mac, for tests and `-LuxPhotoModel`).
@@ -94,8 +107,19 @@ actor PhotoSearchModel {
         self.tokenizer = tokenizer
     }
 
-    /// The words' unit embedding, in the photos' space; nil until the text encoder is ready.
-    func embedding(of text: String) throws -> [Float]? {
+    /// A search's words' unit embedding, in the photos' and messages' space; nil until the text
+    /// encoder is ready.
+    func embedding(ofQuery text: String) throws -> [Float]? {
+        try embedding(of: (description.queryPrompt ?? "") + text)
+    }
+
+    /// A message's unit embedding, as search by meaning keeps it; nil until the text encoder is
+    /// ready.
+    func embedding(ofMessage text: String) throws -> [Float]? {
+        try embedding(of: (description.documentPrompt ?? "") + text)
+    }
+
+    private func embedding(of text: String) throws -> [Float]? {
         guard let encoder = textEncoder, let tokenizer else {
             prepareTextEncoder()
             return nil
@@ -123,9 +147,15 @@ actor PhotoSearchModel {
         imageEncoder = nil
     }
 
+    /// An encoder: a function of the one model that holds both ("image", "text"), or, of a
+    /// model built before, its own model file.
     private static func load(_ name: String, from file: Files) throws -> MLModel {
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
+        if let both = try? file("Encoders.mlmodelc"), FileManager.default.fileExists(atPath: both.path) {
+            configuration.functionName = name == "ImageEncoder" ? "image" : "text"
+            return try MLModel(contentsOf: both, configuration: configuration)
+        }
         return try MLModel(contentsOf: file("\(name).mlmodelc"), configuration: configuration)
     }
 
