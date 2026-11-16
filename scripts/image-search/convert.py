@@ -2,6 +2,7 @@
 # requires-python = ">=3.11,<3.13"
 # dependencies = [
 #   "torch==2.15.0",
+#   "torchvision==0.29.2",
 #   "transformers==5.23.0",
 #   "sentence-transformers==6.3.0",
 #   "coremltools==9.0",
