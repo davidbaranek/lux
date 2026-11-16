@@ -420,8 +420,16 @@ impl Store {
         self.worker
             .run(move |connection| {
                 connection
-                    .prepare_cached("INSERT OR REPLACE INTO chats(room_id, newest, complete) VALUES (?1, ?2, ?3)")?
-                    .execute(params![room_id.as_str(), to_millis(chat.newest), chat.complete])?;
+                    .prepare_cached(
+                        "INSERT OR REPLACE INTO chats(room_id, newest, complete, oldest, older) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    )?
+                    .execute(params![
+                        room_id.as_str(),
+                        to_millis(chat.newest),
+                        chat.complete,
+                        chat.oldest.map(to_millis),
+                        chat.older
+                    ])?;
                 Ok(())
             })
             .await
@@ -434,13 +442,16 @@ impl Store {
     pub async fn chats(&self) -> Result<HashMap<RoomId, IndexedChat>> {
         self.worker
             .run(|connection| {
-                let mut statement = connection.prepare_cached("SELECT room_id, newest, complete FROM chats")?;
+                let mut statement =
+                    connection.prepare_cached("SELECT room_id, newest, complete, oldest, older FROM chats")?;
                 let rows = statement.query_map([], |row| {
                     Ok((
                         RoomId::from(row.get::<_, String>(0)?),
                         IndexedChat {
                             newest: from_millis(row.get(1)?),
                             complete: row.get(2)?,
+                            oldest: row.get::<_, Option<i64>>(3)?.map(from_millis),
+                            older: row.get(4)?,
                         },
                     ))
                 })?;

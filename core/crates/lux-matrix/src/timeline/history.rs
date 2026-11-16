@@ -30,6 +30,7 @@ pub(crate) async fn index_history(
     room: &Room,
     since: SystemTime,
     deleted_until: Option<SystemTime>,
+    mut from: Option<String>,
     max_pages: u32,
 ) -> Result<IndexHistory, BackendError> {
     let own = room.own_user_id().to_owned();
@@ -42,8 +43,8 @@ pub(crate) async fn index_history(
     // the messages edited, by the place of their newest text in `history.messages`; the pages
     // come newest first, so an older edit, and the message itself, find their place taken.
     let mut edited = HashMap::<OwnedEventId, usize>::new();
-    let mut from: Option<String> = None;
     for _ in 0..max_pages {
+        let page_start = from.clone();
         let mut options = MessagesOptions::backward().from(from.as_deref());
         options.limit = UInt::from(HISTORY_PAGE);
         let page = room.messages(options).await.map_err(from_sdk)?;
@@ -52,7 +53,13 @@ pub(crate) async fn index_history(
                 continue;
             };
             let date = system_time(event.origin_server_ts());
-            if date < since || deleted_until.is_some_and(|cut| date <= cut) {
+            if deleted_until.is_some_and(|cut| date <= cut) {
+                return Ok(history);
+            }
+            if date < since {
+                // the page goes on older than asked: a read further back starts at it again.
+                history.reached_since = true;
+                history.older = page_start;
                 return Ok(history);
             }
             let message = match event {
@@ -119,10 +126,11 @@ pub(crate) async fn index_history(
             Some(end) if !page.chunk.is_empty() => from = Some(end),
             _ => {
                 history.reached_start = true;
-                break;
+                return Ok(history);
             }
         }
     }
+    history.older = from;
     Ok(history)
 }
 

@@ -11,11 +11,12 @@ extension RustAccount {
     func prefetch(roomId: String, thread: String? = nil) async { try? await account.prefetchThread(roomId: roomId, threadRoot: thread) }
 
     /// A chat's text messages and photos, the newest first, back to `since`, the chat's start, or
-    /// `maxPages` pages: what the search index reads (`SearchIndexer`).
-    func indexHistory(roomId: String, since: Date, maxPages: Int) async throws -> IndexHistoryPage {
+    /// `maxPages` pages: what the search index reads (`SearchIndexer`). From the newest, or on
+    /// from where an earlier walk stopped (`from`, its `older`).
+    func indexHistory(roomId: String, since: Date, from: String? = nil, maxPages: Int) async throws -> IndexHistoryPage {
         let since = max(since, Date(timeIntervalSince1970: 0))
         return IndexHistoryPage(try await worded {
-            try await account.indexHistory(roomId: roomId, since: since, maxPages: UInt32(clamping: maxPages))
+            try await account.indexHistory(roomId: roomId, since: since, from: from, maxPages: UInt32(clamping: maxPages))
         })
     }
 

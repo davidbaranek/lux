@@ -54,6 +54,14 @@ const MIGRATIONS: &[&str] = &[
     -- nothing).
     DELETE FROM chats;
     ",
+    // 3: how far back each chat is read, to read on from there: as far as Settings asks, which
+    // may be further than before. A chat read before is read again from its newest (what it
+    // holds, unchanged, writes nothing), now to its start, not three months back.
+    "
+    ALTER TABLE chats ADD COLUMN oldest INTEGER;
+    ALTER TABLE chats ADD COLUMN older TEXT;
+    UPDATE chats SET complete = 0;
+    ",
 ];
 
 /// Brings the file's schema up to this version's, each migration in its own transaction.

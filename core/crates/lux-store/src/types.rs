@@ -6,12 +6,16 @@ use std::time::{Duration, SystemTime};
 use lux_core::ids::{EventId, RoomId};
 
 /// How far the index has read one chat.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexedChat {
     /// The newest message indexed.
     pub newest: SystemTime,
-    /// Its history is indexed as far back as the index goes (or to its start).
+    /// Its history is indexed to its start.
     pub complete: bool,
+    /// The oldest time it is indexed back to, when not to its start.
+    pub oldest: Option<SystemTime>,
+    /// Where a read further back goes on from (the server's token; none: from the newest).
+    pub older: Option<String>,
 }
 
 /// A message a search found.

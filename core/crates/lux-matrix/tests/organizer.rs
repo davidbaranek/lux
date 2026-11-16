@@ -334,14 +334,14 @@ async fn a_deleted_chat_gives_search_nothing_from_before_the_delete() {
     list_until(&account, |list| listed(list, ROOM)).await;
     let since = std::time::SystemTime::UNIX_EPOCH;
     let room = RoomId::from(ROOM);
-    let before = account.timelines().index_history(&room, since, 1).await.unwrap();
+    let before = account.timelines().index_history(&room, since, None, 1).await.unwrap();
     assert_eq!(before.messages.len(), 1);
     assert_eq!(before.deleted_until, None);
 
     account.change(&ChatId::from(ROOM), ChatChange::Delete).await.unwrap();
     list_until(&account, |list| find(list, ROOM).is_none()).await;
 
-    let after = account.timelines().index_history(&room, since, 1).await.unwrap();
+    let after = account.timelines().index_history(&room, since, None, 1).await.unwrap();
     assert!(after.messages.is_empty());
     assert_eq!(
         after.deleted_until,

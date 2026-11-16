@@ -200,10 +200,11 @@ impl ChatTimelines for MatrixTimelines {
         &self,
         room: &RoomId,
         since: SystemTime,
+        from: Option<String>,
         max_pages: u32,
     ) -> Result<IndexHistory, BackendError> {
         let deleted_until = self.cuts.borrow().marks.cleared.get(room.as_str()).copied();
-        history::index_history(&self.room(room)?, since, deleted_until, max_pages).await
+        history::index_history(&self.room(room)?, since, deleted_until, from, max_pages).await
     }
 
     fn typing(&self, room: &RoomId) -> Result<TypingStream, BackendError> {

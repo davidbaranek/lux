@@ -49,7 +49,8 @@ public final class LocalStore: Sendable {
     }
 
     public func setChat(_ roomId: String, _ chat: IndexedChat) async throws {
-        try await store.setChat(chat: CoreStoreChat(roomId: roomId, newest: chat.newest, complete: chat.complete))
+        try await store.setChat(chat: CoreStoreChat(roomId: roomId, newest: chat.newest, complete: chat.complete,
+                                                    oldest: chat.oldest, older: chat.older))
     }
 
     // MARK: Photos
@@ -123,7 +124,9 @@ public final class LocalStore: Sendable {
     /// How far each chat is indexed.
     public func chats() async throws -> [String: IndexedChat] {
         let chats = try await store.chats()
-        return Dictionary(chats.map { ($0.roomId, IndexedChat(newest: $0.newest, complete: $0.complete)) },
+        return Dictionary(chats.map {
+            ($0.roomId, IndexedChat(newest: $0.newest, complete: $0.complete, oldest: $0.oldest, older: $0.older))
+        },
                           uniquingKeysWith: { first, _ in first })
     }
 

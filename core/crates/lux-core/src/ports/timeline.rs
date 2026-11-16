@@ -104,11 +104,13 @@ pub trait ChatTimelines: Send + Sync {
     ) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
 
     /// The room's text messages and photos, newest first, back to `since`, the room's start, or
-    /// `max_pages` pages from the server: what the search index reads.
+    /// `max_pages` pages from the server: what the search index reads. From the newest, or on
+    /// from where an earlier read stopped (`from`, its [`IndexHistory::older`]).
     fn index_history(
         &self,
         room: &RoomId,
         since: SystemTime,
+        from: Option<String>,
         max_pages: u32,
     ) -> impl Future<Output = Result<IndexHistory, BackendError>> + Send;
 

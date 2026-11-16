@@ -314,6 +314,7 @@ extension IndexHistoryPage {
         }, images: history.images.map { image in
             IndexedImage(eventId: image.eventId, roomId: image.roomId, senderName: image.senderName, caption: image.caption,
                          date: image.date, isOwn: image.isOwn)
-        }, reachedStart: history.reachedStart, removed: history.removed, deletedUntil: history.deletedUntil)
+        }, reachedStart: history.reachedStart, removed: history.removed, deletedUntil: history.deletedUntil,
+                  reachedSince: history.reachedSince, older: history.older)
     }
 }

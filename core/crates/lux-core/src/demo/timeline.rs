@@ -456,6 +456,8 @@ impl ChatTimelines for DemoTimelines {
         &self,
         room: &RoomId,
         since: SystemTime,
+        // the demo's chats are short: every read starts at the newest.
+        _from: Option<String>,
         max_pages: u32,
     ) -> Result<IndexHistory, BackendError> {
         // pages of 50 messages, as a server gives them.
@@ -487,6 +489,7 @@ impl ChatTimelines for DemoTimelines {
             }
         }
         history.reached_start = newest.count() <= most;
+        history.reached_since = history.reached_start && shown.iter().any(|message| message.message.date < since);
         Ok(history)
     }
 

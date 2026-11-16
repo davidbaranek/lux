@@ -6,6 +6,8 @@ import LuxCore
 final class SearchSettingsController: NSViewController {
     private let model: SettingsModel
     private let index = NSTextField(labelWithString: "")
+    /// How far back each chat is read.
+    private lazy var history = NSPopUpButton(frame: .zero, pullsDown: false)
     /// Where the photos stand now, with a spinner while they are read or the model downloads.
     private let photoStatus = NSTextField(labelWithString: "")
     private let photoSpinner = NSProgressIndicator()
@@ -39,8 +41,12 @@ final class SearchSettingsController: NSViewController {
         photoSpinner.isDisplayedWhenStopped = false
         let status = NSStackView(views: [photoStatus, photoSpinner])
         status.spacing = 6
+        history.addItems(withTitles: SearchHistory.allCases.map(\.title))
+        history.target = self
+        history.action = #selector(historyChanged)
         view = settingsForm([
             [NSTextField(labelWithString: String(localized: "Messages:")), index],
+            [NSTextField(labelWithString: String(localized: "Search back:")), history],
             [NSTextField(labelWithString: String(localized: "Photos:")), status],
             [NSGridCell.emptyContentView, photoAction],
             [NSGridCell.emptyContentView, looks],
@@ -57,6 +63,12 @@ final class SearchSettingsController: NSViewController {
         photoAction.isHidden = model.photoAction == nil
         photoAction.title = model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now")
         looks.state = model.searchesPhotosByLook ? .on : .off
+        history.selectItem(at: SearchHistory.allCases.firstIndex(of: model.searchHistory) ?? 0)
+    }
+
+    @objc private func historyChanged() {
+        guard let chosen = SearchHistory.allCases[safe: history.indexOfSelectedItem] else { return }
+        model.searchHistory = chosen
     }
 
     @objc private func photoActionClicked() {

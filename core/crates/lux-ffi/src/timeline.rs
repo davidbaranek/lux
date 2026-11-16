@@ -315,6 +315,10 @@ pub struct CoreIndexHistory {
     pub images: Vec<CoreIndexedImage>,
     /// Nothing is older.
     pub reached_start: bool,
+    /// The read went back to `since`.
+    pub reached_since: bool,
+    /// Where to read on, older, when the pages ran out first.
+    pub older: Option<String>,
     /// The event ids of the messages deleted meanwhile, for the index to forget.
     pub removed: Vec<String>,
     /// The chat was deleted at this point: the index forgets its messages up to it.
@@ -576,6 +580,8 @@ impl From<IndexHistory> for CoreIndexHistory {
                 })
                 .collect(),
             reached_start: history.reached_start,
+            reached_since: history.reached_since,
+            older: history.older,
             removed: history.removed.iter().map(ToString::to_string).collect(),
             deleted_until: history.deleted_until,
         }
@@ -674,11 +680,12 @@ impl CoreAccount {
         &self,
         room_id: String,
         since: SystemTime,
+        from: Option<String>,
         max_pages: u32,
     ) -> Result<CoreIndexHistory, CoreAccountError> {
         let room = RoomId::from(room_id);
         let history = with_account!(self.backend(), account => {
-            account.timelines().index_history(&room, since, max_pages).await
+            account.timelines().index_history(&room, since, from, max_pages).await
         })?;
         Ok(history.into())
     }

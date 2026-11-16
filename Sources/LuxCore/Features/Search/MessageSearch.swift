@@ -56,6 +56,12 @@ public final class MessageSearch {
         await photos.stop()
     }
 
+    /// Reads each chat as far back as Settings now asks: on from where it stopped, if further.
+    public func readHistory(_ history: SearchHistory) {
+        Preferences.shared.searchHistory = history
+        Task { await indexer.update() }
+    }
+
     /// The index for Settings: "12 340 messages · complete", or how far it is reading.
     public func summary() async -> String {
         let messages = (try? await store.messageCount()) ?? 0
