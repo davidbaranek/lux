@@ -71,7 +71,7 @@ final class ChatPickerController: NSViewController, NSTableViewDelegate, NSSearc
             self?.rows = sections.flatMap(\.rows)
             self?.update()
         }
-        Task { await model.reload() }
+        model.reload()
     }
 
     override func viewDidAppear() {

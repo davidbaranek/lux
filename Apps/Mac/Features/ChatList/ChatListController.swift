@@ -3,11 +3,13 @@ import LuxCore
 
 /// The chats in the sidebar: a view-based table over a diffable data source keyed by room id.
 /// Row views are recycled by the table; a row renders again only when what it shows changed.
-final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDelegate {
+final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDelegate, ChatListScreen {
     /// A chat to show (nil: none), and a message in it to scroll to (a saved one).
     var onSelect: ((ChatRow?, _ focusEvent: String?) -> Void)?
     private let session: Session
-    private let model: ChatListModel
+    /// The list's logic, shared with the iPhone: updates, the activity bubble.
+    let presenter: ChatListPresenter
+    private var model: ChatListModel { presenter.model }
     private var rows: [String: ChatRow] = [:]
     private var titles: [String: String] = [:]
     private let table = NSTableView()
@@ -33,7 +35,7 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
 
     init(session: Session, model: ChatListModel) {
         self.session = session
-        self.model = model
+        presenter = ChatListPresenter(session: session, model: model)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -76,11 +78,7 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         ])
         view = container
         self.scroll = scroll
-        loading.set(visible: true)
         makeRoom(forLoading: true)
-        model.onLoadState = { [weak self] _ in self?.updateActivity() }
-        searchOpened = session.searchChanges.observe { [weak self] in self?.followSearch() }
-        followSearch()
 
         let images = session.images
         dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, _, id in
@@ -115,16 +113,13 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         // right click on a chat: read / unread.
         table.menu = NSMenu()
         table.menu?.delegate = self
-        model.onUpdate = { [weak self] sections, changed in self?.show(sections, changed: changed) }
         model.onError = { [weak self] error in self?.report(error, of: "chat list") }
-        Task { await model.reload() }
+        presenter.screen = self
+        presenter.start()
     }
 
-    private var shownFirst = false
     /// The first sync's progress, over the top of the list.
     private let loading = LoadingBubble(text: String(localized: "Loading chats…"))
-    /// The place the list showed last: another place replaces the list at once, with no animation.
-    private var shownPlace: Place?
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if let id = dataSource.itemIdentifier(forRow: row) { return id == Self.gridItem ? PinnedGridView.height(for: pinned.count) : 64 }
@@ -202,37 +197,22 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         }
     }
 
-    /// The sync's bubble sits above the chats, not over them: the list moves down under it while it
-    /// shows, and back up when it goes.
-    private var searchOpened: AnyObject?
-    private var indexProgress: AnyObject?
-    private var bubbleShown = true
-
     /// The bubble was clicked: a network's chats while its history arrives, a sign-in for one
     /// signed out.
     var onActivity: ((ListActivity.Action) -> Void)?
-    private var networksObservation: AnyObject?
-
-    private func followSearch() {
-        networksObservation = session.networks?.changes.observe { [weak self] in self?.updateActivity() }
-        indexProgress = session.search?.progressChanges.observe { [weak self] in self?.updateActivity() }
-        updateActivity()
-    }
 
     /// The bubble says what the app is doing (connecting, loading chats, preparing search) and
-    /// how far it is; the list makes room for it while it shows.
-    private func updateActivity() {
-        let activity = ListActivity.describe(model.loadState, search: session.search?.progress,
-                                             networks: session.networks?.attention ?? [])
+    /// how far it is. It sits above the chats, not over them: the list moves down under it while
+    /// it shows, and back up when it goes.
+    func showActivity(_ activity: ListActivity?, toggles: Bool) {
         if let activity {
             loading.text = [activity.title, activity.detail].compactMap { $0 }.joined(separator: " · ")
             loading.isWarning = activity.isWarning
             loading.onClick = activity.action.map { action in { [weak self] in self?.onActivity?(action) } }
         }
-        guard (activity != nil) != bubbleShown else { return }
-        bubbleShown = activity != nil
-        loading.set(visible: bubbleShown)
-        makeRoom(forLoading: bubbleShown)
+        guard toggles else { return }
+        loading.set(visible: activity != nil)
+        makeRoom(forLoading: activity != nil)
     }
 
     private func makeRoom(forLoading visible: Bool) {
@@ -257,16 +237,12 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         return fade
     }
 
-    private func show(_ sections: [ChatSection], changed: [String]) {
-        let first = !shownFirst
-        shownFirst = true
-        let samePlace = shownPlace == model.place
-        shownPlace = model.place
-        let new = sections.flatMap(\.rows)
-        rows = Dictionary(new.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    func show(_ update: ChatListUpdate) {
+        let sections = update.sections, changed = update.changed, first = update.isFirst, samePlace = !update.isNewPlace
+        rows = Dictionary(sections.flatMap(\.rows).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let oldPinned = pinned
-        pinned = sections.first { $0.style == .grid }?.rows ?? []
-        titles = Dictionary(sections.compactMap { section in section.title.map { (section.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        pinned = update.pinned
+        titles = update.titles
         var snapshot = NSDiffableDataSourceSnapshot<String, String>()
         for section in sections {
             snapshot.appendSections([section.id])
@@ -304,23 +280,15 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
             }
         }
         Signposts.list.endInterval("apply", state, "\(changed.count) changed")
-        if first {
-            Signposts.firstChatsShown(count: new.count)
-            if LaunchOptions.isBenchmark { benchmark(new) }
-        }
     }
 
     /// `-LuxBenchmark`: scroll the list down and back, then open a group (which scrolls itself).
-    private func benchmark(_ rows: [ChatRow]) {
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard let scroll = self?.scroll else { return }
-            ScrollBenchmark(scroll, name: "chat list", direction: 1).run { [weak self] in
-                // the first group the table lists (a pinned one is in the grid, no row of its own).
-                guard let self, let index = rows.lazy.filter(\.isGroup).compactMap({ self.dataSource.row(forItemIdentifier: $0.id) }).first
-                else { return }
-                table.selectRowIndexes([index], byExtendingSelection: false)
-            }
+    func runBenchmark(_ rows: [ChatRow]) {
+        ScrollBenchmark(scroll, name: "chat list", direction: 1).run { [weak self] in
+            // the first group the table lists (a pinned one is in the grid, no row of its own).
+            guard let self, let index = rows.lazy.filter(\.isGroup).compactMap({ self.dataSource.row(forItemIdentifier: $0.id) }).first
+            else { return }
+            table.selectRowIndexes([index], byExtendingSelection: false)
         }
     }
 

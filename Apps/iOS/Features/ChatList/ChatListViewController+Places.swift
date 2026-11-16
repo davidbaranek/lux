@@ -86,7 +86,7 @@ extension ChatListViewController {
         // a space shows its picture once it has loaded.
         if case .picture(let ref?) = item.icon, let images = session.images {
             let pixels = Int(28 * (view.window?.screen.scale ?? 3))
-            Task { [weak button] in
+            tasks.run { [weak button] in
                 guard let picture = await images.image(ref, pixels: pixels, shape: .circle) else { return }
                 button?.image = UIImage(cgImage: picture, scale: CGFloat(pixels) / 28, orientation: .up).withRenderingMode(.alwaysOriginal)
             }

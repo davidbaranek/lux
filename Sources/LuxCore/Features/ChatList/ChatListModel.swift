@@ -136,17 +136,53 @@ public final class ChatListModel {
 
     isolated deinit {
         following?.cancel()
+        for waiter in batchWaiters.values { waiter.resume() }
     }
 
     /// The list follows the account by itself; this reads what it cannot follow (the waiting
     /// messages) again (pull to refresh).
-    public func reload() async {
+    public func reload() {
         list?.refresh()
+    }
+
+    /// The chat a room is part of (a merged chat's, else the room's own). Right after launch the
+    /// account may not list it yet: it asks again at each of the list's next batches, up to `limit`.
+    public func chat(ofRoom roomId: String, within limit: Duration = .seconds(5)) async -> ChatRow? {
+        let deadline = ContinuousClock.now + limit
+        while true {
+            let found = await bestEffort("the chat of a room") { try await account.value.chats(ofRooms: [roomId])[roomId] }
+            if let row = found ?? nil { return row }
+            guard ContinuousClock.now < deadline, !Task.isCancelled else { return nil }
+            await nextBatch(before: deadline)
+        }
+    }
+
+    /// Those waiting for the list's next batch.
+    private var batchWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    /// Returns at the list's next batch, at `deadline`, or once cancelled, whichever comes first.
+    private func nextBatch(before deadline: ContinuousClock.Instant) async {
+        let id = UUID()
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(until: deadline)
+            self?.resumeWaiter(id)
+        }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { batchWaiters[id] = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeWaiter(id) }
+        }
+        timeout.cancel()
+    }
+
+    private func resumeWaiter(_ id: UUID) {
+        batchWaiters.removeValue(forKey: id)?.resume()
     }
 
     private var published = false
 
     private func apply(_ batch: ChatListBatch) {
+        defer { for id in Array(batchWaiters.keys) { resumeWaiter(id) } }
         let state = Signposts.list.beginInterval("batch")
         let first = !published
         let changed = sections.apply(batch)

@@ -68,8 +68,6 @@ final class LoadingBubble: NSView {
         }
     }
 
-    private var wanted = false
-
     /// Something for the user to do rather than progress: a sign instead of the spinner.
     var isWarning = false {
         didSet {
@@ -93,15 +91,18 @@ final class LoadingBubble: NSView {
         onClick?()
     }
 
+    /// Shows (after a moment, so a quick step shows nothing) or hides the bubble; the newest call wins.
     func set(visible: Bool) {
-        wanted = visible
-        Task {
-            if visible { try? await Task.sleep(for: .milliseconds(250)) }
-            guard wanted == visible else { return }
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.2
-                animator().alphaValue = visible ? 1 : 0
-            }, completionHandler: nil)
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(fadeIn), object: nil)
+        if visible { perform(#selector(fadeIn), with: nil, afterDelay: 0.25) } else { fade(to: 0) }
+    }
+
+    @objc private func fadeIn() { fade(to: 1) }
+
+    private func fade(to alpha: CGFloat) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            animator().alphaValue = alpha
         }
     }
 }
