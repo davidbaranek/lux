@@ -5,58 +5,15 @@ import LuxBindings
 /// object, and its listener's frames as Swift values, in order. Rows are mapped to
 /// `MessageItem`s on the core's thread, so the main actor only applies them. The generated
 /// types stay in this file.
-public final class ThreadCore: Sendable {
+final class RustThreadView: ThreadView {
     private let view: CoreThread
     /// The thread's events as they come, one per frame at most.
-    let events: AsyncStream<Event>
-
-    enum Event: Sendable {
-        case update(Batch)
-        /// Files the user sent: the platform prepares and uploads them (to the Matrix thread
-        /// of `threadRoot`, if any).
-        case upload(files: [URL], roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
-        case failed(AccountFailure)
-    }
-
-    /// One frame: the rows' changes, and the state when it changed.
-    struct Batch: Sendable {
-        var rows: [RowChange]
-        var state: State?
-    }
-
-    /// A change to the rows, as the core's `VectorDiff`.
-    enum RowChange: Sendable {
-        case append([MessageItem])
-        case clear
-        case pushFront(MessageItem)
-        case pushBack(MessageItem)
-        case popFront
-        case popBack
-        case insert(Int, MessageItem)
-        case set(Int, MessageItem)
-        case remove(Int)
-        case truncate(Int)
-        case reset([MessageItem])
-    }
-
-    struct State: Sendable, Equatable {
-        var isLoading: Bool
-        var canLoadOlder: Bool
-        var isAtStart: Bool
-        var firstUnread: String?
-        var needsReadReceipt: Bool
-        var typists: [Typist]
-        var shownRoom: String?
-        var sendRoom: String
-        var mode: ThreadModel.ComposerMode
-        var pendingFiles: [URL]
-        var canSendLater: Bool
-    }
+    let events: AsyncStream<ThreadEvent>
 
     /// Opens the thread of `row` (the Matrix thread `thread` in it, if given) with `open`.
     fileprivate init(row: ChatRow, thread: MatrixThread?, readReceipts: ReadReceipts,
                      open: (CoreThreadOpening, CoreThreadListener) -> CoreThread) {
-        let (events, continuation) = AsyncStream<Event>.makeStream()
+        let (events, continuation) = AsyncStream<ThreadEvent>.makeStream()
         self.events = events
         // a Matrix thread is in one room: its own.
         let rooms = thread.map { thread in row.chatRooms.filter { $0.id == thread.roomId } } ?? row.chatRooms
@@ -102,13 +59,13 @@ public final class ThreadCore: Sendable {
     func saveDraft(_ text: String) { view.saveDraft(text: text) }
 }
 
-extension RustAccount {
+extension RustAccount: ThreadPort {
     /// A chat's thread: its view model in the core, following its rooms' timelines (they stay
     /// open while it lives), presenting its rows, deciding what the composer sends. With
     /// `thread`, the Matrix thread's own timeline: its root and replies, the composer replying
     /// there.
-    func openThread(row: ChatRow, thread: MatrixThread? = nil, readReceipts: ReadReceipts) -> ThreadCore {
-        ThreadCore(row: row, thread: thread, readReceipts: readReceipts) { account.openThread(opening: $0, listener: $1) }
+    func openThread(row: ChatRow, thread: MatrixThread?, readReceipts: ReadReceipts) -> any ThreadView {
+        RustThreadView(row: row, thread: thread, readReceipts: readReceipts) { account.openThread(opening: $0, listener: $1) }
     }
 }
 
@@ -116,14 +73,14 @@ extension RustAccount {
 
 /// Passes the core's frames on, mapped, in order; ends the stream when the thread goes.
 private final class Listener: CoreThreadListener {
-    private let continuation: AsyncStream<ThreadCore.Event>.Continuation
+    private let continuation: AsyncStream<ThreadEvent>.Continuation
 
-    init(_ continuation: AsyncStream<ThreadCore.Event>.Continuation) { self.continuation = continuation }
+    init(_ continuation: AsyncStream<ThreadEvent>.Continuation) { self.continuation = continuation }
     deinit { continuation.finish() }
 
     func onUpdate(update: CoreThreadUpdate) {
         let state = Signposts.thread.beginInterval("map")
-        let batch = ThreadCore.Batch(rows: update.rows.map(ThreadCore.RowChange.init), state: update.state.map(ThreadCore.State.init))
+        let batch = ThreadBatch(rows: update.rows.map(ThreadRowChange.init), state: update.state.map(ThreadState.init))
         Signposts.thread.endInterval("map", state, "\(update.rows.count) changes")
         continuation.yield(.update(batch))
     }
@@ -147,7 +104,7 @@ private extension CoreReadReceipts {
     }
 }
 
-private extension ThreadCore.RowChange {
+private extension ThreadRowChange {
     init(_ diff: CoreThreadRowDiff) {
         self = switch diff {
         case .append(let values): .append(values.map(MessageItem.init))
@@ -165,7 +122,7 @@ private extension ThreadCore.RowChange {
     }
 }
 
-private extension ThreadCore.State {
+private extension ThreadState {
     init(_ state: CoreThreadState) {
         let mode: ThreadModel.ComposerMode = switch state.mode {
         case .message: .message

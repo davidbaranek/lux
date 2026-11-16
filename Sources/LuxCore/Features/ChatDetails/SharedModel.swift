@@ -23,11 +23,11 @@ public final class SharedModel {
     /// How long typing pauses before the search reads the history again.
     private static let typing: Duration = .milliseconds(250)
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any ChatDetailsPort, any Error>
     private let chatId: String
     private let originals: URL
     private let photos: @MainActor () -> PhotoSearch?
-    private var history: SharedHistory?
+    private var history: (any SharedHistory)?
     /// What the history gave, and the photos only the index found.
     private var read: [SharedItem] = []
     private var indexed: [SharedItem] = []
@@ -36,7 +36,7 @@ public final class SharedModel {
     /// A new search makes what the last one still brings stale.
     private var generation = 0
 
-    init(account: Task<RustAccount, any Error>, chatId: String, kind: SharedKind, originals: URL,
+    init(account: Task<any ChatDetailsPort, any Error>, chatId: String, kind: SharedKind, originals: URL,
          photos: @escaping @MainActor () -> PhotoSearch? = { nil }) {
         self.account = account
         self.chatId = chatId

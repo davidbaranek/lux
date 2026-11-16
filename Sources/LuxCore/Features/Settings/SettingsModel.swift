@@ -96,7 +96,7 @@ public final class SettingsModel {
         changes.send()
     }
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any SecurityPort, any Error>
     private let session: Session
     private var indexProgress: AnyObject?
     private var photoProgress: AnyObject?
@@ -105,7 +105,7 @@ public final class SettingsModel {
 
     public init(session: Session) {
         self.session = session
-        account = session.account
+        account = Task { [account = session.account] in try await account.value }
     }
 
     /// Send read receipts: off by default (a bridged chat's other side sees them).

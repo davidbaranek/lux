@@ -66,6 +66,12 @@ public final class Session {
 
     /// Where the chat lists come from: the Rust core's view model over the account.
     var chatListSource: ChatListSource? { current?.chatListSource }
+
+    /// A chat list at `place` with `filter`, in `order`, over the account; nil when signed out. It
+    /// takes intents at once: before the account opens, they wait in the core, in order.
+    func openChatList(place: Place, filter: ChatFilter?, order: ChatOrder, drafts: Set<String>) -> (any ChatListView)? {
+        chatListSource.map { RustChatList($0, place: place, filter: filter, order: order, drafts: drafts) }
+    }
     public var images: ImagePipeline? { current?.images }
     /// Photos and files on their way, from every chat (made with the account).
     public var uploads: Uploads? { current?.uploads }
@@ -120,7 +126,7 @@ public final class Session {
     /// A chat's details screen, of a chat in `list`: it tells which place keeps the chat out of
     /// the inbox.
     public func details(of row: ChatRow, in list: ChatListModel? = nil) -> ChatDetailsModel {
-        ChatDetailsModel(account: account, row: row, list: list, originals: originalsDirectory) { [weak self] in self?.search?.photos }
+        ChatDetailsModel(account: Task { [account] in try await account.value }, row: row, list: list, originals: originalsDirectory) { [weak self] in self?.search?.photos }
     }
 
     /// The chat that shows a room (its own, or the merged chat it is in); nil when the list has

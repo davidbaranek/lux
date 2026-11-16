@@ -13,7 +13,7 @@ public final class ChatDetailsModel {
     public private(set) var isSaving = false
     public let changes = Broadcast()
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any ChatDetailsPort, any Error>
     private let originals: URL
     /// The list the chat was opened from: it knows the places' inbox rules.
     private weak var list: ChatListModel?
@@ -21,7 +21,7 @@ public final class ChatDetailsModel {
     /// words in its photos and how they look too.
     private let photos: @MainActor () -> PhotoSearch?
 
-    init(account: Task<RustAccount, any Error>, row: ChatRow, list: ChatListModel?, originals: URL,
+    init(account: Task<any ChatDetailsPort, any Error>, row: ChatRow, list: ChatListModel?, originals: URL,
          photos: @escaping @MainActor () -> PhotoSearch? = { nil }) {
         self.account = account
         self.row = row
@@ -152,7 +152,7 @@ public final class ChatDetailsModel {
     }
 
     /// Runs `change`, then reads the details again, as the server now has them.
-    private func save(reload: Bool = true, _ change: (RustAccount) async throws -> Void) async throws {
+    private func save(reload: Bool = true, _ change: (any ChatDetailsPort) async throws -> Void) async throws {
         isSaving = true
         changes.send()
         defer {
@@ -195,11 +195,11 @@ public final class ThreadsModel {
     public private(set) var failure: AccountFailure?
     public let changes = Broadcast()
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any ChatDetailsPort, any Error>
     /// Where each room's next page starts; a room is gone from it once all its threads came.
     private var next: [String: String?]
 
-    init(account: Task<RustAccount, any Error>, row: ChatRow) {
+    init(account: Task<any ChatDetailsPort, any Error>, row: ChatRow) {
         self.account = account
         self.row = row
         next = Dictionary(uniqueKeysWithValues: row.chatRooms.map { ($0.id, String?.none) })
@@ -245,11 +245,11 @@ public final class MembersModel {
     /// At most this many show, the rest found by searching: a group of thousands lists fast.
     public static let shown = 500
 
-    private let account: Task<RustAccount, any Error>
-    private var list: MemberList?
+    private let account: Task<any ChatDetailsPort, any Error>
+    private var list: (any MemberList)?
     private var query = ""
 
-    init(account: Task<RustAccount, any Error>, room: RoomInfo) {
+    init(account: Task<any ChatDetailsPort, any Error>, room: RoomInfo) {
         self.account = account
         self.room = room
     }

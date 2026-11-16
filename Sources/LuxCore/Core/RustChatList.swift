@@ -11,21 +11,15 @@ enum ChatListSource: Sendable {
 /// The chat list's view model in the Rust core (`lux_core::list`): the app forwards intents to it
 /// in its own types, and receives one batch of changes per frame, mapped to the app's rows off
 /// the main thread (on the core's thread that sends it). The generated types stay in this file.
-final class RustChatList: Sendable {
-    /// What the list sends, in order.
-    enum Event: Sendable {
-        case batch(ChatListBatch)
-        case failed(AccountFailure)
-    }
-
+final class RustChatList: ChatListView {
     private let list: CoreChatList
     /// The list's batches and failed intents as they come.
-    let events: AsyncStream<Event>
+    let events: AsyncStream<ChatListEvent>
 
     /// Opens a list at `place` with `filter`, in `order`. It takes intents at once: before its account
     /// opens, they wait in the core, in order.
     init(_ source: ChatListSource, place: Place, filter: ChatFilter?, order: ChatOrder, drafts: Set<String>) {
-        let (events, continuation) = AsyncStream<Event>.makeStream()
+        let (events, continuation) = AsyncStream<ChatListEvent>.makeStream()
         self.events = events
         let setup = CoreListSetup(place: CorePlace(place), filter: filter.map(CoreChatFilter.init), order: CoreChatOrder(order),
                                   drafts: Array(drafts))
@@ -82,9 +76,9 @@ final class RustChatList: Sendable {
 /// Passes the core's batches on, mapped where they arrive, so the main actor only applies them;
 /// ends the stream when the list goes.
 private final class Relay: CoreListListener {
-    private let continuation: AsyncStream<RustChatList.Event>.Continuation
+    private let continuation: AsyncStream<ChatListEvent>.Continuation
 
-    init(_ continuation: AsyncStream<RustChatList.Event>.Continuation) { self.continuation = continuation }
+    init(_ continuation: AsyncStream<ChatListEvent>.Continuation) { self.continuation = continuation }
     deinit { continuation.finish() }
 
     func onUpdate(update: CoreListUpdate) { continuation.yield(.batch(ChatListBatch(update))) }

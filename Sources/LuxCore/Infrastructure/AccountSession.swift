@@ -51,7 +51,7 @@ final class AccountSession {
         images = ImagePipeline(account: account, directory: paths.media)
         uploads = Uploads(account: Task { try await account.value }, directory: paths.outgoing)
         networks = NetworksModel(account: Task { try await account.value }, server: server)
-        security = SecurityModel(account: account)
+        security = SecurityModel(account: Task { try await account.value })
         profile = ProfileModel(account: Task { try await account.value })
         // the server may end the session (its tokens refused): the device is gone, sign in again.
         watchingEnd = Task {
