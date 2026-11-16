@@ -570,12 +570,13 @@ struct ChatInfoForm: View {
         var canSeparate: Bool
     }
 
+    /// What the form's controls do, on the main actor (as SwiftUI calls them).
     struct Actions {
-        var notifications: (NotificationSetting) -> Void
-        var lowPriority: (Bool) -> Void
-        var chatStyle: (Int) -> Void
-        var separate: () -> Void
-        var leave: () -> Void
+        var notifications: @MainActor (NotificationSetting) -> Void
+        var lowPriority: @MainActor (Bool) -> Void
+        var chatStyle: @MainActor (Int) -> Void
+        var separate: @MainActor () -> Void
+        var leave: @MainActor () -> Void
     }
 
     let state: State
