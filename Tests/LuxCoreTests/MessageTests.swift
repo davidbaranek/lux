@@ -242,15 +242,15 @@ struct ThreadSummaryTests {
         #expect(none.threadText == "Thread")
     }
 
-    @Test func aThreadsSummaryGoesUnderItsRootWithAtMostThreePicturesAndADotWhileUnread() {
+    @Test func aThreadsSummaryGoesUnderItsRootWithAtMostThreePicturesAndADotWhileUnread() throws {
         let m = BubbleMetrics()
         let layout = MessageLayout.make(root(replies: 5, participants: 4, unread: 2), showsSender: true, width: 400, metrics: m,
                                         measure: FixedMeasure())
-        let box = try? #require(layout.thread)
-        #expect(box.map { $0.minY >= layout.bubble.maxY } == true)
+        let box = try #require(layout.thread)
+        #expect(box.minY >= layout.bubble.maxY)
         #expect(layout.threadAvatars.count == m.threadAvatars)
         #expect(layout.threadDot != nil)
-        #expect(layout.height >= (box?.maxY ?? 0))
+        #expect(layout.height >= box.maxY)
         let read = MessageLayout.make(root(replies: 5, participants: 1, unread: 0), showsSender: true, width: 400, metrics: m,
                                       measure: FixedMeasure())
         #expect(read.threadDot == nil && read.threadAvatars.count == 1)

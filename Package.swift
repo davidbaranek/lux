@@ -3,6 +3,9 @@ import PackageDescription
 
 // LuxKit: everything both apps share. The UI (UIKit, AppKit) lives in the app targets only.
 // Run scripts/setup-sdk.sh first: it builds the Rust core into Vendor/.
+// a warning fails the build: what the compiler can tell is fixed before it runs.
+let strict: [SwiftSetting] = [.treatAllWarnings(as: .error)]
+
 let package = Package(
     name: "LuxKit",
     platforms: [.iOS(.v26), .macOS(.v26)],
@@ -16,7 +19,7 @@ let package = Package(
         .target(name: "LuxBindings", dependencies: ["LuxFFI"], path: "Vendor/LuxBindings",
                 swiftSettings: [.swiftLanguageMode(.v6)]),
         // the shared model: session, chat list, threads, the image pipeline. No UI framework.
-        .target(name: "LuxCore", dependencies: ["LuxBindings"]),
-        .testTarget(name: "LuxCoreTests", dependencies: ["LuxCore"]),
+        .target(name: "LuxCore", dependencies: ["LuxBindings"], swiftSettings: strict),
+        .testTarget(name: "LuxCoreTests", dependencies: ["LuxCore"], swiftSettings: strict),
     ]
 )
