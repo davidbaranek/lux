@@ -5,7 +5,7 @@
 //! The core's own crates log from `info` up; the sdk and the other dependencies only warnings and
 //! errors, as each event crosses into Swift.
 
-use std::fmt::{self, Write as _};
+use std::fmt;
 use std::sync::Arc;
 
 use tracing::field::{Field, Visit};
@@ -75,7 +75,9 @@ fn targets() -> Targets {
 pub(crate) fn install(sink: Arc<dyn CoreLogSink>) {
     let subscriber = tracing_subscriber::registry().with(SinkLayer { sink }.with_filter(targets()));
     // a second call (or a test's own subscriber) keeps the one already set.
-    let _ = tracing::subscriber::set_global_default(subscriber);
+    if tracing::subscriber::set_global_default(subscriber).is_err() {
+        tracing::debug!("the core's log already goes to a sink: this one is not used");
+    }
 }
 
 struct SinkLayer {
@@ -115,15 +117,16 @@ impl Visit for Fields {
 
 impl Fields {
     fn record(&mut self, field: &Field, value: fmt::Arguments<'_>) {
-        // writing to a String does not fail.
-        let _ = if field.name() == "message" {
-            self.message.write_fmt(value)
+        if field.name() == "message" {
+            self.message.push_str(&value.to_string());
         } else {
             if !self.fields.is_empty() {
                 self.fields.push(' ');
             }
-            write!(self.fields, "{}={value}", field.name())
-        };
+            self.fields.push_str(field.name());
+            self.fields.push('=');
+            self.fields.push_str(&value.to_string());
+        }
     }
 }
 
