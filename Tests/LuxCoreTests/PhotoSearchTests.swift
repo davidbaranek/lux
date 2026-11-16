@@ -4,6 +4,7 @@ import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+import Vision
 @testable import LuxCore
 
 /// The folder of photo search's model (`scripts/image-search/package.sh` writes it as
@@ -40,7 +41,28 @@ private func receipt(_ lines: [String]) throws -> URL {
     return file
 }
 
-@Suite struct PhotoReaderTests {
+/// Whether this machine reads text in a picture at all: Vision's text recognition needs the GPU or
+/// the Neural Engine, which a virtual machine (GitHub's macOS runners) does not have, and fails
+/// there with `unknownError`. The tests that read photos run where it can; their failure on such a
+/// machine would say nothing about the app.
+private let recognizesText = ConditionTrait.enabled("Vision reads no text on this machine (a VM without a GPU)") {
+    let picture = FileManager.default.temporaryDirectory.appending(path: "lux-probe-\(UUID().uuidString).png")
+    let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+    guard let image = context?.makeImage(),
+          let destination = CGImageDestinationCreateWithURL(picture as CFURL, UTType.png.identifier as CFString, 1, nil)
+    else { return false }
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else { return false }
+    do {
+        _ = try await RecognizeTextRequest().perform(on: picture)
+        return true
+    } catch {
+        return false
+    }
+}
+
+@Suite(recognizesText) struct PhotoReaderTests {
     @Test func readsTheWordsInAPhotoWithoutTheModel() async throws {
         let reader = PhotoReader(model: nil)
         let read = try await leased { [file = try receipt(["Faktura 2024-118", "Celkem 1 250 Kč"])] lease in
@@ -97,7 +119,7 @@ private func receipt(_ lines: [String]) throws -> URL {
     }
 }
 
-@Suite struct PhotoIndexerTests {
+@Suite(recognizesText) struct PhotoIndexerTests {
     @Test func readsEveryPhotoOfTheDemoOnce() async throws {
         let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
         let account = RustAccount.demo(rooms: 20, messagesPerRoom: 60)
