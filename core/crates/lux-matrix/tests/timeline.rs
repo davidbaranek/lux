@@ -453,6 +453,62 @@ async fn the_first_unread_message_is_paged_back_to() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_newer_receipt_on_an_event_no_row_shows_reads_what_came_before_it() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    let own = user_id!("@example:localhost");
+    // the private receipt is on an old message; the public one on a later reaction, no row.
+    let joined = JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+        .add_timeline_event(
+            factory
+                .text_msg("old")
+                .sender(alice)
+                .event_id(event_id!("$old"))
+                .server_ts(1_000),
+        )
+        .add_timeline_event(
+            factory
+                .text_msg("newer")
+                .sender(alice)
+                .event_id(event_id!("$newer"))
+                .server_ts(2_000),
+        )
+        .add_timeline_event(
+            factory
+                .reaction(event_id!("$newer"), "👍")
+                .sender(own)
+                .event_id(event_id!("$liked"))
+                .server_ts(3_000),
+        )
+        .add_receipt(
+            factory
+                .read_receipts()
+                .add(
+                    event_id!("$old"),
+                    own,
+                    EventReceiptType::ReadPrivate,
+                    ReceiptThread::Unthreaded,
+                )
+                .add(
+                    event_id!("$liked"),
+                    own,
+                    EventReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                )
+                .into_event(),
+        );
+    server.sync_room(&client, joined).await;
+    let timelines = MatrixTimelines::new(client);
+    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
+        .await
+        .unwrap();
+
+    assert_eq!(timelines.first_unread(&room().into()).await.unwrap(), None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_index_history_holds_each_messages_newest_text_and_the_deleted_ones() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
