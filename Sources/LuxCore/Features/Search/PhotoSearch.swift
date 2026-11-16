@@ -2,7 +2,7 @@ import Foundation
 
 /// Search in photos, all on this device. Always: the words in each photo (Vision) and the
 /// messages sent near it. When the user turns semantic search on: how photos look too, by the
-/// search model (downloaded then, about 630 MB), so "dog on the beach" finds one with no
+/// search model (downloaded then, about 650 MB), so "dog on the beach" finds one with no
 /// words at all; the same model reads what messages mean (`MessageMeaning`).
 /// Nothing leaves the device. Photos are read while the app is open, quietly (the iPhone gives an
 /// app's reading in the background too little time to be worth it).
@@ -68,6 +68,9 @@ public final class PhotoSearch {
 
     deinit { pressure.cancel() }
 
+    /// The photos' reading and the model's loading: they end with the photo search.
+    private let work = ForegroundJobs()
+
     /// Turns the search by how photos look on (the model downloads, every photo is read again
     /// with it) or off (the model and the photos' embeddings go; their words stay).
     public func setSearchesByLook(_ on: Bool) async {
@@ -96,8 +99,7 @@ public final class PhotoSearch {
         // while the model loads, the photos wait: they are read once, with it. Stopped by the
         // user, they wait for Read Now (or the next launch).
         guard loading == nil, Saving.shared.reason == nil, !isPaused else { return }
-        // below what the user does: the reading yields to the app.
-        Task(priority: .utility) { [indexer] in await indexer.read(limit: nil) }
+        work.start("photos") { [indexer] lease in await indexer.read(limit: nil, lease: lease) }
     }
 
     /// Photos are being read now.
@@ -113,19 +115,20 @@ public final class PhotoSearch {
     public func readNow() {
         guard readNowBlocked == nil else { return }
         isPaused = false
-        Task(priority: .utility) { await readAll() }
+        work.start("photos now") { [weak self] lease in _ = await self?.readAll(lease: lease) }
     }
 
     /// Reads every photo not read yet; true when none is left.
-    public func readAll() async -> Bool {
+    func readAll(lease: ForegroundLease) async -> Bool {
         await loading?.value
-        return await indexer.read(limit: nil)
+        return await indexer.read(limit: nil, lease: lease)
     }
 
     /// Stops the reading (the system ending a background task, or the account closing); what was
     /// read stays, and the rest is read the next time new photos come or the app opens.
     public func stop() async {
         await indexer.stop()
+        await work.end()
     }
 
     /// The user stopped the reading: it stays stopped while the app runs, new photos or not,
@@ -143,7 +146,10 @@ public final class PhotoSearch {
     /// query finds photos by their look too. It loads in about a second once Core ML has compiled
     /// it on this device (some 20 s the first time), and is kept only from the first search on.
     public func prepareForSearch() {
-        Task { await model?.prepareTextEncoder() }
+        guard let model else { return }
+        work.start("text encoder", priority: .userInitiated) { lease in
+            await model.prepareTextEncoder(lease: lease)
+        }
     }
 
     /// The model is on the device but its text encoder still loads: searches find photos by
@@ -176,7 +182,7 @@ public final class PhotoSearch {
     /// made meanwhile (which found photos by their words only) is worth making again.
     public func waitForLook() async -> Bool {
         guard let model, await !model.isTextEncoderReady else { return false }
-        await model.textEncoderLoaded()
+        await model.textEncoderPrepared()
         return await model.isTextEncoderReady
     }
 

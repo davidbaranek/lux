@@ -20,7 +20,7 @@ final class SearchSettingsController: NSViewController {
 
     private static let looksAbout = String(localized: """
         Search always finds words. This also finds photos by what they show ("dog on the beach") and messages by \
-        what they mean ("trip to the mountains"), with a model of about 630 MB read on this Mac. Nothing leaves \
+        what they mean ("trip to the mountains"), with a model of about 650 MB read on this Mac. Nothing leaves \
         this Mac.
         """)
 

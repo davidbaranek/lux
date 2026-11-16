@@ -466,3 +466,18 @@ async fn finds_messages_by_their_meaning_and_reads_each_once() {
     store.forget_message_embeddings(Some("model@2".into())).await.unwrap();
     assert_eq!(store.messages_to_embed(6, 10).await.unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn clearing_the_index_keeps_the_kept_values() {
+    let folder = TempDir::new().unwrap();
+    let store = Store::open(file(&folder), key()).await.unwrap();
+    store
+        .add(vec![message("$1", "Zítra jdeme na výlet", "!a", 1)])
+        .await
+        .unwrap();
+    store.keep("chats".into(), vec![1, 2, 3]).await.unwrap();
+    store.clear_index().await.unwrap();
+    assert!(found(&store, "vylet").await.is_empty());
+    assert_eq!(store.message_count().await.unwrap(), 0);
+    assert_eq!(store.kept("chats".into()).await.unwrap(), Some(vec![1, 2, 3]));
+}

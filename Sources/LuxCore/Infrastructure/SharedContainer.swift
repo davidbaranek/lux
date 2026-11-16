@@ -20,8 +20,9 @@ public enum SharedContainer {
     /// The app's folder of stores: the group's, else its own.
     static var appRoot: URL { groupRoot ?? ownRoot }
 
-    /// The app's own folder of stores, in its Application Support.
-    private static var ownRoot: URL {
+    /// The app's own folder of stores, in its Application Support: what no extension reads (the
+    /// search index), kept out of the group, where a file locked as the app is suspended ends it.
+    static var ownRoot: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("matrix", isDirectory: true)
     }

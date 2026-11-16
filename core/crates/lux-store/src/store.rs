@@ -842,6 +842,24 @@ impl Store {
             .await
     }
 
+    /// Forgets the whole search index (messages, photos, files, links, how far each chat is
+    /// read) and gives its space back, keeping the kept values: the index moved to a store of
+    /// its own, and this one keeps only what the app's extensions read.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn clear_index(&self) -> Result<()> {
+        self.worker
+            .run(|connection| {
+                connection.execute_batch(
+                    "BEGIN; DELETE FROM links; DELETE FROM messages; DELETE FROM images; DELETE FROM files; \
+                     DELETE FROM chats; COMMIT; VACUUM;",
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
     /// Keeps a value (the last chat list), encrypted with the rest.
     ///
     /// # Errors

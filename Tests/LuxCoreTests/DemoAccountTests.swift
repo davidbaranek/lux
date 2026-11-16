@@ -4,9 +4,10 @@ import LuxBindings
 @testable import LuxCore
 
 @MainActor
+@Suite(.closesDemoSessions)
 struct DemoThreadTests {
     @Test func reactionsToggle() async throws {
-        let session = Session.demo(rooms: 3, messagesPerRoom: 10)
+        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 10)
         let row = try #require(await session.account.value.chats().first)
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
@@ -20,7 +21,7 @@ struct DemoThreadTests {
     }
 
     @Test func aSentMessageShowsAndAnAnswerGoesToItsMessage() async throws {
-        let session = Session.demo(rooms: 3, messagesPerRoom: 10)
+        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 10)
         let row = try #require(await session.account.value.chats().first)
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
@@ -38,8 +39,9 @@ struct DemoThreadTests {
 /// Matrix threads in the demo: a root's summary in the chat, the thread's own timeline, replying
 /// there, the chat's threads, and joining a bridged thread by its reaction (mautrix-discord's).
 @MainActor
+@Suite(.closesDemoSessions)
 struct DemoMatrixThreadTests {
-    private let session = Session.demo(rooms: 6, messagesPerRoom: 30)
+    private let session = DemoSessions.open(rooms: 6, messagesPerRoom: 30)
 
     private func opened(_ thread: MatrixThread? = nil, in chat: ChatRow? = nil) async throws -> (ThreadModel, Changes) {
         let first = try await session.account.value.chats().first
@@ -94,8 +96,9 @@ struct DemoMatrixThreadTests {
 
 /// The account's chats as the core reads them, beside the chat list.
 @MainActor
+@Suite(.closesDemoSessions)
 struct DemoChatsTests {
-    private let session = Session.demo(rooms: 30, messagesPerRoom: 5)
+    private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 5)
 
     @Test func aChatIsFoundByTheWordsOfItsNameWithoutCaseOrAccents() async throws {
         let account = try await session.account.value

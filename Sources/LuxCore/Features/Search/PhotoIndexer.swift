@@ -49,16 +49,17 @@ public actor PhotoIndexer {
     /// True when none is left. A run under way goes on, and this one after it if it reads more;
     /// a stop ends both.
     @discardableResult
-    func read(limit: Int?) async -> Bool {
+    func read(limit: Int?, lease: ForegroundLease) async -> Bool {
         let asked = stops
         if let running {
             let done = await running.value
             guard limit == nil, !done, stops == asked, self.running == nil else { return done }
         }
-        let run = Task { await readUnread(limit: limit) }
+        let run = Task { await readUnread(limit: limit, lease: lease) }
         running = run
         report(await progress())
-        let done = await run.value
+        // the caller's cancel (the app leaving the front) ends the reading too.
+        let done = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
         running = nil
         report(await progress())
         return done
@@ -77,7 +78,7 @@ public actor PhotoIndexer {
                         isReading: running != nil)
     }
 
-    private func readUnread(limit: Int?) async -> Bool {
+    private func readUnread(limit: Int?, lease: ForegroundLease) async -> Bool {
         guard let account = try? await account.value else { return false }
         let reader = self.reader
         var left = limit ?? .max
@@ -89,7 +90,7 @@ public actor PhotoIndexer {
             let started = ContinuousClock.now
             var stopped = false
             for photo in photos where !Task.isCancelled {
-                switch await self.read(photo, by: reader, from: account) {
+                switch await self.read(photo, by: reader, from: account, lease: lease) {
                 case .read(let read): reads.append(read)
                 case .unreadable: try? await store.imageUnread(photo.eventId)
                 case .notNow: stopped = true
@@ -128,12 +129,12 @@ public actor PhotoIndexer {
 
     /// One photo read: downloaded into its own folder, read, and deleted.
     private func read(_ photo: (eventId: String, roomId: String), by reader: PhotoReader,
-                      from account: RustAccount) async -> Outcome {
+                      from account: RustAccount, lease: ForegroundLease) async -> Outcome {
         let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: folder) }
         do {
             let file = try await account.sharedFile(roomId: photo.roomId, eventId: photo.eventId, directory: folder)
-            let (words, embedding) = try await reader.read(file)
+            let (words, embedding) = try await reader.read(file, lease: lease)
             return .read(PhotoRead(eventId: photo.eventId, reader: reader.name, words: words, embedding: embedding))
         } catch {
             let unreadable = !Task.isCancelled && Self.isThePhotos(error)

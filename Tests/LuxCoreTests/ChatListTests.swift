@@ -4,8 +4,9 @@ import Testing
 
 /// The chat list over the Rust core's demo account: the view model composes, the model applies.
 @MainActor
+@Suite(.closesDemoSessions)
 struct ChatListModelTests {
-    private let session = Session.demo(rooms: 40, messagesPerRoom: 5)
+    private let session = DemoSessions.open(rooms: 40, messagesPerRoom: 5)
 
     @Test func theInboxShowsPinnedChatsInAGridAndThePlacesWithTheirNames() async {
         let model = ChatListModel(session: session)

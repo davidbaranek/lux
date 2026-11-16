@@ -61,8 +61,11 @@ final class BackgroundRefresh {
 
     private func expire() {
         work?.cancel()
-        if UIApplication.shared.applicationState != .active { session.enterBackground() }
-        complete(ok: false)
+        let session = self.session
+        Task { [weak self] in
+            if UIApplication.shared.applicationState != .active { await session.enterBackground() }
+            self?.complete(ok: false)
+        }
     }
 
     /// Tells the system the refresh is over, once.

@@ -123,7 +123,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.text = String(localized: "Semantic Search")
                 content.secondaryText = String(localized: """
                     Search always finds words. This also finds photos by what they show ("dog on the beach") and \
-                    messages by what they mean ("trip to the mountains"), with a model of about 630 MB, all on this \
+                    messages by what they mean ("trip to the mountains"), with a model of about 650 MB, all on this \
                     iPhone.
                     """)
                 content.secondaryTextProperties.color = .secondaryLabel

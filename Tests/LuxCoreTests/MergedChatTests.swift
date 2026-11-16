@@ -3,8 +3,9 @@ import Testing
 @testable import LuxCore
 
 @MainActor
+@Suite(.closesDemoSessions)
 struct MergedChatTests {
-    private let session = Session.demo(rooms: 30, messagesPerRoom: 40)
+    private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 40)
 
     private func merged() async throws -> ChatRow {
         let rows = try await session.account.value.chats()

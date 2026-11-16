@@ -70,8 +70,9 @@ actor PhotoSearchModel {
         try self.init(files: { folder.appending(path: $0) })
     }
 
-    /// A photo's unit embedding: the photo squashed to the encoder's square, as it learned.
-    func embedding(of image: CGImage) throws -> [Float] {
+    /// A photo's unit embedding: the photo squashed to the encoder's square, as it learned. The
+    /// first loads the image encoder (compiled for this device the first time: long).
+    func embedding(of image: CGImage, lease _: ForegroundLease) throws -> [Float] {
         let encoder = try imageEncoder ?? Self.load("ImageEncoder", from: file)
         imageEncoder = encoder
         guard let constraint = encoder.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else {
@@ -87,7 +88,7 @@ actor PhotoSearchModel {
     /// Loads the text encoder and the tokenizer off the model's queue: the first load on a device
     /// compiles the encoder for it, which takes a while (some 20 s on a Mac), and searches go on
     /// by words meanwhile.
-    func prepareTextEncoder() {
+    func prepareTextEncoder(lease _: ForegroundLease) {
         guard textEncoder == nil, preparing == nil else { return }
         let file = file, description = description
         preparing = Task.detached(priority: .utility) { [weak self] in
@@ -105,9 +106,14 @@ actor PhotoSearchModel {
         }
     }
 
-    /// Waits until the text encoder is loaded (or failed to).
-    func textEncoderLoaded() async {
-        prepareTextEncoder()
+    /// Waits until the text encoder is loaded (or failed to), loading it if it is not.
+    func textEncoderLoaded(lease: ForegroundLease) async {
+        prepareTextEncoder(lease: lease)
+        await preparing?.value
+    }
+
+    /// Waits while the text encoder loads (one started under a lease); at once when none loads.
+    func textEncoderPrepared() async {
         await preparing?.value
     }
 
@@ -130,10 +136,8 @@ actor PhotoSearchModel {
     }
 
     private func embedding(of text: String) throws -> [Float]? {
-        guard let encoder = textEncoder, let tokenizer else {
-            prepareTextEncoder()
-            return nil
-        }
+        // loaded only under a lease (`prepareTextEncoder`): until then, nothing to compare.
+        guard let encoder = textEncoder, let tokenizer else { return nil }
         let ids = try tokenizer.ids(text)
         let inputs: [String: Any]
         if let table {

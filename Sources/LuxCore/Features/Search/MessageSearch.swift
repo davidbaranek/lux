@@ -18,6 +18,10 @@ public final class MessageSearch {
     private let indexer: SearchIndexer
     private let account: Task<RustAccount, any Error>
     private var following: Task<Void, Never>?
+    /// What follows the index's progress: it ends with the search.
+    private var listening: Task<Void, Never>?
+    /// The index's, the photos' and the meaning's reading: it ends with the search.
+    private let work = ForegroundJobs()
 
     init(store: LocalStore, account: Task<RustAccount, any Error>, maxChats: Int? = nil) {
         self.store = store
@@ -30,13 +34,14 @@ public final class MessageSearch {
         self.photos = photos
         let meaning = MessageMeaning(store: store)
         self.meaning = meaning
+        let work = self.work
         photos.onModel = { model in
-            Task {
+            work.start("meaning") { lease in
                 await meaning.use(model)
-                if model != nil, Saving.shared.reason == nil { await meaning.read(limit: nil) }
+                if model != nil, await Saving.shared.reason == nil { await meaning.read(limit: nil, lease: lease) }
             }
         }
-        Task { [weak self] in
+        listening = Task { [weak self] in
             for await progress in reports {
                 self?.progress = progress
                 self?.progressChanges.send()
@@ -44,30 +49,42 @@ public final class MessageSearch {
                 if !progress.isIndexing {
                     photos.update()
                     if Saving.shared.reason == nil {
-                        Task(priority: .utility) { await meaning.read(limit: nil) }
+                        work.start("meaning") { lease in await meaning.read(limit: nil, lease: lease) }
                     }
                 }
             }
         }
-        Task { await indexer.update() }
+        Self.update(indexer, in: work)
         // a chat changed (a new message), in any place, not only the one on screen: the index
         // reads what is new, at most every few seconds.
         following = Task {
             guard let changes = try? await account.value.chatChanges() else { return }
             let throttle = Throttle(interval: .seconds(3))
             for await _ in changes {
-                throttle.schedule { await indexer.update() }
+                throttle.schedule { await MainActor.run { Self.update(indexer, in: work) } }
             }
         }
+        // back in front: what came meanwhile is read, and the photos and messages after it.
+        returning = ForegroundWork.shared.onReturn { Self.update(indexer, in: work) }
     }
 
     isolated deinit {
         following?.cancel()
+        listening?.cancel()
+    }
+
+    private var returning: AnyObject?
+
+    /// Brings the index up to date, as foreground work.
+    private static func update(_ indexer: SearchIndexer, in work: ForegroundJobs) {
+        work.start("index") { lease in await indexer.update(lease: lease) }
     }
 
     func stop() async {
         following?.cancel()
+        listening?.cancel()
         await indexer.stop()
+        await work.end()
         await photos.stop()
         await meaning.stop()
     }
@@ -80,7 +97,7 @@ public final class MessageSearch {
     /// Reads each chat as far back as Settings now asks: on from where it stopped, if further.
     public func readHistory(_ history: SearchHistory) {
         Preferences.shared.searchHistory = history
-        Task { await indexer.update() }
+        Self.update(indexer, in: work)
     }
 
     /// The index for Settings: "12 340 messages · complete", or how far it is reading.
