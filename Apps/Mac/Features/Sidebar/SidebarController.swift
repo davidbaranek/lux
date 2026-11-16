@@ -210,24 +210,24 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
 
     @objc private func closeSearchClicked() { endSearch() }
 
-    /// The close button comes out of the field's end as the field gives it room, or goes back in.
+    /// The close button comes out of the field's end as the field gives it room; going, it fades
+    /// as the field grows back over its place.
     private func showCloseSearch(_ shown: Bool) {
         guard shown == closeSearch.isHidden else { return }
-        let side = search.frame.height
-        let room = side + 6
+        let room = search.frame.height + 6
         closeSearch.isHidden = false
-        closeSearch.wantsLayer = true
-        // from under the field's end (its own width to the left), small, to its place.
-        let slide = CABasicAnimation(keyPath: "transform")
-        let tucked = CATransform3DScale(CATransform3DMakeTranslation(-room / 2, 0, 0), 0.4, 0.4, 1)
-        slide.fromValue = shown ? tucked : CATransform3DIdentity
-        slide.toValue = shown ? CATransform3DIdentity : tucked
-        slide.duration = 0.3
-        slide.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.25, 0.5, 1)
-        slide.isRemovedOnCompletion = true
-        closeSearch.layer?.add(slide, forKey: "slide")
+        if shown {
+            // from under the field's end, small, to its place.
+            closeSearch.wantsLayer = true
+            let slide = CABasicAnimation(keyPath: "transform")
+            slide.fromValue = CATransform3DScale(CATransform3DMakeTranslation(-room / 2, 0, 0), 0.4, 0.4, 1)
+            slide.toValue = CATransform3DIdentity
+            slide.duration = 0.3
+            slide.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.25, 0.5, 1)
+            closeSearch.layer?.add(slide, forKey: "slide")
+        }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.3
+            context.duration = shown ? 0.3 : 0.22
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             context.allowsImplicitAnimation = true
             searchTrailing.animator().constant = shown ? -10 - room : -10
