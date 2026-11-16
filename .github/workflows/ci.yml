@@ -1,6 +1,7 @@
 # Every pull request into dev and main, and every push to them: the Rust core (formatting, lints,
-# tests), Swift that forces or swallows an error (scripts/check-swift-errors.sh), the shared Swift package's tests (also under Thread Sanitizer), both apps built, and the
-# iPhone app's smoke test on a simulator (Apps/UITests/SmokeTests.swift). Branch protection
+# tests), Swift that forces or swallows an error (scripts/check-swift-errors.sh), the shared Swift
+# package's tests (also under Thread Sanitizer), both apps built, and the iPhone app's smoke test
+# on a simulator (Apps/UITests/SmokeTests.swift). Branch protection
 # requires `check`, which passes only when every other job did.
 #
 # The apps link the core's XCFramework (Vendor/, `cargo xtask apple`). `sdk` builds its simulator
