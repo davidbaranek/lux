@@ -34,17 +34,19 @@ public final class ShareSender: Sendable {
         // the extension's small runtime, before the first call into the core.
         CoreRuntime.startInExtension()
         let keychain = AccountKeychain(service: configuration.keychainService)
-        guard let kept = try keychain.read(), let root = SharedContainer.groupRoot else { return nil }
-        let folder = root.appendingPathComponent(kept.store, isDirectory: true)
-        guard let sender = try await openShareSender(storeFolder: folder.path, keeper: KeychainKeeper(keychain: keychain, store: kept.store))
+        let paths = AppPaths.main
+        guard let kept = try keychain.read(), paths.shared != nil else { return nil }
+        let account = paths.account(kept.store)
+        guard let sender = try await openShareSender(storeFolder: account.folder.path,
+                                                     keeper: KeychainKeeper(keychain: keychain, store: kept.store))
         else { return nil }
-        return ShareSender(sender: sender, chats: await chats(root: root, store: kept.store))
+        return ShareSender(sender: sender, chats: await chats(of: account, store: kept.store))
     }
 
     /// The chats the app kept in the account's store; none before it first kept its list.
-    private static func chats(root: URL, store: String) async -> [ShareChat] {
+    private static func chats(of account: AccountPaths, store: String) async -> [ShareChat] {
         guard let key = await SearchKey.existingKey(for: store),
-              let local = try? await LocalStore.open(file: Session.storeFile(in: root, store: store), key: key) else { return [] }
+              let local = try? await LocalStore.open(file: account.keptStore, key: key) else { return [] }
         return await shareChats(store: local.store).map(ShareChat.init)
     }
 

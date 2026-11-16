@@ -108,7 +108,7 @@ struct MessageSearchTests {
 
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-search-\(UUID().uuidString)/index.sqlite")
         let search = MessageSearch(store: try await LocalStore.open(file: file, key: String(repeating: "5e", count: 32)),
-                                   account: session.account, maxChats: 3)
+                                   account: session.account, photos: file.deletingLastPathComponent(), maxChats: 3)
         let (read, token) = search.changes()
         var reports = 0
         let counting = search.progressChanges.observe { reports += 1 }

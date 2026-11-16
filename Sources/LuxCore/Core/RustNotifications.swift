@@ -75,9 +75,9 @@ public final class PushedEvents: Sendable {
         // the extension's small runtime, before the first call into the core.
         CoreRuntime.startInExtension()
         let keychain = AccountKeychain(service: configuration.keychainService)
-        guard let kept = try keychain.read(), let root = SharedContainer.groupRoot else { return nil }
-        let folder = root.appendingPathComponent(kept.store, isDirectory: true)
-        let reader = try await openNotificationReader(storeFolder: folder.path, keeper: KeychainKeeper(keychain: keychain, store: kept.store))
+        let paths = AppPaths.main
+        guard let kept = try keychain.read(), paths.shared != nil else { return nil }
+        let reader = try await openNotificationReader(storeFolder: paths.account(kept.store).folder.path, keeper: KeychainKeeper(keychain: keychain, store: kept.store))
         return reader.map(PushedEvents.init)
     }
 
