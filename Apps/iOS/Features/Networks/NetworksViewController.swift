@@ -67,7 +67,7 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
         }
         let footer = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionFooter) {
             [weak self] footer, _, _ in
-            var content = UIListContentConfiguration.groupedFooter()
+            var content = UIListContentConfiguration.footer()
             content.text = self?.footerText
             footer.contentConfiguration = content
         }
