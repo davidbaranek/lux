@@ -13,6 +13,7 @@ mod chat;
 mod details;
 mod image_search;
 mod list;
+mod log;
 mod markdown;
 mod message;
 mod organizing;

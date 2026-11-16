@@ -5,6 +5,8 @@ import os
 public enum Log {
     public static let app = Logger(subsystem: AppIdentity.bundleId, category: "app")
     public static let metrics = Logger(subsystem: AppIdentity.bundleId, category: "metrics")
+    /// The Rust core's own log (its `tracing` events), as `CoreLog` writes it.
+    public static let core = Logger(subsystem: AppIdentity.bundleId, category: "core")
 }
 
 /// Intervals that Instruments (os_signpost) shows, under the app's bundle id as the subsystem.

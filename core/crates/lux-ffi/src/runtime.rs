@@ -8,9 +8,11 @@
 //! Swift side takes them as `Sendable` values (checked by Swift 6, and by Thread Sanitizer on the
 //! demo). Blocking work (stores, files) has its own pool.
 
-use std::sync::Once;
+use std::sync::{Arc, Once};
 
 use tokio::runtime::{Builder, Handle};
+
+use crate::log::{self, CoreLogSink};
 
 /// Which process the core runs in.
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
@@ -21,12 +23,15 @@ pub enum CoreProcess {
     NotificationExtension,
 }
 
-/// Sets how the core's runtime is made. Call it before any other call into the core; a later
-/// call changes nothing.
+/// Sets how the core's runtime is made, and where its log goes. Call it before any other call
+/// into the core; a later call changes nothing.
 #[uniffi::export]
-pub fn start_core(process: CoreProcess) {
+pub fn start_core(process: CoreProcess, log: Arc<dyn CoreLogSink>) {
     static START: Once = Once::new();
-    START.call_once(|| async_compat::set_runtime_builder(Box::new(move || builder(process))));
+    START.call_once(|| {
+        log::install(log);
+        async_compat::set_runtime_builder(Box::new(move || builder(process)));
+    });
 }
 
 fn builder(process: CoreProcess) -> Builder {
