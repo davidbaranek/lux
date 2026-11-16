@@ -96,7 +96,7 @@ public actor SearchIndexer {
         // to their start or as far as Settings asks.
         let quick = rooms.filter { room in
             guard let indexed = chats[room.id] else { return true }
-            // to the millisecond, as the store keeps it: a date finer than it is no newer message.
+            // to the nearest millisecond, as the store keeps it: a date a hair off it is no newer.
             return Self.millis(room.date ?? .distantPast) > Self.millis(indexed.newest)
         }
         await read(quick, deep: false, back: horizon, from: account)
@@ -117,7 +117,7 @@ public actor SearchIndexer {
     }
 
     private static func millis(_ date: Date) -> Int64 {
-        Int64((date.timeIntervalSince1970 * 1000).rounded(.down))
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
     }
 
     /// A room to read: its id, and its chat's newest message.
