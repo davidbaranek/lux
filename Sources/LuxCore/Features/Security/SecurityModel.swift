@@ -13,27 +13,22 @@ public final class SecurityModel {
     /// Another device asks to verify: the app shows the request (set by whoever presents it).
     public var onRequest: ((VerificationModel) -> Void)?
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any SecurityPort, any Error>
     private var following: [Task<Void, Never>] = []
-    private var handles: [AnyObject] = []
     private var waiting: [CheckedContinuation<EncryptionSetup, Never>] = []
 
-    init(account: Task<RustAccount, any Error>) {
+    init(account: Task<any SecurityPort, any Error>) {
         self.account = account
         following = [
             Task { [weak self, account] in
                 guard let account = await bestEffort("follow the encryption setup", { try await account.value }) else { return }
-                let (setups, handle) = account.encryptionSetups()
-                self?.handles.append(handle)
-                for await setup in setups {
+                for await setup in account.encryptionSetups() {
                     self?.receive(setup)
                 }
             },
             Task { [weak self, account] in
                 guard let account = await bestEffort("follow verification requests", { try await account.value }) else { return }
-                let (requests, handle) = account.verificationRequests()
-                self?.handles.append(handle)
-                for await request in requests {
+                for await request in account.verificationRequests() {
                     guard let self else { return }
                     let model = VerificationModel(account: self.account, request: request)
                     // nothing to show it yet: the request waits on the other device until it times out.

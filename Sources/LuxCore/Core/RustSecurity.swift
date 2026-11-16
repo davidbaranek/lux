@@ -3,26 +3,30 @@ import LuxBindings
 
 /// The Rust core's security in the app's types: what this device needs, verifications with the
 /// account's other devices, its devices, the recovery key and setting recovery up.
-extension RustAccount {
+extension RustAccount: SecurityPort {
     func isDeviceVerified() async -> Bool { await account.isDeviceVerified() }
 
     /// What this device needs, now and as it changes.
-    func encryptionSetups() -> (AsyncStream<EncryptionSetup>, CoreListenerHandle) {
+    func encryptionSetups() -> AsyncStream<EncryptionSetup> {
         let (stream, continuation) = AsyncStream<EncryptionSetup>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        return (stream, account.followEncryptionSetup(listener: SetupRelay(continuation)))
+        let handle = account.followEncryptionSetup(listener: SetupRelay(continuation))
+        continuation.onTermination = { _ in handle.cancel() }
+        return stream
     }
 
     /// The verifications the account's other devices ask for, as they arrive.
-    func verificationRequests() -> (AsyncStream<RustVerification>, CoreListenerHandle) {
-        let (stream, continuation) = AsyncStream<RustVerification>.makeStream()
-        return (stream, account.followVerificationRequests(listener: RequestRelay(continuation)))
+    func verificationRequests() -> AsyncStream<any Verification> {
+        let (stream, continuation) = AsyncStream<any Verification>.makeStream()
+        let handle = account.followVerificationRequests(listener: RequestRelay(continuation))
+        continuation.onTermination = { _ in handle.cancel() }
+        return stream
     }
 
-    func verifyThisDevice() async throws -> RustVerification {
+    func verifyThisDevice() async throws -> any Verification {
         RustVerification(try await worded { try await account.verifyThisDevice() })
     }
 
-    func verify(device: String) async throws -> RustVerification {
+    func verify(device: String) async throws -> any Verification {
         RustVerification(try await worded { try await account.verifyDevice(deviceId: device) })
     }
 
@@ -63,7 +67,7 @@ extension RustAccount {
 }
 
 /// A verification in the Rust core: its steps, and the answers to them.
-final class RustVerification: Sendable {
+final class RustVerification: Verification {
     let steps: AsyncStream<VerificationStep>
     let otherDevice: OwnDevice?
     private let verification: CoreVerification
@@ -124,9 +128,9 @@ private final class SetupRelay: CoreEncryptionSetupListener {
 }
 
 private final class RequestRelay: CoreVerificationRequestListener {
-    private let continuation: AsyncStream<RustVerification>.Continuation
+    private let continuation: AsyncStream<any Verification>.Continuation
 
-    init(_ continuation: AsyncStream<RustVerification>.Continuation) { self.continuation = continuation }
+    init(_ continuation: AsyncStream<any Verification>.Continuation) { self.continuation = continuation }
 
     func onRequest(verification: CoreVerification) { continuation.yield(RustVerification(verification)) }
 }

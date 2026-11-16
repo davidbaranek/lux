@@ -19,17 +19,17 @@ public final class VerificationModel {
     public var onStep: ((VerificationStep) -> Void)?
     public var onError: ((Error) -> Void)?
 
-    private let account: Task<RustAccount, any Error>
-    private var flow: RustVerification?
+    private let account: Task<any SecurityPort, any Error>
+    private var flow: (any Verification)?
     private var following: Task<Void, Never>?
 
     public init(session: Session, kind: Kind = .thisDevice) {
-        account = session.account
+        account = Task { [account = session.account] in try await account.value }
         self.kind = kind
     }
 
     /// Another device's request, as it arrived.
-    init(account: Task<RustAccount, any Error>, request: RustVerification) {
+    init(account: Task<any SecurityPort, any Error>, request: any Verification) {
         self.account = account
         kind = .request(from: request.otherDevice)
         flow = request
@@ -40,7 +40,7 @@ public final class VerificationModel {
         guard following == nil else { return }
         following = Task {
             do {
-                let flow: RustVerification
+                let flow: any Verification
                 if let request = self.flow { flow = request } else { flow = try await begin() }
                 self.flow = flow
                 for await step in flow.steps {
@@ -55,7 +55,7 @@ public final class VerificationModel {
         }
     }
 
-    private func begin() async throws -> RustVerification {
+    private func begin() async throws -> any Verification {
         let account = try await account.value
         return switch kind {
         case .thisDevice, .request: try await account.verifyThisDevice()
@@ -76,7 +76,7 @@ public final class VerificationModel {
         Task { await flow?.cancel() }
     }
 
-    private func answer(_ action: @escaping (RustVerification) async throws -> Void) {
+    private func answer(_ action: @escaping (any Verification) async throws -> Void) {
         guard let flow else { return }
         Task { do { try await action(flow) } catch { onError?(error) } }
     }
