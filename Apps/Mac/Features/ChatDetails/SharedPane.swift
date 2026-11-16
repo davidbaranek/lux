@@ -176,7 +176,7 @@ private final class SharedTileItem: NSCollectionViewItem {
     func show(_ item: SharedItem, images: ImagePipeline?) {
         picture.show(item.picture?.ref, pixels: 240, images: images)
         if case .video(_, let duration) = item.content {
-            length.stringValue = duration.map { Duration.seconds($0).formatted(.time(pattern: .minuteSecond)) } ?? String(localized: "Video")
+            length.stringValue = duration.map { $0.formatted(.time(pattern: .minuteSecond)) } ?? String(localized: "Video")
         } else {
             length.stringValue = ""
         }

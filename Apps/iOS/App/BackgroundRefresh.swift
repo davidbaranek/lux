@@ -10,7 +10,7 @@ import UIKit
 final class BackgroundRefresh {
     static let identifier = "\(AppIdentity.bundleId).refresh"
     /// The system gives a refresh about 30 s; the sync stops before it runs out.
-    private static let budget: Double = 25
+    private static let budget: Duration = .seconds(25)
     /// Not sooner than this after leaving the app (the system decides when, often later).
     private static let interval: TimeInterval = 15 * 60
 

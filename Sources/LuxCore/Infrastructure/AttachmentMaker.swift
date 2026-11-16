@@ -75,6 +75,7 @@ public enum AttachmentMaker {
     private static func video(_ source: URL, name: String, type: UTType, in folder: URL) async throws -> OutgoingAttachment {
         let asset = AVURLAsset(url: source)
         let (duration, tracks) = try await asset.load(.duration, .tracks)
+        guard duration.isNumeric, duration.timescale > 0 else { throw Failure.unreadable(name) }
         guard let track = tracks.first(where: { $0.mediaType == .video }) else { throw Failure.unreadable(name) }
         let (natural, transform) = try await track.load(.naturalSize, .preferredTransform)
         let upright = natural.applying(transform)
@@ -94,7 +95,8 @@ public enum AttachmentMaker {
         let poster = OutgoingAttachment.Thumbnail(file: posterFile, mimetype: "image/jpeg", size: try size(of: posterFile),
                                                   width: still.width, height: still.height)
         return OutgoingAttachment(file: file, name: name, mimetype: type.preferredMIMEType ?? "video/mp4", size: try size(of: file),
-                                  kind: .video(width: width, height: height, duration: duration.seconds), thumbnail: poster)
+                                  kind: .video(width: width, height: height, duration: .seconds(duration.value) / Int64(duration.timescale)),
+                                  thumbnail: poster)
     }
 
     /// An upright JPEG of `image` at most `side` pixels on its longer edge, decoded at that size.

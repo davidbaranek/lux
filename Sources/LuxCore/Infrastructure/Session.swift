@@ -339,12 +339,12 @@ public final class Session {
     }
 
     /// The system's background refresh: opens the kept account if the app was not running,
-    /// syncs until the server answered (at most `seconds`), and stops the sync. The chat list
+    /// syncs until the server answered (at most `within`), and stops the sync. The chat list
     /// and the store are then fresh for the next time the app opens. False when signed out or
     /// the server did not answer in time.
-    public func refreshInBackground(within seconds: Double) async -> Bool {
+    public func refreshInBackground(within: Duration) async -> Bool {
         guard await restore(), let account = await bestEffort("background refresh", { try await account.value }) else { return false }
-        return await account.refresh(within: seconds)
+        return await account.refresh(within: within)
     }
 
     /// Ends the account's work and lets its stores close, the account kept (a test's demo

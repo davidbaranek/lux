@@ -114,7 +114,7 @@ public struct SharedItem: Sendable, Hashable, Identifiable {
     public enum Content: Sendable, Hashable {
         case photo(MessageItem.Photo)
         /// Its poster, when the sender sent one.
-        case video(poster: MessageItem.Photo?, duration: TimeInterval?)
+        case video(poster: MessageItem.Photo?, duration: Duration?)
         case file(name: String, size: Int?, mimetype: String)
         /// The message's text around it.
         case link(URL, text: String)

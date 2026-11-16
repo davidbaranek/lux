@@ -1,0 +1,6 @@
+# Spans of time are Swift's `Duration` (src/time_span.rs): whole seconds and nanoseconds cross,
+# a negative `Duration` crosses as zero.
+[bindings.swift.custom_types.TimeSpan]
+type_name = "Duration"
+lift = "Duration(secondsComponent: Int64(clamping: {}.seconds), attosecondsComponent: Int64({}.nanoseconds) * 1_000_000_000)"
+lower = "{ (span: Duration) -> TimeSpanParts in let parts = span.components; return span < .zero ? TimeSpanParts(seconds: 0, nanoseconds: 0) : TimeSpanParts(seconds: UInt64(parts.seconds), nanoseconds: UInt32(parts.attoseconds / 1_000_000_000)) }({})"

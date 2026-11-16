@@ -3,7 +3,7 @@
 //! platform's session keeper.
 
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use eyeball_im::Vector;
 use futures_util::{FutureExt, StreamExt};
@@ -23,6 +23,7 @@ use crate::chat::{CoreFolder, CorePreview};
 use crate::details::CoreNotificationMode;
 use crate::runtime;
 use crate::store::CoreStore;
+use crate::time_span::TimeSpan;
 
 // MARK: the session keeper
 
@@ -763,7 +764,7 @@ pub enum CoreDemoEncryption {
 }
 
 /// The demo's made-up account with `rooms` rooms, `messages_per_room` messages in each chat; its
-/// encryption starting at `encryption`, and, with `verification_request_after_seconds`, another
+/// encryption starting at `encryption`, and, with `verification_request_after`, another
 /// device asking to verify that long after the app listens.
 #[uniffi::export]
 #[must_use]
@@ -771,7 +772,7 @@ pub fn open_demo(
     rooms: u32,
     messages_per_room: u32,
     encryption: CoreDemoEncryption,
-    verification_request_after_seconds: Option<u32>,
+    verification_request_after: Option<TimeSpan>,
 ) -> Arc<CoreAccount> {
     let config = DemoConfig {
         messages_per_room: usize::try_from(messages_per_room).unwrap_or(usize::MAX),
@@ -780,8 +781,7 @@ pub fn open_demo(
             CoreDemoEncryption::Unverified => DemoEncryption::Unverified,
             CoreDemoEncryption::NoRecovery => DemoEncryption::NoRecovery,
         },
-        verification_request_after: verification_request_after_seconds
-            .map(|seconds| std::time::Duration::from_secs(seconds.into())),
+        verification_request_after: verification_request_after.map(Duration::from),
         ..DemoConfig::new(usize::try_from(rooms).unwrap_or(usize::MAX))
     };
     Arc::new(CoreAccount {

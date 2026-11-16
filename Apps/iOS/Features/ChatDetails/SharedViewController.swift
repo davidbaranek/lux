@@ -246,7 +246,7 @@ private final class SharedTile: UICollectionViewCell {
         let pixels = Int(bounds.width * traitCollection.displayScale)
         picture.show(item.picture?.ref, pixels: max(pixels, 200), images: images)
         if case .video(_, let duration) = item.content {
-            length.text = duration.map { Duration.seconds($0).formatted(.time(pattern: .minuteSecond)) } ?? String(localized: "Video")
+            length.text = duration.map { $0.formatted(.time(pattern: .minuteSecond)) } ?? String(localized: "Video")
             accessibilityLabel = String(localized: "Video from \(item.senderName)")
         } else {
             length.text = nil

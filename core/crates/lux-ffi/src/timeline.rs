@@ -3,7 +3,7 @@
 //! reading, uploads, media.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use lux_core::ids::{EventId, MediaId, MessageId, MessageRef, RoomId, TimelineId};
 use lux_core::message::SendState;
@@ -16,6 +16,7 @@ use lux_core::timeline::{
 use crate::account::{Backend, CoreAccount, CoreAccountError, with_account};
 use crate::chat::{CorePreviewKind, path_text, position};
 use crate::message::CoreSendState;
+use crate::time_span::TimeSpan;
 
 // MARK: records
 
@@ -67,7 +68,7 @@ pub enum CoreMedia {
         /// Its poster.
         poster: Option<CorePicture>,
         /// Its length.
-        duration: Option<Duration>,
+        duration: Option<TimeSpan>,
     },
     /// A file or a sound.
     File {
@@ -80,7 +81,7 @@ pub enum CoreMedia {
         /// Which kind.
         kind: CoreFileKind,
         /// A sound's length.
-        duration: Option<Duration>,
+        duration: Option<TimeSpan>,
     },
 }
 
@@ -380,7 +381,7 @@ pub enum CoreOutgoingKind {
         /// Its height.
         height: u32,
         /// Its length.
-        duration: Duration,
+        duration: TimeSpan,
     },
     /// Any file.
     File,
@@ -511,7 +512,7 @@ impl From<&TimelineMessage> for CoreMessage {
                 },
                 Media::Video { poster, duration } => CoreMedia::Video {
                     poster: poster.as_ref().map(picture),
-                    duration: *duration,
+                    duration: duration.map(TimeSpan),
                 },
                 Media::File {
                     name,
@@ -528,7 +529,7 @@ impl From<&TimelineMessage> for CoreMessage {
                         FileKind::Audio => CoreFileKind::Audio,
                         FileKind::Voice => CoreFileKind::Voice,
                     },
-                    duration: *duration,
+                    duration: duration.map(TimeSpan),
                 },
             }),
             styles: message
@@ -657,7 +658,7 @@ impl From<CoreOutgoingAttachment> for OutgoingAttachment {
                 } => OutgoingKind::Video {
                     width,
                     height,
-                    duration,
+                    duration: duration.into(),
                 },
                 CoreOutgoingKind::File => OutgoingKind::File,
             },

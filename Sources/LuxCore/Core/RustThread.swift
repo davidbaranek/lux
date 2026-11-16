@@ -223,7 +223,7 @@ private extension MessageItem {
                           width: Int(picture.width), height: Int(picture.height), isAnimated: isAnimated)
         case .video(let poster, let duration):
             photo = poster.map { Photo(ref: .poster(roomId: roomId, messageId: message.id, name: $0.source), width: Int($0.width), height: Int($0.height)) }
-            video = Video(duration: Int(duration ?? 0))
+            video = Video(duration: Int(duration?.components.seconds ?? 0))
         case .file(let name, let size, let mimetype, let kind, let duration):
             let fileKind: File.Kind = switch kind {
             case .document: .document
@@ -231,7 +231,7 @@ private extension MessageItem {
             case .voice: .voice
             }
             file = File(name: kind == .voice ? String(localized: "Voice message") : name, size: Int(clamping: size ?? 0),
-                        mimetype: mimetype, kind: fileKind, duration: Int(duration ?? 0))
+                        mimetype: mimetype, kind: fileKind, duration: Int(duration?.components.seconds ?? 0))
         case nil: break
         }
         self.init(id: message.id, senderId: message.senderId, senderName: message.senderName, body: body, date: message.date,

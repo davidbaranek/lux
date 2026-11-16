@@ -139,7 +139,7 @@ private extension SharedItem {
         var id = item.eventId
         switch item.content {
         case .photo(let picture): content = .photo(photo(picture))
-        case .video(let poster, let seconds): content = .video(poster: poster.map(photo), duration: seconds)
+        case .video(let poster, let duration): content = .video(poster: poster.map(photo), duration: duration)
         case .file(let name, let size, let mimetype): content = .file(name: name, size: size.map { Int(clamping: $0) }, mimetype: mimetype)
         case .link(let address, let text):
             guard let url = URL(string: address) else { return nil }

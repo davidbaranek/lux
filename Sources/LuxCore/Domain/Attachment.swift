@@ -6,8 +6,8 @@ public struct OutgoingAttachment: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         /// A picture, its size in pixels.
         case photo(width: Int, height: Int)
-        /// A video, its size in pixels and its length in seconds; the thumbnail is its poster.
-        case video(width: Int, height: Int, duration: TimeInterval)
+        /// A video, its size in pixels and its length; the thumbnail is its poster.
+        case video(width: Int, height: Int, duration: Duration)
         case file
     }
 
