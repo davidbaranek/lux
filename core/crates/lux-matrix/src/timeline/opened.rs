@@ -2,6 +2,7 @@
 //! apps hold (a chat or a thread on screen). One task owns the set; a timeline it lets go closes
 //! once no call still uses it.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -101,10 +102,14 @@ impl Opened {
     /// Keeps the timeline open until the hold goes.
     pub(crate) fn hold(&self, room: Key) -> TimelineHold {
         // once the task is gone, nothing is open to keep.
-        let _ = self.commands.send(Command::Hold(room.clone()));
+        self.commands
+            .send(Command::Hold(room.clone()))
+            .other_end_may_be_gone("the open timelines' task");
         let commands = self.commands.clone();
         TimelineHold::new(move || {
-            let _ = commands.send(Command::Release(room));
+            commands
+                .send(Command::Release(room))
+                .other_end_may_be_gone("the open timelines' task");
         })
     }
 }

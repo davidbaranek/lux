@@ -14,6 +14,7 @@ mod task;
 #[cfg(test)]
 mod tests;
 
+use crate::gone::OtherEndGone;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -197,7 +198,7 @@ impl ThreadViewModel {
 
     fn send(&self, intent: Intent) {
         // the task ends only when this goes: a failed send cannot happen while it lives.
-        let _ = self.intents.send(intent);
+        self.intents.send(intent).other_end_may_be_gone("the thread's task");
     }
 
     async fn ask<T>(&self, intent: impl FnOnce(oneshot::Sender<T>) -> Intent) -> Option<T> {

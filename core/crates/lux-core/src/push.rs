@@ -6,7 +6,7 @@
 //! servers. What it fetched becomes a [`Notification`], structured; the apps word it.
 
 use std::collections::VecDeque;
-use std::fmt::Write as _;
+
 use std::time::{Duration, SystemTime};
 
 use crate::ids::{ChatId, EventId, MediaId, RoomId, UserId};
@@ -44,10 +44,7 @@ impl PushKey {
     #[must_use]
     pub fn from_token(bytes: &[u8]) -> Self {
         let mut hex = String::with_capacity(bytes.len() * 2);
-        for byte in bytes {
-            // writing to a `String` cannot fail.
-            let _ = write!(hex, "{byte:02x}");
-        }
+        crate::hex::push_hex(&mut hex, bytes);
         Self(hex)
     }
 

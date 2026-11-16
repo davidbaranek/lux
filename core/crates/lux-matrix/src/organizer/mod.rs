@@ -8,6 +8,7 @@
 
 pub(crate) mod formats;
 
+use lux_core::gone::OtherEndGone;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -134,9 +135,12 @@ pub(crate) struct Organizer {
 pub(crate) struct Changes(mpsc::UnboundedSender<Command>);
 
 impl Changes {
-    /// Sends a change without waiting for it (the chat list's tidying).
+    /// Sends a change without waiting for it (the chat list's tidying). The task reports its
+    /// failure; with the task gone (the account closing), the change is not made.
     pub(crate) fn send(&self, change: Change) {
-        let _ = self.0.send(Command::Change { change, reply: None });
+        if self.0.send(Command::Change { change, reply: None }).is_err() {
+            warn!("a change of the account data is not made: the account has closed");
+        }
     }
 }
 
@@ -172,10 +176,12 @@ impl Organizer {
                 let commands = commands.clone();
                 async move {
                     if let Some(event) = own_event(&event) {
-                        let _ = commands.send(Command::Received {
-                            events: vec![event],
-                            live: true,
-                        });
+                        commands
+                            .send(Command::Received {
+                                events: vec![event],
+                                live: true,
+                            })
+                            .other_end_may_be_gone("the organizer's task");
                     }
                 }
             }
@@ -261,8 +267,11 @@ async fn run(
             changed
         });
         match reply {
+            // the caller stopped waiting: its failure is reported here instead.
             Some((Some(reply), result)) => {
-                let _ = reply.send(result);
+                if let Err(Err(error)) = reply.send(result) {
+                    warn!(?error, "a change of the account data failed");
+                }
             }
             Some((None, Err(error))) => warn!(?error, "a change of the account data failed"),
             Some((None, Ok(()))) | None => {}
@@ -313,7 +322,9 @@ async fn discover_records(client: Client, commands: mpsc::UnboundedSender<Comman
     loop {
         match read_records(&client).await {
             Ok(events) => {
-                let _ = commands.send(Command::Received { events, live: false });
+                commands
+                    .send(Command::Received { events, live: false })
+                    .other_end_may_be_gone("the organizer's task");
                 return;
             }
             Err(error) => warn!(?error, "the labels could not be read from the server"),

@@ -3,6 +3,7 @@
 //! SDK's `Timeline`, the task that maps its items to the core's messages (the only writer of the
 //! list), and the opening fill. Which of them show is the thread's choice (`lux_core::thread`).
 
+use lux_core::gone::OtherEndGone;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -197,7 +198,10 @@ impl RoomTimeline {
     pub(crate) async fn wait_until_filled(&self) {
         let mut filled = self.filled.clone();
         // the sender goes only with the timeline.
-        let _ = filled.wait_for(|filled| *filled).await;
+        filled
+            .wait_for(|filled| *filled)
+            .await
+            .other_end_may_be_gone("the timeline");
     }
 
     /// The timeline holds the room's first message.
@@ -432,7 +436,7 @@ impl RoomTimeline {
             // call returns: it is awaited before the items are read again.
             let (_, updates) = self.timeline.subscribe().await;
             let reached_start = self.timeline.paginate_backwards(PAGE).await.map_err(from_timeline)?;
-            let _ = tokio::time::timeout(PAGE_CATCH_UP, async {
+            let caught_up = tokio::time::timeout(PAGE_CATCH_UP, async {
                 futures_util::pin_mut!(updates);
                 while self.timeline.items().await.len() <= items.len() {
                     if updates.next().await.is_none() {
@@ -441,6 +445,9 @@ impl RoomTimeline {
                 }
             })
             .await;
+            if caught_up.is_err() {
+                tracing::debug!("a page back did not show in time: the items are read as they are");
+            }
             pages = if reached_start { UNREAD_PAGES } else { pages + 1 };
         };
         // a message the account sent read what came before it, whatever the receipts say.
@@ -533,7 +540,9 @@ impl Follower {
         if !mapped.is_empty() {
             self.messages.apply(mapped);
             // nobody listening is no error.
-            let _ = self.changes.send(self.room_id.clone());
+            self.changes
+                .send(self.room_id.clone())
+                .other_end_may_be_gone("the room's change listeners");
         }
     }
 

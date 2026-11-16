@@ -7,6 +7,7 @@
 //! Requests from the account's other devices arrive as to-device events; a handler passes each
 //! one on to whoever listens.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -412,7 +413,9 @@ impl IncomingVerifications {
                         && !request.we_started()
                     {
                         // no listener: the app is not up to show it; the request times out.
-                        let _ = requests.send((request, event.content.from_device));
+                        requests
+                            .send((request, event.content.from_device))
+                            .other_end_may_be_gone("the verification requests' listener");
                     }
                 }
             }

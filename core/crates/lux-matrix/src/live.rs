@@ -7,6 +7,7 @@
 //! names it, the merged chat it is part of) while someone follows, and each follower keeps its own
 //! [`LiveNotifications`] (what is new to it, each once).
 
+use lux_core::gone::OtherEndGone;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -55,7 +56,9 @@ impl LiveFeed {
         client
             .register_notification_handler(move |notification: SdkNotification, room: Room, _: Client| {
                 // the task may have ended with the account: then nobody follows.
-                let _ = synced.send((notification, room));
+                synced
+                    .send((notification, room))
+                    .other_end_may_be_gone("the notifications' task");
                 async {}
             })
             .await;
@@ -112,7 +115,9 @@ async fn run(
         let merges = Arc::clone(&organized.borrow());
         if let Some(candidate) = candidate(&notification, &room, &own, &merges).await {
             // nobody followed by now: nothing lost.
-            let _ = candidates.send(Arc::new(candidate));
+            candidates
+                .send(Arc::new(candidate))
+                .other_end_may_be_gone("the notifications' followers");
         }
     }
 }

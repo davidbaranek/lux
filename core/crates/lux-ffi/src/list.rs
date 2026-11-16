@@ -1,6 +1,7 @@
 //! The chat list's view model (`lux_core::list`), as the apps see it: an object they forward
 //! intents to, and a listener that receives one batch of changes per frame.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
@@ -339,7 +340,7 @@ impl CoreChatList {
     pub fn show_kept(&self, store: Option<Arc<CoreStore>>) {
         let waiting = self.lock().kept.take();
         if let Some(waiting) = waiting {
-            let _ = waiting.send(store);
+            waiting.send(store).other_end_may_be_gone("the list's task");
         }
     }
 
@@ -349,10 +350,12 @@ impl CoreChatList {
         let mut opening = self.lock();
         // the kept list, if it has not come, is not waited for.
         if let Some(kept) = opening.kept.take() {
-            let _ = kept.send(None);
+            kept.send(None).other_end_may_be_gone("the list's task");
         }
         if let (Some(waiting), Backend::Matrix(account)) = (opening.account.take(), account.backend()) {
-            let _ = waiting.send(Arc::clone(account));
+            waiting
+                .send(Arc::clone(account))
+                .other_end_may_be_gone("the list's task");
         }
     }
 

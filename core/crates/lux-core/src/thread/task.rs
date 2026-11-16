@@ -2,6 +2,7 @@
 //! the backend's events (the rooms' diffs, the answers of what it spawned) in turn, and once a
 //! frame, when anything changed, presents the rows and sends their diffs with the state.
 
+use crate::gone::OtherEndGone;
 use std::collections::HashMap;
 use std::future::Future;
 use std::mem;
@@ -261,7 +262,9 @@ impl<B: ThreadBackend> Thread<B> {
                     }
                     Err(error) => {
                         listener.on_error(error);
-                        let _ = events.send(Event::Unreadable(index));
+                        events
+                            .send(Event::Unreadable(index))
+                            .other_end_may_be_gone("the thread's task");
                     }
                 }
             });
@@ -270,7 +273,9 @@ impl<B: ThreadBackend> Thread<B> {
                 let timelines = backend.timelines();
                 timelines.wait_until_filled(&id).await;
                 let at_start = timelines.is_at_start(&id).await.unwrap_or(false);
-                let _ = events.send(Event::Filled(index, at_start));
+                events
+                    .send(Event::Filled(index, at_start))
+                    .other_end_may_be_gone("the thread's task");
             });
         }
         let (backend, events) = (Arc::clone(&self.backend), self.events.clone());
@@ -281,11 +286,15 @@ impl<B: ThreadBackend> Thread<B> {
                 found
             } else {
                 // the rows go without it; the marker follows.
-                let _ = events.send(Event::UnreadSlow);
+                events
+                    .send(Event::UnreadSlow)
+                    .other_end_may_be_gone("the thread's task");
                 found.await
             };
             let found = found.into_iter().filter_map(|found| found.ok().flatten()).collect();
-            let _ = events.send(Event::FirstUnread(found));
+            events
+                .send(Event::FirstUnread(found))
+                .other_end_may_be_gone("the thread's task");
         });
         self.refresh_can_send_later();
     }
@@ -333,7 +342,7 @@ impl<B: ThreadBackend> Thread<B> {
                 self.filling = self.filling.saturating_sub(1);
                 if self.filling == 0 {
                     for waiter in self.loaded_waiters.drain(..) {
-                        let _ = waiter.send(());
+                        waiter.send(()).other_end_may_be_gone("the caller");
                     }
                 }
                 self.dirty.state = true;
@@ -360,7 +369,7 @@ impl<B: ThreadBackend> Thread<B> {
                     // the room's list has not caught up yet: it shows once it does.
                     Some((_, id)) => self.reveals.push((id, Some(answer))),
                     None => {
-                        let _ = answer.send(None);
+                        answer.send(None).other_end_may_be_gone("the caller");
                     }
                 }
             }
@@ -382,7 +391,7 @@ impl<B: ThreadBackend> Thread<B> {
                     self.mode = ComposerMode::Reply(ReplyTarget::of_quote(quote));
                     self.dirty.state = true;
                 }
-                let _ = answer.send(draft.text);
+                answer.send(draft.text).other_end_may_be_gone("the caller");
             }
         }
     }
@@ -451,7 +460,7 @@ impl<B: ThreadBackend> Thread<B> {
                     self.read.opened(true);
                 }
                 for waiter in self.unread_waiters.drain(..) {
-                    let _ = waiter.send(None);
+                    waiter.send(None).other_end_may_be_gone("the caller");
                 }
                 self.first_unread = FirstUnread::Late;
             }
@@ -470,7 +479,7 @@ impl<B: ThreadBackend> Thread<B> {
             .cloned();
         self.read.opened(self.listed_unread || first.is_some());
         for waiter in self.unread_waiters.drain(..) {
-            let _ = waiter.send(first.clone());
+            waiter.send(first.clone()).other_end_may_be_gone("the caller");
         }
         self.first_unread = FirstUnread::Decided(first);
     }
@@ -520,16 +529,16 @@ impl<B: ThreadBackend> Thread<B> {
             }
             Intent::FirstUnread(answer) => match &self.first_unread {
                 FirstUnread::Decided(first) => {
-                    let _ = answer.send(first.clone());
+                    answer.send(first.clone()).other_end_may_be_gone("the caller");
                 }
                 FirstUnread::Late => {
-                    let _ = answer.send(None);
+                    answer.send(None).other_end_may_be_gone("the caller");
                 }
                 FirstUnread::Undecided => self.unread_waiters.push(answer),
             },
             Intent::Loaded(answer) => {
                 if self.filling == 0 {
-                    let _ = answer.send(());
+                    answer.send(()).other_end_may_be_gone("the caller");
                 } else {
                     self.loaded_waiters.push(answer);
                 }
@@ -606,7 +615,9 @@ impl<B: ThreadBackend> Thread<B> {
                         listener.on_error(error);
                         None
                     });
-                    let _ = events.send(Event::Draft(draft, answer));
+                    events
+                        .send(Event::Draft(draft, answer))
+                        .other_end_may_be_gone("the thread's task");
                 });
             }
             DraftIntent::Save(text) => {
@@ -698,7 +709,9 @@ impl<B: ThreadBackend> Thread<B> {
                     Err(error) => Err(error),
                 };
                 let at_start = paged.map_err(|error| listener.on_error(error)).ok();
-                let _ = events.send(Event::Paged(index, at_start));
+                events
+                    .send(Event::Paged(index, at_start))
+                    .other_end_may_be_gone("the thread's task");
             });
         }
         self.dirty.rows = true;
@@ -720,7 +733,7 @@ impl<B: ThreadBackend> Thread<B> {
         match replied {
             Some((index, event)) => self.jump(vec![index], event, answer),
             None => {
-                let _ = answer.send(None);
+                answer.send(None).other_end_may_be_gone("the caller");
             }
         }
     }
@@ -760,7 +773,9 @@ impl<B: ThreadBackend> Thread<B> {
                     Err(error) => listener.on_error(error),
                 }
             }
-            let _ = events.send(Event::Found(found, answer));
+            events
+                .send(Event::Found(found, answer))
+                .other_end_may_be_gone("the thread's task");
         });
     }
 
@@ -850,7 +865,7 @@ impl<B: ThreadBackend> Thread<B> {
 
     fn send_later(&mut self, text: &str, at: std::time::SystemTime, answer: oneshot::Sender<Result<(), BackendError>>) {
         if text.is_empty() {
-            let _ = answer.send(Ok(()));
+            answer.send(Ok(())).other_end_may_be_gone("the caller");
             return;
         }
         let reply = self.mode.reply().cloned();
@@ -859,9 +874,13 @@ impl<B: ThreadBackend> Thread<B> {
             .map_or_else(|| self.send_room.clone(), |reply| self.reply_room(reply));
         let reply = reply.and_then(|reply| self.reply_event(&reply));
         self.set_mode(ComposerMode::Message);
-        let (backend, text) = (Arc::clone(&self.backend), text.to_owned());
+        let (backend, listener, text) = (Arc::clone(&self.backend), Arc::clone(&self.listener), text.to_owned());
         self.actions.push(Target::Sends(room.clone()), async move {
-            let _ = answer.send(backend.send_later(&room, &text, reply.as_ref(), at).await.map(drop));
+            let sent = backend.send_later(&room, &text, reply.as_ref(), at).await.map(drop);
+            // the caller stopped waiting: its failure is the thread's to show.
+            if let Err(Err(error)) = answer.send(sent) {
+                listener.on_error(error);
+            }
         });
     }
 
@@ -1004,7 +1023,7 @@ impl<B: ThreadBackend> Thread<B> {
                 .iter()
                 .find(|row| row.id() == &id || row.album.iter().any(|message| message.message.id == id))
                 .map(|row| row.id().clone());
-            let _ = answer.send(row.or(Some(id)));
+            answer.send(row.or(Some(id))).other_end_may_be_gone("the caller");
         }
     }
 
@@ -1032,7 +1051,9 @@ impl<B: ThreadBackend> Thread<B> {
         let (backend, events, room) = (Arc::clone(&self.backend), self.events.clone(), self.send_room.clone());
         self.followers.spawn(async move {
             let can = backend.can_send_later(&room).await;
-            let _ = events.send(Event::CanSendLater(room, can));
+            events
+                .send(Event::CanSendLater(room, can))
+                .other_end_may_be_gone("the thread's task");
         });
     }
 

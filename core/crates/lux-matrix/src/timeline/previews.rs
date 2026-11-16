@@ -3,6 +3,7 @@
 //! never reaches the site. One task asks, each address once; what it learns goes out as one
 //! shared map, with which the open timelines map their messages again.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -57,7 +58,9 @@ impl LinkPreviews {
     pub(crate) fn get(&self, url: &str) -> Option<LinkPreview> {
         let known = self.known.borrow().get(url).cloned();
         if known.is_none() {
-            let _ = self.asks.send(url.to_owned());
+            self.asks
+                .send(url.to_owned())
+                .other_end_may_be_gone("the previews' task");
         }
         known.flatten()
     }

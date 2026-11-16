@@ -5,6 +5,7 @@
 //! sends an `OpenID` token (`openid:<token>`, which the bridge checks with the account's server),
 //! asked for once an hour.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -47,12 +48,14 @@ impl BridgeLink {
     pub(crate) fn start(client: &Client) -> Self {
         let (arrived, arrivals) = mpsc::unbounded_channel();
         client.add_event_handler(move |event: AnySyncTimelineEvent, room: Room| {
-            let _ = arrived.send(Arrival {
-                room,
-                sender: event.sender().to_owned(),
-                sent: system_time(event.origin_server_ts()),
-                at: SystemTime::now(),
-            });
+            arrived
+                .send(Arrival {
+                    room,
+                    sender: event.sender().to_owned(),
+                    sent: system_time(event.origin_server_ts()),
+                    at: SystemTime::now(),
+                })
+                .other_end_may_be_gone("the bridges' task");
             async {}
         });
         let (sender, catching_up) = watch::channel(Vec::new());

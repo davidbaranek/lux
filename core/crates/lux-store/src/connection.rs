@@ -8,6 +8,7 @@
 //! drops, never by a thread still running while the process exits (SQLCipher's teardown at exit
 //! frees what an unfinished close still uses).
 
+use lux_core::gone::OtherEndGone;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
@@ -43,11 +44,11 @@ impl Worker {
         let thread = thread::Builder::new().name("lux-store".into()).spawn(move || {
             let mut connection = match open() {
                 Ok(connection) => {
-                    let _ = opened.send(Ok(()));
+                    opened.send(Ok(())).other_end_may_be_gone("the store's opener");
                     Some(connection)
                 }
                 Err(error) => {
-                    let _ = opened.send(Err(error));
+                    opened.send(Err(error)).other_end_may_be_gone("the store's opener");
                     return;
                 }
             };
@@ -62,7 +63,7 @@ impl Worker {
                     },
                     Message::Release(done) => {
                         connection = None;
-                        let _ = done.send(());
+                        done.send(()).other_end_may_be_gone("the caller");
                     }
                     Message::Stop => return,
                 }
@@ -83,7 +84,9 @@ impl Worker {
         let (answer, answered) = oneshot::channel();
         self.messages
             .send(Message::Run(Box::new(move |connection| {
-                let _ = answer.send(connection.and_then(job));
+                answer
+                    .send(connection.and_then(job))
+                    .other_end_may_be_gone("the caller");
             })))
             .map_err(|_| Error::Closed)?;
         answered.await.map_err(|_| Error::Closed)?
@@ -100,10 +103,12 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         // a thread that failed to open has ended already, and the send fails.
-        let _ = self.messages.send(Message::Stop);
+        self.messages
+            .send(Message::Stop)
+            .other_end_may_be_gone("the store's thread");
         if let Some(thread) = self.thread.take() {
             // a panic in a job has already been reported on its thread.
-            let _ = thread.join();
+            thread.join().other_end_may_be_gone("the store's thread");
         }
     }
 }

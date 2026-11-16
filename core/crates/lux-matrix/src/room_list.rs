@@ -7,6 +7,7 @@
 //! Rows are shared: a chat nothing changed stays the same allocation from the mapping to the
 //! apps' list. A keeper task writes the list to the store for the next launch.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -113,7 +114,7 @@ impl Flush {
     pub(crate) async fn run(&self) {
         let (done, written) = oneshot::channel();
         if self.0.send(done).is_ok() {
-            let _ = written.await;
+            written.await.other_end_may_be_gone("the chat list's task");
         }
     }
 }
@@ -166,7 +167,7 @@ async fn keep(
                     written = Some(Instant::now());
                     write(&rows).await;
                 }
-                let _ = done.send(());
+                done.send(()).other_end_may_be_gone("the caller");
             }
         }
     }

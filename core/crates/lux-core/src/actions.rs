@@ -29,7 +29,11 @@ impl<K: Eq + Hash> Actions<K> {
         let running = tokio::spawn(async move {
             if let Some(before) = before {
                 // one that failed or panicked does not hold back the next.
-                let _ = before.await;
+                if let Err(error) = before.await
+                    && error.is_panic()
+                {
+                    tracing::error!(%error, "an action panicked");
+                }
             }
             action.await;
         });

@@ -9,6 +9,7 @@
 //! tried again in all of the room's events, with the backup. One task asks, apart from the
 //! list's, which never waits for it.
 
+use lux_core::gone::OtherEndGone;
 use std::collections::{BTreeSet, HashSet};
 
 use futures_util::future;
@@ -37,7 +38,9 @@ impl Redecryptor {
 
     /// The list shows `room` from now on.
     pub(crate) fn listed(&self, room: &RoomId) {
-        let _ = self.rooms.send(room.to_owned());
+        self.rooms
+            .send(room.to_owned())
+            .other_end_may_be_gone("the redecryption's task");
     }
 }
 
