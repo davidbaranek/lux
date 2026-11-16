@@ -1,14 +1,10 @@
 import Foundation
 import LuxBindings
 
-/// The server's bridges in the Rust core (`lux-ffi`'s `bridges.rs`), in the app's types.
-extension RustAccount {
-    enum Offers {
-        case notSet
-        case offered([NetworkOffer])
-    }
-
-    func networkOffers() async throws -> Offers {
+/// The server's bridges in the Rust core (`lux-ffi`'s `bridges.rs`), in the app's types: the
+/// Rust core's adapter of `NetworksPort`.
+extension RustAccount: NetworksPort {
+    func networkOffers() async throws -> NetworkOffers {
         switch try await bridged({ try await account.bridgeOffers() }) {
         case .notSet: .notSet
         case .offered(let offers): .offered(offers.map(NetworkOffer.init))
@@ -43,11 +39,13 @@ extension RustAccount {
         try await bridged { try await account.logOutOfNetwork(offer: CoreBridgeOffer(offer), login: login) }
     }
 
-    /// The networks whose history is arriving, now and as they change.
-    func catchingUp() -> (AsyncStream<[CatchUp]>, CoreListenerHandle) {
+    /// The networks whose history is arriving, now and as they change; the core stops telling
+    /// when the stream ends.
+    func catchingUp() -> AsyncStream<[CatchUp]> {
         let (stream, continuation) = AsyncStream<[CatchUp]>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let handle = account.followCatchingUp(listener: CatchUpRelay(continuation))
-        return (stream, handle)
+        continuation.onTermination = { _ in handle.cancel() }
+        return stream
     }
 }
 

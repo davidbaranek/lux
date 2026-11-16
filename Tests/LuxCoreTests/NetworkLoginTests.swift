@@ -64,3 +64,39 @@ struct NetworksModelTests {
     #expect(WebsiteLoginReader.domain("www.facebook.com", isIn: "facebook.com"))
     #expect(!WebsiteLoginReader.domain("notfacebook.com", isIn: "facebook.com"))
 }
+
+/// The networks model over its port alone, with no account behind it: a bridge that cannot be
+/// found shows as such, and the others still load.
+@MainActor
+struct NetworksPortTests {
+    private struct Bridges: NetworksPort {
+        let offers: [NetworkOffer]
+        let missing: String
+
+        func networkOffers() async throws -> NetworkOffers { .offered(offers) }
+        func networkAccount(_ offer: NetworkOffer) async throws -> NetworkAccount {
+            if offer.network == missing { throw BridgeFailure.notFound }
+            return NetworkAccount(logins: [], flows: [], needsSignIn: true)
+        }
+        func startNetworkLogin(_ offer: NetworkOffer, flow: String) async throws -> NetworkLoginStep { throw BridgeFailure.notFound }
+        func answerNetworkLogin(_ offer: NetworkOffer, step: NetworkLoginStep.ID, values: [String: String]) async throws -> NetworkLoginStep {
+            throw BridgeFailure.notFound
+        }
+        func waitNetworkLogin(_ offer: NetworkOffer, step: NetworkLoginStep.ID) async throws -> NetworkLoginStep { throw BridgeFailure.notFound }
+        func cancelNetworkLogin(_ offer: NetworkOffer, step: NetworkLoginStep.ID) async {}
+        func logOut(of offer: NetworkOffer, login: String) async throws {}
+        func catchingUp() -> AsyncStream<[CatchUp]> { AsyncStream { $0.finish() } }
+    }
+
+    @Test func aBridgeThatIsNotFoundShowsSoAndTheOthersLoad() async {
+        let offers = [NetworkOffer(network: "signal", provisioning: "https://signal.example"),
+                      NetworkOffer(network: "whatsapp", provisioning: "https://whatsapp.example")]
+        let networks = NetworksModel(account: Task { Bridges(offers: offers, missing: "whatsapp") }, server: "example.org")
+        await networks.load()
+        #expect(networks.offered == offers)
+        guard case .failed(.notFound)? = networks.statuses[offers[1]] else { Issue.record("not shown as missing"); return }
+        guard case .account(let account)? = networks.statuses[offers[0]] else { Issue.record("not loaded"); return }
+        #expect(account.logins.isEmpty)
+        #expect(networks.hasNoLogins)
+    }
+}

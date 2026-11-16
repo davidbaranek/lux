@@ -41,13 +41,12 @@ public final class NetworksModel {
     public private(set) var catchingUp: [CatchUp] = []
     public let changes = Broadcast()
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any NetworksPort, any Error>
     private let server: String
     private var following: Task<Void, Never>?
-    private var handle: AnyObject?
     private var loading: Task<Void, Never>?
 
-    init(account: Task<RustAccount, any Error>, server: String) {
+    init(account: Task<any NetworksPort, any Error>, server: String) {
         self.account = account
         self.server = server
     }
@@ -139,9 +138,7 @@ public final class NetworksModel {
         guard following == nil else { return }
         following = Task { [weak self, account] in
             guard let account = await bestEffort("networks: follow the catching up", { try await account.value }) else { return }
-            let (changes, handle) = account.catchingUp()
-            self?.handle = handle
-            for await networks in changes {
+            for await networks in account.catchingUp() {
                 guard let self else { return }
                 let wasCatchingUp = Set(catchingUp.map(\.network))
                 catchingUp = networks
@@ -167,12 +164,12 @@ public final class NetworkSignIn {
     public let flows: [NetworkAccount.Flow]
     /// The way under way.
     public private(set) var flow: NetworkAccount.Flow?
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any NetworksPort, any Error>
     private let finished: () async -> Void
     /// The step under way, to cancel at the bridge if the user gives up.
     private var current: NetworkLoginStep.ID?
 
-    init(account: Task<RustAccount, any Error>, offer: NetworkOffer, flows: [NetworkAccount.Flow], finished: @escaping () async -> Void) {
+    init(account: Task<any NetworksPort, any Error>, offer: NetworkOffer, flows: [NetworkAccount.Flow], finished: @escaping () async -> Void) {
         self.account = account
         self.offer = offer
         self.flows = flows

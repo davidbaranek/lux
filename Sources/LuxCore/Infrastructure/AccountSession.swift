@@ -50,7 +50,7 @@ final class AccountSession {
         self.searchChanged = searchChanged
         images = ImagePipeline(account: account, directory: paths.media)
         uploads = Uploads(account: account, directory: paths.outgoing)
-        networks = NetworksModel(account: account, server: server)
+        networks = NetworksModel(account: Task { try await account.value }, server: server)
         security = SecurityModel(account: account)
         profile = ProfileModel(account: account)
         // the server may end the session (its tokens refused): the device is gone, sign in again.
