@@ -12,11 +12,16 @@ public final class NewConversationModel {
     public private(set) var isSearching = false
     public var onUpdate: (() -> Void)?
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any ConversationsPort, any Error>
     private var running: Task<Void, Never>?
 
-    public init(session: Session) {
-        account = session.account
+    public convenience init(session: Session) {
+        let account = session.account
+        self.init(account: Task { try await account.value })
+    }
+
+    init(account: Task<any ConversationsPort, any Error>) {
+        self.account = account
     }
 
     /// Lists what an empty search shows.
