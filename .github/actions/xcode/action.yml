@@ -1,0 +1,12 @@
+# The newest Xcode on the runner (the project builds with the newest SDK), for every step after.
+name: xcode
+description: Selects the newest Xcode installed on the runner.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        ls -d /Applications/Xcode*.app
+        xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+        echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+        DEVELOPER_DIR="$xcode/Contents/Developer" xcodebuild -version

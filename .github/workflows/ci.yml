@@ -1,0 +1,187 @@
+# Every pull request into dev and main, and every push to them: the Rust core (formatting, lints,
+# tests), Swift that forces or swallows an error (scripts/check-swift-errors.sh), the shared Swift package's tests (also under Thread Sanitizer), both apps built, and the
+# iPhone app's smoke test on a simulator (Apps/UITests/SmokeTests.swift). Branch protection
+# requires `check`, which passes only when every other job did.
+#
+# The apps link the core's XCFramework (Vendor/, `cargo xtask apple`). `sdk` builds its simulator
+# and Mac slices once (the dev profile: optimized SDK, light core) and caches it by the core's
+# sources, so a change outside core/ reuses it; the other jobs restore that cache.
+name: ci
+
+on:
+  push:
+    branches: [main, dev, claude/ci-smoke-53ec48]
+  pull_request:
+    branches: [main, dev]
+  # by hand, from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+          key: host
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+
+  # Swift that forces or silently swallows an error. A grep, so it needs no Xcode or core build.
+  swift-errors:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No try!, as!, try? or fatalError
+        run: sh scripts/check-swift-errors.sh
+
+  # the core as the apps link it: Vendor/LuxFFI.xcframework and Vendor/LuxBindings.
+  sdk:
+    runs-on: macos-26
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/xcode
+      - id: key
+        name: Vendor's cache key
+        run: echo "key=vendor-$(sh .github/actions/xcode/version.sh)-${{ hashFiles('core/Cargo.lock', 'core/Cargo.toml', 'core/rust-toolchain.toml', 'core/crates/**', 'core/xtask/**') }}" >> "$GITHUB_OUTPUT"
+      - id: vendor
+        uses: actions/cache@v4
+        with:
+          path: Vendor
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Install the toolchain
+        if: steps.vendor.outputs.cache-hit != 'true'
+        working-directory: core
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        if: steps.vendor.outputs.cache-hit != 'true'
+        with:
+          workspaces: core
+          key: apple
+      - name: Build the core for the simulator and the Mac
+        if: steps.vendor.outputs.cache-hit != 'true'
+        run: sh scripts/setup-sdk.sh --dev --only ios-simulator --only macos
+      - name: Save Vendor
+        if: steps.vendor.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Vendor
+          key: ${{ steps.key.outputs.key }}
+
+  # LuxCore's tests, then again under Thread Sanitizer (data races in the shared model).
+  swift:
+    needs: sdk
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/xcode
+      - uses: actions/cache/restore@v4
+        with:
+          path: Vendor
+          key: ${{ needs.sdk.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Test
+        run: swift test
+      - name: Test under Thread Sanitizer
+        run: swift test -Xswiftc -sanitize=thread --sanitize=thread --scratch-path .build/tsan
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+
+  apps:
+    needs: sdk
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/xcode
+      - uses: actions/cache/restore@v4
+        with:
+          path: Vendor
+          key: ${{ needs.sdk.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Build the iPhone app
+        run: >
+          xcodebuild build -scheme Lux-iOS -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build/DerivedData -skipPackagePluginValidation -quiet
+          CODE_SIGNING_ALLOWED=NO
+      # ad-hoc signed: no team, no profile, no entitlements (they need the team's).
+      - name: Build the Mac app
+        run: >
+          xcodebuild build -scheme Lux-Mac -destination 'platform=macOS'
+          -derivedDataPath build/DerivedData -skipPackagePluginValidation -quiet
+          CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
+          CODE_SIGN_ENTITLEMENTS=
+
+  # the demo account walked through on a simulator: fails on a crash or a 10 s hang.
+  smoke:
+    needs: sdk
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/xcode
+      - uses: actions/cache/restore@v4
+        with:
+          path: Vendor
+          key: ${{ needs.sdk.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Pick an iPhone simulator
+        id: simulator
+        run: |
+          id=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))] | last | .udid')
+          test -n "$id" && test "$id" != null
+          xcrun simctl boot "$id" || true
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      # signed to run locally (ad-hoc): the simulator then gets the app's entitlements (its
+      # App Group), as on a device.
+      - name: Smoke test
+        run: >
+          xcodebuild test -scheme Lux-iOS -destination 'id=${{ steps.simulator.outputs.id }}'
+          -only-testing:Lux-iOS-UITests/SmokeTests -derivedDataPath build/DerivedData
+          -resultBundlePath build/Smoke.xcresult -skipPackagePluginValidation
+          -test-timeouts-enabled YES -maximum-test-execution-time-allowance 300
+          CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
+      - name: Keep the result and any crash report
+        if: failure()
+        run: |
+          mkdir -p build/crashes
+          cp ~/Library/Logs/DiagnosticReports/*.ips build/crashes/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke
+          path: |
+            build/Smoke.xcresult
+            build/crashes
+
+  # the one check branch protection requires.
+  check:
+    if: always()
+    needs: [core, swift-errors, sdk, swift, apps, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed
+        run: |
+          echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success")'
