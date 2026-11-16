@@ -126,10 +126,13 @@ jobs:
           xcodebuild build -scheme Lux-iOS -destination 'generic/platform=iOS Simulator'
           -derivedDataPath build/DerivedData -skipPackagePluginValidation -quiet
           CODE_SIGNING_ALLOWED=NO
-      # ad-hoc signed: no team, no profile, no entitlements (they need the team's).
+      # universal, as Xcode Cloud archives it: the package (LuxCore) is compiled for x86_64 too,
+      # where some types (Float16) do not exist; the app itself links arm64 only (project.yml).
+      # Ad-hoc signed: no team, no profile, no entitlements (they need the team's).
       - name: Build the Mac app
         run: >
-          xcodebuild build -scheme Lux-Mac -destination 'platform=macOS'
+          xcodebuild build -scheme Lux-Mac -destination 'generic/platform=macOS'
+          ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO
           -derivedDataPath build/DerivedData -skipPackagePluginValidation -quiet
           CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
           CODE_SIGN_ENTITLEMENTS=
