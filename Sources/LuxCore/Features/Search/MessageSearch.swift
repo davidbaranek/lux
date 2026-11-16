@@ -11,6 +11,16 @@ public final class MessageSearch {
 
     /// Search in photos, off until the user turns it on.
     public let photos: PhotoSearch
+    /// What messages mean, read with the photos' model while semantic search is on.
+    private let meaning: MessageMeaning
+
+    /// How many messages the iPhone reads the meaning of at a time while the app is open; the
+    /// rest while it charges.
+    #if os(iOS)
+    private static let meaningLimit: Int? = 300
+    #else
+    private static let meaningLimit: Int? = nil
+    #endif
 
     private let store: LocalStore
     private let indexer: SearchIndexer
@@ -26,12 +36,25 @@ public final class MessageSearch {
         let photos = PhotoSearch(store: store, account: account,
                                  directory: FileManager.default.temporaryDirectory.appending(path: "photo-search"))
         self.photos = photos
+        let meaning = MessageMeaning(store: store)
+        self.meaning = meaning
+        photos.onModel = { model in
+            Task {
+                await meaning.use(model)
+                if model != nil, Saving.shared.reason == nil { await meaning.read(limit: Self.meaningLimit) }
+            }
+        }
         Task { [weak self] in
             for await progress in reports {
                 self?.progress = progress
                 self?.progressChanges.send()
-                // a pass ended: the photos it brought are read.
-                if !progress.isIndexing { photos.update() }
+                // a pass ended: the photos and messages it brought are read.
+                if !progress.isIndexing {
+                    photos.update()
+                    if Saving.shared.reason == nil {
+                        Task(priority: .utility) { await meaning.read(limit: Self.meaningLimit) }
+                    }
+                }
             }
         }
         Task { await indexer.update() }
@@ -54,6 +77,23 @@ public final class MessageSearch {
         following?.cancel()
         await indexer.stop()
         await photos.stop()
+        await meaning.stop()
+    }
+
+    /// Reads the meaning of every message not read yet (the iPhone's charging task); true when
+    /// none is left.
+    public func readAllMeanings() async -> Bool {
+        await meaning.read(limit: nil)
+    }
+
+    /// Stops reading what messages mean (the charging task ran out of time).
+    public func stopMeanings() async {
+        await meaning.stop()
+    }
+
+    /// How many messages mean something, and how many were read, for Settings.
+    public func meaningProgress() async -> (total: Int, read: Int) {
+        await meaning.progress()
     }
 
     /// Reads each chat as far back as Settings now asks: on from where it stopped, if further.
@@ -78,8 +118,11 @@ public final class MessageSearch {
     public func search(_ text: String) async -> SearchHits {
         guard text.contains(where: { $0.isLetter || $0.isNumber }), let account = try? await account.value else { return SearchHits() }
         async let chats = account.findChats(text, limit: 20)
-        async let foundPhotos = photos.search(text)
-        async let found = store.search(text, limit: 60)
+        // the words' embedding once: photos by their look, messages by their meaning.
+        let embedding = await photos.embedding(of: text)
+        let meant = await meaning.query(embedding)
+        async let foundPhotos = photos.search(text, embedding: embedding)
+        async let found = store.search(text, embedding: meant, minSimilarity: MessageMeaning.minSimilarity, limit: 60)
         async let shares = shares(text, kinds: [.links, .files, .threads], offset: 0, limit: SearchKind.links.preview + 1)
         let messages = (try? await found) ?? []
         let images = await foundPhotos

@@ -354,12 +354,16 @@ public final class Session {
         guard await restore(), let account = try? await account.value,
               let search = await openedSearch() else { return false }
         await account.beginBackgroundWork()
-        return await search.photos.readAll()
+        // the photos, then what messages mean (both with the model, while semantic search is on).
+        let photos = await search.photos.readAll()
+        let messages = await search.readAllMeanings()
+        return photos && messages
     }
 
     /// The background task ran out of time: the reading stops where it is.
     public func stopReadingPhotos() async {
         await search?.photos.stop()
+        await search?.stopMeanings()
     }
 
     /// The search, once its store has opened (a moment after the account).

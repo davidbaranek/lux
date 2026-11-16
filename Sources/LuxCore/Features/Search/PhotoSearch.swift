@@ -1,8 +1,9 @@
 import Foundation
 
 /// Search in photos, all on this device. Always: the words in each photo (Vision) and the
-/// messages sent near it. When the user turns it on: how photos look too, by the photo search
-/// model (downloaded then, about 450 MB), so "dog on the beach" finds one with no words at all.
+/// messages sent near it. When the user turns semantic search on: how photos look too, by the
+/// photo search model (downloaded then, about 450 MB), so "dog on the beach" finds one with no
+/// words at all; the same model reads what messages mean (`MessageMeaning`).
 /// Nothing leaves the device. On the iPhone a few new photos are read while the app is open, the
 /// rest while it charges (`PhotoReading`, a background processing task); on the Mac all of them,
 /// quietly.
@@ -27,6 +28,9 @@ public final class PhotoSearch {
         didSet { if progress != oldValue { changes.send() } }
     }
     public let changes = Broadcast()
+
+    /// The model came or went: messages are read with it too (search by meaning).
+    var onModel: ((PhotoSearchModel?) -> Void)?
 
     /// Search finds photos by how they look (the model); the words in them are found always.
     public var searchesByLook: Bool { Preferences.shared.searchesPhotosByLook }
@@ -85,6 +89,7 @@ public final class PhotoSearch {
         loading?.cancel()
         loading = nil
         model = nil
+        onModel?(nil)
         downloading = nil
         await indexer.stop()
         await indexer.use(nil)
@@ -183,11 +188,20 @@ public final class PhotoSearch {
     /// The photos that match `text`, the best first; `roomIds` keeps those rooms' (a chat's
     /// details), each room's best first.
     func search(_ text: String, in roomIds: [String]? = nil, limit: Int = 30) async -> [ImageHit] {
-        let model = self.model
-        var embedding: [Float]?
-        do { embedding = try await model?.embedding(of: text) } catch {
+        await search(text, embedding: await embedding(of: text), in: roomIds, limit: limit)
+    }
+
+    /// The words' embedding, in the photos' space; nil while the model or its text encoder is not
+    /// ready. A search of messages by meaning starts from it too.
+    func embedding(of text: String) async -> [Float]? {
+        do { return try await model?.embedding(of: text) } catch {
             Log.app.error("photo search: the words' embedding: \(String(describing: error), privacy: .public)")
+            return nil
         }
+    }
+
+    /// The photos that match `text`, and look like `embedding`, the best first.
+    func search(_ text: String, embedding: [Float]?, in roomIds: [String]? = nil, limit: Int = 30) async -> [ImageHit] {
         let minSimilarity = model?.minSimilarity ?? 1
         guard let roomIds else {
             return (try? await store.searchImages(text, embedding: embedding, minSimilarity: minSimilarity, limit: limit)) ?? []
@@ -222,6 +236,7 @@ public final class PhotoSearch {
             guard !Task.isCancelled, searchesByLook else { return }
             let model = try PhotoSearchModel(files: files)
             self.model = model
+            onModel?(model)
             await indexer.use(model)
             progress = await indexer.progress()
         } catch {

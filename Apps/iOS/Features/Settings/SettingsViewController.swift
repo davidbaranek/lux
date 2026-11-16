@@ -114,10 +114,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 }
             case .photoLooks:
                 content = .cell()
-                content.text = String(localized: "Search by What Photos Show")
+                content.text = String(localized: "Semantic Search")
                 content.secondaryText = String(localized: """
-                    Photos are always found by their words and the messages around them. This also finds them by \
-                    what they show ("dog on the beach"), with a model of about 450 MB read on this iPhone.
+                    Search always finds words. This also finds photos by what they show ("dog on the beach") and \
+                    messages by what they mean ("trip to the mountains"), with a model of about 450 MB, all on this \
+                    iPhone.
                     """)
                 content.secondaryTextProperties.color = .secondaryLabel
                 cell.accessories = [switchAccessory(photoLooksSwitch, isOn: model.searchesPhotosByLook)]

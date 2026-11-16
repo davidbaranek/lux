@@ -480,6 +480,16 @@ impl CoreStore {
         Ok(self.store.forget_message_embeddings(keep).await?)
     }
 
+    /// Keeps a value with the index, encrypted with the rest.
+    pub async fn keep(&self, key: String, value: Vec<u8>) -> Result<(), CoreStoreError> {
+        Ok(self.store.keep(key, value).await?)
+    }
+
+    /// A value kept with the index.
+    pub async fn kept(&self, key: String) -> Result<Option<Vec<u8>>, CoreStoreError> {
+        Ok(self.store.kept(key).await?)
+    }
+
     /// How many messages are long enough to mean something, and how many were read.
     pub async fn embedding_counts(&self, min_chars: u32) -> Result<CoreEmbeddingCounts, CoreStoreError> {
         let (total, read) = self.store.embedding_counts(min_chars).await?;

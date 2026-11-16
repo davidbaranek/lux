@@ -129,6 +129,43 @@ public final class LocalStore: Sendable {
         }
     }
 
+    // MARK: Meaning
+
+    /// Messages whose meaning is not read yet, the newest first, at least `minChars` long.
+    func messagesToEmbed(minChars: Int, limit: Int) async throws -> [(eventId: String, body: String)] {
+        try await store.messagesToEmbed(minChars: UInt32(clamping: minChars), limit: UInt32(clamping: limit))
+            .map { ($0.eventId, $0.body) }
+    }
+
+    /// Keeps what `embedder` read of messages' meaning: an embedding each, or nil for one with too
+    /// little to mean.
+    func setMessageEmbeddings(_ reads: [(eventId: String, embedding: [Float]?)], by embedder: String) async throws {
+        guard !reads.isEmpty else { return }
+        try await store.setMessageEmbeddings(embeddings: reads.map {
+            CoreMessageEmbedding(eventId: $0.eventId, embedder: embedder, embedding: $0.embedding)
+        })
+    }
+
+    /// Forgets the messages' embeddings but `keep`'s (nil: all of them).
+    func forgetMessageEmbeddings(keep: String?) async throws {
+        try await store.forgetMessageEmbeddings(keep: keep)
+    }
+
+    /// How many messages are long enough to mean something, and how many were read.
+    func embeddingCounts(minChars: Int) async throws -> (total: Int, read: Int) {
+        let counts = try await store.embeddingCounts(minChars: UInt32(clamping: minChars))
+        return (Int(clamping: counts.total), Int(clamping: counts.read))
+    }
+
+    /// A value kept with the index (encrypted with it).
+    func kept(_ key: String) async throws -> Data? {
+        try await store.kept(key: key)
+    }
+
+    func keep(_ key: String, _ value: Data) async throws {
+        try await store.keep(key: key, value: value)
+    }
+
     // MARK: Lists
 
     /// The photos, the newest first: `limit` after `offset`; `roomId` keeps one room's.
@@ -175,9 +212,12 @@ public final class LocalStore: Sendable {
     }
 
     /// The messages with every word of `text`, each word matched by its start, without case or
-    /// accents; the newest first. `roomId` keeps one chat's.
-    public func search(_ text: String, in roomId: String? = nil, limit: Int = 50) async throws -> [IndexHit] {
-        let hits = try await store.search(text: text, roomId: roomId, limit: UInt32(clamping: limit))
+    /// accents, the newest first; with `embedding` (the words' meaning) also those whose meaning
+    /// is like it, at least `minSimilarity`, merged. `roomId` keeps one chat's.
+    public func search(_ text: String, embedding: [Float]? = nil, minSimilarity: Float = 1, in roomId: String? = nil,
+                       limit: Int = 50) async throws -> [IndexHit] {
+        let hits = try await store.search(text: text, embedding: embedding, minSimilarity: minSimilarity, roomId: roomId,
+                                          limit: UInt32(clamping: limit))
         return hits.map { hit in
             IndexHit(eventId: hit.eventId, roomId: hit.roomId, senderName: hit.senderName, excerpt: hit.excerpt,
                      matches: hit.matches.map(\.range),
