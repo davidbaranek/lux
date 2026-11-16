@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
 
-use super::seeded::text;
+use super::seeded::{self, text};
 use super::timeline::OWN_USER;
 use crate::chat::{Chat, Folder, Label, Request, Space};
 use crate::ids::{ChatId, MediaId, RoomId, UserId};
@@ -145,7 +145,7 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
         is_marked_unread,
         is_muted: notifications(index, changed).is_quiet(),
         notifications: Some(notifications(index, changed)),
-        network: NETWORKS[index % NETWORKS.len()].clone(),
+        network: seeded::round(&NETWORKS, index).cloned().unwrap_or(Network::Matrix),
         // a group with no picture shows two members' pictures.
         member_avatars: if is_group && avatar.is_none() {
             vec![MediaId::from("demo-@friend0:demo"), MediaId::from("demo-@friend1:demo")]
@@ -163,10 +163,9 @@ pub(crate) fn chat(index: usize, start: SystemTime, state: Option<&ChatState>) -
 }
 
 fn made_name(index: usize) -> String {
-    if index < NAMES.len() {
-        NAMES[index].to_owned()
-    } else {
-        format!("{} {index}", NAMES[index % NAMES.len()])
+    match NAMES.get(index) {
+        Some(name) => (*name).to_owned(),
+        None => format!("{} {index}", seeded::round_name(&NAMES, index)),
     }
 }
 
@@ -284,8 +283,8 @@ pub(crate) fn members(index: usize, state: Option<&ChatState>) -> Vec<Member> {
         Member {
             name: format!(
                 "{} {}",
-                FIRST_NAMES[(number * 7 + index) % FIRST_NAMES.len()],
-                LAST_NAMES[(number * 11 + index / 2) % LAST_NAMES.len()]
+                seeded::round_name(&FIRST_NAMES, number * 7 + index),
+                seeded::round_name(&LAST_NAMES, number * 11 + index / 2)
             ),
             avatar: (number % 3 != 0).then(|| MediaId::from(format!("demo-{user}"))),
             user: UserId::from(user),
@@ -385,7 +384,7 @@ pub(crate) fn message(event: &str) -> Option<(String, bool, &'static str)> {
     let is_own = (number / 3).is_multiple_of(2);
     let seed = stable(room) % 97;
     let index = usize::try_from(number % 3).unwrap_or(0);
-    Some((text(number * 31 + 7 + seed), is_own, PEOPLE[index]))
+    Some((text(number * 31 + 7 + seed), is_own, seeded::round_name(&PEOPLE, index)))
 }
 
 /// A hash that is the same in every run (FNV-1a), as the Swift demo seeded each chat's words.

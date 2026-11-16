@@ -96,64 +96,58 @@ pub fn fold(mut chats: Vec<Arc<Chat>>, merges: &[Merge]) -> Vec<Arc<Chat>> {
     let mut taken = vec![false; chats.len()];
     let mut folds: Vec<(usize, Chat)> = Vec::new();
     for merge in merges {
-        // the rooms there, by their chat's position.
-        let mut members: Vec<usize> = Vec::with_capacity(merge.rooms.len());
+        // the rooms there, by their chat's position, with their chat.
+        let mut members: Vec<(usize, &Chat)> = Vec::with_capacity(merge.rooms.len());
         let mut rooms: Vec<ChatRoom> = Vec::with_capacity(merge.rooms.len());
         for room in &merge.rooms {
             if let Some(&index) = at.get(room)
-                && !taken[index]
-                && !members.contains(&index)
+                && taken.get(index) == Some(&false)
+                && !members.iter().any(|&(member, _)| member == index)
+                && let Some(chat) = chats.get(index)
             {
-                members.push(index);
+                members.push((index, chat));
                 rooms.push(ChatRoom {
                     id: room.clone(),
-                    network: chats[index].network.clone(),
+                    network: chat.network.clone(),
                 });
             }
         }
-        let Some(&first) = members.iter().min() else { continue };
+        let Some(first) = members.iter().map(|&(index, _)| index).min() else {
+            continue;
+        };
         if members.len() < 2 {
             continue;
         }
-        // the newest; the first of them in the merge's order on equal dates.
-        let newest = members
+        // the newest; the first of them in the merge's order on equal dates (`None`, no message,
+        // sorts before any date).
+        let Some(newest) = members
             .iter()
-            .copied()
-            // `None` (no message) sorts before any date.
-            .reduce(|newest, index| {
-                if chats[index].date > chats[newest].date {
-                    index
-                } else {
-                    newest
-                }
-            })
-            .unwrap_or(first);
-        let unread_count = members.iter().map(|&index| chats[index].unread_count).sum();
-        let unread_mentions = members.iter().map(|&index| chats[index].unread_mentions).sum();
-        let is_marked_unread = members.iter().any(|&index| chats[index].is_marked_unread);
-        let is_muted = members.iter().all(|&index| chats[index].is_muted);
-        let notifications = members
-            .iter()
-            .map(|&index| chats[index].notifications)
-            .collect::<Option<Vec<_>>>()
-            .and_then(NotificationMode::common);
-        let pinned = members.iter().filter_map(|&index| chats[index].pinned).reduce(f64::min);
-        let reminder = members.iter().filter_map(|&index| chats[index].reminder).min();
-        let mut folded = Chat::clone(&chats[newest]);
+            .map(|&(_, chat)| chat)
+            .reduce(|newest, chat| if chat.date > newest.date { chat } else { newest })
+        else {
+            continue;
+        };
+        let chats_in = || members.iter().map(|&(_, chat)| chat);
+        let mut folded = Chat::clone(newest);
         folded.id = merge.chat_id();
         folded.name.clone_from(&merge.name);
-        folded.unread_count = unread_count;
-        folded.unread_mentions = unread_mentions;
-        folded.is_marked_unread = is_marked_unread;
-        folded.is_muted = is_muted;
-        folded.notifications = notifications;
-        folded.pinned = pinned;
-        folded.reminder = reminder;
+        folded.unread_count = chats_in().map(|chat| chat.unread_count).sum();
+        folded.unread_mentions = chats_in().map(|chat| chat.unread_mentions).sum();
+        folded.is_marked_unread = chats_in().any(|chat| chat.is_marked_unread);
+        folded.is_muted = chats_in().all(|chat| chat.is_muted);
+        folded.notifications = chats_in()
+            .map(|chat| chat.notifications)
+            .collect::<Option<Vec<_>>>()
+            .and_then(NotificationMode::common);
+        folded.pinned = chats_in().filter_map(|chat| chat.pinned).reduce(f64::min);
+        folded.reminder = chats_in().filter_map(|chat| chat.reminder).min();
         folded.is_group = false;
         folded.rooms = rooms;
         folded.default_room = Some(merge.default_room.clone());
-        for &index in &members {
-            taken[index] = true;
+        for &(index, _) in &members {
+            if let Some(taken) = taken.get_mut(index) {
+                *taken = true;
+            }
         }
         folds.push((first, folded));
     }
@@ -162,8 +156,12 @@ pub fn fold(mut chats: Vec<Arc<Chat>>, merges: &[Merge]) -> Vec<Arc<Chat>> {
     }
     let mut keep: Vec<bool> = taken.iter().map(|taken| !taken).collect();
     for (first, folded) in folds {
-        chats[first] = Arc::new(folded);
-        keep[first] = true;
+        if let Some(chat) = chats.get_mut(first) {
+            *chat = Arc::new(folded);
+        }
+        if let Some(keep) = keep.get_mut(first) {
+            *keep = true;
+        }
     }
     let mut kept = keep.into_iter();
     chats.retain(|_| kept.next().unwrap_or(true));

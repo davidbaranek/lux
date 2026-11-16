@@ -214,8 +214,8 @@ pub(crate) fn places(snapshot: &Snapshot, arrangement: &Arrangement, now: System
     order
         .into_iter()
         .filter_map(|index| {
-            let (id, unread) = places[index].take()?;
-            let key = &keys[index].0;
+            let (id, unread) = places.get_mut(index)?.take()?;
+            let key = &keys.get(index)?.0;
             let is_hidden = arrangement.hides(key);
             let own_theme = arrangement.themes.get(key).copied();
             let (name, avatar) = match &id {
@@ -332,10 +332,10 @@ impl ChatOrder {
 /// adding the user to an old chat would put it on top. A chat's date is its newest message's
 /// sending, which an edit does not change.
 fn newest_message_first(chats: &[Arc<Chat>]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..chats.len()).collect();
+    let mut order: Vec<(usize, Option<SystemTime>)> = chats.iter().map(|chat| message_date(chat)).enumerate().collect();
     // `None` sorts first, so reversed it goes last; a stable sort keeps the server's order.
-    order.sort_by_key(|&index| Reverse(message_date(&chats[index])));
-    order
+    order.sort_by_key(|&(_, date)| Reverse(date));
+    order.into_iter().map(|(index, _)| index).collect()
 }
 
 /// When `chat`'s newest message was sent; none when its row tells of no message (the user let
@@ -367,7 +367,7 @@ pub(crate) fn sections(
     let rows = |admits: &dyn Fn(&Chat) -> bool| -> Vec<Row> {
         order
             .iter()
-            .filter(|&&index| admits(&chats[index]))
+            .filter(|&&index| chats.get(index).is_some_and(|chat| admits(chat)))
             .map(|&index| Row::Chat(index))
             .collect()
     };
@@ -379,7 +379,7 @@ pub(crate) fn sections(
             let mut pinned: Vec<(usize, f64)> = order
                 .iter()
                 .filter_map(|&index| {
-                    let chat = &chats[index];
+                    let chat = chats.get(index)?;
                     chat.pinned.filter(|_| in_inbox(chat)).map(|pin| (index, pin))
                 })
                 .collect();
@@ -407,7 +407,7 @@ pub(crate) fn sections(
             let by_room: HashMap<&RoomId, usize> = order
                 .iter()
                 .rev()
-                .filter_map(|&index| Some((chats[index].id.room()?, index)))
+                .filter_map(|&index| Some((chats.get(index)?.id.room()?, index)))
                 .collect();
             let chat = |room: &RoomId| by_room.get(room).copied();
             let rows = if *place == PlaceId::Saved {
@@ -430,7 +430,7 @@ pub(crate) fn sections(
         PlaceId::Reminders => {
             let mut reminded: Vec<(usize, SystemTime)> = order
                 .iter()
-                .filter_map(|&index| chats[index].reminder.map(|reminder| (index, reminder)))
+                .filter_map(|&index| chats.get(index)?.reminder.map(|reminder| (index, reminder)))
                 .collect();
             reminded.sort_by_key(|&(_, reminder)| reminder);
             vec![Section::untitled(
@@ -471,8 +471,10 @@ fn space_sections(snapshot: &Snapshot, order: &[usize], id: &RoomId) -> Vec<Sect
         order
             .iter()
             .filter(|&&index| {
-                let chat = &snapshot.chats[index];
-                chat.folder != Folder::Archive && admits(&chat.id) && shown.insert(index)
+                snapshot
+                    .chats
+                    .get(index)
+                    .is_some_and(|chat| chat.folder != Folder::Archive && admits(&chat.id) && shown.insert(index))
             })
             .map(|&index| Row::Chat(index))
             .collect()

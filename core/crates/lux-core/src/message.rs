@@ -192,59 +192,74 @@ pub struct Row {
 /// what carries one).
 #[must_use]
 pub fn present<M: Borrow<Message>>(messages: &[M], zone: &TimeZone) -> Vec<Row> {
-    let folded = fold_albums(messages);
-    let days: Vec<Date> = folded
-        .iter()
-        .map(|&(lead, _)| local_day(messages[lead].borrow().date, zone))
+    let folded: Vec<Folded<'_>> = fold_albums(messages)
+        .into_iter()
+        .map(|(lead, message, album)| Folded {
+            lead,
+            message,
+            album,
+            day: local_day(message.date, zone),
+        })
         .collect();
-    let together = |a: usize, b: usize| {
-        let (first, second) = (messages[folded[a].0].borrow(), messages[folded[b].0].borrow());
-        first.sender == second.sender
-            && days[a] == days[b]
-            && signed_gap(first.date, second.date).is_none_or(|gap| gap < RUN_GAP)
+    let together = |first: &Folded<'_>, second: &Folded<'_>| {
+        first.message.sender == second.message.sender
+            && first.day == second.day
+            && signed_gap(first.message.date, second.message.date).is_none_or(|gap| gap < RUN_GAP)
     };
     folded
         .iter()
         .enumerate()
-        .map(|(index, (lead, album))| {
-            let message: &Message = messages[*lead].borrow();
-            let separator = match index.checked_sub(1) {
+        .map(|(index, row)| {
+            let previous = index.checked_sub(1).and_then(|previous| folded.get(previous));
+            let next = index.checked_add(1).and_then(|next| folded.get(next));
+            let separator = match previous {
                 None => Some(Separator::Day),
-                Some(previous) if days[previous] != days[index] => Some(Separator::Day),
-                Some(previous) => signed_gap(messages[folded[previous].0].borrow().date, message.date)
+                Some(previous) if previous.day != row.day => Some(Separator::Day),
+                Some(previous) => signed_gap(previous.message.date, row.message.date)
                     .is_some_and(|gap| gap >= PAUSE)
                     .then_some(Separator::Pause),
             };
             Row {
-                message: *lead,
-                album: album.clone(),
-                starts_run: index == 0 || !together(index - 1, index),
-                ends_run: index + 1 == folded.len() || !together(index, index + 1),
+                message: row.lead,
+                album: row.album.clone(),
+                starts_run: previous.is_none_or(|previous| !together(previous, row)),
+                ends_run: next.is_none_or(|next| !together(row, next)),
                 separator,
-                links: message.links.clone(),
-                footer: message.footer(),
+                links: row.message.links.clone(),
+                footer: row.message.footer(),
             }
         })
         .collect()
 }
 
-/// Each row's lead message and, for an album, all of its messages (the lead first).
-fn fold_albums<M: Borrow<Message>>(messages: &[M]) -> Vec<(usize, Vec<usize>)> {
-    let mut rows: Vec<(usize, Vec<usize>, u32)> = Vec::with_capacity(messages.len());
+/// A row being presented: its lead message, where it is, its album and its local day.
+struct Folded<'a> {
+    lead: usize,
+    message: &'a Message,
+    album: Vec<usize>,
+    day: Date,
+}
+
+/// Each row's lead message (its position and itself) and, for an album, all of its messages
+/// (the lead first).
+fn fold_albums<M: Borrow<Message>>(messages: &[M]) -> Vec<(usize, &Message, Vec<usize>)> {
+    let mut rows: Vec<(usize, &Message, Vec<usize>, u32)> = Vec::with_capacity(messages.len());
     for (index, message) in messages.iter().map(Borrow::borrow).enumerate() {
-        if let Some((lead, album, pictures)) = rows.last_mut()
-            && messages[*lead].borrow().takes_into_album(*pictures, message)
+        if let Some((lead_index, lead, album, pictures)) = rows.last_mut()
+            && lead.takes_into_album(*pictures, message)
         {
             if album.is_empty() {
-                album.push(*lead);
+                album.push(*lead_index);
             }
             album.push(index);
-            *pictures += message.pictures();
+            *pictures = pictures.saturating_add(message.pictures());
             continue;
         }
-        rows.push((index, Vec::new(), message.pictures()));
+        rows.push((index, message, Vec::new(), message.pictures()));
     }
-    rows.into_iter().map(|(lead, album, _)| (lead, album)).collect()
+    rows.into_iter()
+        .map(|(index, lead, album, _)| (index, lead, album))
+        .collect()
 }
 
 /// How long after `earlier` `later` came; `None` when it came before.
@@ -279,7 +294,7 @@ pub fn links(text: &str, styles: &[TextStyle]) -> Vec<Link> {
     }
     let mut counted = (0, 0); // (bytes, UTF-16 units) of the text before the last link.
     let mut utf16 = |byte: usize| {
-        counted.1 += text[counted.0..byte].encode_utf16().count();
+        counted.1 += text.get(counted.0..byte).map_or(0, |part| part.encode_utf16().count());
         counted.0 = byte;
         counted.1
     };
@@ -288,8 +303,9 @@ pub fn links(text: &str, styles: &[TextStyle]) -> Vec<Link> {
     finder.kinds(&[LinkKind::Url, LinkKind::Email]);
     for found in finder.links(text) {
         let range = utf16(found.start())..utf16(found.end());
-        if links[..formatted]
+        if links
             .iter()
+            .take(formatted)
             .any(|link| link.range.start < range.end && range.start < link.range.end)
         {
             continue;

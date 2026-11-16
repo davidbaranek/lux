@@ -19,10 +19,7 @@ impl Filtered {
 
     /// How many kept items are before the source's position `index`.
     fn position(&self, index: usize) -> usize {
-        self.kept[..index.min(self.kept.len())]
-            .iter()
-            .filter(|kept| **kept)
-            .count()
+        self.kept.iter().take(index).filter(|kept| **kept).count()
     }
 
     /// The diff of the kept items for one diff of the source, its items already mapped (`None`

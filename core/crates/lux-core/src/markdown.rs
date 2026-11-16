@@ -55,11 +55,21 @@ pub fn markdown_runs(text: &str) -> Vec<MarkdownRun> {
             Event::Start(Tag::Strong) => runs.delimited(MarkdownStyle::Bold, range, 2),
             Event::Start(Tag::Emphasis) => runs.delimited(MarkdownStyle::Italic, range, 1),
             Event::Start(Tag::Strikethrough) => {
-                let marks = text[range.clone()].bytes().take_while(|byte| *byte == b'~').count();
+                let marks = text
+                    .get(range.clone())
+                    .unwrap_or_default()
+                    .bytes()
+                    .take_while(|byte| *byte == b'~')
+                    .count();
                 runs.delimited(MarkdownStyle::Strikethrough, range, marks);
             }
             Event::Code(_) => {
-                let marks = text[range.clone()].bytes().take_while(|byte| *byte == b'`').count();
+                let marks = text
+                    .get(range.clone())
+                    .unwrap_or_default()
+                    .bytes()
+                    .take_while(|byte| *byte == b'`')
+                    .count();
                 runs.delimited(MarkdownStyle::Code, range, marks);
             }
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_))) => runs.fenced(range),
@@ -94,7 +104,7 @@ impl Found<'_> {
         self.runs.push(MarkdownRun {
             style,
             start,
-            length: self.offsets.at(range.end) - start,
+            length: self.offsets.at(range.end).saturating_sub(start),
         });
     }
 
@@ -111,12 +121,12 @@ impl Found<'_> {
 
     /// A fenced block: its opening line and its closing fence are marks, what is between code.
     fn fenced(&mut self, range: Range<usize>) {
-        let block = &self.text[range.clone()];
+        let block = self.text.get(range.clone()).unwrap_or_default();
         let opening = block.find('\n').map_or(block.len(), |end| end + 1);
-        let body = &block[opening..];
+        let body = block.get(opening..).unwrap_or_default();
         let trimmed = body.trim_end_matches(['\n', '\r']);
         let closing = trimmed.rfind('\n').map_or(0, |end| end + 1);
-        let last = &trimmed[closing..];
+        let last = trimmed.get(closing..).unwrap_or_default();
         let fence = block.trim_start().chars().next().unwrap_or('`');
         let closed = !last.is_empty() && last.trim().chars().all(|character| character == fence);
         let code_end = if closed { opening + closing } else { block.len() };
@@ -133,7 +143,7 @@ impl Found<'_> {
     /// A quote: each line's `>` marks (and the space after each), then its text.
     fn quote(&mut self, range: Range<usize>) {
         let mut line_start = range.start;
-        for line in self.text[range.clone()].split_inclusive('\n') {
+        for line in self.text.get(range.clone()).unwrap_or_default().split_inclusive('\n') {
             let content = line.trim_end_matches(['\n', '\r']);
             let mut marks = 0;
             for (index, character) in content.char_indices() {
@@ -175,8 +185,7 @@ impl Utf16Offsets {
     /// The UTF-16 offset of the byte offset `byte` (a character's start, or the end).
     fn at(&self, byte: usize) -> usize {
         match self.starts.binary_search_by_key(&byte, |(start, _)| *start) {
-            Ok(index) => self.starts[index].1,
-            Err(index) => self.starts.get(index).map_or(0, |(_, utf16)| *utf16),
+            Ok(index) | Err(index) => self.starts.get(index).map_or(0, |(_, utf16)| *utf16),
         }
     }
 }
@@ -184,6 +193,27 @@ impl Utf16Offsets {
 #[cfg(test)]
 mod tests {
     use super::{MarkdownStyle, markdown_runs};
+
+    #[test]
+    fn marks_around_wide_characters_stay_within_the_text() {
+        for text in [
+            "~~ž~~",
+            "~ž~",
+            "`ž`",
+            "**ž**",
+            "```\nž",
+            "```ž\nž\n```",
+            "> ž\n>> ž",
+            ">",
+            "``",
+            "~~~",
+        ] {
+            let length = text.encode_utf16().count();
+            for run in markdown_runs(text) {
+                assert!(run.start + run.length <= length, "{text:?}");
+            }
+        }
+    }
 
     /// The text of each run of `style`.
     fn shown(text: &str, style: MarkdownStyle) -> Vec<String> {
