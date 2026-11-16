@@ -66,6 +66,12 @@ public final class Session {
 
     /// Where the chat lists come from: the Rust core's view model over the account.
     var chatListSource: ChatListSource? { current?.chatListSource }
+
+    /// A chat list at `place` with `filter`, in `order`, over the account; nil when signed out. It
+    /// takes intents at once: before the account opens, they wait in the core, in order.
+    func openChatList(place: Place, filter: ChatFilter?, order: ChatOrder, drafts: Set<String>) -> (any ChatListView)? {
+        chatListSource.map { RustChatList($0, place: place, filter: filter, order: order, drafts: drafts) }
+    }
     public var images: ImagePipeline? { current?.images }
     /// Photos and files on their way, from every chat (made with the account).
     public var uploads: Uploads? { current?.uploads }

@@ -106,20 +106,19 @@ public final class ChatListModel {
     public var onLoadState: ((LoadState) -> Void)?
     private var answered = false
 
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any ChatListPort, any Error>
     /// The core's list: it takes intents at once, also before its account opens. Nil when
     /// signed out.
-    private let list: RustChatList?
+    private let list: (any ChatListView)?
     private var following: Task<Void, Never>?
     private var scheduledObserver: AnyObject?
     /// The place is set from a batch (the shown place went away): not asked of the core again.
     private var followingPlace = false
 
     public init(session: Session) {
-        account = session.account
-        list = session.chatListSource.map {
-            RustChatList($0, place: .inbox, filter: nil, order: Preferences.shared.chatOrder, drafts: Preferences.shared.chatsWithDrafts)
-        }
+        account = Task { [account = session.account] in try await account.value }
+        list = session.openChatList(place: .inbox, filter: nil, order: Preferences.shared.chatOrder,
+                                    drafts: Preferences.shared.chatsWithDrafts)
         // in order: each batch builds on the one before.
         following = Task { [weak self, events = list?.events] in
             guard let events else { return }
@@ -238,7 +237,7 @@ public final class ChatListModel {
             let state = Signposts.thread.beginInterval("prefetch")
             defer { Signposts.thread.endInterval("prefetch", state) }
             // ahead of the user: a failure costs only the head start, the chat opens as usual.
-            await bestEffort("prefetch a chat") { try await account.value.prefetch(roomId: roomId) }
+            await bestEffort("prefetch a chat") { try await account.value.prefetch(roomId: roomId, thread: nil) }
         }
     }
 

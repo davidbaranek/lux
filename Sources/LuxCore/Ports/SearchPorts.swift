@@ -31,5 +31,5 @@ protocol ChatLookupPort: Sendable {
 /// All that search needs of an account.
 typealias SearchSourcePort = IndexSourcePort & MediaSourcePort & ChatLookupPort
 
-/// The Rust core's account is search's adapter.
-extension RustAccount: IndexSourcePort, MediaSourcePort, ChatLookupPort {}
+/// The Rust core's account is search's and the chat list's adapter.
+extension RustAccount: IndexSourcePort, MediaSourcePort, ChatLookupPort, ChatListPort {}
