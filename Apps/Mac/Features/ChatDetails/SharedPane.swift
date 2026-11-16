@@ -67,6 +67,7 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
         }
         observation = model.changes.observe { [weak self] in self?.update() }
         update()
+        model.prepareSearch()
         Task { await model.loadMore() }
     }
 
