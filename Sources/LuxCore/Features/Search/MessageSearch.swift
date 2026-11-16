@@ -14,14 +14,6 @@ public final class MessageSearch {
     /// What messages mean, read with the photos' model while semantic search is on.
     private let meaning: MessageMeaning
 
-    /// How many messages the iPhone reads the meaning of at a time while the app is open; the
-    /// rest while it charges.
-    #if os(iOS)
-    private static let meaningLimit: Int? = 300
-    #else
-    private static let meaningLimit: Int? = nil
-    #endif
-
     private let store: LocalStore
     private let indexer: SearchIndexer
     private let account: Task<RustAccount, any Error>
@@ -41,7 +33,7 @@ public final class MessageSearch {
         photos.onModel = { model in
             Task {
                 await meaning.use(model)
-                if model != nil, Saving.shared.reason == nil { await meaning.read(limit: Self.meaningLimit) }
+                if model != nil, Saving.shared.reason == nil { await meaning.read(limit: nil) }
             }
         }
         Task { [weak self] in
@@ -52,7 +44,7 @@ public final class MessageSearch {
                 if !progress.isIndexing {
                     photos.update()
                     if Saving.shared.reason == nil {
-                        Task(priority: .utility) { await meaning.read(limit: Self.meaningLimit) }
+                        Task(priority: .utility) { await meaning.read(limit: nil) }
                     }
                 }
             }
@@ -77,17 +69,6 @@ public final class MessageSearch {
         following?.cancel()
         await indexer.stop()
         await photos.stop()
-        await meaning.stop()
-    }
-
-    /// Reads the meaning of every message not read yet (the iPhone's charging task); true when
-    /// none is left.
-    public func readAllMeanings() async -> Bool {
-        await meaning.read(limit: nil)
-    }
-
-    /// Stops reading what messages mean (the charging task ran out of time).
-    public func stopMeanings() async {
         await meaning.stop()
     }
 

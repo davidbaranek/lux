@@ -198,10 +198,14 @@ pub struct ImageCounts {
 }
 
 /// A time as the store keeps it: milliseconds since 1970 (before it, negative).
+///
+/// To the nearest millisecond: a time that came through the apps' floating-point dates lies a
+/// hair off its millisecond, and cut down it would keep one less, newer than itself next time.
 pub(crate) fn to_millis(time: SystemTime) -> i64 {
+    let nearest = |distance: Duration| (distance.as_micros() + 500) / 1000;
     match time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(after) => i64::try_from(after.as_millis()).unwrap_or(i64::MAX),
-        Err(before) => i64::try_from(before.duration().as_millis()).map_or(i64::MIN, |millis| -millis),
+        Ok(after) => i64::try_from(nearest(after)).unwrap_or(i64::MAX),
+        Err(before) => i64::try_from(nearest(before.duration())).map_or(i64::MIN, |millis| -millis),
     }
 }
 
@@ -224,6 +228,14 @@ mod tests {
         for millis in [0, 1_700_000_000_123, -62_135_769_600_000] {
             assert_eq!(to_millis(from_millis(millis)), millis);
         }
+    }
+
+    #[test]
+    fn a_time_a_hair_off_its_millisecond_keeps_it() {
+        // as a date through a 64-bit float comes back: 1 ns under, or over.
+        let exact = from_millis(1_700_000_000_123);
+        assert_eq!(to_millis(exact - Duration::from_nanos(1)), 1_700_000_000_123);
+        assert_eq!(to_millis(exact + Duration::from_nanos(1)), 1_700_000_000_123);
     }
 }
 

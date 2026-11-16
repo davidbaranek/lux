@@ -16,6 +16,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private var profilePicture: UIImage?
     private var shownPicture: ImageRef?
     private var networksObservation: AnyObject?
+    /// How far back search reads, as its row shows it.
+    private var shownHistory: SearchHistory?
     /// The settings' switches, made once: a cell configured again (as the model reports reading
     /// photos, many times a minute) shows the same switch, so it neither slides in anew nor loses
     /// the user's touch.
@@ -98,9 +100,13 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
                 content.image = UIImage(systemName: "magnifyingglass")
             case .searchHistory:
+                // the choice beside it, as Settings shows a menu's value.
+                content = .valueCell()
                 content.text = String(localized: "Search Back")
+                content.secondaryText = model.searchHistory.title
                 content.image = UIImage(systemName: "clock.arrow.circlepath")
                 cell.accessories = [.popUpMenu(historyMenu, displayed: .always)]
+                shownHistory = model.searchHistory
             case .photoStatus:
                 content = .subtitleCell()
                 content.text = String(localized: "Photos")
@@ -117,7 +123,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 content.text = String(localized: "Semantic Search")
                 content.secondaryText = String(localized: """
                     Search always finds words. This also finds photos by what they show ("dog on the beach") and \
-                    messages by what they mean ("trip to the mountains"), with a model of about 450 MB, all on this \
+                    messages by what they mean ("trip to the mountains"), with a model of about 630 MB, all on this \
                     iPhone.
                     """)
                 content.secondaryTextProperties.color = .secondaryLabel
@@ -156,7 +162,14 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             let shown = snapshot.itemIdentifiers(inSection: .search)
             snapshot.deleteItems(shown.filter { !search.contains($0) })
             snapshot.appendItems(search.filter { !shown.contains($0) }, toSection: .search)
-            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery] + shown.filter(search.contains))
+            // Search Back's menu stays open while the progress beside it changes: its row is set
+            // again only when its choice does (a row set again gets a new menu, closing the open one).
+            var changed = shown.filter { search.contains($0) && $0 != .searchHistory }
+            if shownHistory != model.searchHistory {
+                shownHistory = model.searchHistory
+                changed.append(.searchHistory)
+            }
+            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery] + changed)
             // the rows' words change in place; nothing moves, so nothing animates.
             dataSource.apply(snapshot, animatingDifferences: false)
         }
