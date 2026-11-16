@@ -570,8 +570,9 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         // the results show from the field's first focus: what chats shared lately, before words.
         searchController.showsSearchResultsController = searchController.isActive
         // search closed: it opens on its results next time.
-        if !searchController.isActive, resultsNavigation.viewControllers.count > 1 {
-            resultsNavigation.popToRootViewController(animated: false)
+        if !searchController.isActive {
+            searchModel.close()
+            if resultsNavigation.viewControllers.count > 1 { resultsNavigation.popToRootViewController(animated: false) }
         }
         // while a kind's list shows, the field searches it.
         if let list = resultsNavigation.topViewController as? SearchListViewController {

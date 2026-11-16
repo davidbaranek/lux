@@ -141,46 +141,35 @@ final class SearchSectionHeader: NSTableCellView {
     @objc private func showAllClicked() { action?() }
 }
 
-/// The kinds' buttons over the results, Liquid Glass capsules: each opens its kind's list.
+/// The kinds' buttons over the results: Liquid Glass circles, the four side by side, each its
+/// symbol (its name on hover and to VoiceOver), so all fit a narrow sidebar; each opens its kind's
+/// list.
 final class SearchKindButtons: NSView {
     var onOpen: ((SearchKind) -> Void)?
-    private let row = NSStackView()
-    private let scroll = NSScrollView()
 
     init() {
         super.init(frame: .zero)
-        row.orientation = .horizontal
-        row.spacing = 4
-        row.edgeInsets = NSEdgeInsets(top: 2, left: 10, bottom: 2, right: 10)
-        row.setViews(SearchKind.allCases.map { kind in
-            let button = NSButton(title: kind.title, image: NSImage(systemSymbolName: kind.symbol, accessibilityDescription: nil)!,
+        let row = NSStackView(views: SearchKind.allCases.map { kind in
+            let button = NSButton(image: NSImage(systemSymbolName: kind.symbol, accessibilityDescription: kind.title)!,
                                   target: self, action: #selector(open(_:)))
             button.bezelStyle = .glass
             button.borderShape = .capsule
-            // small, so the four fit a narrow sidebar.
-            button.controlSize = .small
-            button.imagePosition = .imageLeading
+            button.controlSize = .large
+            button.toolTip = kind.title
             button.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
             button.setAccessibilityIdentifier("search-kind-\(kind.rawValue)")
             return button
-        }, in: .leading)
+        })
+        row.orientation = .horizontal
+        row.distribution = .fillEqually
+        row.spacing = 6
         row.translatesAutoresizingMaskIntoConstraints = false
-        // a narrow sidebar scrolls the row sideways.
-        scroll.documentView = row
-        scroll.drawsBackground = false
-        scroll.hasHorizontalScroller = false
-        scroll.hasVerticalScroller = false
-        scroll.verticalScrollElasticity = .none
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
+        addSubview(row)
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            row.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            row.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            heightAnchor.constraint(equalTo: row.heightAnchor),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
         ])
     }
 

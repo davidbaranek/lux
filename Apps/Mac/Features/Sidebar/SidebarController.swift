@@ -28,7 +28,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     private let results: SearchResultsController
     /// One kind's list, while it shows in place of the results.
     private var listing: SearchListController?
-    private let search = FocusSearchField()
+    private let search = SidebarSearchField()
     private let content = NSView()
     /// The shown place's colour over the whole sidebar.
     private let tint = ThemeTint(strength: ThemeTint.sidebar)
@@ -56,7 +56,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         search.sendsSearchStringImmediately = true
         search.target = self
         search.action = #selector(searchChanged)
-        // the field took the focus: what chats shared lately shows before any words.
+        // the field took the focus (a click, Cmd-F, Tab): what chats shared lately shows before
+        // any words.
         search.onFocus = { [weak self] in self?.startSearching() }
         for view in [tint, rail.view, search, content] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -83,6 +84,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
 
         rail.onSelect = { [weak self] place in
             guard let self else { return }
+            // another place: search ends, its chats show.
+            if content.subviews.first !== list.view { endSearch() }
             listModel.place = place
             rail.select(place)
             onPlaceTitle?(placeTitle)
@@ -143,6 +146,18 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         view.window?.makeFirstResponder(search)
     }
 
+    /// `view` rises 14 points into its place, easing out.
+    private func rise(_ view: NSView) {
+        view.wantsLayer = true
+        let rise = CABasicAnimation(keyPath: "transform.translation.y")
+        // the layer's y grows upward: it starts below its place.
+        rise.fromValue = -14
+        rise.toValue = 0
+        rise.duration = 0.26
+        rise.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+        view.layer?.add(rise, forKey: "rise")
+    }
+
     /// What the keyboard starts at when the window opens: the chats.
     var initialFocus: NSView { list.initialFocus }
 
@@ -160,16 +175,30 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         show(results.view)
     }
 
-    /// The field was cleared: back to the chats, unless a kind's list shows (it lists all).
+    /// The field's clear button, or Esc with words in it: search ends, back to the chats.
     func searchFieldDidEndSearching(_ sender: NSSearchField) {
-        guard listing == nil else { return }
-        show(list.view)
+        endSearch()
     }
 
-    /// The field lost the focus with nothing in it: back to the chats.
-    func controlTextDidEndEditing(_ notification: Notification) {
-        guard search.stringValue.isEmpty, listing == nil else { return }
+    /// Esc in the empty field ends search too (the field alone would do nothing).
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.cancelOperation(_:)), search.stringValue.isEmpty else { return false }
+        endSearch()
+        return true
+    }
+
+    /// Back to the chats: a kind's list goes, the field empties, and the keyboard is the chats'.
+    private func endSearch() {
+        listing?.removeFromParent()
+        listing = nil
+        search.stringValue = ""
+        search.placeholderString = String(localized: "Search")
+        searchModel.search("")
+        searchModel.close()
         show(list.view)
+        if let window = view.window, (window.firstResponder as? NSText)?.delegate === search {
+            window.makeFirstResponder(list.initialFocus)
+        }
     }
 
     /// A result: its chat (at its message), its thread beside its chat, or a link's page.
@@ -190,7 +219,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         listing = controller
         addChild(controller)
         search.placeholderString = String(localized: "Search \(kind.title)")
-        show(controller.view, .push)
+        show(controller.view, .rise)
     }
 
     /// Back to the results, for the words in the field now.
@@ -200,7 +229,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         self.listing = nil
         search.placeholderString = String(localized: "Search")
         searchModel.search(search.stringValue)
-        show(results.view, .pop)
+        show(results.view)
         view.window?.makeFirstResponder(search)
     }
 
@@ -215,24 +244,21 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         results.showProgress(session.search?.progress)
     }
 
-    /// How the sidebar's content changes: the list and search cross-fade; a kind's list slides
-    /// in from the side, and back out.
-    private enum Change { case fade, push, pop }
+    /// How the sidebar's content changes: the list and search cross-fade; a kind's list rises in
+    /// from a little below as it fades in, and fades back out to the results.
+    private enum Change { case fade, rise }
 
     private func show(_ child: NSView, _ change: Change = .fade) {
         guard child.superview != content else { return }
         if content.window != nil {
-            let transition = CATransition()
-            transition.duration = change == .fade ? 0.16 : 0.24
-            transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            switch change {
-            case .fade: transition.type = .fade
-            case .push: transition.type = .push; transition.subtype = .fromRight
-            case .pop: transition.type = .push; transition.subtype = .fromLeft
-            }
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = change == .rise ? 0.22 : 0.16
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
             content.wantsLayer = true
-            content.layer?.add(transition, forKey: "content")
+            content.layer?.add(fade, forKey: "content")
         }
+        defer { if change == .rise, content.window != nil { rise(child) } }
         content.subviews.forEach { $0.removeFromSuperview() }
         child.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(child)
@@ -245,13 +271,16 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     }
 }
 
-/// The sidebar's search field, which says when it takes the focus: search shows before any words.
-final class FocusSearchField: NSSearchField {
+/// The sidebar's search field, which says when the user gives it the keyboard (a click, Cmd-F,
+/// Tab): search opens before any words are typed. The window giving it the keyboard as it opens
+/// opens nothing.
+final class SidebarSearchField: NSSearchField {
     var onFocus: (() -> Void)?
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became { onFocus?() }
+        let byUser = [.leftMouseDown, .keyDown].contains(NSApp.currentEvent?.type)
+        if became, byUser { onFocus?() }
         return became
     }
 }

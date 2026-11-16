@@ -64,7 +64,6 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         collectionView.topEdgeEffect.style = .soft
 
         kinds.onOpen = { [weak self] kind in self?.showAll(kind) }
-        kinds.contentInset = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         status.font = .preferredFont(forTextStyle: .caption2)
         status.adjustsFontForContentSizeCategory = true
         status.textColor = .tertiaryLabel

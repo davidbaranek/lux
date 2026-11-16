@@ -163,47 +163,45 @@ final class SearchSectionHeader: UICollectionReusableView {
     }
 }
 
-/// The kinds' buttons over the results, Liquid Glass capsules in a row that scrolls sideways:
-/// each opens its kind's list.
-final class SearchKindButtons: UIScrollView {
+/// The kinds' buttons over the results: Liquid Glass, the four side by side across the width (each
+/// its symbol over its name, so all fit a phone), each opening its kind's list.
+final class SearchKindButtons: UIView {
     var onOpen: ((SearchKind) -> Void)?
 
     init() {
         super.init(frame: .zero)
-        showsHorizontalScrollIndicator = false
-        clipsToBounds = false
         let row = UIStackView(arrangedSubviews: SearchKind.allCases.map { kind in
             var configuration = UIButton.Configuration.glass()
             configuration.title = kind.title
             configuration.image = UIImage(systemName: kind.symbol)
-            configuration.imagePadding = 6
-            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(textStyle: .subheadline)
+            configuration.imagePlacement = .top
+            configuration.imagePadding = 4
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4)
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(textStyle: .body)
+            configuration.titleLineBreakMode = .byTruncatingTail
             configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
                 var attributes = $0
-                attributes.font = .preferredFont(forTextStyle: .subheadline).withWeight(.semibold)
+                attributes.font = .preferredFont(forTextStyle: .caption1).withWeight(.semibold)
                 return attributes
             }
+            configuration.background.cornerRadius = 16
             let button = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in self?.onOpen?(kind) })
             button.accessibilityIdentifier = "search-kind-\(kind.rawValue)"
             return button
         })
         row.spacing = 8
+        row.distribution = .fillEqually
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: contentLayoutGuide.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: contentLayoutGuide.trailingAnchor),
-            row.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor),
-            row.bottomAnchor.constraint(equalTo: contentLayoutGuide.bottomAnchor),
-            row.heightAnchor.constraint(equalTo: frameLayoutGuide.heightAnchor),
+            row.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
-
-    override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: subviews.first?.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).height ?? 44)
-    }
 }
 
 /// "Looking for photos by what they show…" with a spinner, in a Liquid Glass capsule, while the

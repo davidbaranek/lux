@@ -1,8 +1,9 @@
 import Foundation
 
 /// Search as you type, as Messages does: chats by name, messages by their words, photos, links,
-/// files and threads, from the index on this device; before any words, what chats shared lately. Each keystroke waits 120 ms for the next, and a newer query drops an
-/// older answer.
+/// files and threads, from the index on this device; before any words, what chats shared lately
+/// (again as the index fills). Each keystroke waits 120 ms for the next, and a newer query drops
+/// an older answer.
 @MainActor
 public final class SearchModel {
     public private(set) var query = ""
@@ -12,8 +13,30 @@ public final class SearchModel {
     private let session: Session
     private var running: Task<Void, Never>?
 
+    /// Search is open: what chats shared lately follows the index while no words are typed.
+    private var isOpen = false
+    private var searchOpened: AnyObject?
+    private var indexProgress: AnyObject?
+    private let lately = Throttle(interval: .seconds(2))
+
     public init(session: Session) {
         self.session = session
+        // the index opens a moment after the account, and fills as it reads.
+        searchOpened = session.searchChanges.observe { [weak self] in self?.followIndex() }
+        followIndex()
+    }
+
+    private func followIndex() {
+        indexProgress = session.search?.progressChanges.observe { [weak self] in
+            guard let self, isOpen, query.isEmpty else { return }
+            lately.schedule { @MainActor [weak self] in self?.showLately() }
+        }
+        if isOpen, query.isEmpty { showLately() }
+    }
+
+    /// Search closed: what chats shared lately no longer follows the index.
+    public func close() {
+        isOpen = false
     }
 
     /// How far the index is; nil before it opens.
@@ -23,7 +46,9 @@ public final class SearchModel {
     /// photos by their look.
     public func prepare() {
         session.search?.photos.prepareForSearch()
-        if query.isEmpty { showLately() }
+        let opening = !isOpen
+        isOpen = true
+        if opening, query.isEmpty { showLately() }
     }
 
     /// What chats shared lately, shown before any words are typed (as Messages does).
