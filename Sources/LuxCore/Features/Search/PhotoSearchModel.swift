@@ -27,6 +27,11 @@ actor PhotoSearchModel {
         /// messages' mean), to be found; measured for the model when it is built.
         var photoSimilarity: Float?
         var messageSimilarity: Float?
+        /// The token table (`embeddings.bin`): how many tokens, how wide each row. A model with
+        /// one takes its tokens' vectors (the text encoder's graph is then all floats, all on the
+        /// Neural Engine); one without takes their ids.
+        var tokens: Int?
+        var width: Int?
     }
 
     /// The model's name and version, kept with each embedding: a newer model reads every photo
@@ -47,6 +52,7 @@ actor PhotoSearchModel {
     private var imageEncoder: MLModel?
     private var textEncoder: MLModel?
     private var tokenizer: QueryTokenizer?
+    private var table: TokenTable?
     private var preparing: Task<Void, Never>?
 
     /// The model whose files `file` finds (its `model.json`, encoders and tokenizer): an asset
@@ -89,7 +95,10 @@ actor PhotoSearchModel {
                 let tokenizer = try QueryTokenizer(file: file("tokenizer.json"), length: description.textLength,
                                                    padId: description.padId, lowercase: description.lowercase)
                 let encoder = try Self.load("TextEncoder", from: file)
-                await self?.prepared(encoder, tokenizer)
+                let table = try description.tokens.flatMap { tokens in
+                    try description.width.map { try TokenTable(file: file("embeddings.bin"), tokens: tokens, width: $0) }
+                }
+                await self?.prepared(encoder, tokenizer, table)
             } catch {
                 Log.app.error("photo search: the text encoder: \(String(describing: error), privacy: .public)")
             }
@@ -102,9 +111,10 @@ actor PhotoSearchModel {
         await preparing?.value
     }
 
-    private func prepared(_ encoder: MLModel, _ tokenizer: QueryTokenizer) {
+    private func prepared(_ encoder: MLModel, _ tokenizer: QueryTokenizer, _ table: TokenTable?) {
         textEncoder = encoder
         self.tokenizer = tokenizer
+        self.table = table
     }
 
     /// A search's words' unit embedding, in the photos' and messages' space; nil until the text
@@ -125,9 +135,16 @@ actor PhotoSearchModel {
             return nil
         }
         let ids = try tokenizer.ids(text)
-        let input = try MLMultiArray(shape: [1, NSNumber(value: ids.count)], dataType: .int32)
-        for (index, id) in ids.enumerated() { input[index] = NSNumber(value: id) }
-        let output = try encoder.prediction(from: MLDictionaryFeatureProvider(dictionary: ["ids": input]))
+        let inputs: [String: Any]
+        if let table {
+            let (embeds, mask) = try table.inputs(ids, padId: description.padId)
+            inputs = ["embeds": embeds, "mask": mask]
+        } else {
+            let input = try MLMultiArray(shape: [1, NSNumber(value: ids.count)], dataType: .int32)
+            for (index, id) in ids.enumerated() { input[index] = NSNumber(value: id) }
+            inputs = ["ids": input]
+        }
+        let output = try encoder.prediction(from: MLDictionaryFeatureProvider(dictionary: inputs))
         return try floats(output)
     }
 
@@ -140,6 +157,7 @@ actor PhotoSearchModel {
         preparing = nil
         textEncoder = nil
         tokenizer = nil
+        table = nil
     }
 
     /// Lets the image encoder go (the photos are read): its memory is the app's again.
@@ -172,4 +190,41 @@ enum PhotoSearchError: Error {
     case unexpectedModel
     /// The file is not a picture.
     case notAPicture
+}
+
+/// Every token's input vector, as the model's embedding layer gives it: rows of float16 in id
+/// order, mapped from the file (only the rows a text uses are read; none stay in memory).
+struct TokenTable: Sendable {
+    private let rows: Data
+    private let tokens: Int
+    private let width: Int
+
+    init(file: URL, tokens: Int, width: Int) throws {
+        rows = try Data(contentsOf: file, options: .alwaysMapped)
+        guard rows.count == tokens * width * MemoryLayout<Float16>.size else { throw PhotoSearchError.unexpectedModel }
+        self.tokens = tokens
+        self.width = width
+    }
+
+    /// The text encoder's inputs for `ids`: each real token's row (padding's left zero), and
+    /// which are real (1) or padding (0).
+    func inputs(_ ids: [Int32], padId: Int) throws -> (embeds: MLMultiArray, mask: MLMultiArray) {
+        let count = NSNumber(value: ids.count)
+        let embeds = try MLMultiArray(shape: [1, count, NSNumber(value: width)], dataType: .float16)
+        let mask = try MLMultiArray(shape: [1, count], dataType: .float16)
+        let rowBytes = width * MemoryLayout<Float16>.size
+        embeds.withUnsafeMutableBytes { target, _ in
+            target.initializeMemory(as: UInt8.self, repeating: 0)
+            rows.withUnsafeBytes { source in
+                guard let from = source.baseAddress, let to = target.baseAddress else { return }
+                for (index, id) in ids.enumerated() where Int(id) != padId && (0..<tokens).contains(Int(id)) {
+                    to.advanced(by: index * rowBytes).copyMemory(from: from.advanced(by: Int(id) * rowBytes), byteCount: rowBytes)
+                }
+            }
+        }
+        mask.withUnsafeMutableBufferPointer(ofType: Float16.self) { values, _ in
+            for (index, id) in ids.enumerated() { values[index] = Int(id) == padId ? 0 : 1 }
+        }
+        return (embeds, mask)
+    }
 }

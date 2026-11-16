@@ -18,7 +18,7 @@ root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 mkdir -p "$root/PhotoSearch" "$out"
 xcrun coremlcompiler compile "$model/Encoders.mlpackage" "$root/PhotoSearch" >/dev/null
-cp "$model/tokenizer.json" "$model/model.json" "$root/PhotoSearch/"
+cp "$model/embeddings.bin" "$model/tokenizer.json" "$model/model.json" "$root/PhotoSearch/"
 cp "$here/Manifest.json" "$root/"
 (cd "$root" && xcrun ba-package Manifest.json -o "$out/PhotoSearch.aar")
 # the same folder, unpacked: what the app reads from the pack (for tests on this Mac).
