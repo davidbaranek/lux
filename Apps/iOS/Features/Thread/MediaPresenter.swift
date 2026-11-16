@@ -20,6 +20,8 @@ final class MediaPresenter: NSObject, @MainActor QLPreviewControllerDataSource, 
         self.host = host
     }
 
+    isolated deinit { loading?.cancel() }
+
     /// Opens a message's media (an album's every photo, at `index`), growing from `view`.
     func open(_ message: MessageItem, at index: Int = 0, from view: UIView, model: ThreadModel) {
         loading?.cancel()
@@ -27,10 +29,12 @@ final class MediaPresenter: NSObject, @MainActor QLPreviewControllerDataSource, 
         spinner.color = .white
         spinner.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
         view.addSubview(spinner)
-        // only a slow download shows it.
-        let shows = Task { try? await Task.sleep(for: .milliseconds(250)); if !Task.isCancelled { spinner.startAnimating() } }
+        // only a slow download shows it: it fades in after a moment, and goes with the download.
+        spinner.alpha = 0
+        spinner.startAnimating()
+        UIView.animate(withDuration: 0.15, delay: 0.25) { spinner.alpha = 1 }
         loading = Task { [weak self] in
-            defer { shows.cancel(); spinner.removeFromSuperview() }
+            defer { spinner.removeFromSuperview() }
             do {
                 let files = try await model.mediaFiles(of: message)
                 guard !Task.isCancelled, let self, let host, !files.isEmpty else { return }
@@ -67,6 +71,8 @@ final class MediaPresenter: NSObject, @MainActor QLPreviewControllerDataSource, 
 final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegate, @MainActor UIDocumentPickerDelegate {
     private weak var host: UIViewController?
     private let picked: ([URL]) -> Void
+    /// Copying the picked photos out of the picker: it ends with the screen.
+    private let copying = TaskBag()
     private var copies: URL { FileManager.default.temporaryDirectory.appendingPathComponent("picked", isDirectory: true) }
 
     init(host: UIViewController, picked: @escaping ([URL]) -> Void) {
@@ -104,7 +110,7 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
         picker.dismiss(animated: true)
         guard !results.isEmpty else { return }
         let copies = copies
-        Task {
+        copying.run { [weak self] in
             // each copied out of the picker's temporary file before its callback ends, in order.
             var files: [URL] = []
             for result in results {
@@ -115,7 +121,8 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
                     files.append(file)
                 }
             }
-            picked(files)
+            try Task.checkCancellation()
+            self?.picked(files)
         }
     }
 
