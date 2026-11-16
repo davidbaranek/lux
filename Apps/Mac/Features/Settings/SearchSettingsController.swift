@@ -20,7 +20,7 @@ final class SearchSettingsController: NSViewController {
 
     private static let looksAbout = String(localized: """
         Search always finds words. This also finds photos by what they show ("dog on the beach") and messages by \
-        what they mean ("trip to the mountains"), with a model of about 450 MB read on this Mac. Nothing leaves \
+        what they mean ("trip to the mountains"), with a model of about 630 MB read on this Mac. Nothing leaves \
         this Mac.
         """)
 
@@ -64,7 +64,9 @@ final class SearchSettingsController: NSViewController {
         photoAction.isHidden = model.photoAction == nil
         photoAction.title = model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now")
         looks.state = model.searchesPhotosByLook ? .on : .off
-        history.selectItem(at: SearchHistory.allCases.firstIndex(of: model.searchHistory) ?? 0)
+        // only when the choice changed: the menu stays as it is while the progress beside it moves.
+        let chosen = SearchHistory.allCases.firstIndex(of: model.searchHistory) ?? 0
+        if history.indexOfSelectedItem != chosen { history.selectItem(at: chosen) }
     }
 
     @objc private func historyChanged() {

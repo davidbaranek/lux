@@ -2,7 +2,7 @@ import Foundation
 
 /// Search in photos, all on this device. Always: the words in each photo (Vision) and the
 /// messages sent near it. When the user turns semantic search on: how photos look too, by the
-/// photo search model (downloaded then, about 450 MB), so "dog on the beach" finds one with no
+/// search model (downloaded then, about 630 MB), so "dog on the beach" finds one with no
 /// words at all; the same model reads what messages mean (`MessageMeaning`).
 /// Nothing leaves the device. On the iPhone a few new photos are read while the app is open, the
 /// rest while it charges (`PhotoReading`, a background processing task); on the Mac all of them,

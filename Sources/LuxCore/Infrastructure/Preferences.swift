@@ -15,7 +15,7 @@ public final class Preferences {
 
     /// Search finds photos by how they look too (the words in them and the messages near them
     /// it finds always), read on this device. Off by default: it downloads a model of about
-    /// 450 MB and reads every photo again with it.
+    /// 630 MB and reads every photo and message again with it.
     public var searchesPhotosByLook: Bool {
         get { defaults.bool(forKey: "searchesPhotosByLook") }
         set { defaults.set(newValue, forKey: "searchesPhotosByLook") }
