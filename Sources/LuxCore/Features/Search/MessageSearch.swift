@@ -23,14 +23,14 @@ public final class MessageSearch {
     /// The index's, the photos' and the meaning's reading: it ends with the search.
     private let work = ForegroundJobs()
 
-    init(store: LocalStore, account: Task<RustAccount, any Error>, maxChats: Int? = nil) {
+    /// Search over `store`, filled from `account`; photos are downloaded to `photos` to be read.
+    init(store: LocalStore, account: Task<RustAccount, any Error>, photos directory: URL, maxChats: Int? = nil) {
         self.store = store
         self.account = account
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let indexer = SearchIndexer(store: store, account: account, maxChats: maxChats) { report.yield($0) }
         self.indexer = indexer
-        let photos = PhotoSearch(store: store, account: account,
-                                 directory: FileManager.default.temporaryDirectory.appending(path: "photo-search"))
+        let photos = PhotoSearch(store: store, account: account, directory: directory)
         self.photos = photos
         let meaning = MessageMeaning(store: store)
         self.meaning = meaning
