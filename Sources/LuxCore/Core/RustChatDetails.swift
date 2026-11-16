@@ -3,24 +3,24 @@ import LuxBindings
 
 /// A chat's details in the Rust core: its rooms' state, members, shared history, and what the
 /// details screen changes, in the app's types. The generated types stay in `Core/`.
-extension RustAccount {
+extension RustAccount: ChatDetailsPort {
     func chatInfo(chatId: String) async throws -> ChatInfo {
         let details = try await worded { try await account.chatDetails(chatId: chatId) }
         return ChatInfo(rooms: details.rooms.map(RoomInfo.init), notifications: details.notifications.map(NotificationSetting.init))
     }
 
-    func members(roomId: String) async throws -> MemberList {
-        MemberList(try await worded { try await account.roomMembers(roomId: roomId) })
+    func members(roomId: String) async throws -> any MemberList {
+        RustMemberList(try await worded { try await account.roomMembers(roomId: roomId) })
     }
 
     /// What the chat shared, of `kind`; with a `query`, only what holds its words.
-    func sharedHistory(chatId: String, kind: SharedKind, query: String? = nil) async throws -> SharedHistory {
+    func sharedHistory(chatId: String, kind: SharedKind, query: String?) async throws -> any SharedHistory {
         let kind: CoreSharedKind = switch kind {
         case .media: .media
         case .files: .files
         case .links: .links
         }
-        return SharedHistory(try await worded { try await account.sharedHistory(chatId: chatId, kind: kind, query: query) })
+        return RustSharedHistory(try await worded { try await account.sharedHistory(chatId: chatId, kind: kind, query: query) })
     }
 
     func setNotifications(chatId: String, _ setting: NotificationSetting) async throws {
@@ -81,7 +81,7 @@ extension RustAccount {
 }
 
 /// A room's members, loaded once, found by name as the user types.
-final class MemberList: Sendable {
+final class RustMemberList: MemberList {
     private let list: CoreMemberList
     init(_ list: CoreMemberList) { self.list = list }
 
@@ -93,7 +93,7 @@ final class MemberList: Sendable {
 }
 
 /// What a chat shared, of one kind, read back the newest first.
-final class SharedHistory: Sendable {
+final class RustSharedHistory: SharedHistory {
     private let history: CoreSharedHistory
     init(_ history: CoreSharedHistory) { self.history = history }
 
