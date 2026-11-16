@@ -7,19 +7,16 @@ extension ThreadController {
     /// Opens a message's photo, video or file in Quick Look (an album's every photo, at `index`),
     /// zooming from it; the arrow keys go through an album. Downloaded first, once.
     func openMedia(_ message: MessageItem, at index: Int, from frame: NSRect?) {
-        Task {
-            do {
-                let files = try await model.mediaFiles(of: message)
-                guard !files.isEmpty else { return }
-                let opened = min(index, files.count - 1)
-                preview = (files, opened, frame)
-                guard let panel = QLPreviewPanel.shared() else { return }
-                view.window?.makeFirstResponder(table)
-                if panel.isVisible { panel.reloadData() } else { panel.makeKeyAndOrderFront(nil) }
-                panel.currentPreviewItemIndex = opened
-            } catch {
-                Log.app.error("media: \(String(describing: error), privacy: .public)")
-            }
+        // a newer one replaces it; the download ends with the chat.
+        tasks.run("media") { [weak self, model] in
+            let files = try await model.mediaFiles(of: message)
+            guard let self, !files.isEmpty else { return }
+            let opened = min(index, files.count - 1)
+            preview = (files, opened, frame)
+            guard let panel = QLPreviewPanel.shared() else { return }
+            view.window?.makeFirstResponder(table)
+            if panel.isVisible { panel.reloadData() } else { panel.makeKeyAndOrderFront(nil) }
+            panel.currentPreviewItemIndex = opened
         }
     }
 

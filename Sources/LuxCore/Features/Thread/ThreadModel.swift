@@ -207,7 +207,7 @@ public final class ThreadModel {
 
     /// Shows older messages (the user scrolled to the top): those the core holds, then the
     /// server's as they come.
-    public func loadOlder() async {
+    public func loadOlder() {
         guard canLoadOlder else { return }
         olderAsked = true
         withCore { $0.loadOlder() }
