@@ -6,6 +6,9 @@
 # The apps link the core's XCFramework (Vendor/, `cargo xtask apple`). `sdk` builds its simulator
 # and Mac slices once (the dev profile: optimized SDK, light core) and caches it by the core's
 # sources, so a change outside core/ reuses it; the other jobs restore that cache.
+#
+# The macOS jobs run on GitHub's Xcode 27 image (`xcode-27`): the apps use the 27 SDKs, which the
+# macos-26 image does not have. A new major Xcode means a new label here.
 name: ci
 
 on:
@@ -28,7 +31,7 @@ env:
 
 jobs:
   core:
-    runs-on: macos-26
+    runs-on: xcode-27
     defaults:
       run:
         working-directory: core
@@ -57,7 +60,7 @@ jobs:
 
   # the core as the apps link it: Vendor/LuxFFI.xcframework and Vendor/LuxBindings.
   sdk:
-    runs-on: macos-26
+    runs-on: xcode-27
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
@@ -94,7 +97,7 @@ jobs:
   # LuxCore's tests, then again under Thread Sanitizer (data races in the shared model).
   swift:
     needs: sdk
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/xcode
@@ -112,7 +115,7 @@ jobs:
 
   apps:
     needs: sdk
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/xcode
@@ -140,7 +143,7 @@ jobs:
   # the demo account walked through on a simulator: fails on a crash or a 10 s hang.
   smoke:
     needs: sdk
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/xcode

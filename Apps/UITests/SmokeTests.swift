@@ -52,8 +52,10 @@ final class SmokeTests: XCTestCase {
         // the background and back: what iOS does to the app between two uses (0xdead10cc kills
         // happen here, when the app holds a lock in its group's container as it is suspended).
         XCUIDevice.shared.press(.home)
-        XCTAssertTrue(app.wait(for: .runningBackground, timeout: hang) || app.state == .runningBackgroundSuspended,
-                      "the app did not go to the background")
+        // running in the background, or already suspended there.
+        let deadline = Date.now.addingTimeInterval(hang)
+        while app.state == .runningForeground, Date.now < deadline { RunLoop.current.run(until: .now.addingTimeInterval(0.2)) }
+        XCTAssertNotEqual(app.state, .runningForeground, "the app did not go to the background")
         // a moment suspended, as the watchdog sees it.
         sleep(3)
         XCTAssertNotEqual(app.state, .notRunning, "the app was killed in the background")
