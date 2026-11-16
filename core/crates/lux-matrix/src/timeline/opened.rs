@@ -9,7 +9,6 @@ use std::sync::Arc;
 use lux_core::ports::TimelineHold;
 use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::{OnceCell, mpsc, oneshot};
-use tokio::task::JoinHandle;
 
 use super::room::RoomTimeline;
 
@@ -42,20 +41,14 @@ enum Command {
 /// the app then has nothing to keep).
 pub(crate) struct Opened {
     commands: mpsc::UnboundedSender<Command>,
-    task: JoinHandle<()>,
-}
-
-impl Drop for Opened {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
+    _task: crate::task::Owned,
 }
 
 impl Opened {
     /// Starts the task, which keeps `kept` timelines open besides the held ones.
     pub(crate) fn new(kept: usize) -> Self {
         let (commands, mut received) = mpsc::unbounded_channel();
-        let task = tokio::spawn(async move {
+        let task = crate::task::spawn(async move {
             let mut rooms = Rooms::new(kept);
             while let Some(command) = received.recv().await {
                 match command {
@@ -68,7 +61,7 @@ impl Opened {
                 }
             }
         });
-        Self { commands, task }
+        Self { commands, _task: task }
     }
 
     /// The timeline's slot, now the one used last; `None` once the account closes.

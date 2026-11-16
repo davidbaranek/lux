@@ -36,7 +36,6 @@ use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::ruma::events::key::verification::cancel::CancelCode;
 use matrix_sdk::ruma::events::key::verification::request::ToDeviceKeyVerificationRequestEvent;
 use tokio::sync::{broadcast, watch};
-use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep};
 use tracing::warn;
 
@@ -444,7 +443,7 @@ pub struct MatrixVerification {
     other: Option<OwnDevice>,
     steps: watch::Receiver<VerificationStep>,
     sas: watch::Receiver<Option<SasVerification>>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl MatrixVerification {
@@ -456,13 +455,13 @@ impl MatrixVerification {
         };
         let (step, steps) = watch::channel(first);
         let (sas_sender, sas) = watch::channel(None);
-        let task = tokio::spawn(follow(request.clone(), step, sas_sender));
+        let task = crate::task::spawn(follow(request.clone(), step, sas_sender));
         Self {
             request,
             other,
             steps,
             sas,
-            task,
+            _task: task,
         }
     }
 
@@ -472,12 +471,6 @@ impl MatrixVerification {
             .clone()
             // no emojis to compare yet.
             .ok_or(BackendError::NotAllowed)
-    }
-}
-
-impl Drop for MatrixVerification {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 

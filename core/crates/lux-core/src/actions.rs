@@ -26,6 +26,10 @@ impl<K: Eq + Hash> Actions<K> {
     pub(crate) fn push(&mut self, target: K, action: impl Future<Output = ()> + Send + 'static) {
         self.last.retain(|_, running| !running.is_finished());
         let before = self.last.remove(&target);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a user's action runs to its end, even once the view that asked for it has closed"
+        )]
         let running = tokio::spawn(async move {
             if let Some(before) = before {
                 // one that failed or panicked does not hold back the next.

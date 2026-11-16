@@ -23,7 +23,7 @@ use matrix_sdk_ui::timeline::{
     VirtualTimelineItem,
 };
 use tokio::sync::{broadcast, mpsc, watch};
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::task::JoinSet;
 use tracing::warn;
 
 use super::errors::from_timeline;
@@ -59,15 +59,7 @@ pub(crate) struct RoomTimeline {
     messages: LiveList<Arc<TimelineMessage>>,
     at_start: watch::Receiver<bool>,
     filled: watch::Receiver<bool>,
-    tasks: Vec<JoinHandle<()>>,
-}
-
-impl Drop for RoomTimeline {
-    fn drop(&mut self) {
-        for task in &self.tasks {
-            task.abort();
-        }
-    }
+    _tasks: Vec<crate::task::Owned>,
 }
 
 impl RoomTimeline {
@@ -137,7 +129,7 @@ impl RoomTimeline {
         };
         follower.apply(vec![VectorDiff::Reset { values: items }]).await;
         let mut learned = previews.follow();
-        let follow = tokio::spawn(async move {
+        let follow = crate::task::spawn(async move {
             futures_util::pin_mut!(stream);
             let mut organizer_open = true;
             let mut previews_open = true;
@@ -168,9 +160,9 @@ impl RoomTimeline {
                 }
             }
         });
-        let fill = tokio::spawn(fill(Arc::clone(&timeline), filled_sender));
+        let fill = crate::task::spawn(fill(Arc::clone(&timeline), filled_sender));
         // a sender's name comes with the room's members; their profiles arrive as changes.
-        let members = tokio::spawn({
+        let members = crate::task::spawn({
             let timeline = Arc::clone(&timeline);
             async move { timeline.fetch_members().await }
         });
@@ -181,7 +173,7 @@ impl RoomTimeline {
             messages,
             at_start,
             filled,
-            tasks: vec![follow, fill, members],
+            _tasks: vec![follow, fill, members],
         })
     }
 

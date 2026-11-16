@@ -202,6 +202,10 @@ impl DemoVerification {
     /// From `from`, the other device's steps: accepted, then the emojis.
     fn after_other_device(&self, from: VerificationStep) {
         let steps = Arc::clone(&self.steps);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the demo's other device: a few seconds, then it ends"
+        )]
         tokio::spawn(async move {
             tokio::time::sleep(OTHER_DEVICE_TAKES).await;
             if !advance(&steps, &from, VerificationStep::Accepted) {
@@ -235,6 +239,10 @@ impl Verification for DemoVerification {
             return Err(BackendError::NotAllowed);
         }
         let steps = Arc::clone(&self.steps);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the demo's other device: a few seconds, then it ends"
+        )]
         tokio::spawn(async move {
             tokio::time::sleep(OTHER_DEVICE_TAKES).await;
             advance(&steps, &VerificationStep::Accepted, VerificationStep::Compare(emojis()));

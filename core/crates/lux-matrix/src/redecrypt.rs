@@ -20,20 +20,19 @@ use matrix_sdk::latest_events::LatestEventValue;
 use matrix_sdk::ruma::{OwnedRoomId, RoomId};
 use matrix_sdk::{Client, Room};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tracing::warn;
 
 /// Asks for the keys of the rooms the list shows.
 pub(crate) struct Redecryptor {
     rooms: mpsc::UnboundedSender<OwnedRoomId>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl Redecryptor {
     pub(crate) fn start(client: Client) -> Self {
         let (rooms, listed) = mpsc::unbounded_channel();
-        let task = tokio::spawn(ask(client, listed));
-        Self { rooms, task }
+        let task = crate::task::spawn(ask(client, listed));
+        Self { rooms, _task: task }
     }
 
     /// The list shows `room` from now on.
@@ -41,12 +40,6 @@ impl Redecryptor {
         self.rooms
             .send(room.to_owned())
             .other_end_may_be_gone("the redecryption's task");
-    }
-}
-
-impl Drop for Redecryptor {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 

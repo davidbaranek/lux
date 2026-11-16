@@ -43,6 +43,8 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 sha2 = "0.11"
 uuid = { version = "1", default-features = false, features = ["v4"] }
 tokio = { version = "1.54", default-features = false, features = ["sync", "rt", "macros"] }
+# tasks that end with their owner (lux-matrix's `task`); the version the sdk uses.
+tokio-util = { version = "0.7.20", default-features = false, features = ["rt"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 # the core's log, handed to the app (lux-ffi).
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
@@ -81,6 +83,8 @@ string_slice = "deny"
 let_underscore_must_use = "deny"
 # nor any other `let _ =` without its type: what is dropped is said.
 let_underscore_untyped = "deny"
+# `tokio::spawn` (clippy.toml): a task has an owner that ends it.
+disallowed_methods = "deny"
 
 [profile.dev]
 debug = 0

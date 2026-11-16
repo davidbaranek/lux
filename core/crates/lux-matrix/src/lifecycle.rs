@@ -85,6 +85,9 @@ impl Lifecycle {
             foreground: true,
             paused: false,
         };
+        // it ends by itself once this drops its sender, after the command at hand: aborted, a
+        // close could stop half-way (the sync stopped, the stores open).
+        #[expect(clippy::disallowed_methods, reason = "ends when `Lifecycle`, its only sender, drops")]
         tokio::spawn(owner.run(received));
         Self { commands }
     }

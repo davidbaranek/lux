@@ -28,7 +28,6 @@ use matrix_sdk::ruma::serde::Raw;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::errors::{from_http, from_sdk};
@@ -127,7 +126,7 @@ pub(crate) struct Organizer {
     state: watch::Receiver<Arc<Organized>>,
     client: Client,
     handler: EventHandlerHandle,
-    tasks: [JoinHandle<()>; 2],
+    _tasks: [crate::task::Owned; 2],
 }
 
 /// A handle that sends changes to the organizer's task; the chat list's task holds one.
@@ -186,14 +185,14 @@ impl Organizer {
                 }
             }
         });
-        let run = tokio::spawn(run(client.clone(), documents, receiver, state_sender));
-        let discover = tokio::spawn(discover_records(client.clone(), commands.clone()));
+        let run = crate::task::spawn(run(client.clone(), documents, receiver, state_sender));
+        let discover = crate::task::spawn(discover_records(client.clone(), commands.clone()));
         Self {
             commands,
             state,
             client,
             handler,
-            tasks: [run, discover],
+            _tasks: [run, discover],
         }
     }
 
@@ -228,9 +227,6 @@ impl Organizer {
 impl Drop for Organizer {
     fn drop(&mut self) {
         self.client.remove_event_handler(self.handler.clone());
-        for task in &self.tasks {
-            task.abort();
-        }
     }
 }
 

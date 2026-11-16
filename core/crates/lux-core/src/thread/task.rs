@@ -1072,6 +1072,10 @@ impl<B: ThreadBackend> Thread<B> {
     where
         F: Future<Output = Result<(), BackendError>> + Send + 'static,
     {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a user's action runs to its end, even once the view that asked for it has closed"
+        )]
         tokio::spawn(self.reported(action));
     }
 

@@ -12,7 +12,6 @@ use matrix_sdk::{AuthSession, Client, SessionMeta, SessionTokens};
 
 use matrix_sdk::SessionChange;
 use tokio::sync::{broadcast, watch};
-use tokio::task::JoinHandle;
 
 use crate::errors::from_sdk;
 use crate::store::Process;
@@ -102,14 +101,14 @@ pub(crate) async fn connect(
 /// it is not missed.
 pub(crate) struct SessionEnd {
     ended: watch::Receiver<bool>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl SessionEnd {
     pub(crate) fn follow(client: &Client) -> Self {
         let mut changes = client.subscribe_to_session_changes();
         let (end, ended) = watch::channel(false);
-        let task = tokio::spawn(async move {
+        let task = crate::task::spawn(async move {
             loop {
                 match changes.recv().await {
                     Ok(SessionChange::UnknownToken(_)) => {
@@ -121,7 +120,7 @@ impl SessionEnd {
                 }
             }
         });
-        Self { ended, task }
+        Self { ended, _task: task }
     }
 
     /// Completes once the session has ended; never while it lives.
@@ -133,12 +132,6 @@ impl SessionEnd {
                 std::future::pending::<()>().await;
             }
         }
-    }
-}
-
-impl Drop for SessionEnd {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 

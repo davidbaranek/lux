@@ -24,7 +24,6 @@ use matrix_sdk::ruma::push::{Action, Tweak};
 use matrix_sdk::sync::Notification as SdkNotification;
 use matrix_sdk::{Client, Room};
 use tokio::sync::{broadcast, mpsc, watch};
-use tokio::task::JoinHandle;
 
 use crate::convert::system_time;
 use crate::mapping;
@@ -43,7 +42,7 @@ struct Candidate {
 /// the channel its followers listen to.
 pub(crate) struct LiveFeed {
     candidates: broadcast::Sender<Arc<Candidate>>,
-    task: JoinHandle<()>,
+    _task: crate::task::Owned,
 }
 
 impl LiveFeed {
@@ -63,8 +62,11 @@ impl LiveFeed {
             })
             .await;
         let (candidates, _) = broadcast::channel(Self::BACKLOG);
-        let task = tokio::spawn(run(receiver, candidates.clone(), own, organized));
-        Self { candidates, task }
+        let task = crate::task::spawn(run(receiver, candidates.clone(), own, organized));
+        Self {
+            candidates,
+            _task: task,
+        }
     }
 
     /// The notifications of what the sync brings from now on.
@@ -92,12 +94,6 @@ impl LiveFeed {
                 }
             }
         }))
-    }
-}
-
-impl Drop for LiveFeed {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 

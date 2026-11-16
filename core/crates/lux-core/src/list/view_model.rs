@@ -382,6 +382,10 @@ impl<B: ChatListBackend> Actor<B> {
         match target {
             Some(target) => actions.push(target, job),
             None => {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "a user's action runs to its end, even once the view that asked for it has closed"
+                )]
                 tokio::spawn(job);
             }
         }
