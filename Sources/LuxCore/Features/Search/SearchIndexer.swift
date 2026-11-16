@@ -41,7 +41,7 @@ public actor SearchIndexer {
     static let deepPages = 40
 
     private let store: LocalStore
-    private let account: Task<RustAccount, any Error>
+    private let account: Task<any IndexSourcePort, any Error>
     private let maxChats: Int?
     private var chats: [String: IndexedChat] = [:]
     private var loaded = false
@@ -53,7 +53,7 @@ public actor SearchIndexer {
     private let report: @Sendable (Progress) -> Void
 
     /// `maxChats`: index only the most recent chats (the demo's thousands of made-up ones).
-    init(store: LocalStore, account: Task<RustAccount, any Error>, maxChats: Int? = nil, report: @escaping @Sendable (Progress) -> Void) {
+    init(store: LocalStore, account: Task<any IndexSourcePort, any Error>, maxChats: Int? = nil, report: @escaping @Sendable (Progress) -> Void) {
         self.store = store
         self.account = account
         self.maxChats = maxChats
@@ -144,7 +144,7 @@ public actor SearchIndexer {
 
     /// Reads `rooms`: `deep`, a few pages further back from where each stopped, to `horizon`;
     /// else what came since each's newest indexed (back to `horizon`, a room not read before).
-    private func read(_ rooms: [IndexedRoom], deep: Bool, back horizon: Date, from account: RustAccount) async {
+    private func read(_ rooms: [IndexedRoom], deep: Bool, back horizon: Date, from account: any IndexSourcePort) async {
         for (done, room) in rooms.enumerated() {
             if Task.isCancelled || stopped { return }
             report(Progress(chats: done, total: rooms.count, deep: deep, isIndexing: true, messages: 0, isFirstFill: firstFill))
