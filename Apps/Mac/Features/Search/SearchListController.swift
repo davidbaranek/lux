@@ -5,7 +5,7 @@ import LuxCore
 /// or a kind's button): a back button and the kind's name over photos as a grid, or links, files
 /// and threads as rows, the newest first. The sidebar's search field searches this kind while it
 /// shows; the next page loads as the list nears its end.
-final class SearchListController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
+final class SearchListController: NSViewController, NSTableViewDelegate, NSCollectionViewDelegate, NSMenuDelegate {
     /// Back to the results.
     var onBack: (() -> Void)?
     var onOpen: ((SearchTarget) -> Void)?
@@ -14,14 +14,17 @@ final class SearchListController: NSViewController, NSTableViewDataSource, NSTab
     private let images: ImagePipeline?
     private var hits = SearchHits()
     private let table = NSTableView()
-    private let grid = PhotoGridView()
-    /// The grid's own scroll view: its document is the grid, as tall as its rows.
-    private let gridDocument = FlippedView()
-    private var gridHeight: NSLayoutConstraint?
+    private var rows: NSTableViewDiffableDataSource<Int, String>!
+    private let grid = NSCollectionView()
+    private var photos: NSCollectionViewDiffableDataSource<Int, String>!
+    /// The rows' and the photos' hits by id, as the data sources name them.
+    private var links: [String: FoundLink] = [:]
+    private var files: [String: FoundFile] = [:]
+    private var threads: [String: FoundThread] = [:]
+    private var found: [String: FoundPhoto] = [:]
     private let scroll = NSScrollView()
     private let looking = LookingNote()
     private let empty = NSTextField(labelWithString: "")
-    private var scrolled: AnyObject?
 
     init(model: SearchListModel, images: ImagePipeline?) {
         self.model = model
@@ -48,43 +51,41 @@ final class SearchListController: NSViewController, NSTableViewDataSource, NSTab
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         if model.kind == .photos {
-            grid.translatesAutoresizingMaskIntoConstraints = false
-            gridDocument.addSubview(grid)
-            gridDocument.translatesAutoresizingMaskIntoConstraints = false
-            scroll.documentView = gridDocument
-            let height = grid.heightAnchor.constraint(equalToConstant: 0)
-            gridHeight = height
-            NSLayoutConstraint.activate([
-                gridDocument.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-                gridDocument.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
-                gridDocument.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-                grid.leadingAnchor.constraint(equalTo: gridDocument.leadingAnchor, constant: 8),
-                grid.trailingAnchor.constraint(equalTo: gridDocument.trailingAnchor, constant: -8),
-                grid.topAnchor.constraint(equalTo: gridDocument.topAnchor),
-                grid.bottomAnchor.constraint(equalTo: gridDocument.bottomAnchor),
-                height,
-            ])
-            grid.onOpen = { [weak self] photo in self?.onOpen?(photo.target) }
-            grid.onWidth = { [weak self] _ in Task { @MainActor in self?.fitGrid() } }
+            // a collection view: only the squares on screen exist, and their pictures load as they show.
+            grid.collectionViewLayout = Self.gridLayout()
+            grid.isSelectable = true
+            grid.backgroundColors = [.clear]
+            grid.delegate = self
+            grid.register(FoundPhotoItem.self, forItemWithIdentifier: FoundPhotoItem.identifier)
+            grid.setAccessibilityIdentifier("search-list")
+            let images = images
+            photos = NSCollectionViewDiffableDataSource(collectionView: grid) { [weak self] grid, indexPath, id in
+                guard let self, let photo = found[id] else { return nil }
+                let tile = grid.makeItem(withIdentifier: FoundPhotoItem.identifier, for: indexPath)
+                (tile as? FoundPhotoItem)?.show(photo, images: images)
+                return tile
+            }
+            scroll.documentView = grid
         } else {
             table.addTableColumn(NSTableColumn(identifier: .init("item")))
             table.headerView = nil
             table.style = .sourceList
             table.intercellSpacing = .zero
             table.rowHeight = 52
-            table.dataSource = self
             table.delegate = self
+            rows = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, row, id in
+                let cell = table.makeView(withIdentifier: SearchShareCell.reuse, owner: nil) as? SearchShareCell ?? SearchShareCell()
+                guard let self else { return cell }
+                if let link = links[id] { cell.show(link) } else if let file = files[id] { cell.show(file) } else if let thread = threads[id] { cell.show(thread) }
+                // the next page, as the end comes near.
+                if row >= hits.count(of: model.kind) - 20 { model.loadMore() }
+                return cell
+            }
             let menu = NSMenu()
             menu.delegate = self
             table.menu = menu
             scroll.documentView = table
-        }
-        table.setAccessibilityIdentifier("search-list")
-        // the next page, as the end comes near.
-        scroll.contentView.postsBoundsChangedNotifications = true
-        scrolled = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
-                                                          queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.loadMoreIfNear() }
+            table.setAccessibilityIdentifier("search-list")
         }
 
         looking.isShown = false
@@ -127,11 +128,25 @@ final class SearchListController: NSViewController, NSTableViewDataSource, NSTab
     private func show(_ hits: SearchHits) {
         let wasLooking = self.hits.isLookPending
         self.hits = hits
-        if model.kind == .photos {
-            grid.show(hits.photos, images: images)
-            fitGrid()
-        } else {
-            table.reloadData()
+        // a page or a new query inserts and removes rows; those that stay are kept (no `reloadData`).
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+        snapshot.appendSections([0])
+        switch model.kind {
+        case .photos:
+            found = Dictionary(hits.photos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            snapshot.appendItems(Self.unique(hits.photos.map(\.id)))
+            photos.apply(snapshot, animatingDifferences: false)
+        case .links, .files, .threads:
+            links = Dictionary(hits.links.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            files = Dictionary(hits.files.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            threads = Dictionary(hits.threads.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let ids = switch model.kind {
+            case .links: hits.links.map(\.id)
+            case .files: hits.files.map(\.id)
+            default: hits.threads.map(\.id)
+            }
+            snapshot.appendItems(Self.unique(ids))
+            rows.apply(snapshot, animatingDifferences: false)
         }
         empty.stringValue = model.query.isEmpty
             ? String(localized: "No \(model.kind.title.lowercased()) yet")
@@ -147,34 +162,46 @@ final class SearchListController: NSViewController, NSTableViewDataSource, NSTab
         }
     }
 
-    private func fitGrid() {
-        let width = grid.bounds.width > 0 ? grid.bounds.width : scroll.contentSize.width - 16
-        gridHeight?.constant = PhotoGridView.height(for: hits.photos.count, width: width)
+    /// The ids in order, each once: a data source takes an item once.
+    private static func unique(_ ids: [String]) -> [String] {
+        var seen = Set<String>()
+        return ids.filter { seen.insert($0).inserted }
     }
 
-    private func loadMoreIfNear() {
-        guard let document = scroll.documentView else { return }
-        let visible = scroll.contentView.bounds
-        if document.bounds.height - visible.maxY < visible.height { model.loadMore() }
+    /// Squares at least 76 points wide, as many as fit across, 4 points apart.
+    private static func gridLayout() -> NSCollectionViewLayout {
+        NSCollectionViewCompositionalLayout { _, environment in
+            let spacing: CGFloat = 4
+            let width = environment.container.effectiveContentSize.width - 16
+            let across = PhotoGridView.columns(width)
+            let side = NSCollectionLayoutDimension.fractionalWidth(1 / CGFloat(across))
+            let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(widthDimension: side, heightDimension: .fractionalHeight(1)))
+            item.contentInsets = NSDirectionalEdgeInsets(top: spacing / 2, leading: spacing / 2, bottom: spacing / 2, trailing: spacing / 2)
+            let group = NSCollectionLayoutGroup.horizontal(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: side),
+                                                           subitem: item, count: across)
+            let section = NSCollectionLayoutSection(group: group)
+            section.contentInsets = NSDirectionalEdgeInsets(top: spacing / 2, leading: 8 - spacing / 2, bottom: spacing / 2, trailing: 8 - spacing / 2)
+            return section
+        }
+    }
+
+    // MARK: Photos
+
+    func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+        collectionView.deselectItems(at: indexPaths)
+        guard let photo = indexPaths.first.flatMap(photos.itemIdentifier(for:)).flatMap({ found[$0] }) else { return }
+        onOpen?(photo.target)
+    }
+
+    /// A square near the end of what was found shows: the next page.
+    func collectionView(_ collectionView: NSCollectionView, willDisplay item: NSCollectionViewItem,
+                        forRepresentedObjectAt indexPath: IndexPath) {
+        if indexPath.item >= hits.photos.count - 40 { model.loadMore() }
     }
 
     @objc private func goBack() { onBack?() }
 
     // MARK: Rows
-
-    func numberOfRows(in tableView: NSTableView) -> Int { hits.count(of: model.kind) }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let cell = tableView.makeView(withIdentifier: SearchShareCell.reuse, owner: nil) as? SearchShareCell ?? SearchShareCell()
-        switch model.kind {
-        case .links: cell.show(hits.links[row])
-        case .files: cell.show(hits.files[row])
-        case .threads: cell.show(hits.threads[row])
-        case .photos: break
-        }
-        if row >= hits.count(of: model.kind) - 20 { model.loadMore() }
-        return cell
-    }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         tableView.makeView(withIdentifier: ChatRowView.reuse, owner: nil) as? ChatRowView
@@ -182,26 +209,45 @@ final class SearchListController: NSViewController, NSTableViewDataSource, NSTab
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        let row = table.selectedRow
-        guard row >= 0 else { return }
-        let target: SearchTarget? = switch model.kind {
-        case .links: hits.links.indices.contains(row) ? hits.links[row].target : nil
-        case .files: hits.files.indices.contains(row) ? hits.files[row].target : nil
-        case .threads: hits.threads.indices.contains(row) ? hits.threads[row].target : nil
-        case .photos: nil
-        }
-        guard let target else { return }
+        guard table.selectedRow >= 0, let id = rows.itemIdentifier(forRow: table.selectedRow),
+              let target = links[id]?.target ?? files[id]?.target ?? threads[id]?.target else { return }
         onOpen?(target)
         if case .link = target { table.deselectAll(nil) }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let row = table.clickedRow
-        guard model.kind == .links, hits.links.indices.contains(row) else { return }
-        for item in SearchViews.menu(for: hits.links[row], open: { [weak self] target in self?.onOpen?(target) }).items {
+        guard model.kind == .links, table.clickedRow >= 0, let id = rows.itemIdentifier(forRow: table.clickedRow),
+              let link = links[id] else { return }
+        for item in SearchViews.menu(for: link, open: { [weak self] target in self?.onOpen?(target) }).items {
             item.menu?.removeItem(item)
             menu.addItem(item)
         }
+    }
+}
+
+/// A photo that search found, as a square of the grid; a click opens its chat at it.
+private final class FoundPhotoItem: NSCollectionViewItem {
+    static let identifier = NSUserInterfaceItemIdentifier("found-photo")
+    private let picture = RemoteImageView()
+
+    override func loadView() {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        container.layer?.cornerRadius = 4
+        container.layer?.masksToBounds = true
+        picture.frame = container.bounds
+        picture.autoresizingMask = [.width, .height]
+        container.addSubview(picture)
+        view = container
+    }
+
+    func show(_ photo: FoundPhoto, images: ImagePipeline?) {
+        picture.show(photo.image, pixels: 240, images: images)
+        view.toolTip = photo.chat.name
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.image)
+        view.setAccessibilityLabel(String(localized: "Photo from \(photo.isOwn ? String(localized: "you") : photo.senderName) in \(photo.chat.name)"))
     }
 }
