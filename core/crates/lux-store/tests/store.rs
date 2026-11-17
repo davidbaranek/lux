@@ -481,3 +481,19 @@ async fn clearing_the_index_keeps_the_kept_values() {
     assert_eq!(store.message_count().await.unwrap(), 0);
     assert_eq!(store.kept("chats".into()).await.unwrap(), Some(vec![1, 2, 3]));
 }
+
+#[tokio::test]
+async fn a_closed_store_has_closed_its_file_and_refuses_later_calls() {
+    let folder = TempDir::new().unwrap();
+    let store = Store::open(file(&folder), key()).await.unwrap();
+    store.add(vec![message("$1", "kept", "!a", 0)]).await.unwrap();
+    store.close().await;
+    // closed once awaited: the last connection took its journal with it.
+    assert!(!folder.path().join("lux-search/index.sqlite-wal").exists());
+    assert!(matches!(store.message_count().await, Err(Error::Closed)));
+    // a second close, and the drop, find it closed.
+    store.close().await;
+    drop(store);
+    let again = Store::open(file(&folder), key()).await.unwrap();
+    assert_eq!(found(&again, "kept").await, ["$1"]);
+}
