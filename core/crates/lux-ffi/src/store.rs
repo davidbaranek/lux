@@ -353,6 +353,13 @@ impl CoreStore {
         Ok(Arc::new(Self { store: Arc::new(store) }))
     }
 
+    /// Closes the store for good, after the calls made before; later calls fail. The apps await
+    /// it as an account's session ends, so no thread (the main one least) waits for the
+    /// connection to close when the last handle goes.
+    pub async fn close(&self) {
+        self.store.close().await;
+    }
+
     /// Adds messages, or changes them (an edit keeps its event id), in one transaction.
     pub async fn add(&self, messages: Vec<CoreStoreMessage>) -> Result<(), CoreStoreError> {
         let messages = messages
