@@ -24,6 +24,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     /// photos, many times a minute) shows the same switch, so it neither slides in anew nor loses
     /// the user's touch.
     private lazy var readReceiptsSwitch = makeSwitch { [weak self] on in self?.model.sendsReadReceipts = on }
+    /// The photos' work under way, made once as the switches are.
+    private let photoWork = UIActivityIndicatorView(style: .medium)
     private lazy var photoLooksSwitch = makeSwitch { [weak self] on in Task { await self?.model.setSearchesPhotosByLook(on) } }
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
@@ -46,16 +48,24 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                                           collectionViewLayout: UICollectionViewCompositionalLayout.list(using: .init(appearance: .insetGrouped)))
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.delegate = self
+        // a cell whose configuration changes its height resizes by itself, in place.
+        collectionView.selfSizingInvalidation = .enabled
         view.addSubview(collectionView)
         // what scrolls under the bar blurs out gradually, not at a hard edge (the system's default).
         collectionView.topEdgeEffect.style = .soft
 
+        // each cell shows its row from the model whenever UIKit updates its configuration: as it
+        // comes on screen, and when `refresh` asks it to (`setNeedsUpdateConfiguration`). A
+        // configuration that changes the cell's height resizes it by itself (the collection
+        // view's `selfSizingInvalidation`): no snapshot is applied for a row's words.
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { [weak self] cell, _, item in
-            guard let self else { return }
-            let row = row(item)
-            shown[item] = row
-            cell.contentConfiguration = content(row)
-            cell.accessories = accessories(row.accessory)
+            cell.configurationUpdateHandler = { [weak self] cell, _ in
+                guard let self, let cell = cell as? UICollectionViewListCell else { return }
+                let row = row(item)
+                shown[item] = row
+                cell.contentConfiguration = content(row)
+                cell.accessories = accessories(row.accessory)
+            }
         }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
             collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
@@ -182,15 +192,21 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     /// The rows as the model has them now: the search section's action only while there is one,
     /// and each row set again whose words, picture or control changed.
     private func refresh() {
+        // which rows there are: a snapshot only when that changes (the search section's action).
         var snapshot = dataSource.snapshot()
         let search = searchItems
         let listed = snapshot.itemIdentifiers(inSection: .search)
-        snapshot.deleteItems(listed.filter { !search.contains($0) })
-        snapshot.appendItems(search.filter { !listed.contains($0) }, toSection: .search)
-        let changed = snapshot.itemIdentifiers.filter { item in shown[item].map { $0 != row(item) } ?? false }
-        snapshot.reconfigureItems(changed)
-        // the rows' words change in place; nothing moves, so nothing animates.
-        dataSource.apply(snapshot, animatingDifferences: false)
+        if listed != search {
+            snapshot.deleteItems(listed.filter { !search.contains($0) })
+            snapshot.appendItems(search.filter { !listed.contains($0) }, toSection: .search)
+            dataSource.apply(snapshot, animatingDifferences: false)
+        }
+        // what they show: each visible cell whose row changed updates itself; the others do as
+        // they come on screen.
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard let item = dataSource.itemIdentifier(for: indexPath), shown[item] != row(item) else { continue }
+            collectionView.cellForItem(at: indexPath)?.setNeedsUpdateConfiguration()
+        }
     }
 
     /// What a row shows.
@@ -306,9 +322,9 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         case .historyMenu:
             return [.popUpMenu(historyMenu, displayed: .always)]
         case .spinner:
-            let spinner = UIActivityIndicatorView(style: .medium)
-            spinner.startAnimating()
-            return [.customView(configuration: .init(customView: spinner, placement: .trailing()))]
+            // the same spinner each time: one made anew would start its turn over at each update.
+            photoWork.startAnimating()
+            return [.customView(configuration: .init(customView: photoWork, placement: .trailing()))]
         }
     }
 
