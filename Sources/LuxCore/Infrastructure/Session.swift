@@ -219,8 +219,10 @@ public final class Session {
     public var onAccountLost: (() -> Void)?
 
     private func accountLost() {
+        let lost = current
         current = nil
         onAccountLost?()
+        Task { await lost?.closeStores() }
     }
 
     @concurrent
@@ -362,6 +364,7 @@ public final class Session {
     /// session as the test ends: no store is left to close as the process exits).
     public func close() async {
         await current?.close()
+        await current?.closeStores()
         current = nil
     }
 
@@ -373,6 +376,8 @@ public final class Session {
         } catch {
             Log.app.error("sign-out: \(String(describing: error), privacy: .public)")
         }
+        // closed before their files go.
+        await current.closeStores()
         if let stored = bestEffort("keychain read", { try keychain.read() }) ?? nil {
             // the account's folders (its stores, its search index) and their key.
             Self.discard(paths.account(stored.store))
