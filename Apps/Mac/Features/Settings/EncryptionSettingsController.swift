@@ -253,7 +253,11 @@ private final class DeviceList: NSScrollView, NSTableViewDelegate {
             }
             return view(for: device)
         }
-        show([], canVerify: false, force: true)
+        // until the first answer, one row says it is loading.
+        var loading = NSDiffableDataSourceSnapshot<Int, Item>()
+        loading.appendSections([0])
+        loading.appendItems([.loading])
+        dataSource.apply(loading, animatingDifferences: false)
         documentView = table
         hasVerticalScroller = true
         autohidesScrollers = true
@@ -267,11 +271,11 @@ private final class DeviceList: NSScrollView, NSTableViewDelegate {
 
     /// The devices as they are now: a device that came or went is a row inserted or removed; only a
     /// device whose state changed (or every one, when verifying becomes possible) is drawn again.
-    func show(_ devices: [OwnDevice], canVerify: Bool, force: Bool = false) {
-        guard force || devices != rows || canVerify != self.canVerify else { return }
+    func show(_ devices: [OwnDevice], canVerify: Bool) {
+        guard devices != rows || canVerify != self.canVerify else { return }
         let old = byId, verifyChanged = canVerify != self.canVerify
         rows = devices
-        byId = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        byId = Dictionary(uniqueKeysWithValues: devices.map { ($0.id, $0) })
         self.canVerify = canVerify
         var snapshot = NSDiffableDataSourceSnapshot<Int, Item>()
         snapshot.appendSections([0])
