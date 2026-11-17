@@ -140,7 +140,8 @@ private extension ChatListBatch {
                       }
                       return Loading(state: state, answered: loading.answered)
                   },
-                  keptOut: update.keptOut?.mapValues(Place.init))
+                  keptOut: update.keptOut?.mapValues(Place.init),
+                  badge: update.badge.map { BadgeState(count: Int($0.count), counted: Set($0.counted), uncounted: Set($0.uncounted)) })
     }
 }
 

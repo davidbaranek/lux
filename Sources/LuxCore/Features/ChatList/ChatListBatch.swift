@@ -45,6 +45,8 @@ struct ChatListBatch: Sendable {
     var loading: Loading?
     /// The chats (by id) a place's rule keeps out of the inbox, with that place, when they changed.
     var keptOut: [String: Place]?
+    /// The app's badge, with what the notification extension needs to keep it, when it changed.
+    var badge: BadgeState?
 }
 
 extension [ChatSection] {

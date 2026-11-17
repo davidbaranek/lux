@@ -140,7 +140,7 @@ pub(crate) fn compose<S: BuildHasher>(
 }
 
 /// Counts on a badge: unread, and not muted.
-fn counts(chat: &Chat) -> bool {
+pub(super) fn counts(chat: &Chat) -> bool {
     chat.is_unread() && !chat.is_muted
 }
 
@@ -638,6 +638,22 @@ pub(super) mod tests {
             [None, Some("t")]
         );
         assert_eq!(chat_ids(&snapshot, &sections), [["a"], ["d"]]);
+    }
+
+    #[test]
+    fn a_space_inside_with_no_chat_shown_has_no_section() {
+        // a Discord server's empty category, and one holding an archived chat alone.
+        let mut snapshot = snapshot();
+        snapshot.spaces.push(space("voice", &[], &["s"]));
+        snapshot.spaces.push(space("old", &["c"], &["s"]));
+        let sections = sections(&snapshot, &PlaceId::Space("s".into()), ChatOrder::NewestMessage);
+        assert_eq!(
+            sections
+                .iter()
+                .map(|section| section.title.as_deref())
+                .collect::<Vec<_>>(),
+            [None, Some("t")]
+        );
     }
 
     #[test]
