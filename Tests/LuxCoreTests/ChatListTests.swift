@@ -74,6 +74,20 @@ struct ChatListModelTests {
         await changes.until { model.rows.contains { $0.id == "!room5:demo" } }
     }
 
+    @Test func theBadgeIsTheInboxsCountWithTheChatsItCountsAndTheRoomsItDoesNot() async {
+        let model = ChatListModel(session: session)
+        var badge: BadgeState?
+        model.onBadge = { badge = $0 }
+        let changes = model.changes()
+        await changes.until { model.rows.contains { $0.id == "!room5:demo" } && badge != nil }
+        let inbox = model.places.first { $0.id == .inbox }?.unread
+        #expect(badge?.count == inbox)
+        #expect(badge?.counted.count ?? 0 >= badge?.count ?? 0)
+        model.change("!room5:demo", .archive)
+        await changes.until { badge?.uncounted.contains("!room5:demo") == true }
+        #expect(badge?.counted.contains("!room5:demo") == false)
+    }
+
     @Test func aHiddenPlaceSaysSoAndTheInboxNeverHides() async {
         let model = ChatListModel(session: session)
         let changes = model.changes()

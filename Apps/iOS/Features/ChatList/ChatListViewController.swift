@@ -34,9 +34,9 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     private let band = ThemeBand()
 
     /// The app's badge: the inbox's unread chats.
-    private let badge: (Int) -> Void
+    private let badge: (BadgeState) -> Void
 
-    init(session: Session, badge: @escaping (Int) -> Void = { _ in }, signOut: @escaping () -> Void) {
+    init(session: Session, badge: @escaping (BadgeState) -> Void = { _ in }, signOut: @escaping () -> Void) {
         self.session = session
         self.badge = badge
         self.signOut = signOut
@@ -179,8 +179,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
 
         // the bubble sits in the top bar, between Settings and New Message: nothing in the list moves.
         navigationItem.titleView = loading
+        model.onBadge = { [weak self] badge in self?.badge(badge) }
         model.onPlaces = { [weak self] places in
-            if let inbox = places.first(where: { $0.id == .inbox }) { self?.badge(inbox.unread) }
             self?.updatePlaces()
             self?.placesSheet?.show(places)
         }

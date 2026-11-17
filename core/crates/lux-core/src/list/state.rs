@@ -12,7 +12,7 @@ use crate::chat::{Chat, Label, Request, ScheduledMessage, Snapshot, Space};
 use crate::diff;
 use crate::ids::ChatId;
 use crate::organizer::Organized;
-use crate::places::{self, Arrangement, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, Theme};
+use crate::places::{self, Arrangement, Badge, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, Theme};
 
 /// What the listener was last sent.
 #[derive(Debug, Default)]
@@ -25,6 +25,7 @@ struct Shown {
     loading: Option<Loading>,
     theme: Option<Theme>,
     kept_out: Option<HashMap<ChatId, PlaceId>>,
+    badge: Option<Badge>,
 }
 
 /// The list's state.
@@ -232,6 +233,11 @@ impl ListState {
         if let Some(kept_out) = &kept_out {
             self.shown.kept_out = Some(kept_out.clone());
         }
+        let now_badge = places::badge(&self.snapshot, &arrangement);
+        let badge = (self.shown.badge.as_ref() != Some(&now_badge)).then_some(now_badge);
+        if let Some(badge) = &badge {
+            self.shown.badge = Some(badge.clone());
+        }
         ListUpdate {
             place: self.place.clone(),
             places,
@@ -242,6 +248,7 @@ impl ListState {
             reminders,
             loading,
             kept_out,
+            badge,
         }
     }
 }

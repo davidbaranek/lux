@@ -1356,6 +1356,135 @@ async fn a_bridges_space_for_its_network_stays_though_the_sync_brings_it_without
     .expect("the bridge's space for its network was left out");
 }
 
+/// The bridge state the Discord bridge gives a room of the server `guild`: the server's space,
+/// one of its categories, or one of its channels (`channel`).
+fn discord(room: &str, guild: &str, channel: Option<&str>) -> serde_json::Value {
+    let key = channel.map_or_else(
+        || format!("fi.mau.discord://discord/{guild}"),
+        |channel| format!("fi.mau.discord://discord/{guild}/{channel}"),
+    );
+    state(
+        "m.bridge",
+        &key,
+        "@discordbot:matrix.org",
+        json!({
+            "bridgebot": "@discordbot:matrix.org",
+            "protocol": { "id": "discordgo" },
+            "channel": { "id": channel.unwrap_or(guild), "displayname": room },
+        }),
+    )
+}
+
+/// `m.space.child` events of a space made by the Discord bridge, for `children`.
+fn children(children: &[&str]) -> Vec<serde_json::Value> {
+    children
+        .iter()
+        .map(|child| {
+            state(
+                "m.space.child",
+                child,
+                "@discordbot:matrix.org",
+                json!({ "via": ["matrix.org"] }),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_in_the_discord_bridges_login_space_lists_its_categories() {
+    let server = server().await;
+    let bot = "@discordbot:matrix.org";
+    let channel = |name: &str, id: &str| {
+        json!({
+            "name": name, "initial": true, "joined_count": 2,
+            "required_state": [discord(name, "1", Some(id))],
+        })
+    };
+    let mut radian = children(&["!general:matrix.org", "!empty:matrix.org"]);
+    radian.push(discord("Radian", "1", None));
+    // an empty category: a space with no child.
+    let mut empty = space(
+        "Voice Channels",
+        bot,
+        "",
+        vec![discord("Voice Channels", "1", Some("11"))],
+    );
+    if let Some(events) = empty["required_state"].as_array_mut() {
+        events.retain(|event| event["type"] != "m.space.child");
+    }
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "pos": "1",
+                    "lists": { "all_rooms": { "count": 6 } },
+                    "rooms": {
+                        // the older Discord bridge's space for the login: no bridge state, the
+                        // servers inside it.
+                        "!discord:matrix.org": space("Discord", bot, "!radian:matrix.org", Vec::new()),
+                        // a server, its categories inside it: one with a channel, one empty.
+                        "!radian:matrix.org": space("Radian", bot, "!chat:matrix.org", radian),
+                        "!general:matrix.org": space("General", bot, "!open:matrix.org", vec![discord("General", "1", Some("10"))]),
+                        "!empty:matrix.org": empty,
+                        "!chat:matrix.org": channel("radian", "12"),
+                        "!open:matrix.org": channel("open-space", "13"),
+                    }
+                }))
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(server.server())
+        .await;
+    let (account, _folder) = signed_in(&server).await;
+
+    let mut spaces = lux_core::ports::Spaces::spaces(&account);
+    let radian = RoomId::from("!radian:matrix.org");
+    // each space's name and parents' names, by name.
+    let shape = |spaces: &[lux_core::chat::Space]| {
+        let mut shape: Vec<(String, Vec<String>)> = spaces
+            .iter()
+            .map(|space| {
+                (
+                    space.name.clone(),
+                    space.parents.iter().map(ToString::to_string).collect(),
+                )
+            })
+            .collect();
+        shape.sort();
+        shape
+    };
+    let wanted = vec![
+        ("General".to_owned(), vec![radian.to_string()]),
+        ("Radian".to_owned(), Vec::new()),
+        ("Voice Channels".to_owned(), vec![radian.to_string()]),
+    ];
+    let mut last = Vec::new();
+    // the space service reads the spaces' chats as they come: wait for them all.
+    let found = tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(spaces) = spaces.next().await {
+            last = shape(&spaces);
+            if last == wanted {
+                return spaces;
+            }
+        }
+        Arc::from(Vec::new())
+    })
+    .await;
+    let spaces = found.unwrap_or_else(|_| panic!("the spaces stayed {last:?}"));
+    let chats = |name: &str| {
+        let mut chats: Vec<String> = spaces
+            .iter()
+            .find(|space| space.name == name)
+            .map(|space| space.chats.iter().map(ToString::to_string).collect())
+            .unwrap_or_default();
+        chats.sort();
+        chats
+    };
+    assert!(chats("Radian").contains(&"!open:matrix.org".to_owned()));
+    assert_eq!(chats("General"), ["!open:matrix.org"]);
+    assert!(chats("Voice Channels").iter().all(|chat| chat != "!open:matrix.org"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_space_in_two_spaces_shows_once() {
     let server = server().await;

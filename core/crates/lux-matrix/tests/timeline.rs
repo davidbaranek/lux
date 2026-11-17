@@ -16,6 +16,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use lux_core::ids::{MessageId, MessageRef, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines};
@@ -50,7 +51,7 @@ fn room() -> RoomId {
 async fn snapshot(timelines: &MatrixTimelines) -> Vec<Arc<TimelineMessage>> {
     let mut batches = timelines.messages(&room().into()).await.unwrap();
     let mut messages = eyeball_im::Vector::new();
-    for diff in futures_util::StreamExt::next(&mut batches).await.unwrap_or_default() {
+    for diff in batches.next().await.unwrap_or_default() {
         diff.apply(&mut messages);
     }
     messages.into_iter().collect()
@@ -68,7 +69,7 @@ async fn page_until(
             if done(&page) {
                 return page;
             }
-            futures_util::StreamExt::next(&mut changes).await;
+            changes.next().await;
         }
     })
     .await
@@ -343,24 +344,60 @@ async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
         kind: OutgoingKind::Photo { width: 4, height: 3 },
         thumbnail: None,
     };
-    let id = timelines
+    let states: Vec<SendState> = timelines
         .send_attachment(&room().into(), &attachment, Some("Trip"), None)
         .await
         .unwrap()
-        .expect("the local echo showed");
+        .collect()
+        .await;
+    // its media's share as it goes, then sent, the last.
+    assert_eq!(states.last(), Some(&SendState::Sent));
+    assert!(
+        states[..states.len() - 1]
+            .iter()
+            .all(|state| matches!(state, SendState::Sending { upload: Some(_) }))
+    );
 
     let page = page_until(&timelines, |page| {
         page.iter()
-            .any(|message| message.message.id == id && message.message.state == SendState::Sent)
+            .any(|message| message.message.body == "Trip" && message.message.state == SendState::Sent)
     })
     .await;
-    let photo = page.iter().find(|message| message.message.id == id).unwrap();
-    assert_eq!(photo.message.body, "Trip");
+    let photo = page.iter().find(|message| message.message.body == "Trip").unwrap();
     let Some(Media::Photo { picture, .. }) = &photo.media else {
         panic!("not a photo");
     };
     assert_eq!((picture.width, picture.height), (4, 3));
-    assert_eq!(timelines.send_state(&room(), &id).await.unwrap(), Some(SendState::Sent));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upload_the_server_refuses_ends_failed() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server.mock_authenticated_media_config().ok_default().mount().await;
+    server.sync_joined_room(&client, room_id!("!chat:example.org")).await;
+    server.mock_upload().error_too_large().mount().await;
+    let timelines = MatrixTimelines::new(client);
+    timelines.prefetch(&room().into()).await.unwrap();
+
+    let folder = tempfile::tempdir().unwrap();
+    let file = folder.path().join("notes.txt");
+    std::fs::write(&file, b"far too large").unwrap();
+    let attachment = OutgoingAttachment {
+        file,
+        name: "notes.txt".to_owned(),
+        mimetype: "text/plain".to_owned(),
+        size: 13,
+        kind: OutgoingKind::File,
+        thumbnail: None,
+    };
+    let states: Vec<SendState> = timelines
+        .send_attachment(&room().into(), &attachment, None, None)
+        .await
+        .unwrap()
+        .collect()
+        .await;
+    assert_eq!(states.last(), Some(&SendState::Failed));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -778,7 +815,7 @@ async fn messages_of(timelines: &MatrixTimelines, room: &RoomId, count: usize) -
     tokio::time::timeout(Duration::from_secs(10), async {
         let mut batches = timelines.messages(&room.into()).await.unwrap();
         let mut messages = eyeball_im::Vector::new();
-        while let Some(batch) = futures_util::StreamExt::next(&mut batches).await {
+        while let Some(batch) = batches.next().await {
             for diff in batch {
                 diff.apply(&mut messages);
             }
@@ -886,4 +923,117 @@ async fn the_index_history_reads_on_from_where_its_pages_ran_out() {
         .unwrap();
     assert_eq!(bodies(&next), ["long ago"]);
     assert!(next.older.is_none());
+}
+
+/// A chat whose first screen is full, then `quiet` pages of state events only (rows the SDK shows,
+/// no message), then a page with the message `$target` and the room's start.
+async fn chat_with_quiet_pages(server: &MatrixMockServer, quiet: usize) -> MatrixTimelines {
+    // as many as the opening pages back for (`lux_matrix`'s first screen).
+    const FIRST_SCREEN: usize = 60;
+    let client = client(server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    let id = |id: String| matrix_sdk::ruma::OwnedEventId::try_from(id).unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(factory.text_msg("newest").sender(alice).event_id(event_id!("$new")))
+                .set_timeline_limited()
+                .set_timeline_prev_batch("screen"),
+        )
+        .await;
+    let screen = (0..FIRST_SCREEN)
+        .map(|n| {
+            factory
+                .text_msg(format!("screen {n}"))
+                .sender(alice)
+                .event_id(&id(format!("$screen{n}")))
+        })
+        .collect::<Vec<_>>();
+    server
+        .mock_room_messages()
+        .match_from("screen")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(screen)
+            .end_token("quiet0"))
+        .mount()
+        .await;
+    for page in 0..quiet {
+        let topics = (0..5)
+            .map(|n| {
+                factory
+                    .room_topic(format!("topic {page}.{n}"))
+                    .sender(alice)
+                    .event_id(&id(format!("$topic{page}.{n}")))
+            })
+            .collect::<Vec<_>>();
+        server
+            .mock_room_messages()
+            .match_from(&format!("quiet{page}"))
+            .ok(RoomMessagesResponseTemplate::default()
+                .events(topics)
+                .end_token(format!("quiet{}", page + 1)))
+            .mount()
+            .await;
+    }
+    server
+        .mock_room_messages()
+        .match_from(&format!("quiet{quiet}"))
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            factory.text_msg("target").sender(alice).event_id(event_id!("$target")),
+        ]))
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+    timelines.prefetch(&room().into()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
+        .await
+        .unwrap();
+    timelines
+}
+
+/// Pages without messages in a row: before, each made a page back wait a second for messages it
+/// never brought.
+const QUIET_PAGES: usize = 5;
+
+/// Far less than the second each quiet page used to cost, far more than mapping takes.
+const AT_ONCE: Duration = Duration::from_secs(2);
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_jump_over_pages_without_messages_does_not_wait_on_them() {
+    let server = MatrixMockServer::new().await;
+    let timelines = chat_with_quiet_pages(&server, QUIET_PAGES).await;
+
+    let started = std::time::Instant::now();
+    let found = timelines
+        .show_event(&room().into(), &lux_core::ids::EventId::from("$target"))
+        .await
+        .unwrap();
+
+    let took = started.elapsed();
+    assert!(took < AT_ONCE, "the jump took {took:?}");
+    let page = snapshot(&timelines).await;
+    let target = page.iter().find(|message| message.message.body == "target").unwrap();
+    assert_eq!(found.as_ref(), Some(&target.message.id));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn paging_back_over_pages_without_messages_does_not_wait_on_them() {
+    let server = MatrixMockServer::new().await;
+    let timelines = chat_with_quiet_pages(&server, QUIET_PAGES).await;
+
+    // more than the room has: back to its start, over the quiet pages.
+    let started = std::time::Instant::now();
+    timelines.load_older(&room().into(), 1000).await.unwrap();
+
+    let took = started.elapsed();
+    assert!(took < AT_ONCE, "paging back took {took:?}");
+    assert!(timelines.is_at_start(&room().into()).await.unwrap());
+    assert!(
+        snapshot(&timelines)
+            .await
+            .iter()
+            .any(|message| message.message.body == "target")
+    );
 }

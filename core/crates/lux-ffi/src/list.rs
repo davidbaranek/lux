@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use eyeball_im::VectorDiff;
 use lux_core::ids::{ChatId, EventId, RoomId};
 use lux_core::list::{self, DueReminder, ListListener, ListRow, ListSetup, ListUpdate, LoadState, Loading};
-use lux_core::places::{ChatFilter, PlaceId};
+use lux_core::places::{Badge, ChatFilter, PlaceId};
 use lux_core::ports::BackendError;
 use lux_matrix::{KeptList, MatrixAccount};
 use tokio::sync::oneshot;
@@ -180,6 +180,30 @@ pub struct CoreListUpdate {
     /// The chats (by id) a place's rule keeps out of the inbox, into low priority, with that
     /// place, when they changed.
     pub kept_out: Option<HashMap<String, CorePlace>>,
+    /// The app's badge, with what a notification needs to keep it while the app is not running,
+    /// when it changed.
+    pub badge: Option<CoreBadge>,
+}
+
+/// The inbox's count, with the chats it counts and the rooms it never counts.
+#[derive(uniffi::Record)]
+pub struct CoreBadge {
+    /// The inbox's chats with unread messages that are not muted.
+    pub count: u32,
+    /// The chats counted, by their ids and, for a merged chat, its rooms' too.
+    pub counted: Vec<String>,
+    /// The rooms whose messages the inbox does not count: archived, of low priority, muted.
+    pub uncounted: Vec<String>,
+}
+
+impl From<Badge> for CoreBadge {
+    fn from(badge: Badge) -> Self {
+        Self {
+            count: badge.count,
+            counted: badge.counted.iter().map(ToString::to_string).collect(),
+            uncounted: badge.uncounted.iter().map(|room| room.as_str().to_owned()).collect(),
+        }
+    }
 }
 
 impl From<ListUpdate> for CoreListUpdate {
@@ -220,6 +244,7 @@ impl From<ListUpdate> for CoreListUpdate {
                     .map(|(chat, place)| (chat.to_string(), place.into()))
                     .collect()
             }),
+            badge: update.badge.map(CoreBadge::from),
         }
     }
 }

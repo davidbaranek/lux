@@ -53,7 +53,10 @@ public final class Session {
     private let paths: AppPaths
     /// The signed-in account and all that is its own; nil when signed out.
     private var current: AccountSession? {
-        didSet { if current?.search !== oldValue?.search { searchChanges.send() } }
+        didSet {
+            if current?.search !== oldValue?.search { searchChanges.send() }
+            if current?.uploads !== oldValue?.uploads { uploadsChanges.send() }
+        }
     }
 
     /// An account is signed in (it may still be opening).
@@ -75,6 +78,8 @@ public final class Session {
     public var images: ImagePipeline? { current?.images }
     /// Photos and files on their way, from every chat (made with the account).
     public var uploads: Uploads? { current?.uploads }
+    /// Another account's uploads, or none: signed in, out, or the account lost.
+    public let uploadsChanges = Broadcast()
     /// The networks the server bridges, the account's logins on them and the history they bring
     /// (made with the account).
     public var networks: NetworksModel? { current?.networks }

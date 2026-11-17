@@ -14,11 +14,14 @@ use crate::chat::{Folder, Space};
 use crate::ids::{LabelId, RoomId};
 use crate::network::Network;
 
+mod badge;
 mod filter;
 mod inbox;
 mod list;
 mod theme;
 
+pub use badge::Badge;
+pub(crate) use badge::badge;
 pub use filter::ChatFilter;
 pub use inbox::InboxRule;
 pub(crate) use inbox::InboxRules;
