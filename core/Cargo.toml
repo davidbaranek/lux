@@ -29,6 +29,9 @@ matrix-sdk-store-encryption = { git = "https://github.com/matrix-org/matrix-rust
 matrix-sdk-base = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d", default-features = false }
 matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d", default-features = false, features = ["rustls-aws-lc-rs"] }
 matrix-sdk-test = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "14a0ada4fcb3a93f47248b6abefbd04ceaf71e5d" }
+# a message's HTML (lux-core): ruma's own parser and the Matrix subset's sanitizer, at the ruma
+# commit the sdk uses, so one ruma-html and one html5ever are in the graph.
+ruma-html = { git = "https://github.com/ruma/ruma", rev = "e03080c0790ba7b24ea37f9fd11794678cc975b0", features = ["matrix"] }
 # the sdk's observables (the sync's state).
 eyeball = "0.8.8"
 eyeball-im = "0.9.1"

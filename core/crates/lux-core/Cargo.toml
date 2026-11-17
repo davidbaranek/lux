@@ -15,6 +15,8 @@ jiff.workspace = true
 linkify.workspace = true
 # the composer's Markdown, read as sending reads it (ruma's `text_markdown`).
 pulldown-cmark = { version = "0.13.0", default-features = false }
+# a message's HTML body read as a browser reads it, kept to the Matrix subset.
+ruma-html.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 # chats found by name without their accents.
