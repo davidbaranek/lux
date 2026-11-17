@@ -45,10 +45,12 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
     }
 
     /// The app's badge: the inbox's chats with unread messages, from the chat list while the app
-    /// runs. A notification that came meanwhile (its badge the server's count, of every room) is
-    /// put right as the app comes back to the front, `showBadge()`.
-    func setBadge(_ count: Int) {
-        badge = count
+    /// runs. Kept in the App Group, so the notification extension counts on from it while the app
+    /// is not running; whatever it counted is put right here, and as the app comes back to the
+    /// front, `showBadge()`.
+    func setBadge(_ state: BadgeState) {
+        badge = state.count
+        if let shared = BadgeState.shared { state.keep(in: shared) }
         showBadge()
     }
 
@@ -70,7 +72,7 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
         if let room = PushNotifications.room(of: info), session.showsMessage(of: room, thread: PushPayload(userInfo: info)?.threadRoot) {
             return []
         }
-        // not its badge: the server's count; the app's is the inbox's, which the list keeps.
+        // not its badge: the app's is the inbox's, which the list keeps.
         return [.banner, .list, .sound]
     }
 
