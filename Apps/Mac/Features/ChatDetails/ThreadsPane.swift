@@ -4,13 +4,14 @@ import LuxCore
 /// A chat's Matrix threads in its details, the latest active first, read back as the user
 /// scrolls: each its root's sender and text, how many replied and the last reply, a dot while some
 /// are unread. A click opens the thread beside the chat.
-final class ThreadsPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class ThreadsPane: NSViewController, NSTableViewDelegate {
     private let model: ThreadsModel
     private let images: ImagePipeline?
     private var observation: AnyObject?
     private let table = NSTableView()
+    private var dataSource: NSTableViewDiffableDataSource<Int, String>!
+    private var threads: [String: ListedThread] = [:]
     private let empty = NSTextField(labelWithString: "")
-    private var scrolled: NSObjectProtocol?
     /// A thread was picked: it opens beside the chat.
     var onOpen: ((MatrixThread) -> Void)?
 
@@ -31,8 +32,13 @@ final class ThreadsPane: NSViewController, NSTableViewDataSource, NSTableViewDel
         table.intercellSpacing = NSSize(width: 0, height: table.intercellSpacing.height)
         table.rowHeight = 64
         table.backgroundColor = .clear
-        table.dataSource = self
         table.delegate = self
+        let images = images
+        dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, _, id in
+            let cell = table.makeView(withIdentifier: ThreadRowView.reuse, owner: nil) as? ThreadRowView ?? ThreadRowView()
+            if let thread = self?.threads[id] { cell.show(thread, images: images) }
+            return cell
+        }
         table.target = self
         table.action = #selector(clicked)
         table.setAccessibilityIdentifier("threads")
@@ -56,46 +62,39 @@ final class ThreadsPane: NSViewController, NSTableViewDataSource, NSTableViewDel
             empty.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
         view = container
-        // near the end of what was read, the next page.
-        scroll.contentView.postsBoundsChangedNotifications = true
-        scrolled = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
-                                                          queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.loadMoreIfNearEnd() }
-        }
         observation = model.changes.observe { [weak self] in self?.update() }
         update()
         Task { await model.loadMore() }
     }
 
-    isolated deinit {
-        if let scrolled { NotificationCenter.default.removeObserver(scrolled) }
-    }
-
+    /// A page read back inserts its rows; a thread whose replies or text changed draws again in
+    /// place. The rows on screen stay as they are (no `reloadData`).
     private func update() {
-        table.reloadData()
+        let old = threads
+        threads = Dictionary(model.threads.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+        snapshot.appendSections([0])
+        snapshot.appendItems(model.threads.map(\.id))
+        dataSource.apply(snapshot, animatingDifferences: false)
+        for (id, thread) in threads where old[id].map({ $0 != thread }) ?? false {
+            guard let row = dataSource.row(forItemIdentifier: id) else { continue }
+            (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? ThreadRowView)?.show(thread, images: images)
+        }
         let none = model.threads.isEmpty
         empty.isHidden = !none
         empty.stringValue = model.isLoading ? String(localized: "Loading…")
             : model.failure?.localizedDescription ?? String(localized: "No threads")
     }
 
-    private func loadMoreIfNearEnd() {
-        let shown = table.rows(in: table.visibleRect)
-        guard shown.location + shown.length >= model.threads.count - 5 else { return }
+    /// A row near the end of what was read comes on screen: the next page.
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        guard row >= model.threads.count - 5 else { return }
         Task { await model.loadMore() }
     }
 
     @objc private func clicked() {
         guard model.threads.indices.contains(table.clickedRow) else { return }
         onOpen?(model.threads[table.clickedRow].thread)
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int { model.threads.count }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let cell = tableView.makeView(withIdentifier: ThreadRowView.reuse, owner: nil) as? ThreadRowView ?? ThreadRowView()
-        cell.show(model.threads[row], images: images)
-        return cell
     }
 }
 
