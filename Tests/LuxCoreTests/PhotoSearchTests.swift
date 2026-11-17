@@ -46,24 +46,21 @@ private func receipt(_ lines: [String]) throws -> URL {
 /// there with `unknownError`. The tests that read photos run where it can; their failure on such a
 /// machine would say nothing about the app.
 private let recognizesText = ConditionTrait.enabled("Vision reads no text on this machine (a VM without a GPU)") {
-    let picture = FileManager.default.temporaryDirectory.appending(path: "lux-probe-\(UUID().uuidString).png")
+    await visionReadsText.value
+}
+
+/// Asked once for both suites: the first read compiles Vision's model, which takes long there.
+/// As the app reads, on the executor for work that holds its thread, not Swift's pool.
+private let visionReadsText = Task(executorPreference: ImageWork.executor) {
     let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
-    guard let image = context?.makeImage(),
-          let destination = CGImageDestinationCreateWithURL(picture as CFURL, UTType.png.identifier as CFString, 1, nil)
-    else { return false }
-    CGImageDestinationAddImage(destination, image, nil)
-    guard CGImageDestinationFinalize(destination) else { return false }
-    // Vision holds its thread: on the app's executor for such work, not the pool (as the app reads).
-    let probe = Task(executorPreference: ImageWork.executor) {
-        do {
-            _ = try await RecognizeTextRequest().perform(on: picture)
-            return true
-        } catch {
-            return false
-        }
+    guard let image = context?.makeImage() else { return false }
+    do {
+        _ = try PhotoReader.words(in: image)
+        return true
+    } catch {
+        return false
     }
-    return await probe.value
 }
 
 @Suite(recognizesText) struct PhotoReaderTests {
