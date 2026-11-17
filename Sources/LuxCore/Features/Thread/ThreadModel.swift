@@ -108,7 +108,10 @@ public final class ThreadModel {
         switch event {
         case .update(let batch): apply(batch)
         case .upload(let files, let roomId, let threadRoot, let caption, let replyTo):
-            session?.uploads?.send(files, to: roomId, threadRoot: threadRoot, caption: caption, replyTo: replyTo)
+            // what cannot go shows here, in the chat that sent it.
+            session?.uploads?.send(files, to: roomId, threadRoot: threadRoot, caption: caption, replyTo: replyTo) { [weak self] error in
+                self?.onError?(error)
+            }
         case .failed(let failure): onError?(failure)
         }
     }
