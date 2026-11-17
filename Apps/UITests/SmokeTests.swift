@@ -36,6 +36,9 @@ final class SmokeTests: XCTestCase {
         searchButton.tap()
         let field = app.searchFields.firstMatch
         reach(field, "the search field")
+        // the toolbar's search grows into the field, which takes the keyboard as it ends: typing
+        // before then finds no field to type into.
+        reach(app.keyboards.firstMatch, "the keyboard for the search field")
         field.typeText("hello")
         // a fresh simulator's keyboard introduces slide-to-type once, over the screen.
         let tip = app.buttons["Continue"].firstMatch
