@@ -114,6 +114,17 @@ jobs:
         env:
           # one false race at the Rust boundary is suppressed (Tests/tsan-suppressions.txt).
           TSAN_OPTIONS: halt_on_error=1 suppressions=${{ github.workspace }}/Tests/tsan-suppressions.txt
+      # a test process that dies leaves its crash report there, not in the log.
+      - name: Keep the crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crashes
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crashes/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: swift-crashes
+          path: .build/crashes
 
   apps:
     needs: sdk
