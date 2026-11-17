@@ -44,7 +44,8 @@ extension ChatListModel {
 }
 
 extension ThreadModel {
-    /// The chat's announcements (messages, the composer's mode, the room shown, failures), after
+    /// The chat's announcements (messages, the composer's mode, the room shown, failures, live or
+    /// a jump's rows), after
     /// the handlers it has.
     func changes() -> Changes {
         let changes = Changes()
@@ -53,6 +54,8 @@ extension ThreadModel {
         onMode = { mode?($0); changes.send() }
         onShownRoom = { shownRoom?($0); changes.send() }
         onError = { error?($0); changes.send() }
+        let live = onLive
+        onLive = { live?($0); changes.send() }
         return changes
     }
 }

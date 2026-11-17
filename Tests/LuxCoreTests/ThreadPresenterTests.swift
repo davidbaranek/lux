@@ -286,4 +286,26 @@ struct ThreadPresenterTests {
         await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
         #expect(!presenter.returnToLive())
     }
+
+    @Test func aMessageFarBackShowsAmongItsNeighboursUntilJumpToBottom() async throws {
+        // 400 messages a chat: the device's live timeline holds the newest 200.
+        let long = DemoSessions.open(rooms: 3, messagesPerRoom: 400)
+        let rows = try await long.account.value.chats()
+        let row = try #require(rows.first { !$0.isMerged })
+        let presenter = ThreadPresenter(session: long, row: row, focus: MessageLink(roomId: row.id, eventId: "\(row.id)/10"),
+                                        removeDelivered: { _ in })
+        let screen = StackedScreen()
+        presenter.screen = screen
+        screen.presenter = presenter
+        presenter.measure(with: GridMeasure())
+        presenter.resize(to: 390)
+        presenter.start()
+        let changes = presenter.model.changes()
+        await changes.until { !presenter.model.isLive && presenter.model.messages.contains { $0.eventId == "\(row.id)/10" } }
+        presenter.didShowFirst()
+        #expect(presenter.returnToLive())
+        await changes.until { presenter.model.isLive }
+        #expect(presenter.model.messages.last?.eventId == "\(row.id)/399")
+    }
 }
+
