@@ -73,12 +73,10 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
             table.intercellSpacing = .zero
             table.rowHeight = 52
             table.delegate = self
-            rows = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, row, id in
+            rows = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, _, id in
                 let cell = table.makeView(withIdentifier: SearchShareCell.reuse, owner: nil) as? SearchShareCell ?? SearchShareCell()
                 guard let self else { return cell }
                 if let link = links[id] { cell.show(link) } else if let file = files[id] { cell.show(file) } else if let thread = threads[id] { cell.show(thread) }
-                // the next page, as the end comes near.
-                if row >= hits.count(of: model.kind) - 20 { model.loadMore() }
                 return cell
             }
             let menu = NSMenu()
@@ -129,23 +127,24 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
         let wasLooking = self.hits.isLookPending
         self.hits = hits
         // a page or a new query inserts and removes rows; those that stay are kept (no `reloadData`).
+        // each hit is once in its list: the index keys them (and a page adds only what is new).
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
         switch model.kind {
         case .photos:
-            found = Dictionary(hits.photos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            snapshot.appendItems(Self.unique(hits.photos.map(\.id)))
+            found = Dictionary(uniqueKeysWithValues: hits.photos.map { ($0.id, $0) })
+            snapshot.appendItems(hits.photos.map(\.id))
             photos.apply(snapshot, animatingDifferences: false)
         case .links, .files, .threads:
-            links = Dictionary(hits.links.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            files = Dictionary(hits.files.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            threads = Dictionary(hits.threads.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            links = Dictionary(uniqueKeysWithValues: hits.links.map { ($0.id, $0) })
+            files = Dictionary(uniqueKeysWithValues: hits.files.map { ($0.id, $0) })
+            threads = Dictionary(uniqueKeysWithValues: hits.threads.map { ($0.id, $0) })
             let ids = switch model.kind {
             case .links: hits.links.map(\.id)
             case .files: hits.files.map(\.id)
             default: hits.threads.map(\.id)
             }
-            snapshot.appendItems(Self.unique(ids))
+            snapshot.appendItems(ids)
             rows.apply(snapshot, animatingDifferences: false)
         }
         empty.stringValue = model.query.isEmpty
@@ -160,12 +159,6 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
             looking.isShown = hits.isLookPending
             view.layoutSubtreeIfNeeded()
         }
-    }
-
-    /// The ids in order, each once: a data source takes an item once.
-    private static func unique(_ ids: [String]) -> [String] {
-        var seen = Set<String>()
-        return ids.filter { seen.insert($0).inserted }
     }
 
     /// Squares at least 76 points wide, as many as fit across, 4 points apart.
@@ -202,6 +195,11 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
     @objc private func goBack() { onBack?() }
 
     // MARK: Rows
+
+    /// A row near the end of what was found comes on screen: the next page.
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        if row >= hits.count(of: model.kind) - 20 { model.loadMore() }
+    }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         tableView.makeView(withIdentifier: ChatRowView.reuse, owner: nil) as? ChatRowView
