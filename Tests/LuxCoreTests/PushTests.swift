@@ -4,10 +4,10 @@ import Testing
 @testable import LuxCore
 
 struct PushTests {
-    @Test func aPushCarriesTheEventsIdsAndTheServersBadge() {
+    @Test func aPushCarriesTheEventsIds() {
         let payload = PushPayload(userInfo: ["room_id": "!a:server", "event_id": "$e", "unread_count": 3,
                                              "aps": ["mutable-content": 1]])
-        #expect(payload?.roomId == "!a:server" && payload?.eventId == "$e" && payload?.unreadCount == 3)
+        #expect(payload?.roomId == "!a:server" && payload?.eventId == "$e" )
         #expect(PushPayload(userInfo: ["room_id": "!a:server"]) == nil)
         // a reminder's notification names its room its own way.
         #expect(PushNotifications.room(of: ["roomId": "!b:server"]) == "!b:server")

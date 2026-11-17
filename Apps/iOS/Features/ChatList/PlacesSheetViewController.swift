@@ -174,8 +174,9 @@ final class PlacesSheetViewController: UIViewController, UICollectionViewDelegat
         keys.removeAll { $0 == place.key }
         if pinned { keys.append(place.key) }
         Preferences.shared.pinnedPlaces = keys
+        // the place moves to its section; only its own row shows the other control (− or +).
         var snapshot = Self.sections(model.places)
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
+        if snapshot.indexOfItem(place) != nil { snapshot.reconfigureItems([place]) }
         dataSource.apply(snapshot, animatingDifferences: true)
         pinsChanged()
     }
@@ -237,10 +238,8 @@ final class PlacesSheetViewController: UIViewController, UICollectionViewDelegat
 
     override func setEditing(_ editing: Bool, animated: Bool) {
         super.setEditing(editing, animated: animated)
+        // the rows' accessories show and hide by themselves (`displayed: .whenEditing`).
         collectionView.isEditing = editing
-        var snapshot = dataSource.snapshot()
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
-        dataSource.apply(snapshot, animatingDifferences: animated)
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {

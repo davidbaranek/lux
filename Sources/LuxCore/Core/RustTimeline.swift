@@ -23,25 +23,18 @@ extension RustAccount: UploadsPort {
     // MARK: Sending
 
     /// Puts a photo or a file in the chat's send queue (a reply in the Matrix thread of
-    /// `threadRoot`, if given); the chat shows it at once, uploading. Returns its message's id
-    /// (nil if it did not show in time).
+    /// `threadRoot`, if given); the chat shows it at once, uploading. Its upload's states, as the
+    /// core streams them from the queue; ending the stream stops following it.
     func send(_ attachment: OutgoingAttachment, roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
-        async throws -> String? {
+        async throws -> AsyncStream<UploadState> {
         let attachment = CoreOutgoingAttachment(attachment)
-        return try await worded {
+        let (states, continuation) = AsyncStream.makeStream(of: UploadState.self)
+        let handle = try await worded {
             try await account.sendAttachment(roomId: roomId, threadRoot: threadRoot, attachment: attachment, caption: caption,
-                                             replyTo: replyTo)
+                                             replyTo: replyTo, listener: UploadRelay(continuation: continuation))
         }
-    }
-
-    /// Where a sent photo or file is: uploading, sent, failed.
-    func upload(roomId: String, messageId: String) async throws -> UploadState {
-        // gone from the timeline: it went (the chat shows it as sent).
-        switch try await account.sendState(roomId: roomId, messageId: messageId) {
-        case .sending(let upload): .uploading(upload ?? 0)
-        case .failed: .failed
-        case .sent, nil: .sent
-        }
+        continuation.onTermination = { _ in handle.cancel() }
+        return states
     }
 
     // MARK: Media
@@ -67,4 +60,21 @@ extension RustAccount: UploadsPort {
 
     /// The largest file the server takes, in bytes.
     func maxUploadSize() async throws -> Int { Int(clamping: try await worded { try await account.maxUploadSize() }) }
+}
+
+/// Hands an upload's states from the core on.
+private final class UploadRelay: CoreUploadListener {
+    let continuation: AsyncStream<UploadState>.Continuation
+    init(continuation: AsyncStream<UploadState>.Continuation) { self.continuation = continuation }
+
+    func onState(state: CoreSendState) {
+        let upload: UploadState = switch state {
+        case .sending(let share): .uploading(share ?? 0)
+        case .sent: .sent
+        case .failed: .failed
+        }
+        continuation.yield(upload)
+    }
+
+    func onEnd() { continuation.finish() }
 }
