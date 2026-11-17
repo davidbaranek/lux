@@ -60,12 +60,14 @@ final class ThreadsViewController: UIViewController, UICollectionViewDelegate {
         Task { await model.loadMore() }
     }
 
+    /// A page read back adds rows; only a thread whose replies or text changed draws again.
     private func update() {
+        let old = threads
         threads = Dictionary(model.threads.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
         snapshot.appendItems(model.threads.map(\.id))
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
+        snapshot.reconfigureItems(threads.filter { id, thread in old[id].map { $0 != thread } ?? false }.map(\.key))
         dataSource.apply(snapshot, animatingDifferences: false)
         let none = model.threads.isEmpty
         if model.isLoading, none { loading.startAnimating() } else { loading.stopAnimating() }
