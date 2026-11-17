@@ -122,12 +122,12 @@ final class ShareViewController: UIViewController {
         let shown = words.isEmpty ? chats : chats.filter {
             $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).contains(words)
         }
-        byId = Dictionary(chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // the kept list is the room list's rows: each chat once.
+        byId = Dictionary(uniqueKeysWithValues: chats.map { ($0.id, $0) })
         // a narrower search removes rows; those still found stay as they are (no `reloadData`).
-        var seen = Set<String>()
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
-        snapshot.appendItems(shown.map(\.id).filter { seen.insert($0).inserted })
+        snapshot.appendItems(shown.map(\.id))
         rows.apply(snapshot, animatingDifferences: false)
     }
 
