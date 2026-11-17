@@ -44,9 +44,21 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
         Task { await session.registerPusher(token: token) }
     }
 
-    /// The app's badge: the chats with unread messages, from the chat list while the app runs.
+    /// The app's badge: the inbox's chats with unread messages, from the chat list while the app
+    /// runs. A notification that came meanwhile (its badge the server's count, of every room) is
+    /// put right as the app comes back to the front, `showBadge()`.
     func setBadge(_ count: Int) {
-        UNUserNotificationCenter.current().setBadgeCount(count)
+        badge = count
+        showBadge()
+    }
+
+    /// The inbox's count as the chat list last told it; nil before it told any.
+    private var badge: Int?
+
+    /// Shows the inbox's count on the app's icon again.
+    func showBadge() {
+        guard let badge else { return }
+        UNUserNotificationCenter.current().setBadgeCount(badge)
     }
 
     // MARK: UNUserNotificationCenterDelegate
@@ -58,7 +70,8 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
         if let room = PushNotifications.room(of: info), session.showsMessage(of: room, thread: PushPayload(userInfo: info)?.threadRoot) {
             return []
         }
-        return [.banner, .list, .sound, .badge]
+        // not its badge: the server's count; the app's is the inbox's, which the list keeps.
+        return [.banner, .list, .sound]
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
