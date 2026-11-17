@@ -73,8 +73,14 @@ final class SmokeTests: XCTestCase {
     /// Waits for what a step shows, and fails on a crash or a hang.
     private func reach(_ element: XCUIElement, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
         alive(what, file: file, line: line)
-        XCTAssertTrue(element.waitForExistence(timeout: hang), "\(what) did not show within \(Int(hang)) s",
-                      file: file, line: line)
+        if !element.waitForExistence(timeout: hang) {
+            // what was on screen instead, in the result bundle (CI keeps it as the run's artifact).
+            let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            screenshot.name = "instead of \(what)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            XCTFail("\(what) did not show within \(Int(hang)) s", file: file, line: line)
+        }
         alive(what, file: file, line: line)
     }
 
