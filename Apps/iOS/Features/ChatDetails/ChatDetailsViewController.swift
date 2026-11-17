@@ -52,8 +52,12 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         collectionView.accessibilityIdentifier = "chatDetails"
         view.addSubview(collectionView)
 
+        // a cell reads its content from the model when the system asks (`setNeedsUpdateConfiguration()`).
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { [weak self] cell, _, item in
-            self?.configure(cell, item)
+            cell.configurationUpdateHandler = { [weak self] cell, _ in
+                guard let cell = cell as? UICollectionViewListCell else { return }
+                self?.configure(cell, item)
+            }
         }
         let headers = supplementary(UICollectionView.elementKindSectionHeader)
         let footers = supplementary(UICollectionView.elementKindSectionFooter)
@@ -114,8 +118,12 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         snapshot.appendSections([.shared, .actions])
         snapshot.appendItems([.threads] + SharedKind.allCases.map(Item.shared), toSection: .shared)
         snapshot.appendItems([.leave], toSection: .actions)
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
-        dataSource.apply(snapshot, animatingDifferences: false)
+        // the snapshot says which rows there are; the rows on screen read the model again.
+        if snapshot.sectionIdentifiers != dataSource.snapshot().sectionIdentifiers
+            || snapshot.itemIdentifiers != dataSource.snapshot().itemIdentifiers {
+            dataSource.apply(snapshot, animatingDifferences: false)
+        }
+        for cell in collectionView.visibleCells { cell.setNeedsUpdateConfiguration() }
         onChange?(model.row)
     }
 
