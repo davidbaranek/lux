@@ -14,9 +14,10 @@ final class NotificationService: UNNotificationServiceExtension {
     private var delivery: Delivery?
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
-        let delivery = Delivery(neutral: Self.neutral(request.content), handler: contentHandler)
+        let payload = PushPayload(userInfo: request.content.userInfo)
+        let delivery = Delivery(neutral: Self.neutral(request.content), room: payload?.roomId, handler: contentHandler)
         self.delivery = delivery
-        guard let payload = PushPayload(userInfo: request.content.userInfo) else {
+        guard let payload else {
             delivery.deliverNeutral()
             return
         }
@@ -28,18 +29,15 @@ final class NotificationService: UNNotificationServiceExtension {
         delivery?.deliverNeutral()
     }
 
-    /// The push as it came, its text neutral whatever the payload said, grouped by its chat, with
-    /// the server's badge.
+    /// The push as it came, its text neutral whatever the payload said, grouped by its chat. No
+    /// badge: the server's counts every room; the app's is the inbox's, which `Delivery` counts on.
     private static func neutral(_ pushed: UNNotificationContent) -> UNNotificationContent {
         let content = UNMutableNotificationContent()
         content.body = String(localized: "New message")
         content.sound = .default
         content.userInfo = pushed.userInfo
         content.categoryIdentifier = PushNotifications.messageCategory
-        if let payload = PushPayload(userInfo: pushed.userInfo) {
-            content.threadIdentifier = payload.roomId
-            if let unread = payload.unreadCount { content.badge = NSNumber(value: unread) }
-        }
+        if let payload = PushPayload(userInfo: pushed.userInfo) { content.threadIdentifier = payload.roomId }
         return content.copy() as? UNNotificationContent ?? content
     }
 }
@@ -54,16 +52,20 @@ private final class Delivery: @unchecked Sendable {
     private static let events = EventsHolder()
 
     private let neutral: UNNotificationContent
+    /// The pushed message's room; nil for a push that names none.
+    private let room: String?
     private let lock = NSLock()
     /// The system's handler, taken by the first delivery, under `lock`.
     private var handler: ((UNNotificationContent) -> Void)?
 
-    init(neutral: UNNotificationContent, handler: @escaping (UNNotificationContent) -> Void) {
+    init(neutral: UNNotificationContent, room: String?, handler: @escaping (UNNotificationContent) -> Void) {
         self.neutral = neutral
+        self.room = room
         self.handler = handler
     }
 
-    func deliverNeutral() { deliver(neutral) }
+    /// The neutral text for a message that could not be read: it counts on the badge by its room.
+    func deliverNeutral() { deliver(neutral, chat: room) }
 
     /// Whether this build has the filtering entitlement (`com.apple.developer.usernotifications.
     /// filtering`), which lets an extension drop a notification by handing back empty content.
@@ -78,8 +80,8 @@ private final class Delivery: @unchecked Sendable {
                 return
             }
             guard let message = try await events.read(payload) else {
-                // not to be shown: dropped where the system allows it.
-                if Self.filters { deliver(UNNotificationContent()) } else { deliverNeutral() }
+                // not to be shown: dropped where the system allows it; the badge stays as it is.
+                deliver(Self.filters ? UNNotificationContent() : neutral, chat: nil)
                 return
             }
             guard let content = neutral.mutableCopy() as? UNMutableNotificationContent else {
@@ -94,7 +96,7 @@ private final class Delivery: @unchecked Sendable {
             content.userInfo.merge(message.userInfo) { _, read in read }
             // a merged chat's rooms in one group, as the chat list shows them.
             content.threadIdentifier = message.chatId
-            deliver(Self.quietIfLate(await Self.communication(content, message) ?? content, message))
+            deliver(Self.quietIfLate(await Self.communication(content, message) ?? content, message), chat: message.chatId)
         } catch {
             Log.app.error("notification: \(String(describing: error), privacy: .public)")
             deliverNeutral()
@@ -110,9 +112,22 @@ private final class Delivery: @unchecked Sendable {
         return quiet.copy() as? UNNotificationContent ?? quiet
     }
 
-    private func deliver(_ content: UNNotificationContent) {
-        let handler = lock.withLock { self.handler.take() }
-        handler?(content)
+    /// Hands `content` to the system, once: with the badge counting a message of `chat` (nil: the
+    /// badge stays as it is).
+    private func deliver(_ content: UNNotificationContent, chat: String?) {
+        guard let handler = lock.withLock({ self.handler.take() }) else { return }
+        handler(badged(content, chat: chat))
+    }
+
+    /// `content` with the app's badge after a message of `chat` in the pushed room: the inbox's
+    /// count, as the app last kept it, counted on (`BadgeState`). Without a kept badge (the app
+    /// has not counted one yet), the badge stays as it is.
+    private func badged(_ content: UNNotificationContent, chat: String?) -> UNNotificationContent {
+        guard let chat, let room, let shared = BadgeState.shared,
+              let count = BadgeState.count(messageIn: room, of: chat, in: shared),
+              let badged = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+        badged.badge = NSNumber(value: count)
+        return badged.copy() as? UNNotificationContent ?? badged
     }
 
     /// The notification as a message from a person (their picture and name over it, the group's

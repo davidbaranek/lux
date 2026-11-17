@@ -114,7 +114,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         } else {
             notifications.openChat = nil
             session.security?.onRequest = nil
-            notifications.setBadge(0)
+            notifications.setBadge(.empty)
             window.rootViewController = SignInViewController(session: session) { [weak self] in self?.show(signedIn: true) }
         }
     }

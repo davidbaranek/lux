@@ -140,7 +140,7 @@ pub(crate) fn compose<S: BuildHasher>(
 }
 
 /// Counts on a badge: unread, and not muted.
-fn counts(chat: &Chat) -> bool {
+pub(super) fn counts(chat: &Chat) -> bool {
     chat.is_unread() && !chat.is_muted
 }
 

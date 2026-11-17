@@ -8,7 +8,7 @@ use eyeball_im::VectorDiff;
 use super::{ListRow, Loading, SectionHeader};
 use crate::chat::Label;
 use crate::ids::ChatId;
-use crate::places::{ListedPlace, PlaceId, SectionId, Theme};
+use crate::places::{Badge, ListedPlace, PlaceId, SectionId, Theme};
 
 /// The rows of one section that changed, as diffs to apply in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,6 +53,9 @@ pub struct ListUpdate {
     /// The chats a place's rule keeps out of the inbox, into low priority, with that place, when
     /// they changed: what a chat's details tell.
     pub kept_out: Option<HashMap<ChatId, PlaceId>>,
+    /// The app's badge, with what a notification needs to keep it while the app is not running,
+    /// when it changed.
+    pub badge: Option<Badge>,
 }
 
 impl ListUpdate {
@@ -67,5 +70,6 @@ impl ListUpdate {
             && self.reminders.is_none()
             && self.loading.is_none()
             && self.kept_out.is_none()
+            && self.badge.is_none()
     }
 }
