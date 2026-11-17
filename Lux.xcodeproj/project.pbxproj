@@ -63,6 +63,7 @@
 		5816376B6BAB3747BA0818C1 /* Lux-Mac-Assets.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 20A7CAA9E7FA199F4817C483 /* Lux-Mac-Assets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		58C2E873FD564CCAC91B8BF3 /* EditChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA5C750269A65579B132470 /* EditChatViewController.swift */; };
 		5F25ADA8CB7A06BAEC4A88A1 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */; };
+		6231CEC0F2433865099EF466 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859C0543BB92CCE30BA8DE81 /* SmokeTests.swift */; };
 		6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */; };
 		657C45CA956C202D41ADF97C /* DevicesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D38CDE5B816C247508144E /* DevicesViewController.swift */; };
 		6663B8F79407333B1217E1A2 /* SearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21EF94A531D184754316BE96 /* SearchViews.swift */; };
@@ -316,6 +317,7 @@
 		84BC505E86E2BB171A5A694B /* SearchListController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchListController.swift; sourceTree = "<group>"; };
 		84F5A52224B0B6D81147524A /* ChatDetailsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailsController.swift; sourceTree = "<group>"; };
 		852B16F659B28F03F4478AB8 /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
+		859C0543BB92CCE30BA8DE81 /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
 		85AA9BAEECE7DE46F8CF296E /* SearchResultsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsController.swift; sourceTree = "<group>"; };
 		861B6215E0535216006F41DA /* NSImage+Symbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImage+Symbol.swift"; sourceTree = "<group>"; };
 		86A0879E00055D31BFA4E16B /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
@@ -442,6 +444,7 @@
 			isa = PBXGroup;
 			children = (
 				8156B59BF49855A9D1DF43E8 /* PerformanceTests.swift */,
+				859C0543BB92CCE30BA8DE81 /* SmokeTests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -1268,6 +1271,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C575C6902C0594A0AE0F9E1E /* PerformanceTests.swift in Sources */,
+				6231CEC0F2433865099EF466 /* SmokeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

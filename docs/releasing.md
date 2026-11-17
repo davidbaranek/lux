@@ -3,17 +3,36 @@
 ## Branches
 
 - **`main`** holds what was released. Nobody pushes to it: it changes only through a pull request
-  from `dev`, once the core's checks pass.
+  from `dev`, once the checks pass.
 - **`dev`** is where development lands. Work happens on a feature branch (`feat/…`, `fix/…`)
-  that goes into `dev` by a pull request, once the core's checks (`core`) pass.
+  that goes into `dev` by a pull request, once the checks (`check`) pass.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org): a type, a scope, one
 lowercase line (`fix(ios): …`).
 
 ## Checks
 
-GitHub Actions runs the Rust core's formatting, lints and tests on every pull request and on
-pushes to `dev` and `main` (`.github/workflows/core.yml`). The apps are built by Xcode Cloud.
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request into `dev` and `main` and
+on pushes to them, so a crash or a broken build shows there rather than in a TestFlight report:
+
+- **core**: the Rust core's formatting, lints and tests.
+- **sdk**: the core built for the simulator and the Mac (`scripts/setup-sdk.sh --dev --only
+  ios-simulator --only macos`), cached by the core's sources: a change outside `core/` reuses it.
+- **swift**: the shared package's tests (`swift test`), then again under Thread Sanitizer.
+- **apps**: both apps built (`Lux-iOS` for the simulator, unsigned; `Lux-Mac` signed ad hoc and
+  universal, as Xcode Cloud archives it, so code the Intel slice cannot compile fails here).
+  Each build's log is checked for warnings in our sources as well (`scripts/check-build-warnings.sh`):
+  a concurrency warning softened by `@preconcurrency` is not promoted to an error.
+- **smoke**: `Apps/UITests/SmokeTests.swift` on a simulator, the demo account (`-LuxDemo`): a
+  chat, search, Settings, the app sent to the background and back. It fails on a crash or a step
+  that does not answer within 10 s; a failed run keeps the result bundle and any crash report as
+  the run's artifact.
+- **check**: passes when all of them did; it is the one check branch protection requires.
+
+To run the smoke test locally: `xcodebuild test -scheme Lux-iOS -destination 'platform=iOS
+Simulator,name=iPhone 17' -only-testing:Lux-iOS-UITests/SmokeTests`.
+
+TestFlight's archives are built by Xcode Cloud.
 
 ## TestFlight
 
@@ -40,6 +59,28 @@ In Xcode: Product › Xcode Cloud › Create Workflow, for the `Lux-iOS` scheme:
 - **Actions:** Archive `Lux-iOS` (iOS) and Archive `Lux-Mac` (macOS), deployment preparation
   TestFlight (Internal Testing Only).
 - **Post-action:** TestFlight Internal Testing, the internal group.
+
+## Crashes from TestFlight
+
+`scripts/crashes.py` lists the crash submissions testers sent since a date, each summed up: the
+build, the exception, the termination reason (0xdead10cc, 0x8badf00d… named) and the first frame
+in the app's own code.
+
+```sh
+scripts/crashes.py --since 2026-11-15          # the last 7 days without --since
+scripts/crashes.py --save build/crashes        # also keeps each full log (.ips)
+scripts/crashes.py --file Lux-2026-11-16.ips   # a crash report on disk
+```
+
+It needs [uv](https://docs.astral.sh/uv/) and an App Store Connect API key (Users and Access ›
+Integrations › App Store Connect API, role Developer or more), from the environment only, never
+committed:
+
+```sh
+export ASC_KEY_ID=…          # the key's id
+export ASC_ISSUER_ID=…       # the issuer id above the keys
+export ASC_KEY_PATH=~/.appstoreconnect/AuthKey_….p8
+```
 
 ## Photo search's model
 

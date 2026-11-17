@@ -17,7 +17,9 @@ cd .. && sh scripts/check-swift-errors.sh && swift test
 ```
 
 `lux-core` does not depend on the SDK, so `cargo test -p lux-core` takes seconds. Use it as the
-inner loop. CI runs the three `cargo` checks and `check-swift-errors.sh` on every pull request.
+inner loop. CI runs the three `cargo` checks, `check-swift-errors.sh`, the Swift tests (also under
+Thread Sanitizer), both apps' builds and a simulator smoke test on every pull request
+(docs/releasing.md).
 
 `xcodegen generate` writes `Lux.xcodeproj`, the Info.plists and the entitlements from
 `project.yml`. Edit `project.yml`, never the generated files, and commit the regenerated project

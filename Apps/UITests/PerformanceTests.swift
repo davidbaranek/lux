@@ -3,6 +3,7 @@ import XCTest
 /// Launch, scrolling and memory, as XCTest measures them (hitch time ratio from the scroll
 /// signposts). Demo data by default; `TEST_RUNNER_LUX_REAL=1` uses the signed-in account instead
 /// (read only: it opens a chat and scrolls, it sends nothing).
+@MainActor
 final class PerformanceTests: XCTestCase {
     private var real: Bool { ProcessInfo.processInfo.environment["LUX_REAL"] == "1" }
 
