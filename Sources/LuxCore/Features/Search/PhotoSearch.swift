@@ -51,7 +51,7 @@ public final class PhotoSearch {
         let (reports, report) = AsyncStream<PhotoIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
         indexer = PhotoIndexer(store: store, account: account, directory: directory, model: nil) { report.yield($0) }
         Task { [weak self] in
-            for await progress in reports { self?.progress = progress }
+            for await progress in reports { self?.received(progress) }
         }
         // the battery or the data saved no more: the waiting photos are read (Settings shows the
         // change either way).
@@ -67,6 +67,29 @@ public final class PhotoSearch {
     }
 
     deinit { pressure.cancel() }
+
+    /// What the user just asked of the reading (read now: true, stop: false), shown at the tap and
+    /// until the reading reports it: Settings answers at once, not after the reader's reply. The
+    /// reading reports each start and each stop, so the report that matches always comes.
+    private var asked: Bool?
+
+    private func received(_ report: PhotoIndexer.Progress) {
+        guard let asked, report.isReading != asked else {
+            asked = nil
+            progress = report
+            return
+        }
+        // a report made before the tap: its counts, the reading as asked.
+        var shown = report
+        shown.isReading = asked
+        progress = shown
+    }
+
+    /// Shows the reading as the user asked, now.
+    private func show(reading: Bool) {
+        asked = reading
+        progress.isReading = reading
+    }
 
     /// The photos' reading and the model's loading: they end with the photo search.
     private let work = ForegroundJobs()
@@ -115,12 +138,15 @@ public final class PhotoSearch {
     public func readNow() {
         guard readNowBlocked == nil else { return }
         isPaused = false
-        work.start("photos now") { [weak self] lease in _ = await self?.readAll(lease: lease) }
+        guard work.start("photos now", { [weak self] lease in _ = await self?.readAll(lease: lease) }) else { return }
+        show(reading: true)
     }
 
     /// Reads every photo not read yet; true when none is left.
     func readAll(lease: ForegroundLease) async -> Bool {
         await loading?.value
+        // stopped while the model loaded: the stop holds.
+        guard !isPaused else { return false }
         return await indexer.read(limit: nil, lease: lease)
     }
 
@@ -135,8 +161,8 @@ public final class PhotoSearch {
     /// until they read the waiting photos now (or the app opens again).
     public func pause() async {
         isPaused = true
+        show(reading: false)
         await indexer.stop()
-        changes.send()
     }
 
     /// The user stopped the reading in Settings.

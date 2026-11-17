@@ -192,6 +192,26 @@ private actor HeldPhotos: MediaSourcePort {
         #expect(await source.downloads == 2)
         #expect(await photos.progress().isReading == false)
     }
+
+    @MainActor @Test func readNowAndStopShowAtTheTap() async throws {
+        let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
+        try await store.addImages((0..<3).map {
+            IndexedImage(eventId: "$photo\($0)", roomId: "!room", senderName: "Anna", caption: "", date: .now, isOwn: false)
+        })
+        let source = HeldPhotos()
+        let photos = PhotoSearch(store: store, account: Task { source }, directory: folder())
+
+        photos.readNow()
+        #expect(photos.isReading)
+        await source.downloadsStarted(1)
+        await photos.pause()
+        #expect(photos.isReading == false)
+        // the stopped photo ends, and no report from before the stop shows it reading again.
+        await source.open()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(photos.isReading == false)
+        await photos.stop()
+    }
 }
 
 @Test func aKindsNextPageAddsWhatItHasNotShownYet() {
