@@ -49,8 +49,6 @@ const UNREAD_PAGES: usize = 10;
 
 /// The most a page back waits for the SDK's timeline to apply it (see [`RoomTimeline::applied`]).
 const PAGE_APPLIED: Duration = Duration::from_secs(1);
-/// The most a send waits for the SDK's timeline to show its local echo (see [`RoomTimeline::applied`]).
-const ECHO_APPLIED: Duration = Duration::from_secs(5);
 
 /// The SDK's items as the follower has mapped them: the messages list is never behind these.
 type Mapped = Vector<Arc<TimelineItem>>;
@@ -436,22 +434,6 @@ impl RoomTimeline {
                 .ok_or(BackendError::NotAllowed),
             MessageRef::Event(event) => EventId::parse(event.as_str()).map_err(|_| BackendError::UnknownMessage),
         }
-    }
-
-    /// The id the mapped message of a local echo has, once the timeline shows it.
-    pub(crate) async fn message_of_transaction(
-        &self,
-        transaction: &matrix_sdk::ruma::TransactionId,
-    ) -> Option<MessageId> {
-        let find = |mapped: &Mapped| {
-            mapped
-                .iter()
-                .find(|item| item.as_event().and_then(EventTimelineItem::transaction_id) == Some(transaction))
-                .map(|item| MessageId::from(item.unique_id().0.as_str()))
-        };
-        // once mapped, the messages hold it too.
-        self.applied(ECHO_APPLIED, |mapped| find(mapped).is_some()).await;
-        find(&self.mapped.borrow())
     }
 
     /// The first message after the account's read receipt that another sent. The receipt is the

@@ -27,6 +27,11 @@ use super::{BackendError, DiffStream};
 /// The rooms whose open timeline changed, one each time a batch changes it.
 pub type RoomChanges = Pin<Box<dyn Stream<Item = RoomId> + Send>>;
 
+/// One upload's states, as the room's send queue reports them: how much has gone, each time
+/// more has, then sent or failed, the last. It ends there, or when the message is discarded
+/// before it went.
+pub type UploadStream = Pin<Box<dyn Stream<Item = SendState> + Send>>;
+
 /// Who else is typing in a chat, each time it changes; empty when nobody is.
 pub type TypingStream = Pin<Box<dyn Stream<Item = Vec<Typist>> + Send>>;
 
@@ -181,22 +186,15 @@ pub trait ChatSending: Send + Sync {
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// Puts a photo, video or file in the room's send queue, for the timeline (in a thread, as
-    /// its reply); the chat shows it at once, uploading. Its message's id, `None` if it did not
-    /// show in time.
+    /// its reply); the chat shows it at once, uploading. Its upload's states, from the moment it
+    /// was queued.
     fn send_attachment(
         &self,
         timeline: &TimelineId,
         attachment: &OutgoingAttachment,
         caption: Option<&str>,
         reply: Option<&MessageRef>,
-    ) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
-
-    /// Where a message being sent is; `None` when the timeline no longer has it.
-    fn send_state(
-        &self,
-        room: &RoomId,
-        message: &MessageId,
-    ) -> impl Future<Output = Result<Option<SendState>, BackendError>> + Send;
+    ) -> impl Future<Output = Result<UploadStream, BackendError>> + Send;
 
     /// Sends a copy of a message (its media too, without uploading it again) to the chat
     /// `target`: a merged chat's default room.

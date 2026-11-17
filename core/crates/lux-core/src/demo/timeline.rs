@@ -26,7 +26,7 @@ use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, Timeli
 use crate::message::{self, Attachment, Message, SendState};
 use crate::ports::{
     BackendError, ChatSending, ChatTimelines, DiffStream, RoomChanges, SharedContent, SharedItem, SharedPage,
-    TimelineHold, TypingStream,
+    TimelineHold, TypingStream, UploadStream,
 };
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
@@ -80,8 +80,6 @@ struct State {
     /// Which of the live timeline's messages each timeline opened around a message holds.
     windows: HashMap<TimelineId, std::ops::Range<usize>>,
     drafts: HashMap<TimelineId, Draft>,
-    /// Uploads under way: when each began, and its size.
-    uploads: HashMap<MessageId, (SystemTime, u64)>,
 }
 
 impl std::fmt::Debug for DemoTimelines {
@@ -744,14 +742,14 @@ impl ChatSending for DemoTimelines {
     }
 
     /// Shows the attachment at once, sent; its upload goes on for a second a megabyte, at most
-    /// five (`send_state`). Its picture is the file on the device.
+    /// five (`upload`). Its picture is the file on the device.
     async fn send_attachment(
         &self,
         timeline: &TimelineId,
         attachment: &OutgoingAttachment,
         caption: Option<&str>,
         reply: Option<&MessageRef>,
-    ) -> Result<Option<MessageId>, BackendError> {
+    ) -> Result<UploadStream, BackendError> {
         let mut message = self.own_message(&timeline.room, caption.unwrap_or_default());
         let picture = |file: &Path, width, height| Picture {
             source: MediaId::from(file.to_string_lossy().into_owned()),
@@ -786,29 +784,8 @@ impl ChatSending for DemoTimelines {
             message.reply = self.quote(timeline, reply);
             message.message.is_reply = message.reply.is_some();
         }
-        let id = message.message.id.clone();
-        self.state()
-            .uploads
-            .insert(id.clone(), (SystemTime::now(), attachment.size));
         self.append(timeline, message);
-        Ok(Some(id))
-    }
-
-    async fn send_state(&self, room: &RoomId, message: &MessageId) -> Result<Option<SendState>, BackendError> {
-        if self.find(room, message).is_err() {
-            return Ok(None);
-        }
-        let Some((started, size)) = self.state().uploads.get(message).copied() else {
-            return Ok(Some(SendState::Sent));
-        };
-        let megabytes = f64::from(u32::try_from(size / 1_000).unwrap_or(u32::MAX)) / 1_000.0;
-        let length = megabytes.clamp(1.0, 5.0);
-        let fraction = started.elapsed().unwrap_or_default().as_secs_f64() / length;
-        Ok(Some(if fraction >= 1.0 {
-            SendState::Sent
-        } else {
-            SendState::Sending { upload: Some(fraction) }
-        }))
+        Ok(upload(attachment.size))
     }
 
     async fn forward(&self, room: &RoomId, message: &MessageId, target: &ChatId) -> Result<(), BackendError> {
@@ -883,6 +860,31 @@ fn toggle(reactions: &mut Vec<Reaction>, key: &str) {
             is_mine: true,
         }),
     }
+}
+
+/// How many steps a made-up upload reports.
+const UPLOAD_STEPS: u32 = 20;
+
+/// A made-up upload of `size` bytes: a second a megabyte, at most five, in even steps, then sent.
+fn upload(size: u64) -> UploadStream {
+    let megabytes = f64::from(u32::try_from(size / 1_000).unwrap_or(u32::MAX)) / 1_000.0;
+    let step = Duration::from_secs_f64(megabytes.clamp(1.0, 5.0)) / UPLOAD_STEPS;
+    Box::pin(stream::unfold(0, move |done| async move {
+        if done > UPLOAD_STEPS {
+            return None;
+        }
+        if done > 0 {
+            tokio::time::sleep(step).await;
+        }
+        let state = if done == UPLOAD_STEPS {
+            SendState::Sent
+        } else {
+            SendState::Sending {
+                upload: Some(f64::from(done) / f64::from(UPLOAD_STEPS)),
+            }
+        };
+        Some((state, done + 1))
+    }))
 }
 
 fn attachment_of(media: Option<&Media>) -> Option<Attachment> {
