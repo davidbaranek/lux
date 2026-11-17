@@ -54,6 +54,9 @@ pub struct DemoConfig {
     pub encryption: DemoEncryption,
     /// A request to verify from another device arrives this long after the app listens.
     pub verification_request_after: Option<Duration>,
+    /// How many of a chat's newest messages its live timeline holds at first (0: all): the rest
+    /// pages back, and a saved message far back opens as a jump.
+    pub live_tail: usize,
 }
 
 impl DemoConfig {
@@ -70,6 +73,7 @@ impl DemoConfig {
             messages_per_room: 200,
             encryption: DemoEncryption::default(),
             verification_request_after: None,
+            live_tail: 0,
         }
     }
 }
@@ -128,6 +132,7 @@ impl DemoAccount {
             .collect();
         let spaces: Arc<[Space]> = data::spaces(config.rooms).into();
         let messages_per_room = config.messages_per_room;
+        let live_tail = config.live_tail;
         let security = security::DemoSecurity::new(config.encryption, config.verification_request_after);
         let mut inner = Inner {
             made,
@@ -149,11 +154,15 @@ impl DemoAccount {
             networks: HashSet::from([crate::network::Network::Messenger]),
             config,
         };
+        inner.seed_saved();
         inner.publish_chats();
         inner.publish_requests();
         inner.publish_organized();
         let inner = Arc::new(Mutex::new(inner));
         let timelines = DemoTimelines::new(messages_per_room).sending_to(SentMessages(Arc::clone(&inner)));
+        timelines
+            .live_tail
+            .store(live_tail, std::sync::atomic::Ordering::Relaxed);
         Self {
             user: UserId::from("@me:demo"),
             device: DeviceId::from("DEMODEVICE"),
@@ -212,6 +221,31 @@ impl SentMessages {
 }
 
 impl Inner {
+    /// With live timelines holding only their newest messages, a saved message of the first chat
+    /// far older than those: opening it is a jump.
+    fn seed_saved(&mut self) {
+        let tail = self.config.live_tail;
+        if tail == 0 || self.config.messages_per_room <= tail {
+            return;
+        }
+        let Some(ChatId::Room(room)) = self.made.first().map(|chat| chat.id.clone()) else {
+            return;
+        };
+        let event = EventId::from(format!("{room}/10"));
+        let (body, is_own, sender) = data::message(event.as_str()).unwrap_or_default();
+        self.saved.push(SavedMessage {
+            event,
+            room,
+            sender_name: if is_own { "Me" } else { sender }.to_owned(),
+            is_own,
+            body,
+            kind: SavedKind::Text,
+            file_name: String::new(),
+            date: self.config.start,
+            saved_at: self.config.start,
+        });
+    }
+
     /// The chats the list shows: the made-up ones with the user's changes, what they sent,
     /// reminders and merges, the newest first.
     fn composed(&self) -> Vec<Arc<Chat>> {

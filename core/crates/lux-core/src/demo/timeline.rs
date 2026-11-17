@@ -71,9 +71,9 @@ pub struct DemoTimelines {
     pub(crate) unread_millis: AtomicU64,
     #[cfg(test)]
     pub(crate) forward_millis: AtomicU64,
-    /// Tests: how many of a room's newest messages its live timeline holds at first (0: all),
-    /// as a device holds only the latest of a long chat; paging back brings the rest.
-    #[cfg(test)]
+    /// How many of a room's newest messages its live timeline holds at first (0: all), as a
+    /// device holds only the latest of a long chat: paging back brings the rest, and an older
+    /// message is a jump away.
     pub(crate) live_tail: std::sync::atomic::AtomicUsize,
 }
 
@@ -119,7 +119,6 @@ impl DemoTimelines {
             unread_millis: AtomicU64::new(0),
             #[cfg(test)]
             forward_millis: AtomicU64::new(0),
-            #[cfg(test)]
             live_tail: std::sync::atomic::AtomicUsize::new(0),
         }
     }
@@ -184,17 +183,14 @@ impl DemoTimelines {
         let made = (!state.timelines.contains_key(timeline)).then(|| match &timeline.thread {
             None => {
                 let whole = history(&timeline.room, self.messages_per_room, self.start);
-                #[cfg(test)]
-                {
-                    let tail = self.live_tail.load(Ordering::Relaxed);
-                    if tail > 0 && tail < whole.len() {
-                        let window = whole.len() - tail..whole.len();
-                        state.windows.insert(timeline.clone(), window.clone());
-                        state
-                            .histories
-                            .insert(timeline.clone(), whole.iter().cloned().collect());
-                        return whole.iter().skip(window.start).cloned().collect();
-                    }
+                let tail = self.live_tail.load(Ordering::Relaxed);
+                if tail > 0 && tail < whole.len() {
+                    let window = whole.len() - tail..whole.len();
+                    state.windows.insert(timeline.clone(), window.clone());
+                    state
+                        .histories
+                        .insert(timeline.clone(), whole.iter().cloned().collect());
+                    return whole.iter().skip(window.start).cloned().collect();
                 }
                 whole
             }
