@@ -230,7 +230,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                 detail: String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too."),
                 accessory: .readReceipts(isOn: model.sendsReadReceipts))
         case .searchIndex:
-            Row(text: String(localized: "Messages"), detail: model.searchIndex ?? String(localized: "Opening…"), symbol: "magnifyingglass")
+            // under its title, as the photos' status: a value beside it would wrap, and its row
+            // grow and shrink, as the count changes.
+            Row(style: .subtitle, text: String(localized: "Messages"), detail: model.searchIndex ?? String(localized: "Opening…"),
+                symbol: "magnifyingglass")
         case .searchHistory:
             // the choice beside it, as Settings shows a menu's value.
             Row(text: String(localized: "Search Back"), detail: model.searchHistory.title, symbol: "clock.arrow.circlepath",

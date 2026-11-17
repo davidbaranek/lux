@@ -135,8 +135,10 @@ public final class SettingsModel {
             Task { await self?.loadSecurity() }
         }
         // the index's count follows it while Settings shows.
+        // the index reports many times a second while it reads: its count (a query of the index)
+        // follows at most once a second, the newest report's.
         indexProgress = session.search?.progressChanges.observe { [weak self] in
-            Task { await self?.loadSearchIndex() }
+            self?.indexCount.schedule { await self?.loadSearchIndex() }
         }
         photoProgress = session.search?.photos.changes.observe { [weak self] in self?.changes.send() }
         await loadSearchIndex()
@@ -150,9 +152,15 @@ public final class SettingsModel {
     }
 
     private func loadSearchIndex() async {
-        searchIndex = await bestEffort("settings: the search index") { try await session.search?.summary() } ?? nil
+        let summary = await bestEffort("settings: the search index") { try await session.search?.summary() } ?? nil
+        // the screens lay out again only for what changed.
+        guard summary != searchIndex else { return }
+        searchIndex = summary
         changes.send()
     }
+
+    /// The index's count, read one at a time, at most once a second.
+    private let indexCount = Throttle(interval: .seconds(1))
 
     /// Opens the key backup; encrypted messages this device could not read come in as the chats show
     /// again. Throws `AccountFailure.wrongRecoveryKey` for a key that does not.
