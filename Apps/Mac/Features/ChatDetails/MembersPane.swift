@@ -3,12 +3,14 @@ import LuxCore
 
 /// A group's members in the details: a search field over a list of their pictures, names and
 /// roles, the account first.
-final class MembersPane: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+final class MembersPane: NSViewController, NSTableViewDelegate, NSSearchFieldDelegate {
     private let model: MembersModel
     private let images: ImagePipeline?
     private var observation: AnyObject?
     private let search = NSSearchField()
     private let table = NSTableView()
+    /// A member is their own identifier: a new name or role is another row.
+    private var dataSource: NSTableViewDiffableDataSource<Int, ChatMember>!
     private let empty = NSTextField(labelWithString: "")
 
     init(model: MembersModel, images: ImagePipeline?) {
@@ -32,8 +34,13 @@ final class MembersPane: NSViewController, NSTableViewDataSource, NSTableViewDel
         table.intercellSpacing = NSSize(width: 0, height: table.intercellSpacing.height)
         table.backgroundColor = .clear
         table.selectionHighlightStyle = .none
-        table.dataSource = self
         table.delegate = self
+        let images = images
+        dataSource = NSTableViewDiffableDataSource(tableView: table) { table, _, _, member in
+            let cell = table.makeView(withIdentifier: MemberCellView.identifier, owner: nil) as? MemberCellView ?? MemberCellView()
+            cell.show(member, images: images)
+            return cell
+        }
         table.setAccessibilityIdentifier("members")
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -64,8 +71,12 @@ final class MembersPane: NSViewController, NSTableViewDataSource, NSTableViewDel
         Task { await model.load() }
     }
 
+    /// A search narrows the rows: those still found stay as they are (no `reloadData`).
     private func update() {
-        table.reloadData()
+        var snapshot = NSDiffableDataSourceSnapshot<Int, ChatMember>()
+        snapshot.appendSections([0])
+        snapshot.appendItems(model.found)
+        dataSource.apply(snapshot, animatingDifferences: false)
         empty.stringValue = model.isLoading ? String(localized: "Loading…")
             : model.failure?.localizedDescription ?? String(localized: "No Members Found")
         empty.isHidden = !model.found.isEmpty
@@ -77,13 +88,6 @@ final class MembersPane: NSViewController, NSTableViewDataSource, NSTableViewDel
         model.search(search.stringValue)
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { model.found.count }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let cell = tableView.makeView(withIdentifier: MemberCellView.identifier, owner: nil) as? MemberCellView ?? MemberCellView()
-        if let member = model.found[safe: row] { cell.show(member, images: images) }
-        return cell
-    }
 }
 
 /// A member's row: their picture, their name, and their role.
