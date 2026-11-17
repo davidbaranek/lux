@@ -53,14 +53,15 @@ public actor PhotoIndexer {
     func read(limit: Int?, lease: ForegroundLease) async -> Bool {
         let previous = running
         let wasStopped = previous?.isCancelled ?? false
-        let run = Task {
+        // decoding, Vision and Core ML hold their thread: on their own executor, not the pool.
+        let run = Task(executorPreference: ImageWork.executor) {
             if let previous {
                 let done = await withTaskCancellationHandler { await previous.value } onCancel: { previous.cancel() }
                 if Task.isCancelled { return false }
                 // a reading that went on to its end answers for this one too, unless this one reads all.
                 if !wasStopped, limit != nil || done { return done }
             }
-            return await readUnread(limit: limit, lease: lease)
+            return await self.readUnread(limit: limit, lease: lease)
         }
         running = run
         report(await progress())

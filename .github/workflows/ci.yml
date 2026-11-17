@@ -1,8 +1,9 @@
 # Every pull request into dev and main, and every push to them: the Rust core (formatting, lints,
 # tests), Swift that forces or swallows an error (scripts/check-swift-errors.sh), the shared Swift
-# package's tests (also under Thread Sanitizer), both apps built, and the iPhone app's smoke test
-# on a simulator (Apps/UITests/SmokeTests.swift). Branch protection
-# requires `check`, which passes only when every other job did.
+# package's tests (also under Thread Sanitizer) and both apps built. Branch protection requires
+# `check`, which passes only when every one of those jobs did. The iPhone app's smoke test on a
+# simulator (Apps/UITests/SmokeTests.swift) runs only by hand, before a TestFlight build, and
+# `check` does not wait for it.
 #
 # The apps link the core's XCFramework (Vendor/, `cargo xtask apple`). `sdk` builds its simulator
 # and Mac slices once (the dev profile: optimized SDK, light core) and caches it by the core's
@@ -114,6 +115,17 @@ jobs:
         env:
           # one false race at the Rust boundary is suppressed (Tests/tsan-suppressions.txt).
           TSAN_OPTIONS: halt_on_error=1 suppressions=${{ github.workspace }}/Tests/tsan-suppressions.txt
+      # a test process that dies leaves its crash report there, not in the log.
+      - name: Keep the crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crashes
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crashes/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: swift-crashes
+          path: .build/crashes
 
   apps:
     needs: sdk
@@ -148,8 +160,10 @@ jobs:
             CODE_SIGN_ENTITLEMENTS= 2>&1 | tee build/mac.log
           sh scripts/check-build-warnings.sh build/mac.log
 
-  # the demo account walked through on a simulator: fails on a crash or a 10 s hang.
+  # the demo account walked through on a simulator: fails on a crash or a 10 s hang. Only by hand
+  # (the Actions tab), before a TestFlight build.
   smoke:
+    if: github.event_name == 'workflow_dispatch'
     needs: sdk
     runs-on: xcode-27
     steps:
@@ -170,6 +184,17 @@ jobs:
           xcrun simctl list devices | grep "$id"
           xcrun simctl boot "$id" || true
           echo "id=$id" >> "$GITHUB_OUTPUT"
+      # the runner's VM has no GPU: the glass and the search's morph render in software there and
+      # hold the app's main thread for seconds after a tap. The smoke test checks for crashes and
+      # hangs, not rendering, so the simulator runs with Reduce Motion and Reduce Transparency,
+      # as a person may set them (the app honours both).
+      - name: Reduce Motion and Transparency on the simulator
+        run: |
+          id='${{ steps.simulator.outputs.id }}'
+          xcrun simctl spawn "$id" defaults write com.apple.Accessibility ReduceMotionEnabled -bool YES
+          xcrun simctl spawn "$id" defaults write com.apple.Accessibility EnhancedBackgroundContrastEnabled -bool YES
+          xcrun simctl spawn "$id" notifyutil -p com.apple.accessibility.reduce.motion.status
+          xcrun simctl spawn "$id" notifyutil -p com.apple.accessibility.enhanced.background.contrast.status
       # signed to run locally (ad-hoc): the simulator then gets the app's entitlements (its
       # App Group), as on a device.
       - name: Smoke test
@@ -195,7 +220,7 @@ jobs:
   # the one check branch protection requires.
   check:
     if: always()
-    needs: [core, swift-errors, sdk, swift, apps, smoke]
+    needs: [core, swift-errors, sdk, swift, apps]
     runs-on: ubuntu-latest
     steps:
       - name: Every job passed

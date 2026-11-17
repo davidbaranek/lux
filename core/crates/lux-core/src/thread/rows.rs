@@ -114,6 +114,11 @@ impl RoomMessages {
     /// Applies a batch of the backend's diffs.
     pub(crate) fn apply(&mut self, diffs: Vec<VectorDiff<Arc<TimelineMessage>>>) {
         for diff in diffs {
+            // the timeline was reset to its newest messages (a limited sync): it no longer holds
+            // the room's first, until a page back says it does again.
+            if matches!(diff, VectorDiff::Clear) {
+                self.at_start = false;
+            }
             diff::apply(&mut self.messages, diff);
         }
         self.loaded = true;
@@ -312,6 +317,24 @@ pub(crate) mod tests {
 
     fn ids(rows: &[Arc<ThreadRow>]) -> Vec<&str> {
         rows.iter().map(|row| row.id().as_str()).collect()
+    }
+
+    #[test]
+    fn a_reset_timeline_no_longer_holds_the_rooms_start() {
+        let mut room = room(
+            "!a",
+            vec![message("a1", "!a", 0, false), message("a2", "!a", 10, false)],
+        );
+        room.at_start = true;
+        assert!(room.shows_start());
+        room.apply(vec![
+            VectorDiff::Clear,
+            VectorDiff::PushBack {
+                value: message("a5", "!a", 40, false),
+            },
+        ]);
+        assert!(!room.shows_start());
+        assert_eq!(room.messages.len(), 1);
     }
 
     #[test]
