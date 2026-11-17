@@ -390,6 +390,11 @@ pub struct TimelineId {
 1. **core: focused timelines in the adapter** — `TimelineId.at`, `Key.at`, the SDK focus mapping,
    `load_newer`, `focused()`, errors; demo backend support. `show_event` still in place. Mock
    server tests. No behaviour change.
+   **Gate before (3):** PR (1) measures the `/context` requests one cross-process reload sends
+   after 1, 10 and 50 distinct jumps, and reports the numbers to the architect. If the count grows
+   with the number of jumps, (3) does not switch the jumps over until there is an option that
+   needs no SDK patch, and the upstream proposal is drafted in the shared notes. Posting it upstream
+   is the user's decision.
 2. **core: the thread can show a detached timeline** — `thread/task.rs` detached source, the seam,
    merged-chat rule, new intents (`JumpToEvent { room, event }`, `LoadNewer`, `ReturnToLive`,
    `SetAnchor`), `ThreadState.is_live/can_load_newer`, typed answers, `ThreadSpec.focus`. Core
