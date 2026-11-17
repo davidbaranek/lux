@@ -170,6 +170,17 @@ jobs:
           xcrun simctl list devices | grep "$id"
           xcrun simctl boot "$id" || true
           echo "id=$id" >> "$GITHUB_OUTPUT"
+      # the runner's VM has no GPU: the glass and the search's morph render in software there and
+      # hold the app's main thread for seconds after a tap. The smoke test checks for crashes and
+      # hangs, not rendering, so the simulator runs with Reduce Motion and Reduce Transparency,
+      # as a person may set them (the app honours both).
+      - name: Reduce Motion and Transparency on the simulator
+        run: |
+          id='${{ steps.simulator.outputs.id }}'
+          xcrun simctl spawn "$id" defaults write com.apple.Accessibility ReduceMotionEnabled -bool YES
+          xcrun simctl spawn "$id" defaults write com.apple.Accessibility EnhancedBackgroundContrastEnabled -bool YES
+          xcrun simctl spawn "$id" notifyutil -p com.apple.accessibility.reduce.motion.status
+          xcrun simctl spawn "$id" notifyutil -p com.apple.accessibility.enhanced.background.contrast.status
       # signed to run locally (ad-hoc): the simulator then gets the app's entitlements (its
       # App Group), as on a device.
       - name: Smoke test
