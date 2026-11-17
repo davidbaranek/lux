@@ -16,6 +16,7 @@ mod room;
 pub(crate) mod send;
 pub(crate) mod shared;
 pub(crate) mod threads;
+mod upload;
 
 use std::sync::Arc;
 use std::time::SystemTime;

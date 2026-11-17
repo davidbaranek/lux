@@ -561,7 +561,7 @@ pub(crate) fn send_state(event: &EventTimelineItem) -> SendState {
 }
 
 /// `current` of `total`, 0 to 1.
-fn fraction(current: usize, total: usize) -> f64 {
+pub(crate) fn fraction(current: usize, total: usize) -> f64 {
     if total == 0 {
         return 0.0;
     }

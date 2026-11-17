@@ -16,6 +16,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use lux_core::ids::{MessageId, MessageRef, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines};
@@ -50,7 +51,7 @@ fn room() -> RoomId {
 async fn snapshot(timelines: &MatrixTimelines) -> Vec<Arc<TimelineMessage>> {
     let mut batches = timelines.messages(&room().into()).await.unwrap();
     let mut messages = eyeball_im::Vector::new();
-    for diff in futures_util::StreamExt::next(&mut batches).await.unwrap_or_default() {
+    for diff in batches.next().await.unwrap_or_default() {
         diff.apply(&mut messages);
     }
     messages.into_iter().collect()
@@ -68,7 +69,7 @@ async fn page_until(
             if done(&page) {
                 return page;
             }
-            futures_util::StreamExt::next(&mut changes).await;
+            changes.next().await;
         }
     })
     .await
@@ -343,24 +344,60 @@ async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
         kind: OutgoingKind::Photo { width: 4, height: 3 },
         thumbnail: None,
     };
-    let id = timelines
+    let states: Vec<SendState> = timelines
         .send_attachment(&room().into(), &attachment, Some("Trip"), None)
         .await
         .unwrap()
-        .expect("the local echo showed");
+        .collect()
+        .await;
+    // its media's share as it goes, then sent, the last.
+    assert_eq!(states.last(), Some(&SendState::Sent));
+    assert!(
+        states[..states.len() - 1]
+            .iter()
+            .all(|state| matches!(state, SendState::Sending { upload: Some(_) }))
+    );
 
     let page = page_until(&timelines, |page| {
         page.iter()
-            .any(|message| message.message.id == id && message.message.state == SendState::Sent)
+            .any(|message| message.message.body == "Trip" && message.message.state == SendState::Sent)
     })
     .await;
-    let photo = page.iter().find(|message| message.message.id == id).unwrap();
-    assert_eq!(photo.message.body, "Trip");
+    let photo = page.iter().find(|message| message.message.body == "Trip").unwrap();
     let Some(Media::Photo { picture, .. }) = &photo.media else {
         panic!("not a photo");
     };
     assert_eq!((picture.width, picture.height), (4, 3));
-    assert_eq!(timelines.send_state(&room(), &id).await.unwrap(), Some(SendState::Sent));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upload_the_server_refuses_ends_failed() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server.mock_authenticated_media_config().ok_default().mount().await;
+    server.sync_joined_room(&client, room_id!("!chat:example.org")).await;
+    server.mock_upload().error_too_large().mount().await;
+    let timelines = MatrixTimelines::new(client);
+    timelines.prefetch(&room().into()).await.unwrap();
+
+    let folder = tempfile::tempdir().unwrap();
+    let file = folder.path().join("notes.txt");
+    std::fs::write(&file, b"far too large").unwrap();
+    let attachment = OutgoingAttachment {
+        file,
+        name: "notes.txt".to_owned(),
+        mimetype: "text/plain".to_owned(),
+        size: 13,
+        kind: OutgoingKind::File,
+        thumbnail: None,
+    };
+    let states: Vec<SendState> = timelines
+        .send_attachment(&room().into(), &attachment, None, None)
+        .await
+        .unwrap()
+        .collect()
+        .await;
+    assert_eq!(states.last(), Some(&SendState::Failed));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -778,7 +815,7 @@ async fn messages_of(timelines: &MatrixTimelines, room: &RoomId, count: usize) -
     tokio::time::timeout(Duration::from_secs(10), async {
         let mut batches = timelines.messages(&room.into()).await.unwrap();
         let mut messages = eyeball_im::Vector::new();
-        while let Some(batch) = futures_util::StreamExt::next(&mut batches).await {
+        while let Some(batch) = batches.next().await {
             for diff in batch {
                 diff.apply(&mut messages);
             }
@@ -999,4 +1036,81 @@ async fn paging_back_over_pages_without_messages_does_not_wait_on_them() {
             .iter()
             .any(|message| message.message.body == "target")
     );
+}
+
+/// A chat the device held `one` and `two` of, then a limited sync with only `six`: `three` to
+/// `five` came while the app was away (as notifications), and the server holds them behind the
+/// sync's `prev_batch`.
+async fn chat_with_a_gap(server: &MatrixMockServer, client: &Client, open_before: bool) -> MatrixTimelines {
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    let id = |id: &str| matrix_sdk::ruma::OwnedEventId::try_from(id).unwrap();
+    let text = |body: &str| factory.text_msg(body).sender(alice).event_id(&id(&format!("${body}")));
+    server
+        .sync_room(
+            client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(text("one"))
+                .add_timeline_event(text("two")),
+        )
+        .await;
+    server
+        .mock_room_messages()
+        .match_from("gap")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            text("five"),
+            text("four"),
+            text("three"),
+            text("two"),
+            text("one"),
+        ]))
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client.clone());
+    if open_before {
+        timelines.prefetch(&room().into()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
+            .await
+            .unwrap();
+        page_until(&timelines, |page| page.len() == 2).await;
+    }
+    server
+        .sync_room(
+            client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(text("six"))
+                .set_timeline_limited()
+                .set_timeline_prev_batch("gap"),
+        )
+        .await;
+    timelines
+}
+
+fn bodies(page: &[Arc<TimelineMessage>]) -> Vec<&str> {
+    page.iter().map(|message| message.message.body.as_str()).collect()
+}
+
+/// Every message, the gap's among them, in order.
+const NO_GAP: [&str; 6] = ["one", "two", "three", "four", "five", "six"];
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_opened_after_a_limited_sync_shows_what_came_in_its_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let timelines = chat_with_a_gap(&server, &client, false).await;
+
+    timelines.prefetch(&room().into()).await.unwrap();
+    let page = page_until(&timelines, |page| page.len() == NO_GAP.len()).await;
+    assert_eq!(bodies(&page), NO_GAP);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_chat_shows_what_came_in_a_limited_syncs_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    // open and filled before: the limited sync resets it to its newest message.
+    let timelines = chat_with_a_gap(&server, &client, true).await;
+
+    let page = page_until(&timelines, |page| page.len() == NO_GAP.len()).await;
+    assert_eq!(bodies(&page), NO_GAP);
 }

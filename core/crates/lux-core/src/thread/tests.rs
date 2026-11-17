@@ -386,12 +386,15 @@ async fn a_jump_to_a_photo_in_an_album_answers_the_albums_row() {
             kind: crate::timeline::OutgoingKind::Photo { width: 10, height: 10 },
             thumbnail: None,
         };
-        thread
-            .threads
-            .timelines()
-            .send_attachment(&RoomId::from("!r:demo").into(), &photo, None, None)
-            .await
-            .unwrap();
+        // shown at once; its upload is not followed.
+        drop(
+            thread
+                .threads
+                .timelines()
+                .send_attachment(&RoomId::from("!r:demo").into(), &photo, None, None)
+                .await
+                .unwrap(),
+        );
     }
     thread.frame().await;
     let album = thread

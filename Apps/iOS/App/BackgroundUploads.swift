@@ -10,11 +10,16 @@ import UIKit
 final class BackgroundUploads {
     static let identifier = "\(AppIdentity.bundleId).uploads"
 
-    private let uploads: Uploads
+    private let session: Session
+    /// The uploads of the account signed in now; nil signed out.
+    private var uploads: Uploads?
     private var task: BGContinuedProcessingTask?
+    private var accountChanges: AnyObject?
 
-    init(uploads: Uploads) {
-        self.uploads = uploads
+    /// Registers the task once, for the app's life; the account it follows is the session's of
+    /// the moment.
+    init(session: Session) {
+        self.session = session
         // the handler runs on the main queue: it may touch the uploads.
         let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.identifier, using: .main) { [weak self] task in
             MainActor.assumeIsolated {
@@ -23,10 +28,20 @@ final class BackgroundUploads {
             }
         }
         if !registered { Log.app.error("uploads: the background task is not registered") }
-        uploads.onStart = { [weak self] in self?.submit() }
-        uploads.onProgress = { [weak self] in self?.report() }
-        uploads.onFinish = { [weak self] ok in self?.finish(ok) }
-        uploads.onError = { error in Log.app.error("upload: \(String(describing: error), privacy: .public)") }
+        accountChanges = session.uploadsChanges.observe { [weak self] in self?.follow() }
+        follow()
+    }
+
+    /// Follows the uploads of the account signed in now (another after signing out and in).
+    private func follow() {
+        guard uploads !== session.uploads else { return }
+        uploads?.onStart = nil
+        uploads?.onProgress = nil
+        uploads?.onFinish = nil
+        uploads = session.uploads
+        uploads?.onStart = { [weak self] in self?.submit() }
+        uploads?.onProgress = { [weak self] in self?.report() }
+        uploads?.onFinish = { [weak self] ok in self?.finish(ok) }
     }
 
     /// Asked as the user sends: the system queues it if it cannot start it at once.
@@ -41,22 +56,23 @@ final class BackgroundUploads {
 
     private func run(_ task: BGContinuedProcessingTask) {
         // everything may already be through when the system starts it.
-        guard uploads.isActive else { return task.setTaskCompleted(success: true) }
+        guard let uploads, uploads.isActive else { return task.setTaskCompleted(success: true) }
         self.task = task
         // the user stopped it in the Live Activity, or the system had to: the files stay queued
         // in their chats and go when the app is back.
         task.expirationHandler = { [weak self] in
             Task { @MainActor in self?.task = nil }
         }
-        task.progress.totalUnitCount = 1000
+        // the bar is the uploads' bytes.
+        task.progress.totalUnitCount = 1
+        task.progress.addChild(uploads.progress, withPendingUnitCount: 1)
         report()
     }
 
-    /// The Live Activity's bar and "2 of 3 · 4.1 of 12 MB".
+    /// The Live Activity's "2 of 3 · 4.1 of 12 MB".
     private func report() {
-        guard let task else { return }
+        guard let task, let uploads else { return }
         let bytes = uploads.progress
-        task.progress.completedUnitCount = Int64(bytes.fractionCompleted * 1000)
         let sent = ByteCountFormatter.string(fromByteCount: bytes.completedUnitCount, countStyle: .file)
         let total = ByteCountFormatter.string(fromByteCount: bytes.totalUnitCount, countStyle: .file)
         task.updateTitle(uploads.files == 1 ? String(localized: "Sending a file") : String(localized: "Sending \(uploads.files) files"),
@@ -64,7 +80,6 @@ final class BackgroundUploads {
     }
 
     private func finish(_ ok: Bool) {
-        task?.progress.completedUnitCount = task?.progress.totalUnitCount ?? 0
         task?.setTaskCompleted(success: ok)
         task = nil
     }
