@@ -79,6 +79,13 @@ final class AccountSession {
         search = nil
     }
 
+    /// Closes the account's stores, after what was sent to them: the last thing before the
+    /// session goes, so dropping it on the main thread waits for no connection to close.
+    func closeStores() async {
+        await keptStore.value?.close()
+        await index.value?.close()
+    }
+
     /// The app leaves the front: the sync stops, and with it the stores in the group close
     /// (before iOS suspends the app; the caller holds a background task for it).
     @discardableResult

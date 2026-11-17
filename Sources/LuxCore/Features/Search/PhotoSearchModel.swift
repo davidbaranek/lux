@@ -91,7 +91,8 @@ actor PhotoSearchModel {
     func prepareTextEncoder(lease _: ForegroundLease) {
         guard textEncoder == nil, preparing == nil else { return }
         let file = file, description = description
-        preparing = Task.detached(priority: .utility) { [weak self] in
+        // compiling and loading the model holds its thread: on its own executor, not the pool.
+        preparing = Task(executorPreference: ImageWork.executor, priority: .utility) { [weak self] in
             do {
                 let tokenizer = try QueryTokenizer(file: file("tokenizer.json"), length: description.textLength,
                                                    padId: description.padId, lowercase: description.lowercase)

@@ -94,8 +94,8 @@ extension VerificationModel {
 
 /// Where every thread of the test process is, sampled into the log once `after` passed, unless
 /// cancelled first. It runs on a thread of its own, not Swift's cooperative pool, so it reports
-/// even when that pool's threads are all held.
-@MainActor
+/// even when that pool's threads are all held. Not the main actor's: a closure made in its
+/// isolation is its too, and traps when the global queue runs it.
 private final class StallReport {
     private let report: DispatchWorkItem
 

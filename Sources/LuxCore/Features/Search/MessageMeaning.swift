@@ -46,7 +46,8 @@ actor MessageMeaning {
     @discardableResult
     func read(limit: Int?, lease: ForegroundLease) async -> Bool {
         if let running { return await running.value }
-        let run = Task { await readUnread(limit: limit, lease: lease) }
+        // the text encoder holds its thread for each message: on its own executor, not the pool.
+        let run = Task(executorPreference: ImageWork.executor) { await self.readUnread(limit: limit, lease: lease) }
         running = run
         // the caller's cancel (the app leaving the front) ends the reading too.
         let done = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
