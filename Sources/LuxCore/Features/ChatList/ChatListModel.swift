@@ -84,6 +84,9 @@ public final class ChatListModel {
     /// The new sections, and the ids of rows that were there before and now show something else.
     public var onUpdate: ((_ sections: [ChatSection], _ changed: [String]) -> Void)?
     public var onPlaces: ((_ places: [PlaceItem]) -> Void)?
+    /// The app's badge (the inbox's count, `PlaceItem.unread`), with what the notification
+    /// extension needs to keep it while the app is not running.
+    public var onBadge: ((BadgeState) -> Void)?
     public var onError: ((Error) -> Void)?
 
     /// How far the list is: no chats yet; the chats this device keeps shown while the server's
@@ -189,6 +192,7 @@ public final class ChatListModel {
         scheduled.merge(batch.scheduled) { _, new in new }
         if let labels = batch.labels { self.labels = labels }
         if let keptOut = batch.keptOut { self.keptOut = keptOut }
+        if let badge = batch.badge { onBadge?(badge) }
         if let reminders = batch.reminders {
             notifications.sync(reminders.map { (roomId: $0.chatId, name: $0.name, date: $0.date) })
         }

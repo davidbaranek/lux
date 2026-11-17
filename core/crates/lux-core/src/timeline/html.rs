@@ -1,71 +1,55 @@
-//! A message's HTML body (the subset Matrix allows) as the text the bubble shows and its runs of
-//! formatting. A small scanner, not an HTML engine: it knows Matrix's tags (a reply's fallback
-//! quote goes, a mention shows as its name, in bold) and runs in microseconds.
+//! A message's HTML body as the text the bubble shows and its runs of formatting. ruma reads the
+//! HTML as a browser does (html5ever: every entity, broken markup mended) and keeps it to the
+//! subset Matrix allows, without a reply's fallback quote; this walks what is left: a mention
+//! shows as its name, in bold, a list item with its bullet or number.
+
+use ruma_html::matrix::{AnchorUri, MatrixElement};
+use ruma_html::{Html, NodeData, NodeRef};
 
 use super::{StyleKind, TextStyle};
 
 /// The text of `html` and its runs of formatting, in UTF-16 offsets of the text.
 #[must_use]
 pub fn parse(html: &str) -> (String, Vec<TextStyle>) {
-    let mut scanner = Scanner::new(html);
-    scanner.run();
-    scanner.finish()
+    let html = Html::parse(html);
+    html.sanitize();
+    let mut writer = Writer::new();
+    for node in html.children() {
+        writer.node(&node);
+    }
+    writer.finish()
 }
 
-/// Tags that start a block: a space before one does not belong to the text after it.
-const BLOCKS: [&str; 15] = [
-    "br",
-    "hr",
-    "pre",
-    "blockquote",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "p",
-    "div",
-    "ul",
-    "ol",
-    "li",
-];
-
-/// An open tag.
-struct Open {
-    name: String,
-    start: usize,
-    kind: Option<StyleKind>,
+/// How an element shows.
+enum Shape {
+    /// Inside a line: a space before it belongs before its run, not in it.
+    Inline,
+    /// Its own lines.
+    Block,
 }
 
-struct Scanner {
-    chars: Vec<char>,
-    at: usize,
+/// The text and its runs, as the walk writes them.
+struct Writer {
     text: String,
     /// The text's length in UTF-16 units.
     length: usize,
     styles: Vec<TextStyle>,
-    open: Vec<Open>,
+    /// White space was read where the text has none yet: one space, unless a line starts.
     pending_space: bool,
+    /// Inside `<pre>`: white space is kept.
     pre_depth: usize,
-    /// Inside `<mx-reply>`: everything is skipped.
-    skip_depth: usize,
     /// The next number of each open list; `None` for a bulleted one.
-    lists: Vec<Option<u64>>,
+    lists: Vec<Option<i64>>,
 }
 
-impl Scanner {
-    fn new(html: &str) -> Self {
+impl Writer {
+    fn new() -> Self {
         Self {
-            chars: html.chars().collect(),
-            at: 0,
-            text: String::with_capacity(html.len()),
+            text: String::new(),
             length: 0,
             styles: Vec::new(),
-            open: Vec::new(),
             pending_space: false,
             pre_depth: 0,
-            skip_depth: 0,
             lists: Vec::new(),
         }
     }
@@ -78,7 +62,7 @@ impl Scanner {
     /// Starts a new line, unless the text is empty or already at one.
     fn newline(&mut self) {
         self.pending_space = false;
-        if !self.text.is_empty() && !self.text.ends_with('\n') {
+        if !self.at_line_start() {
             self.append("\n");
         }
     }
@@ -87,261 +71,145 @@ impl Scanner {
         self.text.is_empty() || self.text.ends_with('\n')
     }
 
-    fn run(&mut self) {
-        while let Some(&next) = self.chars.get(self.at) {
-            if next == '<' {
-                self.tag();
-            } else if self.skip_depth > 0 {
-                self.at += 1;
-            } else if next == '&' {
-                let entity = self.entity();
-                self.character(&entity);
-            } else {
-                self.at += 1;
-                self.character(next.encode_utf8(&mut [0; 4]));
-            }
-        }
-    }
-
-    fn character(&mut self, text: &str) {
-        if self.pre_depth > 0 {
-            self.append(text);
-            return;
-        }
-        if text.chars().all(char::is_whitespace) {
-            self.pending_space = true;
-            return;
-        }
+    /// The space read before this point, unless a line starts here.
+    fn flush_space(&mut self) {
         if self.pending_space && !self.at_line_start() {
             self.append(" ");
         }
         self.pending_space = false;
-        self.append(text);
     }
 
-    fn entity(&mut self) -> String {
-        let start = self.at;
-        let mut end = start + 1;
-        while end - start < 12 && self.chars.get(end).is_some_and(|next| !matches!(next, ';' | '<' | '&')) {
-            end += 1;
+    /// Text as HTML shows it: runs of HTML's white space (not a no-break space) fold to one,
+    /// except in `<pre>`.
+    fn characters(&mut self, text: &str) {
+        if self.pre_depth > 0 {
+            self.append(text);
+            return;
         }
-        if self.chars.get(end) != Some(&';') {
-            self.at += 1;
-            return "&".to_owned();
-        }
-        let name: String = self.chars.get(start + 1..end).unwrap_or_default().iter().collect();
-        self.at = end + 1;
-        match name.as_str() {
-            "amp" => "&".to_owned(),
-            "lt" => "<".to_owned(),
-            "gt" => ">".to_owned(),
-            "quot" => "\"".to_owned(),
-            "apos" => "'".to_owned(),
-            "nbsp" => "\u{00A0}".to_owned(),
-            _ => {
-                let number = if let Some(hex) = name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
-                    u32::from_str_radix(hex, 16).ok()
-                } else {
-                    name.strip_prefix('#').and_then(|decimal| decimal.parse().ok())
-                };
-                match number.and_then(char::from_u32) {
-                    Some(character) => character.to_string(),
-                    None => format!("&{name};"),
-                }
+        for character in text.chars() {
+            if character.is_ascii_whitespace() {
+                self.pending_space = true;
+            } else {
+                self.flush_space();
+                self.append(character.encode_utf8(&mut [0; 4]));
             }
         }
     }
 
-    fn tag(&mut self) {
-        let chars = &self.chars;
-        let at = self.at;
-        // a comment
-        if chars.get(at + 1..at + 4) == Some(&['!', '-', '-'][..]) {
-            let mut end = at + 4;
-            while chars.get(end..end + 3).is_some_and(|next| next != ['-', '-', '>']) {
-                end += 1;
-            }
-            self.at = chars.len().min(end + 3);
-            return;
-        }
-        let mut end = at + 1;
-        let mut quote: Option<char> = None;
-        while let Some(&next) = chars.get(end) {
-            match quote {
-                Some(open) if next == open => quote = None,
-                None if next == '"' || next == '\'' => quote = Some(next),
-                None if next == '>' => break,
-                Some(_) | None => {}
-            }
-            end += 1;
-        }
-        let inside: String = chars
-            .get(at + 1..end.min(chars.len()))
-            .unwrap_or_default()
-            .iter()
-            .collect();
-        self.at = chars.len().min(end + 1);
-        let (closing, body) = match inside.strip_prefix('/') {
-            Some(body) => (true, body),
-            None => (false, inside.as_str()),
-        };
-        let name_length = body
-            .find(|character: char| !(character.is_alphanumeric() || character == '-'))
-            .unwrap_or(body.len());
-        let (name, attributes) = body.split_at_checked(name_length).unwrap_or((body, ""));
-        let name = name.to_lowercase();
-        if name.is_empty() {
-            return;
-        }
-        if closing {
-            self.close(&name);
-        } else {
-            self.start(name, attributes, inside.ends_with('/'));
+    fn node(&mut self, node: &NodeRef) {
+        match node.data() {
+            NodeData::Text(text) => self.characters(&text.borrow()),
+            NodeData::Element(element) => self.element(node, element.to_matrix().element),
+            NodeData::Document | NodeData::Other => {}
         }
     }
 
-    fn start(&mut self, name: String, attributes: &str, self_closing: bool) {
-        if name == "mx-reply" {
-            self.skip_depth += 1;
-            return;
+    fn children(&mut self, node: &NodeRef) {
+        for child in node.children() {
+            self.node(&child);
         }
-        if self.skip_depth > 0 {
-            return;
-        }
-        // a space before an inline tag belongs before its run, not in it.
-        if !BLOCKS.contains(&name.as_str()) && self.pending_space && self.pre_depth == 0 && !self.at_line_start() {
-            self.append(" ");
-            self.pending_space = false;
-        }
-        let kind = match name.as_str() {
-            "br" => {
+    }
+
+    fn element(&mut self, node: &NodeRef, element: MatrixElement) {
+        let shape = match &element {
+            MatrixElement::Br => {
                 self.append("\n");
                 self.pending_space = false;
                 return;
             }
-            "img" => {
-                if let Some(alt) = attribute("alt", attributes).filter(|alt| !alt.is_empty()) {
-                    self.character(&alt);
+            MatrixElement::Hr => {
+                self.newline();
+                return;
+            }
+            MatrixElement::Img(image) => {
+                if let Some(alt) = image.alt.as_ref().filter(|alt| !alt.is_empty()) {
+                    self.characters(alt);
                 }
                 return;
             }
-            "hr" => {
-                self.newline();
-                return;
-            }
-            "b" | "strong" => Some(StyleKind::Bold),
-            "i" | "em" => Some(StyleKind::Italic),
-            "u" | "ins" => Some(StyleKind::Underline),
-            "s" | "del" | "strike" => Some(StyleKind::Strikethrough),
-            "code" => (self.pre_depth == 0).then_some(StyleKind::Code),
-            "pre" => {
-                self.newline();
-                self.pre_depth += 1;
-                Some(StyleKind::CodeBlock)
-            }
-            "blockquote" => {
-                self.newline();
-                Some(StyleKind::Quote)
-            }
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                self.newline();
-                Some(StyleKind::Bold)
-            }
-            "p" | "div" => {
-                self.newline();
-                None
-            }
-            "ul" => {
-                self.newline();
+            MatrixElement::Pre
+            | MatrixElement::Blockquote
+            | MatrixElement::H(_)
+            | MatrixElement::P
+            | MatrixElement::Div(_)
+            | MatrixElement::Ul
+            | MatrixElement::Ol(_)
+            | MatrixElement::Li
+            | MatrixElement::Table
+            | MatrixElement::Tr
+            | MatrixElement::Details
+            | MatrixElement::Summary => Shape::Block,
+            _ => Shape::Inline,
+        };
+        match shape {
+            Shape::Block => self.newline(),
+            Shape::Inline if self.pre_depth == 0 => self.flush_space(),
+            Shape::Inline => {}
+        }
+        let is_pre = matches!(element, MatrixElement::Pre);
+        let is_list = matches!(element, MatrixElement::Ul | MatrixElement::Ol(_));
+        let kind = match element {
+            MatrixElement::B | MatrixElement::Strong | MatrixElement::H(_) => Some(StyleKind::Bold),
+            MatrixElement::I | MatrixElement::Em => Some(StyleKind::Italic),
+            MatrixElement::U => Some(StyleKind::Underline),
+            MatrixElement::S | MatrixElement::Del => Some(StyleKind::Strikethrough),
+            MatrixElement::Code(_) => (self.pre_depth == 0).then_some(StyleKind::Code),
+            MatrixElement::Pre => Some(StyleKind::CodeBlock),
+            MatrixElement::Blockquote => Some(StyleKind::Quote),
+            MatrixElement::A(anchor) => match anchor.href {
+                // a mention links to matrix.to (or a matrix: address): shown as the name, in bold.
+                Some(AnchorUri::MatrixTo(_) | AnchorUri::Matrix(_)) => Some(StyleKind::Bold),
+                Some(AnchorUri::Other(href)) => Some(StyleKind::Link(href.to_string())),
+                _ => None,
+            },
+            MatrixElement::Ul => {
                 self.lists.push(None);
                 None
             }
-            "ol" => {
-                self.newline();
-                let first = attribute("start", attributes).and_then(|start| start.parse().ok());
-                self.lists.push(Some(first.unwrap_or(1)));
+            MatrixElement::Ol(list) => {
+                self.lists.push(Some(list.start.unwrap_or(1)));
                 None
             }
-            "li" => {
-                self.newline();
-                match self.lists.last_mut() {
-                    Some(Some(number)) => {
-                        let bullet = format!("{number}. ");
-                        *number += 1;
-                        self.append(&bullet);
-                    }
-                    _ => self.append("• "),
-                }
+            MatrixElement::Li => {
+                self.bullet();
                 None
             }
-            "a" => attribute("href", attributes).and_then(|href| {
-                // a mention links to matrix.to: shown as the name, in bold.
-                if href.starts_with("https://matrix.to/") {
-                    Some(StyleKind::Bold)
-                } else {
-                    has_scheme(&href).then_some(StyleKind::Link(href))
-                }
-            }),
             _ => None,
         };
-        if self_closing {
-            return;
+        self.pre_depth += usize::from(is_pre);
+        let start = self.length;
+        self.children(node);
+        if let Some(kind) = kind
+            && self.length > start
+        {
+            self.styles.push(TextStyle {
+                kind,
+                range: start..self.length,
+            });
         }
-        self.open.push(Open {
-            name,
-            start: self.length,
-            kind,
-        });
+        self.pre_depth -= usize::from(is_pre);
+        if is_list {
+            self.lists.pop();
+        }
+        if matches!(shape, Shape::Block) {
+            self.newline();
+        }
     }
 
-    fn close(&mut self, name: &str) {
-        if name == "mx-reply" {
-            self.skip_depth = self.skip_depth.saturating_sub(1);
-            return;
-        }
-        if self.skip_depth > 0 {
-            return;
-        }
-        let Some(index) = self.open.iter().rposition(|open| open.name == name) else {
-            return;
-        };
-        // a tag left open inside this one ends with it.
-        for open in self.open.drain(index..).rev() {
-            if let Some(kind) = open.kind
-                && self.length > open.start
-            {
-                self.styles.push(TextStyle {
-                    kind,
-                    range: open.start..self.length,
-                });
+    /// A list item's bullet, or its number in a numbered list.
+    fn bullet(&mut self) {
+        match self.lists.last_mut() {
+            Some(Some(number)) => {
+                let bullet = format!("{number}. ");
+                *number = number.saturating_add(1);
+                self.append(&bullet);
             }
-        }
-        match name {
-            "pre" => {
-                self.pre_depth = self.pre_depth.saturating_sub(1);
-                self.newline();
-            }
-            "blockquote" | "p" | "div" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" => self.newline(),
-            "ul" | "ol" => {
-                self.lists.pop();
-                self.newline();
-            }
-            _ => {}
+            _ => self.append("• "),
         }
     }
 
     /// The text without white space at its end; runs end with it.
     fn finish(mut self) -> (String, Vec<TextStyle>) {
-        for open in std::mem::take(&mut self.open).into_iter().rev() {
-            if let Some(kind) = open.kind
-                && self.length > open.start
-            {
-                self.styles.push(TextStyle {
-                    kind,
-                    range: open.start..self.length,
-                });
-            }
-        }
         let trimmed = self.text.trim_end().len();
         self.text.truncate(trimmed);
         let end = self.text.encode_utf16().count();
@@ -361,42 +229,16 @@ impl Scanner {
     }
 }
 
-/// Whether `href` is an address with a scheme (`https:`, `mailto:`).
-fn has_scheme(href: &str) -> bool {
-    href.split_once(':').is_some_and(|(scheme, _)| {
-        let mut characters = scheme.chars();
-        characters.next().is_some_and(|first| first.is_ascii_alphabetic())
-            && characters.all(|character| character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.'))
-    })
-}
-
-/// An attribute's value in a tag's attributes (`href="…"`, `href='…'` or `href=…`), its
-/// entities read.
-fn attribute(name: &str, attributes: &str) -> Option<String> {
-    let lower = attributes.to_ascii_lowercase();
-    let found = lower.find(&format!("{name}="))? + name.len() + 1;
-    let rest = attributes.get(found..)?;
-    let first = rest.chars().next()?;
-    if first == '"' || first == '\'' {
-        let value = rest
-            .get(first.len_utf8()..)
-            .unwrap_or_default()
-            .split(first)
-            .next()
-            .unwrap_or_default();
-        return Some(parse(value).0);
-    }
-    Some(
-        rest.split(|character: char| character.is_whitespace() || character == '>')
-            .next()
-            .unwrap_or_default()
-            .to_owned(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn style(kind: StyleKind, start: usize, end: usize) -> TextStyle {
+        TextStyle {
+            kind,
+            range: start..end,
+        }
+    }
 
     #[test]
     fn broken_html_reads_without_failing() {
@@ -419,20 +261,16 @@ mod tests {
             "<b><i>ž</b>",
             "</b>ž",
             "<mx-reply>ž",
+            "<ul><li>a<ol><li>b</ul>c",
+            "<pre><b>a</pre>b</b>",
+            "<table><td>a<p>b</table>c",
         ] {
             let (text, styles) = parse(html);
             let length = text.encode_utf16().count();
             assert!(styles.iter().all(|style| style.range.end <= length), "{html:?}");
         }
-        assert_eq!(parse("a &amp b").0, "a &amp b");
         assert_eq!(parse("&#x17E;").0, "ž");
-    }
-
-    fn style(kind: StyleKind, start: usize, end: usize) -> TextStyle {
-        TextStyle {
-            kind,
-            range: start..end,
-        }
+        assert_eq!(parse("<mx-reply>ž").0, "");
     }
 
     #[test]
@@ -460,6 +298,13 @@ mod tests {
     }
 
     #[test]
+    fn a_matrix_address_is_a_mention_too() {
+        let (text, styles) = parse("hi <a href=\"matrix:u/anna:example.org\">Anna</a>");
+        assert_eq!(text, "hi Anna");
+        assert_eq!(styles, [style(StyleKind::Bold, 3, 7)]);
+    }
+
+    #[test]
     fn links_lists_blocks_and_entities() {
         let (text, styles) = parse(
             "<p>see <a href='https://example.org/?a=1&amp;b=2'>this</a></p><ol start=\"3\"><li>one</li><li>two</li></ol>\
@@ -475,6 +320,83 @@ mod tests {
     }
 
     #[test]
+    fn named_entities_read_as_a_browser_reads_them() {
+        assert_eq!(
+            parse("a &mdash; b&hellip; &copy; 5&euro; &rarr; &nbsp;&quot;x&apos; &lt;&gt;&amp;").0,
+            "a — b… © 5€ → \u{a0}\"x' <>&"
+        );
+        // the legacy entities without their semicolon too, as browsers read them.
+        assert_eq!(parse("a &amp b &copy c").0, "a & b © c");
+        assert_eq!(parse("&zzz; &;").0, "&zzz; &;");
+        assert_eq!(parse("&notit;").0, "¬it;");
+        // in an address as well.
+        let (_, styles) = parse("<a href=\"https://example.org/?a&mdash;b\">x</a>");
+        assert_eq!(
+            styles,
+            [style(StyleKind::Link("https://example.org/?a—b".to_owned()), 0, 1)]
+        );
+    }
+
+    #[test]
+    fn numeric_entities_read() {
+        assert_eq!(parse("&#8212; &#x2014; &#X2014; &#128512;").0, "— — — 😀");
+        // a number that is no character is the replacement character, as browsers read it.
+        assert_eq!(parse("&#xFFFFFFFF;").0, "\u{FFFD}");
+        assert_eq!(parse("&#0;").0, "\u{FFFD}");
+    }
+
+    #[test]
+    fn nested_formatting_keeps_every_run() {
+        let (text, styles) = parse("<b>a <i>b <s>c <code>d</code></s></i></b> <del>e</del>");
+        assert_eq!(text, "a b c d e");
+        assert_eq!(
+            styles,
+            [
+                style(StyleKind::Bold, 0, 7),
+                style(StyleKind::Italic, 2, 7),
+                style(StyleKind::Strikethrough, 4, 7),
+                style(StyleKind::Code, 6, 7),
+                style(StyleKind::Strikethrough, 8, 9),
+            ]
+        );
+        let (text, styles) =
+            parse("<blockquote><p>quoted <b>bold</b></p></blockquote><ul><li>a<ol><li>b</li></ol></li></ul>");
+        assert_eq!(text, "quoted bold\n• a\n1. b");
+        assert_eq!(styles, [style(StyleKind::Quote, 0, 12), style(StyleKind::Bold, 7, 11)]);
+    }
+
+    #[test]
+    fn malformed_html_is_mended_as_a_browser_mends_it() {
+        // a tag left open ends with its parent's, and goes on after it, as in a browser.
+        let (text, styles) = parse("<b><i>ab</b>c");
+        assert_eq!(text, "abc");
+        assert_eq!(
+            styles,
+            [
+                style(StyleKind::Italic, 0, 2),
+                style(StyleKind::Bold, 0, 2),
+                style(StyleKind::Italic, 2, 3)
+            ]
+        );
+        // tags closed in the wrong order.
+        let (text, styles) = parse("<b>a<i>b</b>c</i>");
+        assert_eq!(text, "abc");
+        assert_eq!(
+            styles,
+            [
+                style(StyleKind::Bold, 0, 2),
+                style(StyleKind::Italic, 1, 2),
+                style(StyleKind::Italic, 2, 3)
+            ]
+        );
+        // a closing tag nothing opened, an unclosed comment, a tag never closed.
+        assert_eq!(parse("a</b> b<!-- c").0, "a b");
+        assert_eq!(parse("<p>a<p>b").0, "a\nb");
+        // tags outside the Matrix subset keep their text, only as text.
+        assert_eq!(parse("<marquee>a</marquee> <script>b</script>c").0, "a bc");
+    }
+
+    #[test]
     fn white_space_folds_and_ends_trimmed() {
         let (text, styles) = parse("  a \n  <b>b</b>  <br>c<i>  </i>\n");
         assert_eq!(text, "a b\nc");
@@ -486,5 +408,8 @@ mod tests {
         let (_, styles) = parse("<a href=\"example.org\">x</a> <img alt=\"🙂\" src=\"mxc://a/b\"/>");
         assert!(styles.is_empty());
         assert_eq!(parse("<img alt=\"🙂\">").0, "🙂");
+        let (text, styles) = parse("<a href=\"javascript:alert(1)\">x</a>");
+        assert_eq!(text, "x");
+        assert!(styles.is_empty());
     }
 }

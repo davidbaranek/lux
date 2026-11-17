@@ -41,14 +41,14 @@ const PAGES_TO_AN_EVENT: usize = 20;
 /// The most pages back a message is looked for, to its time: some twenty thousand events.
 const PAGES_TO_A_TIME: usize = 400;
 
-/// How long an action waits for the mapped messages to catch up with the SDK's timeline.
-const CATCH_UP: Duration = Duration::from_secs(5);
-
 /// How many pages back the first unread message is looked for.
 const UNREAD_PAGES: usize = 10;
 
-/// How long a page back waits for its messages to be mapped (a page of state events brings none).
-const PAGE_CATCH_UP: Duration = Duration::from_secs(1);
+/// The most a page back waits for the SDK's timeline to apply it (see [`RoomTimeline::applied`]).
+const PAGE_APPLIED: Duration = Duration::from_secs(1);
+
+/// The SDK's items as the follower has mapped them: the messages list is never behind these.
+type Mapped = Vector<Arc<TimelineItem>>;
 
 /// A room's or a Matrix thread's live timeline, open until the account closes.
 pub(crate) struct RoomTimeline {
@@ -57,6 +57,7 @@ pub(crate) struct RoomTimeline {
     pub(crate) thread: Option<OwnedEventId>,
     pub(crate) timeline: Arc<Timeline>,
     messages: LiveList<Arc<TimelineMessage>>,
+    mapped: watch::Receiver<Mapped>,
     at_start: watch::Receiver<bool>,
     filled: watch::Receiver<bool>,
     _tasks: Vec<crate::task::Owned>,
@@ -105,6 +106,7 @@ impl RoomTimeline {
         let messages = LiveList::new(Vector::new());
         let (at_start_sender, at_start) = watch::channel(false);
         let (filled_sender, filled) = watch::channel(false);
+        let (mapped_sender, mapped) = watch::channel(Mapped::new());
         // the first items are in once `subscribe` answers: the task maps them before anything else.
         let (items, stream) = timeline.subscribe().await;
         let (stale_roots, mut stale) = mpsc::unbounded_channel();
@@ -120,6 +122,7 @@ impl RoomTimeline {
             },
             filter: Filtered::new(),
             messages: messages.clone(),
+            mapped: mapped_sender,
             at_start: at_start_sender,
             changes,
             room_id,
@@ -127,7 +130,7 @@ impl RoomTimeline {
             items: Vector::new(),
             quotes: JoinSet::new(),
         };
-        follower.apply(vec![VectorDiff::Reset { values: items }]).await;
+        follower.follow(vec![VectorDiff::Reset { values: items }]).await;
         let mut learned = previews.follow();
         let follow = crate::task::spawn(async move {
             futures_util::pin_mut!(stream);
@@ -137,7 +140,7 @@ impl RoomTimeline {
                 tokio::select! {
                     batch = stream.next() => {
                         let Some(batch) = batch else { break };
-                        follower.apply(batch).await;
+                        follower.follow(batch).await;
                     }
                     // a shared post's preview came: its message says the post's title now.
                     // a thread's replies or read state changed: its root's summary shows it.
@@ -171,6 +174,7 @@ impl RoomTimeline {
             thread,
             timeline,
             messages,
+            mapped,
             at_start,
             filled,
             _tasks: vec![follow, fill, members],
@@ -211,11 +215,8 @@ impl RoomTimeline {
                 break;
             }
             let reached_start = self
-                .timeline
-                .paginate_backwards(u16::try_from(missing).unwrap_or(u16::MAX).max(PAGE))
-                .await
-                .map_err(from_timeline)?;
-            self.until(PAGE_CATCH_UP, |messages| messages.len() > before).await;
+                .page_back(u16::try_from(missing).unwrap_or(u16::MAX).max(PAGE))
+                .await?;
             if reached_start {
                 break;
             }
@@ -258,11 +259,50 @@ impl RoomTimeline {
             if *self.at_start.borrow() || passed {
                 return Ok(None);
             }
-            let before = messages.len();
-            self.timeline.paginate_backwards(PAGE).await.map_err(from_timeline)?;
-            self.until(PAGE_CATCH_UP, |messages| messages.len() > before).await;
+            self.page_back(PAGE).await?;
         }
         Ok(None)
+    }
+
+    /// One page back of `events`, returned once the follower mapped it; whether the timeline
+    /// reached the room's start.
+    async fn page_back(&self, events: u16) -> Result<bool, BackendError> {
+        // a live timeline first shows items it holds but did not show yet (`SkipCount`): as many
+        // as asked for if it has them, and then the server is not asked. Otherwise it shows all
+        // it holds and asks the server for the rest, which always brings events (the SDK pages on
+        // past empty ones) unless the start was reached: then the shown items hold more events
+        // than the timeline held at all before.
+        let held = event_count(&self.timeline.items().await);
+        let shown = self.mapped.borrow().len();
+        let reached_start = self.timeline.paginate_backwards(events).await.map_err(from_timeline)?;
+        self.applied(PAGE_APPLIED, |mapped| {
+            event_count(mapped) > held || mapped.len() >= shown + usize::from(events)
+        })
+        .await;
+        Ok(reached_start)
+    }
+
+    /// Waits until the follower has mapped what satisfies `done`, at most `patience`.
+    ///
+    /// The only bounded wait, and only for the SDK's own hop. Its `Timeline` applies a page (or a
+    /// local echo) in a task of its own, after the call that made it returned: the event cache
+    /// stores the page and only broadcasts it (matrix-sdk `event_cache/caches/room/pagination.rs`,
+    /// `conclude_backwards_pagination_*`), and the timeline's `room_event_cache_updates_task`
+    /// (matrix-sdk-ui `timeline/tasks.rs`, spawned by `TimelineBuilder::build`) applies it later.
+    /// Nothing public tells when it has, and a page may change no item at all (reactions to
+    /// events not loaded, thread replies the room's timeline hides), so it is not waited for
+    /// without a bound. The follower's hop, from the SDK's items to the messages, needs no bound:
+    /// `mapped` changes only once the messages hold a batch.
+    async fn applied(&self, patience: Duration, done: impl Fn(&Mapped) -> bool) {
+        let mut mapped = self.mapped.clone();
+        // past the bound (or with the follower gone, which goes only with the timeline) the
+        // caller reads what is mapped as it is.
+        if tokio::time::timeout(patience, mapped.wait_for(|mapped| done(mapped)))
+            .await
+            .is_err()
+        {
+            tracing::debug!("the SDK's timeline did not show it within the bound: read as it is");
+        }
     }
 
     /// When the latest of `events` was sent, of those the device holds.
@@ -294,23 +334,6 @@ impl RoomTimeline {
             }
         }
         receipts
-    }
-
-    /// Waits until the mapped messages satisfy `done`, at most `patience`; `Some` once they do.
-    async fn until(&self, patience: Duration, done: impl Fn(&Vector<Arc<TimelineMessage>>) -> bool) -> Option<()> {
-        let mut batches = self.messages.subscribe();
-        tokio::time::timeout(patience, async {
-            // the first batch is the list as it is.
-            while batches.next().await.is_some() {
-                if done(&self.snapshot()) {
-                    return Some(());
-                }
-            }
-            None
-        })
-        .await
-        .ok()
-        .flatten()
     }
 
     /// The SDK's item of a message.
@@ -345,41 +368,6 @@ impl RoomTimeline {
         }
     }
 
-    /// The id the mapped message of a local echo has, once the timeline shows it.
-    pub(crate) async fn message_of_transaction(
-        &self,
-        transaction: &matrix_sdk::ruma::TransactionId,
-    ) -> Option<MessageId> {
-        let find = |items: &Vector<Arc<TimelineItem>>| {
-            items
-                .iter()
-                .find(|item| item.as_event().and_then(EventTimelineItem::transaction_id) == Some(transaction))
-                .map(|item| MessageId::from(item.unique_id().0.as_str()))
-        };
-        let (items, mut stream) = self.timeline.subscribe().await;
-        let id = if let Some(id) = find(&items) {
-            id
-        } else {
-            tokio::time::timeout(CATCH_UP, async {
-                while stream.next().await.is_some() {
-                    if let Some(id) = find(&self.timeline.items().await) {
-                        return Some(id);
-                    }
-                }
-                None
-            })
-            .await
-            .ok()
-            .flatten()?
-        };
-        // and once the mapped list has it.
-        self.until(CATCH_UP, |messages| {
-            messages.iter().any(|message| message.message.id == id)
-        })
-        .await?;
-        Some(id)
-    }
-
     /// The first message after the account's read receipt that another sent. The receipt is the
     /// latest of the timeline's own (the main thread's for the room's own timeline, the thread's
     /// for a thread) and the room's unthreaded ones, which cover every thread (what clients that
@@ -396,7 +384,8 @@ impl RoomTimeline {
         let read_at = self.latest_time_of(receipts.iter().map(|(event, _)| &**event)).await;
         let mut pages = 0;
         let (items, after) = loop {
-            let items = self.timeline.items().await;
+            // the items the messages hold: what is found in them is in the messages.
+            let items = self.mapped.borrow().clone();
             // after the latest receipt the timeline shows, and after the latest receipt's time: an
             // older receipt it shows does not undo a newer one on an event it does not (an edit).
             let shown = receipts
@@ -424,22 +413,8 @@ impl RoomTimeline {
             if reached || *self.at_start.borrow() || pages >= UNREAD_PAGES {
                 break (items, shown.max(since).unwrap_or(0));
             }
-            // read before what the timeline holds: a page back. The SDK applies a page after the
-            // call returns: it is awaited before the items are read again.
-            let (_, updates) = self.timeline.subscribe().await;
-            let reached_start = self.timeline.paginate_backwards(PAGE).await.map_err(from_timeline)?;
-            let caught_up = tokio::time::timeout(PAGE_CATCH_UP, async {
-                futures_util::pin_mut!(updates);
-                while self.timeline.items().await.len() <= items.len() {
-                    if updates.next().await.is_none() {
-                        break;
-                    }
-                }
-            })
-            .await;
-            if caught_up.is_err() {
-                tracing::debug!("a page back did not show in time: the items are read as they are");
-            }
+            // read before what the timeline holds: a page back.
+            let reached_start = self.page_back(PAGE).await?;
             pages = if reached_start { UNREAD_PAGES } else { pages + 1 };
         };
         // a message the account sent read what came before it, whatever the receipts say.
@@ -450,7 +425,7 @@ impl RoomTimeline {
                     .is_some_and(|event| event.is_own() && event.content().as_msglike().is_some())
             })
             .map_or(after, |own| after.max(own + 1));
-        // the messages others sent after it, as the SDK has them; the mapping may lag a page.
+        // the messages others sent after it.
         let unread: Vec<&str> = items
             .iter()
             .skip(after)
@@ -460,13 +435,6 @@ impl RoomTimeline {
             })
             .map(|item| item.unique_id().0.as_str())
             .collect();
-        let Some(&first) = unread.first() else {
-            return Ok(None);
-        };
-        self.until(PAGE_CATCH_UP, |messages| {
-            messages.iter().any(|message| message.message.id.as_str() == first)
-        })
-        .await;
         // the first the chat shows (a deleted chat's thread starts later).
         let messages = self.snapshot();
         Ok(unread
@@ -489,6 +457,8 @@ struct Follower {
     mapper: ItemMapper,
     filter: Filtered,
     messages: LiveList<Arc<TimelineMessage>>,
+    /// The SDK's items the messages hold, told after each of the SDK's batches.
+    mapped: watch::Sender<Mapped>,
     at_start: watch::Sender<bool>,
     changes: broadcast::Sender<RoomId>,
     room_id: RoomId,
@@ -501,6 +471,12 @@ struct Follower {
 }
 
 impl Follower {
+    /// Maps a batch of the SDK's, then tells that the messages hold it.
+    async fn follow(&mut self, batch: Vec<VectorDiff<Arc<TimelineItem>>>) {
+        self.apply(batch).await;
+        self.mapped.send_replace(self.items.clone());
+    }
+
     async fn apply(&mut self, batch: Vec<VectorDiff<Arc<TimelineItem>>>) {
         let mut mapped = Vec::with_capacity(batch.len());
         let mut fetch = Vec::new();
@@ -648,6 +624,11 @@ impl Follower {
             VectorDiff::Truncate { length } => VectorDiff::Truncate { length },
         }
     }
+}
+
+/// How many of `items` are events (not the timeline's start, a date divider or the read marker).
+fn event_count(items: &Vector<Arc<TimelineItem>>) -> usize {
+    items.iter().filter(|item| item.as_event().is_some()).count()
 }
 
 /// Pages back until the timeline holds a first screen of messages, or the room's start.

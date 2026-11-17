@@ -12,10 +12,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     static let notifications = Notifications(session: session)
     /// Registered before launching ends, as the system requires; none for the demo (no server).
     static let refresh: BackgroundRefresh? = LaunchOptions.isDemo ? nil : BackgroundRefresh(session: session)
+    /// Uploads go on in the background, whichever account sends them; registered before
+    /// launching ends.
+    static let uploads = BackgroundUploads(session: session)
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         _ = Self.notifications
         _ = Self.refresh
+        _ = Self.uploads
         return true
     }
 
@@ -51,8 +55,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         Task { await show(signedIn: session.restore()) }
     }
 
-    private var backgroundUploads: BackgroundUploads?
-
     func sceneDidEnterBackground(_ scene: UIScene) {
         // the long work (index, photos, the model) and the sync end before iOS suspends the app:
         // a file held as it is suspended ends it. A background task gives the time to end them.
@@ -82,12 +84,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         session.enterForeground()
         ForegroundWork.shared.enter()
+        notifications.showBadge()
     }
 
     private func show(signedIn: Bool) {
         guard let window else { return }
-        // registered once, before any upload can ask for it (the account's uploads).
-        if signedIn, backgroundUploads == nil, let uploads = session.uploads { backgroundUploads = BackgroundUploads(uploads: uploads) }
         if signedIn {
             let list = ChatListViewController(session: session, badge: { [notifications] in notifications.setBadge($0) }) { [weak self] in
                 Task { await self?.session.signOut(); self?.show(signedIn: false) }
@@ -113,7 +114,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         } else {
             notifications.openChat = nil
             session.security?.onRequest = nil
-            UNUserNotificationCenter.current().setBadgeCount(0)
+            notifications.setBadge(.empty)
             window.rootViewController = SignInViewController(session: session) { [weak self] in self?.show(signedIn: true) }
         }
     }

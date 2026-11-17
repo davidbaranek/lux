@@ -6,8 +6,6 @@ import LuxBindings
 public struct PushPayload: Sendable, Equatable {
     public var roomId: String
     public var eventId: String
-    /// The server's badge: chats with unread notifications. Nil when it sent none.
-    public var unreadCount: Int?
     /// The Matrix thread the message replies in, by its root: not the gateway's, but what the
     /// device read of the message adds to the notification (`PushedMessage.userInfo`).
     public var threadRoot: String?
@@ -16,7 +14,6 @@ public struct PushPayload: Sendable, Equatable {
         guard let roomId = userInfo["room_id"] as? String, let eventId = userInfo["event_id"] as? String else { return nil }
         self.roomId = roomId
         self.eventId = eventId
-        unreadCount = (userInfo["unread_count"] as? NSNumber)?.intValue
         threadRoot = userInfo[Self.threadRootKey] as? String
     }
 

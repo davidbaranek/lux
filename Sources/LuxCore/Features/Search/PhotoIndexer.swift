@@ -24,10 +24,9 @@ public actor PhotoIndexer {
     private let directory: URL
     private let report: @Sendable (Progress) -> Void
     private var reader: PhotoReader
+    /// The newest reading asked for, if any: it reads after the one before it ends (one at a
+    /// time), and a stop cancels it and, through it, every reading before it.
     private var running: Task<Bool, Never>?
-    /// How many times the reading was stopped: a reading waiting for another does not start
-    /// after a stop.
-    private var stops = 0
 
     init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, model: PhotoSearchModel?,
          report: @escaping @Sendable (Progress) -> Void) {
@@ -46,38 +45,57 @@ public actor PhotoIndexer {
     }
 
     /// Reads the photos not read yet, the newest first: at most `limit` (nil: all of them).
-    /// True when none is left. A run under way goes on, and this one after it if it reads more;
-    /// a stop ends both.
+    /// True when none is left. A reading under way goes on, and this one after it if it reads
+    /// more; a stop ends both. A stopped reading still ending (its photo finishing) is waited
+    /// for, and this one starts after it. The caller's cancel (the app leaving the front, which
+    /// ends all photo reading) ends it and the readings it waits for.
     @discardableResult
     func read(limit: Int?, lease: ForegroundLease) async -> Bool {
-        let asked = stops
-        if let running {
-            let done = await running.value
-            guard limit == nil, !done, stops == asked, self.running == nil else { return done }
+        let previous = running
+        let wasStopped = previous?.isCancelled ?? false
+        let run = Task {
+            if let previous {
+                let done = await withTaskCancellationHandler { await previous.value } onCancel: { previous.cancel() }
+                if Task.isCancelled { return false }
+                // a reading that went on to its end answers for this one too, unless this one reads all.
+                if !wasStopped, limit != nil || done { return done }
+            }
+            return await readUnread(limit: limit, lease: lease)
         }
-        let run = Task { await readUnread(limit: limit, lease: lease) }
         running = run
         report(await progress())
-        // the caller's cancel (the app leaving the front) ends the reading too.
         let done = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
-        running = nil
+        if running == run { running = nil }
         report(await progress())
         return done
     }
 
-    /// Stops the reading where it is (what was read is kept), and the reading waiting for it.
-    func stop() {
-        stops += 1
+    /// Stops the reading where it is (what was read is kept), and the readings waiting for it.
+    /// It shows as stopped at once, while the photo being read finishes.
+    func stop() async {
         running?.cancel()
+        report(await progress())
+    }
+
+    /// Whether photos are being read, as the user sees it: a stopped reading that is still
+    /// ending is not, a reading waiting for it is.
+    private var isReading: Bool {
+        running.map { !$0.isCancelled } ?? false
+    }
+
+    /// Reports how far the reading is now: after a change it did not make (the model, the
+    /// embeddings forgotten).
+    func announce() async {
+        report(await progress())
     }
 
     /// How many photos the index has, and how many the current reader read.
     func progress() async -> Progress {
         guard let counts = await bestEffort("photo search: counts", { try await store.imageCounts(reader: reader.name) }) else {
-            return Progress(isReading: running != nil)
+            return Progress(isReading: isReading)
         }
         return Progress(total: counts.total, read: counts.read, withWords: counts.withWords, withEmbedding: counts.withEmbedding,
-                        isReading: running != nil)
+                        isReading: isReading)
     }
 
     private func readUnread(limit: Int?, lease: ForegroundLease) async -> Bool {
