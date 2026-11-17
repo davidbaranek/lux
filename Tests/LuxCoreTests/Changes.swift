@@ -14,16 +14,10 @@ final class Changes {
         for continuation in woken { continuation.resume() }
     }
 
-    /// How much longer a wait may take: `LUX_TEST_TIME_SCALE` (CI sets it under Thread Sanitizer,
-    /// which runs the code several times slower on a small virtual machine). The limit guards against
-    /// a hang, not a slow machine.
-    nonisolated static let timeScale: Int = ProcessInfo.processInfo.environment["LUX_TEST_TIME_SCALE"].flatMap { Int($0) } ?? 1
-
-    /// Returns once `done` holds, checked at each announcement, or once `limit` (times
-    /// `timeScale`) passed.
+    /// Returns once `done` holds, checked at each announcement, or once `limit` passed.
     func until(_ done: () -> Bool, within limit: Duration = .seconds(10),
                sourceLocation: SourceLocation = #_sourceLocation) async {
-        let deadline = ContinuousClock.now + limit * Self.timeScale
+        let deadline = ContinuousClock.now + limit
         let timeout = Task { [weak self] in
             guard (try? await Task.sleep(until: deadline)) != nil else { return }
             self?.send()

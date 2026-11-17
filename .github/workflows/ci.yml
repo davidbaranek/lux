@@ -114,8 +114,6 @@ jobs:
         env:
           # one false race at the Rust boundary is suppressed (Tests/tsan-suppressions.txt).
           TSAN_OPTIONS: halt_on_error=1 suppressions=${{ github.workspace }}/Tests/tsan-suppressions.txt
-          # the sanitizer slows the code down several times: the tests' waits get longer.
-          LUX_TEST_TIME_SCALE: 5
 
   apps:
     needs: sdk
