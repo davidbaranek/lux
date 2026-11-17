@@ -117,15 +117,17 @@ public final class Session {
     }
 
     /// The app went to the background: the sync stops, before the system suspends it (the caller
-    /// holds the time for it, a background task).
-    public func enterBackground() async {
-        await current?.enterBackground()
+    /// holds the time for it, a background task, and waits for the task this gives). Queued at
+    /// once, in turn with the moves to the front.
+    @discardableResult
+    public func enterBackground() -> Task<Void, Never>? {
+        current?.enterBackground()
     }
 
     /// The app is back in front (or the Mac woke): the sync runs again and the lists catch up.
+    /// Queued at once, after the moves told before it.
     public func enterForeground() {
-        guard let current else { return }
-        Task { await current.enterForeground() }
+        current?.enterForeground()
     }
 
     /// A chat's details screen, of a chat in `list`: it tells which place keeps the chat out of
@@ -219,8 +221,10 @@ public final class Session {
     public var onAccountLost: (() -> Void)?
 
     private func accountLost() {
+        let lost = current
         current = nil
         onAccountLost?()
+        Task { await lost?.closeStores() }
     }
 
     @concurrent
@@ -362,6 +366,7 @@ public final class Session {
     /// session as the test ends: no store is left to close as the process exits).
     public func close() async {
         await current?.close()
+        await current?.closeStores()
         current = nil
     }
 
@@ -373,6 +378,8 @@ public final class Session {
         } catch {
             Log.app.error("sign-out: \(String(describing: error), privacy: .public)")
         }
+        // closed before their files go.
+        await current.closeStores()
         if let stored = bestEffort("keychain read", { try keychain.read() }) ?? nil {
             // the account's folders (its stores, its search index) and their key.
             Self.discard(paths.account(stored.store))

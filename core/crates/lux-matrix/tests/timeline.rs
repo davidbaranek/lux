@@ -1037,3 +1037,80 @@ async fn paging_back_over_pages_without_messages_does_not_wait_on_them() {
             .any(|message| message.message.body == "target")
     );
 }
+
+/// A chat the device held `one` and `two` of, then a limited sync with only `six`: `three` to
+/// `five` came while the app was away (as notifications), and the server holds them behind the
+/// sync's `prev_batch`.
+async fn chat_with_a_gap(server: &MatrixMockServer, client: &Client, open_before: bool) -> MatrixTimelines {
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    let id = |id: &str| matrix_sdk::ruma::OwnedEventId::try_from(id).unwrap();
+    let text = |body: &str| factory.text_msg(body).sender(alice).event_id(&id(&format!("${body}")));
+    server
+        .sync_room(
+            client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(text("one"))
+                .add_timeline_event(text("two")),
+        )
+        .await;
+    server
+        .mock_room_messages()
+        .match_from("gap")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            text("five"),
+            text("four"),
+            text("three"),
+            text("two"),
+            text("one"),
+        ]))
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client.clone());
+    if open_before {
+        timelines.prefetch(&room().into()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
+            .await
+            .unwrap();
+        page_until(&timelines, |page| page.len() == 2).await;
+    }
+    server
+        .sync_room(
+            client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(text("six"))
+                .set_timeline_limited()
+                .set_timeline_prev_batch("gap"),
+        )
+        .await;
+    timelines
+}
+
+fn bodies(page: &[Arc<TimelineMessage>]) -> Vec<&str> {
+    page.iter().map(|message| message.message.body.as_str()).collect()
+}
+
+/// Every message, the gap's among them, in order.
+const NO_GAP: [&str; 6] = ["one", "two", "three", "four", "five", "six"];
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_opened_after_a_limited_sync_shows_what_came_in_its_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let timelines = chat_with_a_gap(&server, &client, false).await;
+
+    timelines.prefetch(&room().into()).await.unwrap();
+    let page = page_until(&timelines, |page| page.len() == NO_GAP.len()).await;
+    assert_eq!(bodies(&page), NO_GAP);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_chat_shows_what_came_in_a_limited_syncs_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    // open and filled before: the limited sync resets it to its newest message.
+    let timelines = chat_with_a_gap(&server, &client, true).await;
+
+    let page = page_until(&timelines, |page| page.len() == NO_GAP.len()).await;
+    assert_eq!(bodies(&page), NO_GAP);
+}

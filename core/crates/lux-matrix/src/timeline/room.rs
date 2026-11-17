@@ -166,12 +166,17 @@ impl RoomTimeline {
                 }
             }
         });
-        // the context of a message is its first screen: nothing to fill.
+        // the context of a message is its first screen, and only the live timeline is reset by a
+        // limited sync: a focused one has its own cache, which sync events never reach.
         let fill = if around.is_some() {
             filled_sender.send_replace(true);
             None
         } else {
-            Some(crate::task::spawn(fill(Arc::clone(&timeline), filled_sender)))
+            Some(crate::task::spawn(keep_filled(
+                Arc::clone(&timeline),
+                filled_sender,
+                mapped.clone(),
+            )))
         };
         // a sender's name comes with the room's members; their profiles arrive as changes.
         let members = crate::task::spawn({
@@ -739,21 +744,56 @@ fn event_count(items: &Vector<Arc<TimelineItem>>) -> usize {
     items.iter().filter(|item| item.as_event().is_some()).count()
 }
 
-/// Pages back until the timeline holds a first screen of messages, or the room's start.
-async fn fill(timeline: Arc<Timeline>, filled: watch::Sender<bool>) {
+/// Keeps the timeline's first screen: pages back until it holds one, or the room's start, when
+/// it opens and again each time the SDK resets it to its newest events.
+///
+/// A limited sync (the app was away, a notification's events among those it missed) ends the
+/// room's event cache in a gap, then the sync's newest events; the cache keeps only that last
+/// chunk, so the timeline is cleared down to them, and the gap is filled by paging back
+/// (matrix-sdk `RoomEventCacheState::handle_sync`: "observers may not render it (yet)"). A
+/// timeline already open, a chat's or a kept one, pages back as on its opening.
+async fn keep_filled(timeline: Arc<Timeline>, filled: watch::Sender<bool>, mut mapped: watch::Receiver<Mapped>) {
     loop {
-        let shown = timeline
-            .items()
-            .await
-            .iter()
-            .filter(|item| {
-                item.as_event()
-                    .is_some_and(|event| event.content().as_msglike().is_some())
-            })
-            .count();
-        if shown >= FIRST_SCREEN {
-            break;
+        fill(&timeline).await;
+        filled.send_replace(true);
+        // what the fill brought is no reset; the follower goes only with the timeline.
+        mapped.borrow_and_update();
+        loop {
+            if mapped.changed().await.is_err() {
+                return;
+            }
+            if lacks_first_screen(&mapped.borrow_and_update()) {
+                break;
+            }
         }
+        filled.send_replace(false);
+    }
+}
+
+/// The timeline holds less than a first screen of messages, and not the room's start.
+fn lacks_first_screen(items: &Mapped) -> bool {
+    let at_start = items
+        .front()
+        .is_some_and(|item| matches!(item.as_virtual(), Some(VirtualTimelineItem::TimelineStart)));
+    !at_start && message_count(items, FIRST_SCREEN) < FIRST_SCREEN
+}
+
+/// How many of `items` are messages, counted up to `at_most`.
+fn message_count(items: &Vector<Arc<TimelineItem>>, at_most: usize) -> usize {
+    items
+        .iter()
+        .rev()
+        .filter(|item| {
+            item.as_event()
+                .is_some_and(|event| event.content().as_msglike().is_some())
+        })
+        .take(at_most)
+        .count()
+}
+
+/// Pages back until the timeline holds a first screen of messages, or the room's start.
+async fn fill(timeline: &Timeline) {
+    while message_count(&timeline.items().await, FIRST_SCREEN) < FIRST_SCREEN {
         match timeline.paginate_backwards(PAGE).await {
             Ok(false) => {}
             Ok(true) => break,
@@ -763,5 +803,4 @@ async fn fill(timeline: Arc<Timeline>, filled: watch::Sender<bool>) {
             }
         }
     }
-    filled.send_replace(true);
 }

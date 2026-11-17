@@ -4,7 +4,8 @@
 //! The connection can be let go ([`Worker::release`]) while the app is in the background, where
 //! iOS ends an app that holds a lock on a file in a shared container; the next job opens it again.
 //!
-//! The last handle stops the thread and waits for it: the connection is closed when the handle
+//! [`Worker::close`] ends the thread and awaits it, blocking no thread meanwhile. A handle dropped
+//! without it stops the thread and waits for it there: the connection is closed when the handle
 //! drops, never by a thread still running while the process exits (SQLCipher's teardown at exit
 //! frees what an unfinished close still uses).
 
@@ -23,8 +24,8 @@ enum Message {
     Run(Job),
     /// Closes the connection, then answers.
     Release(oneshot::Sender<()>),
-    /// Closes the connection and ends the thread.
-    Stop,
+    /// Closes the connection and ends the thread, then answers (when asked to).
+    Stop(Option<oneshot::Sender<()>>),
 }
 
 /// The handle to the connection's thread. Dropping it ends the thread, after the jobs sent
@@ -65,7 +66,13 @@ impl Worker {
                         connection = None;
                         done.send(()).other_end_may_be_gone("the caller");
                     }
-                    Message::Stop => return,
+                    Message::Stop(done) => {
+                        drop(connection);
+                        if let Some(done) = done {
+                            done.send(()).other_end_may_be_gone("the caller");
+                        }
+                        return;
+                    }
                 }
             }
         })?;
@@ -92,6 +99,16 @@ impl Worker {
         answered.await.map_err(|_| Error::Closed)?
     }
 
+    /// Closes the connection after the jobs sent before, and ends the thread; later jobs fail
+    /// with [`Error::Closed`]. The handle's drop then has nothing to wait for.
+    pub(crate) async fn close(&self) {
+        let (done, closed) = oneshot::channel();
+        // a thread already ended answers nothing: it is closed.
+        if self.messages.send(Message::Stop(Some(done))).is_ok() {
+            closed.await.other_end_may_be_gone("the store's thread");
+        }
+    }
+
     /// Closes the connection after the jobs sent before; the next job opens it again.
     pub(crate) async fn release(&self) -> Result<()> {
         let (done, released) = oneshot::channel();
@@ -102,9 +119,9 @@ impl Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        // a thread that failed to open has ended already, and the send fails.
+        // a thread that failed to open, or was closed, has ended already, and the send fails.
         self.messages
-            .send(Message::Stop)
+            .send(Message::Stop(None))
             .other_end_may_be_gone("the store's thread");
         if let Some(thread) = self.thread.take() {
             // a panic in a job has already been reported on its thread.
