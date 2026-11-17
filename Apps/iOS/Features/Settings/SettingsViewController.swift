@@ -16,8 +16,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private var profilePicture: UIImage?
     private var shownPicture: ImageRef?
     private var networksObservation: AnyObject?
-    /// How far back search reads, as its row shows it.
-    private var shownHistory: SearchHistory?
+    /// What each row shows now: a row is set again only when what it shows changed. The model
+    /// reports many times a second while search reads, and a row set again under the user's
+    /// finger loses the touch (and an open menu closes).
+    private var shown: [Item: Row] = [:]
     /// The settings' switches, made once: a cell configured again (as the model reports reading
     /// photos, many times a minute) shows the same switch, so it neither slides in anew nor loses
     /// the user's touch.
@@ -50,94 +52,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
 
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { [weak self] cell, _, item in
             guard let self else { return }
-            var content = UIListContentConfiguration.valueCell()
-            cell.accessories = []
-            switch item {
-            case .profile:
-                content = .subtitleCell()
-                content.text = model.profile?.name
-                content.secondaryText = model.profile?.userId
-                content.image = profilePicture ?? UIImage(systemName: "person.crop.circle.fill")
-                content.imageProperties.preferredSymbolConfiguration = .init(pointSize: 40)
-                content.imageProperties.maximumSize = CGSize(width: 48, height: 48)
-                cell.accessories = [.disclosureIndicator()]
-            case .networks:
-                content.text = String(localized: "Networks")
-                content.secondaryText = networksSummary
-                content.image = UIImage(systemName: "point.3.connected.trianglepath.dotted")
-                cell.accessories = [.disclosureIndicator()]
-            case .appearance:
-                content.text = String(localized: "Appearance")
-                content.secondaryText = model.chatStyle.title
-                content.image = UIImage(systemName: "paintpalette")
-                cell.accessories = [.disclosureIndicator()]
-            case .verify:
-                content.text = String(localized: "Verify This Device")
-                content.secondaryText = switch model.isVerified {
-                case true?: String(localized: "Verified")
-                case false?: String(localized: "Not verified")
-                case nil: String(localized: "Checking…")
-                }
-                content.image = UIImage(systemName: model.isVerified == true ? "checkmark.shield" : "exclamationmark.shield")
-                cell.accessories = [.disclosureIndicator()]
-            case .devices:
-                content.text = String(localized: "Devices")
-                content.image = UIImage(systemName: "laptopcomputer.and.iphone")
-                cell.accessories = [.disclosureIndicator()]
-            case .recovery:
-                content.text = model.recovery == .disabled ? String(localized: "Set Up Recovery") : String(localized: "Key Backup")
-                content.secondaryText = model.recovery.title
-                content.image = UIImage(systemName: "key")
-                cell.accessories = [.disclosureIndicator()]
-            case .readReceipts:
-                content = .cell()
-                content.text = String(localized: "Send Read Receipts")
-                content.secondaryText = String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too.")
-                content.secondaryTextProperties.color = .secondaryLabel
-                cell.accessories = [switchAccessory(readReceiptsSwitch, isOn: model.sendsReadReceipts)]
-            case .searchIndex:
-                content.text = String(localized: "Messages")
-                content.secondaryText = model.searchIndex ?? String(localized: "Opening…")
-                content.image = UIImage(systemName: "magnifyingglass")
-            case .searchHistory:
-                // the choice beside it, as Settings shows a menu's value.
-                content = .valueCell()
-                content.text = String(localized: "Search Back")
-                content.secondaryText = model.searchHistory.title
-                content.image = UIImage(systemName: "clock.arrow.circlepath")
-                cell.accessories = [.popUpMenu(historyMenu, displayed: .always)]
-                shownHistory = model.searchHistory
-            case .photoStatus:
-                content = .subtitleCell()
-                content.text = String(localized: "Photos")
-                content.secondaryText = model.photoStatus ?? String(localized: "Opening…")
-                content.secondaryTextProperties.color = .secondaryLabel
-                content.image = UIImage(systemName: "photo.on.rectangle.angled")
-                if model.isPhotoWorkUnderWay {
-                    let spinner = UIActivityIndicatorView(style: .medium)
-                    spinner.startAnimating()
-                    cell.accessories = [.customView(configuration: .init(customView: spinner, placement: .trailing()))]
-                }
-            case .photoLooks:
-                content = .cell()
-                content.text = String(localized: "Semantic Search")
-                content.secondaryText = String(localized: """
-                    Search always finds words. This also finds photos by what they show ("dog on the beach") and \
-                    messages by what they mean ("trip to the mountains"), with a model of about 650 MB, all on this \
-                    iPhone.
-                    """)
-                content.secondaryTextProperties.color = .secondaryLabel
-                cell.accessories = [switchAccessory(photoLooksSwitch, isOn: model.searchesPhotosByLook)]
-            case .photoAction:
-                content = .cell()
-                content.text = model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now")
-                content.textProperties.color = .tintColor
-            case .signOut:
-                content = .cell()
-                content.text = String(localized: "Sign Out")
-                content.textProperties.color = .systemRed
-            }
-            cell.contentConfiguration = content
+            let row = row(item)
+            shown[item] = row
+            cell.contentConfiguration = content(row)
+            cell.accessories = accessories(row.accessory)
         }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
             collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
@@ -154,31 +72,10 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         dataSource.apply(snapshot, animatingDifferences: false)
 
         observation = model.changes.observe { [weak self] in
-            guard let self else { return }
-            loadProfilePicture()
-            var snapshot = dataSource.snapshot()
-            // the action row shows only while there is something to do.
-            let search = searchItems
-            let shown = snapshot.itemIdentifiers(inSection: .search)
-            snapshot.deleteItems(shown.filter { !search.contains($0) })
-            snapshot.appendItems(search.filter { !shown.contains($0) }, toSection: .search)
-            // Search Back's menu stays open while the progress beside it changes: its row is set
-            // again only when its choice does (a row set again gets a new menu, closing the open one).
-            var changed = shown.filter { search.contains($0) && $0 != .searchHistory }
-            if shownHistory != model.searchHistory {
-                shownHistory = model.searchHistory
-                changed.append(.searchHistory)
-            }
-            snapshot.reconfigureItems([.profile, .appearance, .verify, .recovery] + changed)
-            // the rows' words change in place; nothing moves, so nothing animates.
-            dataSource.apply(snapshot, animatingDifferences: false)
+            self?.loadProfilePicture()
+            self?.refresh()
         }
-        networksObservation = session.networks?.changes.observe { [weak self] in
-            guard let self else { return }
-            var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.networks])
-            dataSource.apply(snapshot)
-        }
+        networksObservation = session.networks?.changes.observe { [weak self] in self?.refresh() }
         Task { await session.networks?.load() }
         Task { await model.load() }
     }
@@ -220,7 +117,6 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         }
     }
 
-    /// The profile row's picture, when the account's changed.
     /// How far back search reads each chat; the current choice ticked.
     private var historyMenu: UIMenu {
         UIMenu(options: .singleSelection, children: SearchHistory.allCases.map { history in
@@ -240,9 +136,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         Task { [weak self] in
             guard let image = await images.image(ref, pixels: pixels, shape: .circle), let self, shownPicture == ref else { return }
             profilePicture = UIImage(cgImage: image, scale: traitCollection.displayScale, orientation: .up)
-            var snapshot = dataSource.snapshot()
-            snapshot.reconfigureItems([.profile])
-            await dataSource.apply(snapshot)
+            refresh()
         }
     }
 
@@ -283,6 +177,136 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         let toggle = UISwitch()
         toggle.addAction(UIAction { action in changed((action.sender as? UISwitch)?.isOn ?? false) }, for: .valueChanged)
         return toggle
+    }
+
+    /// The rows as the model has them now: the search section's action only while there is one,
+    /// and each row set again whose words, picture or control changed.
+    private func refresh() {
+        var snapshot = dataSource.snapshot()
+        let search = searchItems
+        let listed = snapshot.itemIdentifiers(inSection: .search)
+        snapshot.deleteItems(listed.filter { !search.contains($0) })
+        snapshot.appendItems(search.filter { !listed.contains($0) }, toSection: .search)
+        let changed = snapshot.itemIdentifiers.filter { item in shown[item].map { $0 != row(item) } ?? false }
+        snapshot.reconfigureItems(changed)
+        // the rows' words change in place; nothing moves, so nothing animates.
+        dataSource.apply(snapshot, animatingDifferences: false)
+    }
+
+    /// What a row shows.
+    private struct Row: Hashable {
+        enum Style: Hashable { case value, subtitle, plain, profile }
+        enum Tone: Hashable { case normal, action, destructive }
+        enum Accessory: Hashable { case none, disclosure, readReceipts(isOn: Bool), photoLooks(isOn: Bool), historyMenu(SearchHistory), spinner }
+        var style = Style.value
+        var text: String?
+        var detail: String?
+        var symbol: String?
+        var picture: UIImage?
+        var tone = Tone.normal
+        var accessory = Accessory.none
+    }
+
+    private func row(_ item: Item) -> Row {
+        switch item {
+        case .profile:
+            Row(style: .profile, text: model.profile?.name, detail: model.profile?.userId, symbol: "person.crop.circle.fill",
+                picture: profilePicture, accessory: .disclosure)
+        case .networks:
+            Row(text: String(localized: "Networks"), detail: networksSummary, symbol: "point.3.connected.trianglepath.dotted",
+                accessory: .disclosure)
+        case .appearance:
+            Row(text: String(localized: "Appearance"), detail: model.chatStyle.title, symbol: "paintpalette", accessory: .disclosure)
+        case .verify:
+            Row(text: String(localized: "Verify This Device"), detail: verification,
+                symbol: model.isVerified == true ? "checkmark.shield" : "exclamationmark.shield", accessory: .disclosure)
+        case .devices:
+            Row(text: String(localized: "Devices"), symbol: "laptopcomputer.and.iphone", accessory: .disclosure)
+        case .recovery:
+            Row(text: model.recovery == .disabled ? String(localized: "Set Up Recovery") : String(localized: "Key Backup"),
+                detail: model.recovery.title, symbol: "key", accessory: .disclosure)
+        case .readReceipts:
+            Row(style: .plain, text: String(localized: "Send Read Receipts"),
+                detail: String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too."),
+                accessory: .readReceipts(isOn: model.sendsReadReceipts))
+        case .searchIndex:
+            Row(text: String(localized: "Messages"), detail: model.searchIndex ?? String(localized: "Opening…"), symbol: "magnifyingglass")
+        case .searchHistory:
+            // the choice beside it, as Settings shows a menu's value.
+            Row(text: String(localized: "Search Back"), detail: model.searchHistory.title, symbol: "clock.arrow.circlepath",
+                accessory: .historyMenu(model.searchHistory))
+        case .photoStatus:
+            Row(style: .subtitle, text: String(localized: "Photos"), detail: model.photoStatus ?? String(localized: "Opening…"),
+                symbol: "photo.on.rectangle.angled", accessory: model.isPhotoWorkUnderWay ? .spinner : .none)
+        case .photoLooks:
+            Row(style: .plain, text: String(localized: "Semantic Search"),
+                detail: String(localized: """
+                    Search always finds words. This also finds photos by what they show ("dog on the beach") and \
+                    messages by what they mean ("trip to the mountains"), with a model of about 650 MB, all on this \
+                    iPhone.
+                    """),
+                accessory: .photoLooks(isOn: model.searchesPhotosByLook))
+        case .photoAction:
+            Row(style: .plain,
+                text: model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now"),
+                tone: .action)
+        case .signOut:
+            Row(style: .plain, text: String(localized: "Sign Out"), tone: .destructive)
+        }
+    }
+
+    /// Whether this device is verified, in words.
+    private var verification: String {
+        switch model.isVerified {
+        case true?: String(localized: "Verified")
+        case false?: String(localized: "Not verified")
+        case nil: String(localized: "Checking…")
+        }
+    }
+
+    private func content(_ row: Row) -> UIListContentConfiguration {
+        var content: UIListContentConfiguration = switch row.style {
+        case .value: .valueCell()
+        case .subtitle, .profile: .subtitleCell()
+        case .plain: .cell()
+        }
+        content.text = row.text
+        content.secondaryText = row.detail
+        content.image = row.picture ?? row.symbol.flatMap { UIImage(systemName: $0) }
+        switch row.style {
+        case .profile:
+            content.imageProperties.preferredSymbolConfiguration = .init(pointSize: 40)
+            content.imageProperties.maximumSize = CGSize(width: 48, height: 48)
+        case .subtitle, .plain:
+            content.secondaryTextProperties.color = .secondaryLabel
+        case .value:
+            break
+        }
+        switch row.tone {
+        case .normal: break
+        case .action: content.textProperties.color = .tintColor
+        case .destructive: content.textProperties.color = .systemRed
+        }
+        return content
+    }
+
+    private func accessories(_ accessory: Row.Accessory) -> [UICellAccessory] {
+        switch accessory {
+        case .none:
+            return []
+        case .disclosure:
+            return [.disclosureIndicator()]
+        case .readReceipts(let isOn):
+            return [switchAccessory(readReceiptsSwitch, isOn: isOn)]
+        case .photoLooks(let isOn):
+            return [switchAccessory(photoLooksSwitch, isOn: isOn)]
+        case .historyMenu:
+            return [.popUpMenu(historyMenu, displayed: .always)]
+        case .spinner:
+            let spinner = UIActivityIndicatorView(style: .medium)
+            spinner.startAnimating()
+            return [.customView(configuration: .init(customView: spinner, placement: .trailing()))]
+        }
     }
 
     /// `toggle` as a cell's trailing accessory, showing `isOn`; it moves only when that changed.
