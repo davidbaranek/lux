@@ -110,14 +110,6 @@ pub trait ChatTimelines: Send + Sync {
     /// nothing older on the server.
     fn is_at_start(&self, timeline: &TimelineId) -> impl Future<Output = Result<bool, BackendError>> + Send;
 
-    /// Pages back until the timeline holds the message of `event`; its id there, `None` when it
-    /// cannot be found.
-    fn show_event(
-        &self,
-        timeline: &TimelineId,
-        event: &EventId,
-    ) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
-
     /// The first message after the account's read receipt (a thread's own receipt in a thread),
     /// paging back a little when the timeline does not hold it yet; `None` when it is read.
     fn first_unread(

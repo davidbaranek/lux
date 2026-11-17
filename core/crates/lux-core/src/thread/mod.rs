@@ -94,6 +94,8 @@ pub enum Jumped {
     Here(MessageId),
     /// In a Matrix thread of the chat: the app opens it at the message.
     InThread {
+        /// The thread's room.
+        room: RoomId,
         /// The thread's root.
         root: EventId,
         /// The message.
@@ -182,8 +184,7 @@ pub struct ThreadViewModel {
 #[derive(Debug)]
 enum Intent {
     LoadOlder,
-    JumpToReplied(MessageId, oneshot::Sender<Option<MessageId>>),
-    JumpToEvent(EventId, oneshot::Sender<Option<MessageId>>),
+    JumpToReplied(MessageId, oneshot::Sender<Result<Jumped, JumpFailure>>),
     Jump(RoomId, EventId, oneshot::Sender<Result<Jumped, JumpFailure>>),
     LoadNewer,
     ReturnToLive,
@@ -259,16 +260,14 @@ impl ThreadViewModel {
         self.send(Intent::LoadOlder);
     }
 
-    /// Brings the message `message` answers into the thread; its id, for the app to scroll to.
-    pub async fn jump_to_replied(&self, message: MessageId) -> Option<MessageId> {
+    /// Brings the message `message` answers into the thread, as [`jump`](Self::jump) does.
+    ///
+    /// # Errors
+    /// When `message` quotes nothing the thread knows, or the quoted message cannot be shown.
+    pub async fn jump_to_replied(&self, message: MessageId) -> Result<Jumped, JumpFailure> {
         self.ask(|answer| Intent::JumpToReplied(message, answer))
             .await
-            .flatten()
-    }
-
-    /// Brings the message of `event` into the thread (a saved message the chat opened at).
-    pub async fn jump_to_event(&self, event: EventId) -> Option<MessageId> {
-        self.ask(|answer| Intent::JumpToEvent(event, answer)).await.flatten()
+            .unwrap_or(Err(JumpFailure::Failed))
     }
 
     /// Brings the message of `event` in `room` into the thread: scrolled to among the live rows

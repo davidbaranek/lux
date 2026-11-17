@@ -22,7 +22,9 @@ pub(super) mod jump;
 
 use super::decide::{self, ComposerMode, ReadReceipts, ReadState, ReplyTarget, TypingNotice};
 use super::rows::{self, OLDER, RoomMessages, ThreadRow};
-use super::{DraftIntent, Intent, MessageAction, ThreadListener, ThreadSpec, ThreadState, ThreadUpdate, Upload};
+use super::{
+    DraftIntent, Intent, JumpFailure, MessageAction, ThreadListener, ThreadSpec, ThreadState, ThreadUpdate, Upload,
+};
 use crate::FRAME;
 use crate::actions::Actions;
 use crate::diff;
@@ -50,8 +52,6 @@ enum Event {
     Filled(usize, bool),
     /// A page back of a room is in; whether its timeline now holds its first message.
     Paged(usize, Option<bool>),
-    /// A jump's message is in the room's timeline (or was not found).
-    Found(Option<(usize, MessageId)>, oneshot::Sender<Option<MessageId>>),
     /// Who is typing in a room.
     Typing(usize, Vec<Typist>),
     /// Whether the room can have messages sent later.
@@ -163,10 +163,8 @@ struct Thread<B> {
     filling: usize,
     paging: usize,
     jumping: usize,
-    /// Messages to show once their room's timeline has them, and who waits for them.
-    reveals: Vec<(MessageId, Option<oneshot::Sender<Option<MessageId>>>)>,
-    /// Jumps to messages now shown, answered with their rows once the rows are presented.
-    jumped: Vec<(MessageId, oneshot::Sender<Option<MessageId>>)>,
+    /// Messages to show once their room's timeline has them (the first unread ones).
+    reveals: Vec<MessageId>,
     loaded_waiters: Vec<oneshot::Sender<()>>,
     unread_waiters: Vec<oneshot::Sender<Option<MessageId>>>,
     send_room: RoomId,
@@ -239,7 +237,6 @@ impl<B: ThreadBackend> Thread<B> {
             paging: 0,
             jumping: 0,
             reveals: Vec::new(),
-            jumped: Vec::new(),
             loaded_waiters: Vec::new(),
             unread_waiters: Vec::new(),
             can_send_later: false,
@@ -339,7 +336,7 @@ impl<B: ThreadBackend> Thread<B> {
                 self.dirty.rows = true;
             }
             Event::FirstUnread(found) => {
-                self.reveals.extend(found.iter().map(|id| (id.clone(), None)));
+                self.reveals.extend(found.iter().cloned());
                 self.unread_found = Some(found);
                 self.reveal_waiting();
                 self.dirty.rows = true;
@@ -371,21 +368,6 @@ impl<B: ThreadBackend> Thread<B> {
                 self.paging = self.paging.saturating_sub(1);
                 self.dirty.state = true;
                 self.try_return();
-            }
-            Event::Found(found, answer) => {
-                self.jumping = self.jumping.saturating_sub(1);
-                self.dirty.state = true;
-                match found {
-                    Some((index, id)) if self.rooms.get_mut(index).is_some_and(|room| room.reveal(&id)) => {
-                        self.dirty.rows = true;
-                        self.jumped.push((id, answer));
-                    }
-                    // the room's list has not caught up yet: it shows once it does.
-                    Some((_, id)) => self.reveals.push((id, Some(answer))),
-                    None => {
-                        answer.send(None).other_end_may_be_gone("the caller");
-                    }
-                }
             }
             Event::Typing(index, typists) => {
                 if let Some(room) = self.rooms.get(index) {
@@ -449,7 +431,6 @@ impl<B: ThreadBackend> Thread<B> {
                 diff::changes(&self.rows, &rows, |row| row.id())
             };
             self.rows = rows;
-            self.answer_jumps();
             self.answer_landed();
             self.after_rows();
         }
@@ -568,10 +549,6 @@ impl<B: ThreadBackend> Thread<B> {
             Intent::ReturnToLive => self.leave_detached(),
             Intent::SetAnchor(message) => self.jumps.anchor = Some(message),
             Intent::JumpToReplied(message, answer) => self.jump_to_replied(&message, answer),
-            Intent::JumpToEvent(event, answer) => {
-                let shown = self.shown_rooms().collect();
-                self.jump(shown, event, answer);
-            }
             Intent::FirstUnread(answer) => match &self.first_unread {
                 FirstUnread::Decided(first) => {
                     answer.send(first.clone()).other_end_may_be_gone("the caller");
@@ -784,60 +761,20 @@ impl<B: ThreadBackend> Thread<B> {
         }
     }
 
-    /// Brings the message `message` answers into the thread.
-    fn jump_to_replied(&mut self, message: &MessageId, answer: oneshot::Sender<Option<MessageId>>) {
-        let replied = self.rooms.iter().enumerate().find_map(|(index, room)| {
-            room.message(message)
-                .and_then(|message| message.reply.as_ref())
-                .map(|quote| (index, quote.event_id.clone()))
+    /// Brings the message `message` answers into the thread, from the quote's room.
+    fn jump_to_replied(&mut self, message: &MessageId, answer: jump::Answer) {
+        let replied = self.message(message).and_then(|found| {
+            let event = found.reply.as_ref()?.event_id.clone();
+            Some((self.room_of(message), event))
         });
         match replied {
-            Some((index, event)) => self.jump(vec![index], event, answer),
+            Some((room, event)) => self.jump_to(room, event, answer),
             None => {
-                answer.send(None).other_end_may_be_gone("the caller");
+                answer
+                    .send(Err(JumpFailure::NotFound))
+                    .other_end_may_be_gone("the caller");
             }
         }
-    }
-
-    /// Brings the message of `event` into the thread, from the first of `rooms` that has it.
-    fn jump(&mut self, rooms: Vec<usize>, event: EventId, answer: oneshot::Sender<Option<MessageId>>) {
-        for &index in &rooms {
-            if let Some(room) = self.rooms.get_mut(index)
-                && let Some(id) = room.find_event(&event)
-            {
-                room.reveal(&id);
-                self.dirty.rows = true;
-                self.jumped.push((id, answer));
-                return;
-            }
-        }
-        self.jumping += 1;
-        self.dirty.state = true;
-        let ids: Vec<(usize, TimelineId)> = rooms
-            .into_iter()
-            .filter_map(|index| Some((index, self.timeline(&self.rooms.get(index)?.room.id))))
-            .collect();
-        let (backend, events, listener) = (
-            Arc::clone(&self.backend),
-            self.events.clone(),
-            Arc::clone(&self.listener),
-        );
-        self.followers.spawn(async move {
-            let mut found = None;
-            for (index, room) in ids {
-                match backend.timelines().show_event(&room, &event).await {
-                    Ok(Some(id)) => {
-                        found = Some((index, id));
-                        break;
-                    }
-                    Ok(None) => {}
-                    Err(error) => listener.on_error(error),
-                }
-            }
-            events
-                .send(Event::Found(found, answer))
-                .other_end_may_be_gone("the thread's task");
-        });
     }
 
     fn show_room(&mut self, room: Option<&RoomId>) {
@@ -1080,15 +1017,6 @@ impl<B: ThreadBackend> Thread<B> {
         }
     }
 
-    /// Answers the jumps whose messages show now: with the row that shows each, an album's for a
-    /// photo in it (the apps scroll to rows).
-    fn answer_jumps(&mut self) {
-        for (id, answer) in mem::take(&mut self.jumped) {
-            let row = self.row_of(&id);
-            answer.send(row.or(Some(id))).other_end_may_be_gone("the caller");
-        }
-    }
-
     /// The row that shows the message `id`: its own, or its album's.
     fn row_of(&self, id: &MessageId) -> Option<MessageId> {
         self.rows
@@ -1097,17 +1025,14 @@ impl<B: ThreadBackend> Thread<B> {
             .map(|row| row.id().clone())
     }
 
-    /// Shows the messages waiting to show whose room now has them, and answers who waits.
+    /// Shows the messages waiting to show whose room now has them.
     fn reveal_waiting(&mut self) {
         let mut waiting = mem::take(&mut self.reveals);
-        waiting.retain_mut(|(id, answer)| {
+        waiting.retain(|id| {
             if !self.rooms.iter_mut().any(|room| room.reveal(id)) {
                 return true;
             }
             self.dirty.rows = true;
-            if let Some(answer) = answer.take() {
-                self.jumped.push((id.clone(), answer));
-            }
             false
         });
         self.reveals = waiting;

@@ -198,11 +198,6 @@ impl ChatTimelines for MatrixTimelines {
         Ok(timeline.is_at_start())
     }
 
-    async fn show_event(&self, timeline: &TimelineId, event: &EventId) -> Result<Option<MessageId>, BackendError> {
-        let event = OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;
-        self.open(timeline).await?.show_event(&event).await
-    }
-
     async fn first_unread(&self, timeline: &TimelineId) -> Result<Option<MessageId>, BackendError> {
         self.open(timeline).await?.first_unread().await
     }

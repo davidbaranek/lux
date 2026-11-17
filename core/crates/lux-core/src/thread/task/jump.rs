@@ -198,7 +198,11 @@ impl<B: ThreadBackend> Thread<B> {
             // a thread's reply shows in its thread: the app opens it there.
             let event = id.at.clone().unwrap_or_else(|| root.clone());
             answer
-                .send(Ok(Jumped::InThread { root, event }))
+                .send(Ok(Jumped::InThread {
+                    room: id.room,
+                    root,
+                    event,
+                }))
                 .other_end_may_be_gone("the caller");
             return;
         }

@@ -282,7 +282,7 @@ async fn older_messages_show_as_the_user_scrolls_up_until_the_first() {
     assert!(thread.state().is_at_start);
     assert!(!thread.state().can_load_older);
     let target = thread.model.jump_to_replied("!r:demo/89".into()).await;
-    assert_eq!(target.map(|id| id.to_string()), Some("!r:demo/79".to_owned()));
+    assert_eq!(target, Ok(Jumped::Here("!r:demo/79".into())));
 }
 
 /// Opens a chat of 100 messages whose first unread one takes `unread` to find.
@@ -402,8 +402,8 @@ async fn a_jump_to_a_photo_in_an_album_answers_the_albums_row() {
     let photo = album.album[1].message.id.clone();
     assert_ne!(&photo, album.id());
     // the demo's events are its messages.
-    let row = thread.model.jump_to_event(EventId::from(photo.as_str())).await;
-    assert_eq!(row.as_ref(), Some(album.id()));
+    let row = thread.model.jump("!r:demo".into(), EventId::from(photo.as_str())).await;
+    assert_eq!(row, Ok(Jumped::Here(album.id().clone())));
 }
 
 // MARK: Matrix threads
