@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use eyeball_im::VectorDiff;
 
-use super::{DueReminder, ListRow, ListUpdate, Loading, SectionHeader, SectionRows};
+use super::{DueReminder, ListRow, ListUpdate, LoadState, Loading, SectionHeader, SectionRows};
 use crate::chat::{Chat, Label, Request, ScheduledMessage, Snapshot, Space};
 use crate::diff;
 use crate::ids::ChatId;
@@ -163,8 +163,11 @@ impl ListState {
             now,
         );
         // the shown place went away (its last waiting message cancelled, its label removed):
-        // back to the inbox.
-        if !list.places.iter().any(|place| place.id == self.place) {
+        // back to the inbox. One not listed yet (asked for before the account's chats came)
+        // waits for them, until the account has loaded without it.
+        let listed = |places: &[ListedPlace]| places.iter().any(|place| place.id == self.place);
+        let went_away = self.shown.places.as_deref().is_some_and(listed);
+        if !listed(&list.places) && (went_away || loading.state == LoadState::Done) {
             self.place = PlaceId::INBOX;
             list = places::compose(
                 &self.snapshot,

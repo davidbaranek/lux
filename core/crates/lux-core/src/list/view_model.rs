@@ -825,6 +825,34 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_place_asked_for_before_the_account_opens_is_the_one_shown() {
+        let demo = demo();
+        let (sender, mut batches) = mpsc::unbounded_channel();
+        let opening = Arc::clone(&demo);
+        let list = ChatListViewModel::start(
+            &Handle::current(),
+            async { Vec::new() },
+            async move {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Some(opening)
+            },
+            ListSetup::default(),
+            Arc::new(Relay(sender)),
+        );
+        let signal = PlaceId::Network(Network::from_id("signal"));
+        list.select_place(signal.clone());
+        let mut shown = Shown::default();
+        loop {
+            let batch = next(&mut batches).await;
+            assert_eq!(batch.place, signal, "the place asked for, not the inbox before it came");
+            shown.apply(&batch);
+            if !shown.ids(&SectionId::All).is_empty() {
+                break;
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_hidden_place_shows_at_once() {
         let demo = demo();
         let (list, mut batches) = list(&demo);
