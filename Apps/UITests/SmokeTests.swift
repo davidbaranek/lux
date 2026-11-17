@@ -24,10 +24,10 @@ final class SmokeTests: XCTestCase {
         alive("launch")
         chats.cells.element(boundBy: 1).tap()
         reach(app.collectionViews["messages"].cells.firstMatch, "a chat's messages")
-        // the back button by its identifier: the bar's first button can be the chat's title.
-        let back = app.navigationBars.buttons["BackButton"].firstMatch
-        reach(back, "the chat's back button")
-        back.tap()
+        // back by the system's edge swipe: where the bar's back button sits in the accessibility
+        // tree changes between iOS versions (27.1 lists the chat's title as the bar's only button).
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 2, dy: 0))
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         reach(chats, "the chat list, back from the chat")
 
         // search: the toolbar's button, a query, its results.
