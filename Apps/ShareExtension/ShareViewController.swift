@@ -210,7 +210,9 @@ extension ShareViewController: UITableViewDataSource, UITableViewDelegate, UISea
         guard !sending else { return }
         let before = chosen.flatMap { old in shown.firstIndex { $0.id == old.id } }
         chosen = shown[indexPath.row]
-        tableView.reconfigureRows(at: [before, indexPath.row].compactMap { $0 }.map { IndexPath(row: $0, section: 0) })
+        // the chosen row tapped again is one row to draw, not two.
+        let rows = Set([before, indexPath.row].compactMap { $0 })
+        tableView.reconfigureRows(at: rows.map { IndexPath(row: $0, section: 0) })
     }
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) { filter(searchText) }
