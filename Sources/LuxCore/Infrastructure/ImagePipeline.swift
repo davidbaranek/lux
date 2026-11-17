@@ -104,7 +104,8 @@ private actor Loads {
 
     func run(_ key: String, _ load: @escaping @Sendable () async -> CGImage?) async -> CGImage? {
         if let task = running[key] { return await task.value }
-        let task = Task(priority: .userInitiated) { await load() }
+        // the decoding (and the demo's drawing) holds its thread: on its own executor, not the pool.
+        let task = Task(executorPreference: ImageWork.executor, priority: .userInitiated) { await load() }
         running[key] = task
         let image = await task.value
         running[key] = nil
