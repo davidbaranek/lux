@@ -607,6 +607,13 @@ impl Store {
         self.worker.release().await
     }
 
+    /// Closes the store for good, after the calls made before: later calls fail with
+    /// [`Error::Closed`]. Awaited, it blocks no thread while the connection closes, which
+    /// dropping the last handle without it does.
+    pub async fn close(&self) {
+        self.worker.close().await;
+    }
+
     /// Forgets a chat's messages, photos and files: up to `until` (the chat was deleted then), or all of them and
     /// how far the index read it (`None`: the chat is gone from the account's list).
     ///

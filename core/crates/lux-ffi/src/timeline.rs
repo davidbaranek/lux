@@ -3,7 +3,10 @@
 //! reading, uploads, media.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
+
+use futures_util::StreamExt;
 
 use lux_core::ids::{EventId, MediaId, MessageId, MessageRef, RoomId, TimelineId};
 use lux_core::message::SendState;
@@ -13,12 +16,23 @@ use lux_core::timeline::{
     OutgoingThumbnail, Participant, Picture, Quote, StyleKind, ThreadReply, ThreadSummary, TimelineMessage, Typist,
 };
 
-use crate::account::{Backend, CoreAccount, CoreAccountError, with_account};
+use crate::account::{Backend, CoreAccount, CoreAccountError, CoreListenerHandle, with_account};
 use crate::chat::{CorePreviewKind, path_text, position};
 use crate::message::CoreSendState;
+use crate::runtime;
 use crate::time_span::TimeSpan;
 
 // MARK: records
+
+/// Hears how an upload goes.
+#[uniffi::export(with_foreign)]
+pub trait CoreUploadListener: Send + Sync {
+    /// How far it is, on the core's thread: uploading, each time more has gone, then sent or
+    /// failed, the last.
+    fn on_state(&self, state: CoreSendState);
+    /// Nothing more comes: after its last state, or when it was discarded before it went.
+    fn on_end(&self);
+}
 
 /// What a message is, besides one to show as it came.
 #[derive(uniffi::Enum)]
@@ -735,8 +749,9 @@ impl CoreAccount {
         Ok(history.into())
     }
 
-    /// Queues a photo, video or file (in the Matrix thread of `thread_root`, if given); its
-    /// message's id once the chat shows it.
+    /// Queues a photo, video or file (in the Matrix thread of `thread_root`, if given), and
+    /// tells `listener` how its upload goes until it is sent or fails, or until the handle is
+    /// cancelled or let go.
     ///
     /// # Errors
     /// When the file cannot be read, or the queue refuses it.
@@ -747,30 +762,23 @@ impl CoreAccount {
         attachment: CoreOutgoingAttachment,
         caption: Option<String>,
         reply_to: Option<String>,
-    ) -> Result<Option<String>, CoreAccountError> {
+        listener: Arc<dyn CoreUploadListener>,
+    ) -> Result<Arc<CoreListenerHandle>, CoreAccountError> {
         let (timeline, attachment, reply) = (
             timeline_id(room_id, thread_root),
             attachment.into(),
             reply_to.map(MessageRef::from),
         );
-        let sent = with_account!(self.backend(), account => {
+        let mut states = with_account!(self.backend(), account => {
             account.timelines().send_attachment(&timeline, &attachment, caption.as_deref(), reply.as_ref()).await
         })?;
-        Ok(sent.map(|id| id.to_string()))
-    }
-
-    /// Where a message being sent is; none once the chat no longer has it.
-    ///
-    /// # Errors
-    /// When the chat is not the account's.
-    pub async fn send_state(
-        &self,
-        room_id: String,
-        message_id: String,
-    ) -> Result<Option<CoreSendState>, CoreAccountError> {
-        let (room, message) = (RoomId::from(room_id), MessageId::from(message_id));
-        let state = with_account!(self.backend(), account => account.timelines().send_state(&room, &message).await)?;
-        Ok(state.map(send_state))
+        let task = runtime::handle().spawn(async move {
+            while let Some(state) = states.next().await {
+                listener.on_state(send_state(state));
+            }
+            listener.on_end();
+        });
+        Ok(Arc::new(CoreListenerHandle { tasks: vec![task] }))
     }
 
     /// The file of a picture, loaded once into `folder`; none when there is none (the demo's

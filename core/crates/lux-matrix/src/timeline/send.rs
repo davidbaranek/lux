@@ -6,8 +6,7 @@
 use std::path::Path;
 
 use lux_core::ids::{ChatId, MessageId, MessageRef, RoomId, TimelineId};
-use lux_core::message::SendState;
-use lux_core::ports::{BackendError, ChatSending};
+use lux_core::ports::{BackendError, ChatSending, UploadStream};
 use lux_core::timeline::{Draft, OutgoingAttachment, OutgoingKind, Quote, Receipt};
 use matrix_sdk::Room;
 use matrix_sdk::attachment::{AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail};
@@ -28,7 +27,8 @@ use matrix_sdk_ui::timeline::SendTarget;
 
 use super::MatrixTimelines;
 use super::errors::{from_send_queue, from_timeline};
-use super::items::{profile_avatar, profile_name, quoted_kind, send_state};
+use super::items::{profile_avatar, profile_name, quoted_kind};
+use super::upload;
 use crate::errors::from_sdk;
 
 impl ChatSending for MatrixTimelines {
@@ -122,21 +122,19 @@ impl ChatSending for MatrixTimelines {
         attachment: &OutgoingAttachment,
         caption: Option<&str>,
         reply: Option<&MessageRef>,
-    ) -> Result<Option<MessageId>, BackendError> {
+    ) -> Result<UploadStream, BackendError> {
         let timeline = self.open(to).await?;
         let reply = match reply {
             Some(reply) => Some(timeline.event_id(reply).await?),
             None => None,
         };
         let (request, transaction) = AttachmentRequest::of(attachment, caption, None).await?;
+        // followed from before it is queued: none of its updates goes by unseen.
+        let queue = timeline.room.send_queue();
+        let (_, updates) = queue.subscribe().await.map_err(from_send_queue)?;
         // the timeline makes it an answer to `reply`, and a thread's reply in a thread.
         request.send_in(&timeline.timeline, reply).await?;
-        Ok(timeline.message_of_transaction(&transaction).await)
-    }
-
-    async fn send_state(&self, room: &RoomId, message: &MessageId) -> Result<Option<SendState>, BackendError> {
-        let timeline = self.holding(room, message).await?;
-        Ok(timeline.item(message).await.map(|item| send_state(&item)))
+        Ok(upload::states(queue, transaction, updates))
     }
 
     async fn forward(&self, room: &RoomId, message: &MessageId, target: &ChatId) -> Result<(), BackendError> {

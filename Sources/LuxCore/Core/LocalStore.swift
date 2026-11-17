@@ -27,6 +27,14 @@ public final class LocalStore: Sendable {
         return LocalStore(store: store)
     }
 
+    /// Closes the store for good, after the calls made before; later calls fail. Awaited as the
+    /// account's session ends: the connection closes on the store's thread while nothing waits,
+    /// where the last handle let go without it would wait on the thread that lets it go (the
+    /// main one, for a session).
+    public func close() async {
+        await store.close()
+    }
+
     // MARK: Writing
 
     /// Adds messages, or changes them (an edit keeps its event id), in one transaction.

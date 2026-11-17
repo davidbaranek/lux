@@ -72,29 +72,51 @@ final class AccountSession {
     /// Ends the account's work (its search's reading, waited for) and its watches: what is left
     /// goes with this session.
     func close() async {
+        uploads.close()
         opening?.cancel()
         watchingEnd?.cancel()
         await search?.stop()
         search = nil
     }
 
+    /// Closes the account's stores, after what was sent to them: the last thing before the
+    /// session goes, so dropping it on the main thread waits for no connection to close.
+    func closeStores() async {
+        await keptStore.value?.close()
+        await index.value?.close()
+    }
+
     /// The app leaves the front: the sync stops, and with it the stores in the group close
     /// (before iOS suspends the app; the caller holds a background task for it).
-    func enterBackground() async {
-        do {
-            try await account.value.pauseSync()
-        } catch {
-            Log.app.error("the sync did not pause: \(error, privacy: .public)")
-        }
+    @discardableResult
+    func enterBackground() -> Task<Void, Never> {
+        move("pause") { await $0.pauseSync() }
     }
 
     /// The app is back in front: the sync runs again and the lists catch up.
-    func enterForeground() async {
-        do {
-            try await account.value.resumeSync()
-        } catch {
-            Log.app.error("the sync did not resume: \(error, privacy: .public)")
+    @discardableResult
+    func enterForeground() -> Task<Void, Never> {
+        move("resume") { await $0.resumeSync() }
+    }
+
+    /// The app's moves between front and back, carried out one after another in the order the
+    /// system told them (each is queued as it is told, before any await), so the app back in
+    /// front quickly keeps its sync.
+    private var moving: Task<Void, Never>?
+
+    private func move(_ name: StaticString, _ step: @escaping @Sendable (RustAccount) async -> Void) -> Task<Void, Never> {
+        let previous = moving
+        let account = self.account
+        let move = Task {
+            await previous?.value
+            do {
+                await step(try await account.value)
+            } catch {
+                Log.app.error("the sync did not \(name, privacy: .public): \(error, privacy: .public)")
+            }
         }
+        moving = move
+        return move
     }
 
     private static func open(_ file: URL, key: @escaping @Sendable () async throws -> String) -> Task<LocalStore?, Never> {

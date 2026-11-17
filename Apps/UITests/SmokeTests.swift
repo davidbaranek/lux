@@ -36,6 +36,13 @@ final class SmokeTests: XCTestCase {
         searchButton.tap()
         let field = app.searchFields.firstMatch
         reach(field, "the search field")
+        // the toolbar's search grows into the field, which takes the keyboard's focus as it ends:
+        // typing before then finds no field to type into. The focus, not the keyboard on screen:
+        // a simulator with a hardware keyboard shows none.
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
+        if XCTWaiter().wait(for: [focused], timeout: hang) != .completed {
+            XCTFail("the search field did not take the keyboard's focus within \(Int(hang)) s")
+        }
         field.typeText("hello")
         // a fresh simulator's keyboard introduces slide-to-type once, over the screen.
         let tip = app.buttons["Continue"].firstMatch

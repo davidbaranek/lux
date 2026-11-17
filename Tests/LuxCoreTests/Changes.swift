@@ -22,7 +22,10 @@ final class Changes {
             guard (try? await Task.sleep(until: deadline)) != nil else { return }
             self?.send()
         }
-        defer { timeout.cancel() }
+        // half-way, every thread of the process into the log: a machine that is only slow and
+        // threads that hold the others up look the same to this wait otherwise.
+        let stall = StallReport(after: limit / 2, at: sourceLocation)
+        defer { timeout.cancel(); stall.cancel() }
         while !done(), ContinuousClock.now < deadline {
             await withCheckedContinuation { waiting.append($0) }
         }
@@ -87,4 +90,31 @@ extension VerificationModel {
     var isComparing: Bool {
         if case .compare = step { true } else { false }
     }
+}
+
+/// Where every thread of the test process is, sampled into the log once `after` passed, unless
+/// cancelled first. It runs on a thread of its own, not Swift's cooperative pool, so it reports
+/// even when that pool's threads are all held. Not the main actor's: a closure made in its
+/// isolation is its too, and traps when the global queue runs it.
+private final class StallReport {
+    private let report: DispatchWorkItem
+
+    init(after: Duration, at location: SourceLocation) {
+        report = DispatchWorkItem {
+            let sample = Process()
+            sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+            sample.arguments = [String(ProcessInfo.processInfo.processIdentifier), "2", "-file", "/dev/stdout"]
+            print("a wait at \(location) still waits: the process's threads, sampled")
+            do {
+                try sample.run()
+                sample.waitUntilExit()
+            } catch {
+                print("no sample: \(error)")
+            }
+        }
+        let seconds = Double(after.components.seconds) + Double(after.components.attoseconds) / 1e18
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + seconds, execute: report)
+    }
+
+    func cancel() { report.cancel() }
 }
