@@ -54,12 +54,16 @@ private let recognizesText = ConditionTrait.enabled("Vision reads no text on thi
     else { return false }
     CGImageDestinationAddImage(destination, image, nil)
     guard CGImageDestinationFinalize(destination) else { return false }
-    do {
-        _ = try await RecognizeTextRequest().perform(on: picture)
-        return true
-    } catch {
-        return false
+    // Vision holds its thread: on the app's executor for such work, not the pool (as the app reads).
+    let probe = Task(executorPreference: ImageWork.executor) {
+        do {
+            _ = try await RecognizeTextRequest().perform(on: picture)
+            return true
+        } catch {
+            return false
+        }
     }
+    return await probe.value
 }
 
 @Suite(recognizesText) struct PhotoReaderTests {
