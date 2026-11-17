@@ -111,8 +111,15 @@ struct MessageSearchTests {
                                    account: Task { [account = session.account] in try await account.value }, photos: file.deletingLastPathComponent(), maxChats: 3)
         let (read, token) = search.changes()
         var reports = 0
-        let counting = search.progressChanges.observe { reports += 1 }
+        // each report with its time: a slow index (CI under Thread Sanitizer) and a stuck one look
+        // the same to the wait below; the log tells them apart.
+        let started = ContinuousClock.now
+        let counting = search.progressChanges.observe {
+            reports += 1
+            print("index progress +\(ContinuousClock.now - started): \(String(describing: search.progress))")
+        }
         await read.until { search.progress?.isIndexing == false }
+        print("index progress settled +\(ContinuousClock.now - started) after \(reports) reports: \(String(describing: search.progress))")
         let filled = reports
 
         list.change(elsewhere.id, .pin)
