@@ -765,20 +765,33 @@ async fn a_pause_during_a_refresh_leaves_the_sync_stopped() {
     assert!(answered);
     assert!(!syncing(&syncs).await);
 
-    // and while the refresh waits for the server, at each point of its wait: the refresh ends
-    // at once, unanswered, and the sync stays stopped.
-    for later in [0, 50, 150] {
-        let before = syncs.counts();
-        let pause = async {
-            // the sync's loops run (the sdk misses a stop sent before they listen).
-            both_loops_sent_since(&syncs, &before).await;
-            tokio::time::sleep(Duration::from_millis(later)).await;
-            account.pause_sync().await;
-        };
-        let (answered, ()) = tokio::join!(refresh(), pause);
-        assert!(!answered, "answered with a pause {later} ms into the wait");
-        assert!(!syncing(&syncs).await, "syncing after a pause {later} ms into the wait");
-    }
+    // and while the server holds the room list's request (the encryption's loop goes on, so a
+    // sync that missed the stop shows): the refresh ends at once, unanswered, and the sync stays
+    // stopped.
+    syncs.hold("room-list");
+    let before = syncs.counts();
+    let pause = async {
+        // the sync's loops run (the sdk misses a stop sent before they listen).
+        both_loops_sent_since(&syncs, &before).await;
+        account.pause_sync().await;
+    };
+    let (answered, ()) = tokio::join!(refresh(), pause);
+    assert!(!answered, "answered with a pause while the room list's request is held");
+    assert!(
+        !syncing(&syncs).await,
+        "syncing after a pause while the room list's request is held"
+    );
+
+    // and as the server answers: whether the answer or the pause comes first, the refresh ends
+    // and the sync stays stopped.
+    syncs.release();
+    let before = syncs.counts();
+    let pause = async {
+        both_loops_sent_since(&syncs, &before).await;
+        account.pause_sync().await;
+    };
+    let (_, ()) = tokio::join!(refresh(), pause);
+    assert!(!syncing(&syncs).await, "syncing after a pause as the server answers");
 
     // the stores open again in front, and the chats are still there.
     account.resume_sync().await;
@@ -805,7 +818,9 @@ async fn a_refresh_dropped_while_it_waits_leaves_the_sync_stopped() {
     .await;
     account.pause_sync().await;
 
-    // the system takes the time back: the refresh's future goes before the server answers.
+    // the system takes the time back: the refresh's future goes while the server holds the room
+    // list's request (its answer).
+    syncs.hold("room-list");
     let before = syncs.counts();
     let started = both_loops_sent_since(&syncs, &before);
     tokio::select! {
@@ -814,6 +829,7 @@ async fn a_refresh_dropped_while_it_waits_leaves_the_sync_stopped() {
     }
 
     assert!(!syncing(&syncs).await);
+    syncs.release();
     account.resume_sync().await;
     assert!(syncing(&syncs).await);
 }
