@@ -26,6 +26,7 @@ pub mod ports;
 pub mod preview;
 pub mod push;
 pub mod search;
+pub mod space_graph;
 pub mod thread;
 pub mod timeline;
 

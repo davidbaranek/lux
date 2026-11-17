@@ -641,6 +641,22 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn a_space_inside_with_no_chat_shown_has_no_section() {
+        // a Discord server's empty category, and one holding an archived chat alone.
+        let mut snapshot = snapshot();
+        snapshot.spaces.push(space("voice", &[], &["s"]));
+        snapshot.spaces.push(space("old", &["c"], &["s"]));
+        let sections = sections(&snapshot, &PlaceId::Space("s".into()), ChatOrder::NewestMessage);
+        assert_eq!(
+            sections
+                .iter()
+                .map(|section| section.title.as_deref())
+                .collect::<Vec<_>>(),
+            [None, Some("t")]
+        );
+    }
+
+    #[test]
     fn the_arrangement_orders_and_hides_places_but_never_the_inbox() {
         let arrangement = Arrangement {
             order: vec!["network:signal".into()],
