@@ -138,6 +138,62 @@ private let recognizesText = ConditionTrait.enabled("Vision reads no text on thi
     }
 }
 
+/// Photos that download only when let: the first download waits for `open()`, and every
+/// download then fails as offline (the photo not at fault, so the reading ends).
+private actor HeldPhotos: MediaSourcePort {
+    private(set) var downloads = 0
+    private var held: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+    private var started: [CheckedContinuation<Void, Never>] = []
+
+    func sharedFile(roomId: String, eventId: String, directory: URL) async throws -> URL {
+        downloads += 1
+        for waiter in started { waiter.resume() }
+        started = []
+        if !isOpen { await withCheckedContinuation { held = $0 } }
+        throw AccountFailure.offline
+    }
+
+    /// Waits until `count` downloads have started.
+    func downloadsStarted(_ count: Int) async {
+        while downloads < count { await withCheckedContinuation { started.append($0) } }
+    }
+
+    func open() {
+        isOpen = true
+        held?.resume()
+        held = nil
+    }
+}
+
+@Suite struct PhotoReadingStopTests {
+    @Test func aStoppedReadingShowsStoppedAtOnceAndReadingAgainStartsAfterIt() async throws {
+        let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
+        try await store.addImages((0..<3).map {
+            IndexedImage(eventId: "$photo\($0)", roomId: "!room", senderName: "Anna", caption: "", date: .now, isOwn: false)
+        })
+        let source = HeldPhotos()
+        let photos = PhotoIndexer(store: store, account: Task { source }, directory: folder(), model: nil) { _ in }
+
+        let first = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
+        await source.downloadsStarted(1)
+        #expect(await photos.progress().isReading)
+
+        // the photo being read still downloads, but the reading shows stopped.
+        await photos.stop()
+        #expect(await photos.progress().isReading == false)
+
+        // read again while the stopped one ends: it shows as reading, and starts after it.
+        let again = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
+        while await !photos.progress().isReading { await Task.yield() }
+        await source.open()
+        #expect(try await first.value == false)
+        #expect(try await again.value == false)
+        #expect(await source.downloads == 2)
+        #expect(await photos.progress().isReading == false)
+    }
+}
+
 @Test func aKindsNextPageAddsWhatItHasNotShownYet() {
     let chat = ChatRow(id: "!a", name: "Anna", preview: "", date: nil, unreadCount: 0)
     func link(_ id: String) -> FoundLink {
