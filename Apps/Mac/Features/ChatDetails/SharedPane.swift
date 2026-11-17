@@ -5,14 +5,15 @@ import LuxCore
 /// scrolls: photos and videos as a grid of squares, files and links as rows, under a search field
 /// that keeps those that hold its words (photos also by the words in them and how they look, from
 /// photo search). A click opens a photo, video or file in its app, a link in the browser.
-final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollectionViewDelegate {
+final class SharedPane: NSViewController, NSCollectionViewDelegate {
     private let model: SharedModel
     private let images: ImagePipeline?
     private var observation: AnyObject?
     private let search = NSSearchField()
     private let collection = NSCollectionView()
+    private var dataSource: NSCollectionViewDiffableDataSource<Int, String>!
+    private var items: [String: SharedItem] = [:]
     private let empty = NSTextField(labelWithString: "")
-    private var scrolled: NSObjectProtocol?
 
     init(model: SharedModel, images: ImagePipeline?) {
         self.model = model
@@ -28,13 +29,24 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
         search.target = self
         search.action = #selector(searched)
         collection.collectionViewLayout = layout()
-        collection.dataSource = self
         collection.delegate = self
         collection.isSelectable = true
         collection.backgroundColors = [.clear]
         collection.register(SharedTileItem.self, forItemWithIdentifier: SharedTileItem.identifier)
         collection.register(SharedRowItem.self, forItemWithIdentifier: SharedRowItem.identifier)
         collection.setAccessibilityIdentifier("shared")
+        let (images, media) = (images, model.kind == .media)
+        dataSource = NSCollectionViewDiffableDataSource(collectionView: collection) { [weak self] collection, indexPath, id in
+            guard let item = self?.items[id] else { return nil }
+            if media {
+                let tile = collection.makeItem(withIdentifier: SharedTileItem.identifier, for: indexPath)
+                (tile as? SharedTileItem)?.show(item, images: images)
+                return tile
+            }
+            let row = collection.makeItem(withIdentifier: SharedRowItem.identifier, for: indexPath)
+            (row as? SharedRowItem)?.show(item)
+            return row
+        }
         let scroll = NSScrollView()
         scroll.documentView = collection
         scroll.hasVerticalScroller = true
@@ -59,20 +71,10 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
             empty.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
         ])
         view = container
-        // near the end of what was read, the next page.
-        scroll.contentView.postsBoundsChangedNotifications = true
-        scrolled = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
-                                                          queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.loadMoreIfNearEnd() }
-        }
         observation = model.changes.observe { [weak self] in self?.update() }
         update()
         model.prepareSearch()
         Task { await model.loadMore() }
-    }
-
-    isolated deinit {
-        if let scrolled { NotificationCenter.default.removeObserver(scrolled) }
     }
 
     /// Three squares across for media; full-width rows for the others.
@@ -87,8 +89,14 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
         return NSCollectionViewCompositionalLayout(section: NSCollectionLayoutSection(group: group))
     }
 
+    /// A page read back inserts its items; those on screen stay (no `reloadData`, which would make
+    /// every tile again and flash its picture).
     private func update() {
-        collection.reloadData()
+        items = Dictionary(model.items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+        snapshot.appendSections([0])
+        snapshot.appendItems(model.items.map(\.id))
+        dataSource.apply(snapshot, animatingDifferences: false)
         empty.isHidden = !model.items.isEmpty
         let none = switch model.kind {
         case .media: String(localized: "No photos or videos yet")
@@ -109,29 +117,16 @@ final class SharedPane: NSViewController, NSCollectionViewDataSource, NSCollecti
         Task { await model.search(text) }
     }
 
-    private func loadMoreIfNearEnd() {
-        guard let scroll = collection.enclosingScrollView else { return }
-        let visible = scroll.contentView.bounds
-        if visible.maxY > collection.frame.height - visible.height { Task { await model.loadMore() } }
-    }
-
-    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int { model.items.count }
-
-    func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
-        let item = model.items[indexPath.item]
-        if model.kind == .media {
-            let tile = collectionView.makeItem(withIdentifier: SharedTileItem.identifier, for: indexPath)
-            (tile as? SharedTileItem)?.show(item, images: images)
-            return tile
-        }
-        let row = collectionView.makeItem(withIdentifier: SharedRowItem.identifier, for: indexPath)
-        (row as? SharedRowItem)?.show(item)
-        return row
+    /// An item near the end of what was read comes on screen: the next page.
+    func collectionView(_ collectionView: NSCollectionView, willDisplay item: NSCollectionViewItem,
+                        forRepresentedObjectAt indexPath: IndexPath) {
+        guard indexPath.item >= model.items.count - 24 else { return }
+        Task { await model.loadMore() }
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
         collectionView.deselectItems(at: indexPaths)
-        guard let index = indexPaths.first?.item, let item = model.items[safe: index] else { return }
+        guard let item = indexPaths.first.flatMap(dataSource.itemIdentifier(for:)).flatMap({ items[$0] }) else { return }
         if case .link(let url, _) = item.content {
             NSWorkspace.shared.open(url)
             return

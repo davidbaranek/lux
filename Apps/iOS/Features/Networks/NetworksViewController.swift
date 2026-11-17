@@ -27,6 +27,7 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
     private let later = UIButton(configuration: .plain())
     /// The welcome's sign-ins left to go, one after the other.
     private var queue: [NetworkOffer] = []
+    private var spinners: [Item: UIActivityIndicatorView] = [:]
 
     init(model: NetworksModel, mode: Mode) {
         self.model = model
@@ -50,8 +51,13 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
         collectionView.topEdgeEffect.style = .soft
         view.addSubview(collectionView)
 
+        // a cell reads its content from the model when the system asks (`setNeedsUpdateConfiguration()`):
+        // a bridge's new state redraws its row, not the list.
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { [weak self] cell, _, item in
-            self?.configure(cell, item)
+            cell.configurationUpdateHandler = { [weak self] cell, _ in
+                guard let cell = cell as? UICollectionViewListCell else { return }
+                self?.configure(cell, item)
+            }
         }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
             collectionView.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)
@@ -93,6 +99,8 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
         }
     }
 
+    /// The snapshot says which rows there are; a row's content follows the model through its
+    /// configuration update, so a tick of the catching up does not rebuild the list.
     private func update() {
         var snapshot = NSDiffableDataSourceSnapshot<Int, Item>()
         snapshot.appendSections([0])
@@ -104,8 +112,10 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
         default:
             snapshot.appendItems([.message])
         }
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
-        dataSource.apply(snapshot, animatingDifferences: false)
+        if snapshot.itemIdentifiers != dataSource.snapshot().itemIdentifiers {
+            dataSource.apply(snapshot, animatingDifferences: false)
+        }
+        for cell in collectionView.visibleCells { cell.setNeedsUpdateConfiguration() }
         updateWelcomeButtons()
     }
 
@@ -124,7 +134,7 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
             switch status {
             case .loading:
                 content.secondaryText = String(localized: "Checking…")
-                cell.accessories = [.customView(configuration: .init(customView: spinner(), placement: .trailing()))]
+                cell.accessories = [.customView(configuration: .init(customView: spinner(for: item), placement: .trailing()))]
             case .account(let account):
                 if let login = account.logins.first {
                     content.secondaryText = login.state == .connected
@@ -152,7 +162,7 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
             switch model.offers {
             case .loading:
                 content.text = String(localized: "Asking your server…")
-                cell.accessories = [.customView(configuration: .init(customView: spinner(), placement: .trailing()))]
+                cell.accessories = [.customView(configuration: .init(customView: spinner(for: item), placement: .trailing()))]
             case .notSet(let server):
                 content.image = UIImage(systemName: "network.slash")
                 content.text = String(localized: "\(server) offers no networks to Lux")
@@ -178,9 +188,12 @@ final class NetworksViewController: UIViewController, UICollectionViewDelegate {
         }
     }
 
-    private func spinner() -> UIActivityIndicatorView {
+    /// A row's spinner, the same one each time the row is configured again: it keeps turning.
+    private func spinner(for item: Item) -> UIActivityIndicatorView {
+        if let spinner = spinners[item] { return spinner }
         let spinner = UIActivityIndicatorView(style: .medium)
         spinner.startAnimating()
+        spinners[item] = spinner
         return spinner
     }
 

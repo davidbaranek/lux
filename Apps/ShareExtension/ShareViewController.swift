@@ -20,6 +20,8 @@ final class ShareViewController: UIViewController {
     /// The shared items, read from their providers.
     private var items = SharedItems()
     private var pictures: [String: UIImage] = [:]
+    /// Pictures on their way: a row drawn again does not ask for its picture a second time.
+    private var loading: Set<String> = []
     /// Draws a chat's picture for its row.
     private let avatar = AvatarView()
     private static let chatCell = "chat"
@@ -121,10 +123,21 @@ final class ShareViewController: UIViewController {
     private func picture(for chat: ShareChat) -> UIImage? {
         guard let ref = chat.avatar ?? chat.memberAvatars.first, case .person(let url) = ref else { return nil }
         if let picture = pictures[url] { return picture }
+        guard loading.insert(url).inserted else { return nil }
+        // decoded off the main thread at the row's size: a full-size bitmap per chat would cost the
+        // extension memory it does not have.
+        let pixels = CGSize(width: avatar.side * traitCollection.displayScale, height: avatar.side * traitCollection.displayScale)
         Task { [weak self] in
-            guard let data = await self?.sender?.picture(ref), let image = UIImage(data: data) else { return }
-            self?.pictures[url] = image
-            self?.list.reloadData()
+            guard let data = await self?.sender?.picture(ref),
+                  let image = await UIImage(data: data)?.byPreparingThumbnail(ofSize: pixels),
+                  let self else { return }
+            pictures[url] = image
+            // only the rows that show it draw again.
+            let rows = shown.indices.filter { [shown] in
+                guard let ref = shown[$0].avatar ?? shown[$0].memberAvatars.first, case .person(let shownURL) = ref else { return false }
+                return shownURL == url
+            }
+            list.reconfigureRows(at: rows.map { IndexPath(row: $0, section: 0) })
         }
         return nil
     }
@@ -195,8 +208,11 @@ extension ShareViewController: UITableViewDataSource, UITableViewDelegate, UISea
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard !sending else { return }
+        let before = chosen.flatMap { old in shown.firstIndex { $0.id == old.id } }
         chosen = shown[indexPath.row]
-        tableView.reloadData()
+        // the chosen row tapped again is one row to draw, not two.
+        let rows = Set([before, indexPath.row].compactMap { $0 })
+        tableView.reconfigureRows(at: rows.map { IndexPath(row: $0, section: 0) })
     }
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) { filter(searchText) }
