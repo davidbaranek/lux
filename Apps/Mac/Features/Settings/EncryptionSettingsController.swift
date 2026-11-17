@@ -217,9 +217,17 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
 
 /// The account's devices, in a list of its own height that scrolls: an account can have dozens.
 /// Each other device can be signed out; an unverified one verified.
-private final class DeviceList: NSScrollView, NSTableViewDataSource, NSTableViewDelegate {
+private final class DeviceList: NSScrollView, NSTableViewDelegate {
+    private enum Item: Hashable {
+        /// Before the first answer.
+        case loading
+        case device(String)
+    }
+
     private let table = NSTableView()
+    private var dataSource: NSTableViewDiffableDataSource<Int, Item>!
     private var rows: [OwnDevice] = []
+    private var byId: [String: OwnDevice] = [:]
     private var canVerify = false
     private let verify: (OwnDevice) -> Void
     private let signOut: (OwnDevice) -> Void
@@ -237,9 +245,15 @@ private final class DeviceList: NSScrollView, NSTableViewDataSource, NSTableView
         table.rowHeight = 30
         table.selectionHighlightStyle = .none
         table.usesAlternatingRowBackgroundColors = true
-        table.dataSource = self
         table.delegate = self
         table.setAccessibilityLabel(String(localized: "Devices"))
+        dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] _, _, _, item in
+            guard case .device(let id) = item, let self, let device = byId[id] else {
+                return Self.cell([NSTextField(labelWithString: String(localized: "Loading…"))])
+            }
+            return view(for: device)
+        }
+        show([], canVerify: false, force: true)
         documentView = table
         hasVerticalScroller = true
         autohidesScrollers = true
@@ -251,20 +265,23 @@ private final class DeviceList: NSScrollView, NSTableViewDataSource, NSTableView
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    func show(_ devices: [OwnDevice], canVerify: Bool) {
-        guard devices != rows || canVerify != self.canVerify else { return }
+    /// The devices as they are now: a device that came or went is a row inserted or removed; only a
+    /// device whose state changed (or every one, when verifying becomes possible) is drawn again.
+    func show(_ devices: [OwnDevice], canVerify: Bool, force: Bool = false) {
+        guard force || devices != rows || canVerify != self.canVerify else { return }
+        let old = byId, verifyChanged = canVerify != self.canVerify
         rows = devices
+        byId = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         self.canVerify = canVerify
-        table.reloadData()
+        var snapshot = NSDiffableDataSourceSnapshot<Int, Item>()
+        snapshot.appendSections([0])
+        snapshot.appendItems(devices.isEmpty ? [.loading] : devices.map { .device($0.id) })
+        let changed = byId.filter { id, device in old[id].map { verifyChanged || $0 != device } ?? false }.map { Item.device($0.key) }
+        snapshot.reloadItems(changed)
+        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { max(rows.count, 1) }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard rows.indices.contains(row) else {
-            return Self.cell([NSTextField(labelWithString: String(localized: "Loading…"))])
-        }
-        let device = rows[row]
+    private func view(for device: OwnDevice) -> NSView {
         let state = NSImageView(image: NSImage(
             systemSymbolName: device.isVerified ? "checkmark.shield" : "exclamationmark.shield",
             accessibilityDescription: device.isVerified ? String(localized: "Verified") : String(localized: "Not verified")
