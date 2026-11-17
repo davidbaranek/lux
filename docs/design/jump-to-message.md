@@ -68,10 +68,14 @@ also clear the room's stored events, so Lux cannot use them for this. Two conseq
 handled in "Memory and reloads" below:
 - each distinct target keeps its window (100 context events plus what was paged) in memory until
   the `Client` drops;
-- when the cross-process store lock comes back dirty (Lux runs `CrossProcessLockConfig::MultiProcess`
-  with the notification extension), the event cache reloads every state, and an event-focused
-  cache's `reload` calls `reload_impl` again: one new `/context` per memoised cache, and its window
-  is reset to the initial context (`states/mod.rs:553-565`, `event_focused/mod.rs` `reload`).
+- when the event cache's cross-process store lock comes back dirty, the event cache reloads every
+  state, and an event-focused cache's `reload` calls `reload_impl` again. That is one new
+  `/context` per memoised cache, and its window is reset to the initial context
+  (`states/mod.rs:553-565`, `event_focused/mod.rs` `reload`). In Lux this does not happen: the
+  notification and share extensions build their clients `with_event_cache(false)`
+  (`lux-matrix/src/store/mod.rs`). Outside the event cache, only `Client::optimize_stores` and
+  `Client::get_store_sizes` take that lock (`matrix-sdk/src/client/mod.rs:4102,4128`), and Lux
+  calls neither. Measured in PR (1), see below.
 
 **Live data on a focused timeline.**
 - *New events from sync:* never added (`state_transaction.rs:~605`: "Never add any item to a
@@ -223,13 +227,15 @@ Nothing public in 14a0ada drops a focused cache (see "Caching"), so Lux bounds t
   the pages read from it, a few hundred KB at most. All of them are freed when the `Client` drops:
   sign-out, account close, or the process ending (iOS ends suspended apps routinely; on the Mac
   the account's restart does it).
-- **Reload cost.** Each dirty-lock reload issues one `/context` per memoised cache. PR (1) measures
-  it with the mock server: N jumps, then a reload, then expect N `/context` requests. The result goes
-  in its description.
-- **What closes it.** Lux does not patch the SDK. We propose upstream a way to drop an event-focused
-  cache once no timeline uses it: drop the entry from `Caches::event_focused` when the last
-  `EventFocusedCache` handle goes, or an explicit `RoomEventCache::forget_event_focused(key)`. Lux
-  picks it up with the next pin bump. Until then, the cost above is accepted on purpose.
+- **Reload cost, measured** (`lux-matrix/src/store/tests.rs`, the app and the notification
+  extension's clients on one store). After 1, 10 and 50 jumps, the extension's sync followed by the
+  app's next sync costs **0** `/context` requests each time. The control test lets another client
+  take the event-cache lock (`get_store_sizes`). The app then fetches all 10 of its jumps again, so
+  the cost is real but only reachable through a call Lux does not make. The test fails if an
+  extension ever starts taking the lock.
+- **What closes it.** Lux does not patch the SDK. The memory part (each distinct jump kept until
+  the `Client` drops) remains. An upstream proposal to drop an event-focused cache once no timeline
+  uses it is drafted in the shared notes. Posting it is the user's decision.
 
 ### Threads
 
