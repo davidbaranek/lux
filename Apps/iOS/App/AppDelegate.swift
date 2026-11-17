@@ -82,6 +82,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         session.enterForeground()
         ForegroundWork.shared.enter()
+        notifications.showBadge()
     }
 
     private func show(signedIn: Bool) {
@@ -113,7 +114,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         } else {
             notifications.openChat = nil
             session.security?.onRequest = nil
-            UNUserNotificationCenter.current().setBadgeCount(0)
+            notifications.setBadge(0)
             window.rootViewController = SignInViewController(session: session) { [weak self] in self?.show(signedIn: true) }
         }
     }
