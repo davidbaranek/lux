@@ -33,6 +33,8 @@ env:
 jobs:
   core:
     runs-on: xcode-27
+    # a hung build or simulator ends here, not after the default six hours on the runner.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: core
@@ -54,6 +56,8 @@ jobs:
   # Swift that forces or silently swallows an error. A grep, so it needs no Xcode or core build.
   swift-errors:
     runs-on: macos-latest
+    # a hung build or simulator ends here, not after the default six hours on the runner.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: No try!, as!, try? or fatalError
@@ -62,6 +66,8 @@ jobs:
   # the core as the apps link it: Vendor/LuxFFI.xcframework and Vendor/LuxBindings.
   sdk:
     runs-on: xcode-27
+    # a hung build or simulator ends here, not after the default six hours on the runner.
+    timeout-minutes: 60
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
@@ -99,6 +105,8 @@ jobs:
   swift:
     needs: sdk
     runs-on: xcode-27
+    # a hung build or simulator ends here, not after the default six hours on the runner.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/xcode
@@ -118,6 +126,8 @@ jobs:
   apps:
     needs: sdk
     runs-on: xcode-27
+    # a hung build or simulator ends here, not after the default six hours on the runner.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/xcode
@@ -152,6 +162,8 @@ jobs:
   smoke:
     needs: sdk
     runs-on: xcode-27
+    # a hung build or simulator ends here, not after the default six hours on the runner.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/xcode
@@ -197,6 +209,8 @@ jobs:
     if: always()
     needs: [core, swift-errors, sdk, swift, apps, smoke]
     runs-on: ubuntu-latest
+    # a hung build or simulator ends here, not after the default six hours on the runner.
+    timeout-minutes: 5
     steps:
       - name: Every job passed
         run: |
