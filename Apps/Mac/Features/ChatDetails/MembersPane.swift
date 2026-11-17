@@ -9,8 +9,8 @@ final class MembersPane: NSViewController, NSTableViewDelegate, NSSearchFieldDel
     private var observation: AnyObject?
     private let search = NSSearchField()
     private let table = NSTableView()
-    /// A member is their own identifier: a new name or role is another row.
-    private var dataSource: NSTableViewDiffableDataSource<Int, ChatMember>!
+    private var dataSource: NSTableViewDiffableDataSource<Int, String>!
+    private var members: [String: ChatMember] = [:]
     private let empty = NSTextField(labelWithString: "")
 
     init(model: MembersModel, images: ImagePipeline?) {
@@ -36,9 +36,9 @@ final class MembersPane: NSViewController, NSTableViewDelegate, NSSearchFieldDel
         table.selectionHighlightStyle = .none
         table.delegate = self
         let images = images
-        dataSource = NSTableViewDiffableDataSource(tableView: table) { table, _, _, member in
+        dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, _, id in
             let cell = table.makeView(withIdentifier: MemberCellView.identifier, owner: nil) as? MemberCellView ?? MemberCellView()
-            cell.show(member, images: images)
+            if let member = self?.members[id] { cell.show(member, images: images) }
             return cell
         }
         table.setAccessibilityIdentifier("members")
@@ -71,12 +71,19 @@ final class MembersPane: NSViewController, NSTableViewDelegate, NSSearchFieldDel
         Task { await model.load() }
     }
 
-    /// A search narrows the rows: those still found stay as they are (no `reloadData`).
+    /// A search narrows the rows: those still found stay as they are (no `reloadData`); a member
+    /// whose name, picture or role changed draws again in place.
     private func update() {
-        var snapshot = NSDiffableDataSourceSnapshot<Int, ChatMember>()
+        let old = members
+        members = Dictionary(model.found.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
-        snapshot.appendItems(model.found)
+        snapshot.appendItems(model.found.map(\.id))
         dataSource.apply(snapshot, animatingDifferences: false)
+        for (id, member) in members where old[id].map({ $0 != member }) ?? false {
+            guard let row = dataSource.row(forItemIdentifier: id) else { continue }
+            (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? MemberCellView)?.show(member, images: images)
+        }
         empty.stringValue = model.isLoading ? String(localized: "Loading…")
             : model.failure?.localizedDescription ?? String(localized: "No Members Found")
         empty.isHidden = !model.found.isEmpty
