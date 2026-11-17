@@ -37,6 +37,9 @@ final class SmokeTests: XCTestCase {
         let field = app.searchFields.firstMatch
         reach(field, "the search field")
         field.typeText("hello")
+        // a fresh simulator's keyboard introduces slide-to-type once, over the screen.
+        let tip = app.buttons["Continue"].firstMatch
+        if tip.waitForExistence(timeout: 2) { tip.tap() }
         reach(app.collectionViews["search-results"], "search's results")
         alive("search")
         // closing search: the field's close button (its label is the system's, lowercase).
