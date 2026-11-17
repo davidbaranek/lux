@@ -1,6 +1,7 @@
 # Jump to a message with the SDK's event-focused timeline
 
-Status: proposed (ADR, no code yet). Audit package 14. Implementation starts after package 2
+Status: accepted 2026-11-17 (architect review: 100 context events, the seam, merged chats,
+memory, delivery order). No code yet. Audit package 14. Implementation starts after package 2
 (timeline catch-up, same `room.rs`) merges.
 
 ## Context
@@ -60,10 +61,17 @@ is always a separate `/context` fetch. Element X checks its live items first (be
 the same.
 
 **Caching.** Focused caches are memoised per room by `(event, thread_mode)` and reused without a
-new `/context` if the same event is focused again (`caches/mod.rs:268-295`). Nothing in this
-revision evicts them; they live in memory until the room's caches go. Each jump therefore keeps
-its loaded window in memory for the session. Acceptable for a chat client (Element X does the
-same), noted as a known cost.
+new `/context` if the same event is focused again (`caches/mod.rs:268-295`). Nothing evicts them:
+the map is only ever inserted into, in 14a0ada and on upstream `main` today. The only public calls
+that drop them, `EventCache::forget_room` and `clear_all_rooms` (`event_cache/mod.rs:531,538`),
+also clear the room's stored events, so Lux cannot use them for this. Two consequences, both
+handled in "Memory and reloads" below:
+- each distinct target keeps its window (100 context events plus what was paged) in memory until
+  the `Client` drops;
+- when the cross-process store lock comes back dirty (Lux runs `CrossProcessLockConfig::MultiProcess`
+  with the notification extension), the event cache reloads every state, and an event-focused
+  cache's `reload` calls `reload_impl` again: one new `/context` per memoised cache, and its window
+  is reset to the initial context (`states/mod.rs:553-565`, `event_focused/mod.rs` `reload`).
 
 **Live data on a focused timeline.**
 - *New events from sync:* never added (`state_transaction.rs:~605`: "Never add any item to a
@@ -136,7 +144,8 @@ Opening a chat *at* an event does step 1 on the live list as the device has it (
 opens the focused timeline in parallel with the live first-screen fill otherwise, so the first rows
 are the target's neighbourhood rather than the bottom of the chat.
 
-`num_context_events`: 50 (Element X uses 100; Lux's `PAGE` is 50 and its first screen is 60).
+`num_context_events`: 100, as Element X: one request either way, and 50 a side fills a tall Mac
+window of short messages where 25 a side may not.
 
 ### Returning to live, and what the screen does meanwhile
 
@@ -147,8 +156,7 @@ are the target's neighbourhood rather than the bottom of the chat.
   bottom. Element X behaviour.
 - **Paging.** Near the top: `load_older`, routed to the timeline shown. Near the bottom while
   detached: `load_newer` (focused `paginate_forwards`). When it reports the end, the task switches
-  to live by itself, keeping the reader's anchor row when live has it (the newest focused messages
-  are the newest of the room, so normally it does).
+  back to live through the seam below.
 - **Unread marker.** "New messages" belongs to the live rows; it shows while detached only if the
   first unread message falls inside the focused window (it is the same `MessageId` space, see
   below). `needs_read_receipt` and `did_read_latest` are ignored while detached: no receipt is
@@ -162,6 +170,66 @@ are the target's neighbourhood rather than the bottom of the chat.
   (`Opened::of_room` includes focused timelines). Reactions and edits from others update the rows
   (SDK aggregations); thread summaries on detached roots stay as loaded.
 - **Highlight.** The target flashes as today (`ThreadPresenter.jumpIfShown` → `screen.flash`).
+
+### The seam back to live
+
+The switch from the focused rows to the live rows happens only when both hold the same message,
+so that no row is duplicated or lost and the scroll position does not move.
+
+- **Anchor.** The presenter reports the topmost fully visible row as it scrolls
+  (`ThreadViewModel::set_anchor(MessageId)`, a cheap intent coalesced per frame). Its **event id**
+  is the anchor, because message ids differ between timelines (see the id prefixes below).
+- **When.** The task tries the switch when `load_newer` reports the end, and on `ReturnToLive`.
+- **Overlap.** The switch happens in the first live batch whose room messages contain the anchor's
+  event (`RoomMessages::find_event`). It is driven by events, with no timer and no wait in the
+  adapter: the live followers already deliver every batch to the task.
+- **Live not holding it yet.** This happens when live holds only its latest events, or when a
+  limited sync left a gap behind them. The task pages the **live** timeline back (`load_older`),
+  bounded by a known number: the count of focused messages from the anchor to the focused end,
+  plus one page. The anchor's event is at most that many messages before the present. The event
+  cache's back-pagination fills a limited-sync gap from its gap token, so a gap is paged like any
+  other history. Meanwhile the rows stay the focused ones, and `is_live` stays false.
+- **Live never showing it** (bound used up: the event is hidden in live, or the mapping drops it).
+  The view stays detached at the end. The jump-to-bottom button carries live's unread count, since
+  the focused timeline gets no new messages from sync. `ReturnToLive` then switches without an
+  anchor and lands at the bottom: an explicit move by the user, never an automatic jump.
+- **The switch itself.** It is one `ThreadUpdate`: the row diff from the focused rows to the live
+  rows, plus `anchor: Some(Anchor { from: MessageId, to: MessageId, offset })`. The presenter applies
+  the snapshot without animation. It then sets the content offset so that `to`'s top sits where
+  `from`'s top was (the same mechanism that keeps the position when older rows land above).
+  Rows above the anchor in live replace those above it in focused; rows below come from live,
+  which holds everything up to the present. So no row is missing and no event appears twice.
+- **`ReturnToLive` from deep history** (jump to bottom) needs no overlap: it switches without an
+  anchor and scrolls to the bottom, as Element X does.
+- **A reload resetting the focused window** (dirty store lock, above). The focused rows get a
+  `Reset` back to the initial context. If the anchor's event survives, the anchor keeps the
+  position. If not, the task opens a new focused timeline at the anchor's event (one `/context`)
+  and swaps to it through the same anchored switch.
+
+### Merged chats
+
+One rule: **a detached view shows the target's room alone.** The user sees this through the
+merged chat's existing room filter. While detached, `ThreadState.shown_room` is the target's room,
+so the header shows the same "only this room" state (name and network) that choosing one room
+shows today. The user's own filter is remembered and restored on the way back to live. Choosing
+"all rooms" while detached means `ReturnToLive`. Sending while detached returns to live first and
+sends to the send room the restored filter gives.
+
+### Memory and reloads
+
+Nothing public in 14a0ada drops a focused cache (see "Caching"), so Lux bounds the cost in two ways:
+- **The number of caches is the number of distinct targets the user opened in this run.** Each one
+  is a tap, and opening the same target again reuses its cache. A cache holds about 100 events plus
+  the pages read from it, a few hundred KB at most. All of them are freed when the `Client` drops:
+  sign-out, account close, or the process ending (iOS ends suspended apps routinely; on the Mac
+  the account's restart does it).
+- **Reload cost.** Each dirty-lock reload issues one `/context` per memoised cache. PR (1) measures
+  it with the mock server: N jumps, then a reload, then expect N `/context` requests. The result goes
+  in its description.
+- **What closes it.** Lux does not patch the SDK. We propose upstream a way to drop an event-focused
+  cache once no timeline uses it: drop the entry from `Caches::event_focused` when the last
+  `EventFocusedCache` handle goes, or an explicit `RoomEventCache::forget_event_focused(key)`. Lux
+  picks it up with the next pin bump. Until then, the cost above is accepted on purpose.
 
 ### Threads
 
@@ -204,7 +272,8 @@ pub struct TimelineId {
   returning is instant). A new `detached: Option<Detached { room: usize, id: TimelineId,
   messages: RoomMessages, hold: TimelineHold, at_end: bool }>`. `rows::present` takes the source
   shown (the live rooms, or the detached one) — one presenter of rows, one `Window`, one diff to
-  the listener. Switching source is one rows batch (the rows that go and come), plus the anchor.
+  the listener. Switching source is one rows batch (the rows that go and come), plus the anchor
+  (see "The seam back to live").
 - Intents: `JumpToEvent { room, event }`, `JumpToReplied` (unchanged signature), `LoadNewer`,
   `ReturnToLive`. Answers become `Result<Jumped, JumpFailure>` with
   `Jumped::{ Here(MessageId), InThread { root, message } }` and
@@ -218,7 +287,7 @@ pub struct TimelineId {
 - `Key` gains `at: Option<OwnedEventId>` (the audit's "third kind of key"). Focused keys never
   count toward `KEPT`: they close as soon as their last hold goes.
 - `RoomTimeline::open` maps `(thread, at)` to the SDK focus: `(None, None)` → `Live { hide: true }`;
-  `(Some, None)` → `Thread`; `(_, Some)` → `Event { target, 50, Automatic { hide: true } }`. The
+  `(Some, None)` → `Thread`; `(_, Some)` → `Event { target, 100, Automatic { hide: true } }`. The
   follower, mapper, cut and previews are the same code; the opening fill task is not started for a
   focused timeline (the context is its first screen); `at_start` comes from `paginate_backwards`'
   result as today, `at_end` from `paginate_forwards`'.
@@ -226,7 +295,7 @@ pub struct TimelineId {
   to both directions alike (no new timeout is introduced here).
 
 **lux-ffi** (`thread.rs`): `jump_to_event(room_id, event_id)`, `jump_to_replied`, `load_newer`,
-`return_to_live` exported; the jump returns a uniffi enum (`Here`/`InThread`) or a typed error;
+`return_to_live`, `set_anchor` exported; the jump returns a uniffi enum (`Here`/`InThread`) or a typed error;
 `ThreadState` carries `is_live`, `can_load_newer`. `ThreadSpec` (and its FFI record) gains
 `focus: Option<EventId>` so a chat can open at an event.
 
@@ -266,13 +335,11 @@ pub struct TimelineId {
   A **redacted** event the server still returns opens normally and shows as a deleted message.
 - **Target filtered by Lux** (a state event the thread hides, or older than the chat's "cleared"
   cut): the focused list does not contain it → `NotFound`, nothing switches.
-- **Focused timeline reaching live**: `load_newer` returns `true` → automatic switch to live,
-  anchor kept. A jump to a message that is newer than the live window's oldest but not mapped
-  (rare race) is just a jump with one `/context`.
+- **Focused timeline reaching live**: see "The seam back to live": anchored switch on overlap,
+  bounded live back-paging, stay detached if the bound runs out.
 - **Jumping while detached**: a second jump replaces the detached timeline (the old hold goes);
   a jump to a message in the current detached window scrolls.
-- **Merged chats**: detached shows only the target's room; the room filter (`shown_room`) is kept
-  for when it returns. Sending while detached goes to the chosen send room after returning.
+- **Merged chats**: see "Merged chats": the target's room alone, shown through `shown_room`.
 - **Event in a thread**: above. A thread whose root is unknown (`/context` without root) pages
   back with `/relations` until the root, as the SDK does.
 - **Bridged rooms with gaps** (bridge backfill, missing history): `/context` and forward paging
@@ -290,15 +357,29 @@ pub struct TimelineId {
   `load_newer` to the end → `true`; a threaded target → `focused().thread == Some(root)` and only
   thread events; the same event twice → one `/context`; a reaction from sync updates a focused row;
   a sent message never appears in the focused list; no receipt request while only a focused
-  timeline is held; message ids of a focused timeline never equal live ones.
+  timeline is held; message ids of a focused timeline never equal live ones; `/context` is asked
+  for `limit=100`. **Seam:** the room's live sync holds only its latest 10 events with
+  `limited: true` and a `prev_batch` gap. A focused timeline is opened 40 events back and paged
+  forward to the end. The test checks that the live timeline is paged back (through the gap) until
+  it holds the anchor event, within the bound, and that the anchor's event is in both lists at the
+  switch. A variant where the anchor's event is hidden in live checks that the bound stops paging.
+  **Reload cost:** N jumps, then a forced reload, expects N `/context` requests (measured, recorded
+  in PR 1).
 - **lux-core (`thread/tests.rs`, the fake backend)**: loaded target → scroll, no `messages(at)`
   call; unloaded → detached rows, `is_live == false`; `ReturnToLive` → live rows, the live
   followers never stopped; `LoadNewer` reaching the end → live with the anchor; send while
-  detached → live first; receipts suppressed while detached; merged chat jumps to the named room;
-  `InThread` answer; failures leave the rows unchanged.
+  detached → live first; receipts suppressed while detached; `InThread` answer; failures leave the
+  rows unchanged. **Seam:** at the switch, the rows' event ids are the focused ones above the anchor
+  and the live ones from it on, with no duplicate and no gap, and the update carries
+  `Anchor { from, to }` for the same event. When live lacks the anchor, the rows stay focused and
+  `is_live` stays false until a live batch brings it. A focused `Reset` that drops the anchor
+  re-focuses on it. **Merged chat:** a jump in room B of a two-room chat shows only B's rows with
+  `shown_room == Some(B)`. `ReturnToLive` restores the user's previous filter (`None` or A).
+  Choosing all rooms while detached returns to live.
 - **Swift (`swift test`, presenter tests with a fake `ThreadPort`)**: jump to bottom while detached
   calls `returnToLive`; near-bottom scroll while detached calls `loadNewer` and not `loadOlder`;
-  a source switch keeps the anchor; `InThread` calls `openThread`; opening with a focus hands it to
+  the topmost visible row is reported as the anchor; an anchored switch leaves the anchor row's
+  `minY` on screen unchanged (fake screen geometry); `InThread` calls `openThread`; opening with a focus hands it to
   the spec and does not jump after `start()`.
 - **Demo (`-LuxDemo`)**: a demo chat with a saved message several hundred messages back and a
   quote of one; the simulator smoke test opens the saved message and checks the flashed row and the
@@ -309,12 +390,20 @@ pub struct TimelineId {
 1. **core: focused timelines in the adapter** — `TimelineId.at`, `Key.at`, the SDK focus mapping,
    `load_newer`, `focused()`, errors; demo backend support. `show_event` still in place. Mock
    server tests. No behaviour change.
-2. **core: the thread shows a detached timeline** — `thread/task.rs` detached source, intents,
-   `ThreadState.is_live/can_load_newer`, typed jump answers, `ThreadSpec.focus`; switch jumps to
-   it; delete `show_event` (port, adapter, demo) and the paging loop. Core tests.
-3. **ffi + swift: presenter and both screens** — FFI exports, `ThreadPort`/`ThreadModel`,
-   `ThreadPresenter` paths, iOS and Mac screens (bottom button, open at event, `openThread`),
-   search/saved targets carry the room (`FoundLink.roomId`). Presenter tests.
+2. **core: the thread can show a detached timeline** — `thread/task.rs` detached source, the seam,
+   merged-chat rule, new intents (`JumpToEvent { room, event }`, `LoadNewer`, `ReturnToLive`,
+   `SetAnchor`), `ThreadState.is_live/can_load_newer`, typed answers, `ThreadSpec.focus`. Core
+   tests. **The existing jump path is untouched:** `jump_to_event(event)`, `jump_to_replied` and
+   `show_event` keep working as on `dev`, and the FFI surface does not change. Nothing reaches the
+   detached state yet.
+3. **ffi + swift: switch the jumps over** — FFI exports, `ThreadPort`/`ThreadModel`,
+   `ThreadPresenter` paths, iOS and Mac screens (bottom button, anchor reporting, open at event,
+   `openThread`), search and saved targets carry the room (`FoundLink.roomId`). In the **same PR**,
+   the old jumps route to the new path and `show_event` (port, adapter, demo) and its paging loop
+   are deleted. Presenter tests.
+
+   So `dev` never has a broken jump: until (3) merges, `dev` jumps the old way. From (3) on, the core
+   and both apps jump the new way in one squash commit.
 4. **demo + smoke**: the demo chat case and the smoke test; benchmark before/after in the PR.
 5. **links to messages** (optional): parse `matrix.to`/`matrix:` message links in lux-core and open
    them through the same path.
