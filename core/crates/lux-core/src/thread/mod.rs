@@ -80,6 +80,46 @@ pub struct ThreadState {
     pub pending_files: Vec<PathBuf>,
     /// The send room can have messages sent later.
     pub can_send_later: bool,
+    /// The rows are the live ones; `false` while a jump shows an old message among its
+    /// neighbours (the newest messages are not there: "jump to bottom" returns).
+    pub is_live: bool,
+    /// Newer messages can be asked for: a jump's rows, not at the newest yet, none loading.
+    pub can_load_newer: bool,
+}
+
+/// Where a jump landed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Jumped {
+    /// In this thread: the row that shows the message, for the app to scroll to.
+    Here(MessageId),
+    /// In a Matrix thread of the chat: the app opens it at the message.
+    InThread {
+        /// The thread's root.
+        root: EventId,
+        /// The message.
+        event: EventId,
+    },
+}
+
+/// Why a jump did not land.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JumpFailure {
+    /// The server has no such message (deleted for good, or never there).
+    NotFound,
+    /// The account may not see it (history it did not join for, a room it left).
+    NotAllowed,
+    /// Anything else: the network, the server, another jump asked for since.
+    Failed,
+}
+
+/// The rows switched between a jump's and the live ones, keeping the reader's place: the row
+/// `from` the reader looked at shows the same message as `to` now, where it was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Anchor {
+    /// The row before the switch.
+    pub from: MessageId,
+    /// The row after it.
+    pub to: MessageId,
 }
 
 /// One frame's changes: the rows' diffs (the first batch a `Reset`), and the state if it
@@ -90,6 +130,8 @@ pub struct ThreadUpdate {
     pub rows: Vec<VectorDiff<Arc<ThreadRow>>>,
     /// The state, when it changed.
     pub state: Option<ThreadState>,
+    /// The rows switched between a jump's and the live ones: keep this row in place.
+    pub anchor: Option<Anchor>,
 }
 
 /// Files to send, one message each: the platform prepares and uploads them.
@@ -142,6 +184,10 @@ enum Intent {
     LoadOlder,
     JumpToReplied(MessageId, oneshot::Sender<Option<MessageId>>),
     JumpToEvent(EventId, oneshot::Sender<Option<MessageId>>),
+    Jump(RoomId, EventId, oneshot::Sender<Result<Jumped, JumpFailure>>),
+    LoadNewer,
+    ReturnToLive,
+    SetAnchor(MessageId),
     FirstUnread(oneshot::Sender<Option<MessageId>>),
     Loaded(oneshot::Sender<()>),
     ToggleDetail(MessageId),
@@ -223,6 +269,33 @@ impl ThreadViewModel {
     /// Brings the message of `event` into the thread (a saved message the chat opened at).
     pub async fn jump_to_event(&self, event: EventId) -> Option<MessageId> {
         self.ask(|answer| Intent::JumpToEvent(event, answer)).await.flatten()
+    }
+
+    /// Brings the message of `event` in `room` into the thread: scrolled to among the live rows
+    /// when they hold it, else shown among its neighbours from the server (the rows are no longer
+    /// live until the user returns, or pages forward to the newest).
+    ///
+    /// # Errors
+    /// When the server has no such message, the account may not see it, or it cannot be fetched.
+    pub async fn jump(&self, room: RoomId, event: EventId) -> Result<Jumped, JumpFailure> {
+        self.ask(|answer| Intent::Jump(room, event, answer))
+            .await
+            .unwrap_or(Err(JumpFailure::Failed))
+    }
+
+    /// Shows newer messages of a jump's rows (the user scrolled down to their end).
+    pub fn load_newer(&self) {
+        self.send(Intent::LoadNewer);
+    }
+
+    /// Shows the live rows again, at the newest ("jump to bottom").
+    pub fn return_to_live(&self) {
+        self.send(Intent::ReturnToLive);
+    }
+
+    /// The row the reader looks at (the topmost whole one): a switch to the live rows keeps it.
+    pub fn set_anchor(&self, message: MessageId) {
+        self.send(Intent::SetAnchor(message));
     }
 
     /// The first unread message when the chat opened, once known.
