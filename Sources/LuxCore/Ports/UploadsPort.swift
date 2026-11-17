@@ -6,9 +6,8 @@ protocol UploadsPort: Sendable {
     /// The largest file the server takes, in bytes.
     func maxUploadSize() async throws -> Int
     /// Puts `attachment` in the chat's send queue (a reply in the Matrix thread of `threadRoot`,
-    /// if given); its message's id, nil if it did not show in time.
+    /// if given). Its upload's states: how much has gone, each time more has, then sent or failed,
+    /// the last; the stream ends there, or when the message is discarded before it went.
     func send(_ attachment: OutgoingAttachment, roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
-        async throws -> String?
-    /// Where a sent photo or file is: uploading, sent, failed.
-    func upload(roomId: String, messageId: String) async throws -> UploadState
+        async throws -> AsyncStream<UploadState>
 }
