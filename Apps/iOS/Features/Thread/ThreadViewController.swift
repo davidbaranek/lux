@@ -34,7 +34,9 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private var swipeToReply: SwipeToReply?
     /// Back to the newest message, when the reader is a screen or more above it.
     private lazy var jumpToBottom = UIButton(configuration: .glass(), primaryAction: UIAction { [weak self] _ in
-        self?.scrollToBottom(animated: true)
+        // a jump's rows give way to the live ones; live rows scroll down.
+        guard let self, !presenter.returnToLive() else { return }
+        scrollToBottom(animated: true)
     })
 
     /// Up to the first unread message, while it is above the screen.
@@ -59,13 +61,13 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private weak var list: ChatListModel?
 
     /// The chat of `row`, or its Matrix thread `thread`.
-    init(session: Session, row: ChatRow, theme: PlaceTheme, list: ChatListModel?, focusEvent: String? = nil,
+    init(session: Session, row: ChatRow, theme: PlaceTheme, list: ChatListModel?, focus: MessageLink? = nil,
          thread: MatrixThread? = nil) {
         self.session = session
         self.row = row
         self.list = list
         self.theme = theme
-        presenter = ThreadPresenter(session: session, row: row, thread: thread, focusEvent: focusEvent)
+        presenter = ThreadPresenter(session: session, row: row, thread: thread, focus: focus)
         super.init(nibName: nil, bundle: nil)
         presenter.screen = self
         title = thread == nil ? row.name : String(localized: "Thread")
@@ -371,7 +373,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             }
         } else {
             // while the server's pages come in, the chat stays still: no animated inserts or scrolls.
-            let animate = !model.isLoading
+            let animate = !model.isLoading && !presenter.isSwitching
             dataSource.apply(snapshot, animatingDifferences: animate)
             // a reconfigured row may have a new height: the flow layout asks again.
             if !changed.isEmpty { collectionView.collectionViewLayout.invalidateLayout() }
@@ -454,9 +456,19 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         openThread(MatrixThread(roomId: message.roomId, rootEventId: message.eventId))
     }
 
-    /// A Matrix thread of this chat, pushed over it.
-    func openThread(_ thread: MatrixThread) {
-        navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: theme, list: list, thread: thread), animated: true)
+    /// A Matrix thread of this chat, pushed over it (at one of its messages, if given).
+    func openThread(_ thread: MatrixThread, at message: MessageLink? = nil) {
+        let opened = ThreadViewController(session: session, row: row, theme: theme, list: list, focus: message, thread: thread)
+        navigationController?.pushViewController(opened, animated: true)
+    }
+
+    var readingRow: String? {
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        return collectionView.indexPathsForVisibleItems
+            .compactMap { path in collectionView.layoutAttributesForItem(at: path).map { (path.item, $0.frame) } }
+            .filter { $0.1.midY >= top }
+            .min { $0.0 < $1.0 }
+            .flatMap { order.indices.contains($0.0) ? order[$0.0] : nil }
     }
 
     /// The chat's details, from its title, as Messages opens a conversation's.
@@ -530,7 +542,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // a screen or more above the newest message: offer the way back.
         let geometry = scrollGeometry
-        let showJump = presenter.shownFirst && geometry.isScreenAboveBottom
+        // a jump's rows are not the newest: the way back always shows.
+        let showJump = presenter.shownFirst && (geometry.isScreenAboveBottom || !model.isLive)
         if showJump != (jumpToBottom.alpha == 1) {
             UIView.animate(withDuration: 0.2) { self.jumpToBottom.alpha = showJump ? 1 : 0 }
         }

@@ -10,7 +10,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     let session: Session
     let row: ChatRow
     /// The screen's logic, shared with the iPhone: opening, measuring, jumping, being on screen.
-    private let presenter: ThreadPresenter
+    let presenter: ThreadPresenter
     var model: ThreadModel { presenter.model }
     /// The screen's own work (downloads for Quick Look, the benchmark): it ends with the screen.
     let tasks = TaskBag()
@@ -25,7 +25,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     /// A merged chat now shows another of its rooms, or all.
     var onShownRoom: (() -> Void)?
     /// A thread's summary or "Reply in Thread" asks for the Matrix thread a message starts.
-    var onOpenThread: ((MatrixThread) -> Void)?
+    var onOpenThread: ((MatrixThread, MessageLink?) -> Void)?
     var rooms: [ChatRoom] { model.rooms }
     var shownRoom: String? { model.shownRoom }
     var sendRoom: String { model.sendRoom }
@@ -124,7 +124,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 
     let emojiPicker = EmojiPicker()
 
-    /// `focusEvent`: a message to scroll to once the chat shows (a saved one).
+    /// `focus`: a message to scroll to once the chat shows (a saved one).
     /// The shown place's colour, for one's own bubbles (the pane behind the chat washes in it too).
     /// Neutral keeps the system's accent.
     var theme: PlaceTheme {
@@ -133,11 +133,11 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     private var accent: NSColor { theme.color ?? .controlAccentColor }
 
     /// The chat of `row`, or its Matrix thread `thread`.
-    init(session: Session, row: ChatRow, theme: PlaceTheme, focusEvent: String? = nil, thread: MatrixThread? = nil) {
+    init(session: Session, row: ChatRow, theme: PlaceTheme, focus: MessageLink? = nil, thread: MatrixThread? = nil) {
         self.session = session
         self.row = row
         self.theme = theme
-        presenter = ThreadPresenter(session: session, row: row, thread: thread, focusEvent: focusEvent)
+        presenter = ThreadPresenter(session: session, row: row, thread: thread, focus: focus)
         super.init(nibName: nil, bundle: nil)
         presenter.screen = self
         presenter.measure(with: text)
@@ -147,7 +147,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     /// chat.
     func openThread(of message: MessageItem) {
         guard model.thread == nil, !message.eventId.isEmpty else { return }
-        onOpenThread?(MatrixThread(roomId: message.roomId, rootEventId: message.eventId))
+        onOpenThread?(MatrixThread(roomId: message.roomId, rootEventId: message.eventId), nil)
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
@@ -616,14 +616,16 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     @objc private func scrolled() {
         let geometry = scrollGeometry
         // a screen or more above the newest message: offer the way back.
-        jumpToBottom.fade(in: shownFirst && geometry.isScreenAboveBottom)
+        // a jump's rows are not the newest: the way back always shows.
+        jumpToBottom.fade(in: shownFirst && (geometry.isScreenAboveBottom || !model.isLive))
         updateJumpToUnread()
         if shownFirst, geometry.fromBottom < 40 { model.didReadLatest() }
         presenter.scrolled(geometry)
     }
 
     @objc private func scrollToNewest() {
-        guard !order.isEmpty else { return }
+        // a jump's rows give way to the live ones; live rows scroll down.
+        guard !order.isEmpty, !presenter.returnToLive() else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.allowsImplicitAnimation = true
             table.scrollRowToVisible(order.count - 1)
@@ -666,6 +668,12 @@ extension ThreadController: ThreadScreen {
                 self.presenter.didEndScrolling()
             }
         })
+    }
+
+    var readingRow: String? { readingAnchor(in: order)?.id }
+
+    func openThread(_ thread: MatrixThread, at message: MessageLink?) {
+        onOpenThread?(thread, message)
     }
 
     func flash(_ id: String) {

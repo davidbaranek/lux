@@ -17,6 +17,10 @@ public protocol ThreadScreen: AnyObject {
     func scrollList(to offset: CGFloat, animated: Bool)
     /// Draws the eye to a message the chat glided to.
     func flash(_ id: String)
+    /// The row the reader looks at: the first whose top half is on screen.
+    var readingRow: String? { get }
+    /// Opens a Matrix thread of the chat, at one of its messages if given (a jump to a thread's reply).
+    func openThread(_ thread: MatrixThread, at message: MessageLink?)
 }
 
 /// One chat's screen without its views, the same on iPhone and Mac: it opens the chat (the draft,
@@ -39,7 +43,7 @@ public final class ThreadPresenter {
     private weak var session: Session?
     /// The chat's rooms, whose notifications it stands for.
     private let rooms: Set<String>
-    private let focusEvent: String?
+    private let focus: MessageLink?
     /// Removes what the chat's rooms notified (the system's notification centre; a test's own).
     private let removeDelivered: @Sendable (Set<String>) async -> Void
     private let tasks = TaskBag()
@@ -62,17 +66,24 @@ public final class ThreadPresenter {
     private var flashOnArrival: String?
     /// The message whose shared post's caption the user just unfolded or folded: its next change animates.
     private var unfolding: String?
+    /// The rows switched between a jump's and the live ones: this row goes where the reader's was,
+    /// `top` below the list's top, once the screen shows it.
+    private var switchTo: (id: String, top: CGFloat)?
+    /// The reader returned to the live rows: the next update lands at the bottom.
+    private var landsAtBottom = false
 
-    /// The chat of `row`, or its Matrix thread `thread`; `focusEvent`: a message to open at (a saved one).
-    public init(session: Session, row: ChatRow, thread: MatrixThread? = nil, focusEvent: String? = nil,
+    /// The chat of `row`, or its Matrix thread `thread`; `focus`: a message to open at (a saved one,
+    /// a search result).
+    public init(session: Session, row: ChatRow, thread: MatrixThread? = nil, focus: MessageLink? = nil,
                 removeDelivered: @escaping @Sendable (Set<String>) async -> Void = { await PushNotifications.removeDelivered(rooms: $0) }) {
         self.removeDelivered = removeDelivered
         model = ThreadModel(session: session, row: row, thread: thread)
         self.session = session
         rooms = Set([row.id] + row.rooms.map(\.id))
         isGroup = row.isGroup
-        self.focusEvent = focusEvent
+        self.focus = focus
         model.onUpdate = { [weak self] messages in self?.show(messages) }
+        model.onSwitch = { [weak self] from, to in self?.switching(from: from, to: to) }
         model.onFirstUnread = { [weak self] _ in self?.showLateFirstUnread() }
         // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
         styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in self?.remeasure() }
@@ -83,13 +94,13 @@ public final class ThreadPresenter {
     /// Opens the chat: its draft, where its unread messages start, its first messages, and the
     /// message it opens at.
     public func start() {
-        tasks.run { [weak self, model, focusEvent] in
+        // the core takes the message the chat opens at as soon as the room's messages are in.
+        if let focus { jump(toMessage: focus) }
+        tasks.run { [weak self, model] in
             let draft = await model.loadDraft()
             self?.screen?.showDraft(draft)
             await model.findFirstUnread()
             await model.start()
-            guard let focusEvent, let target = await model.message(ofEvent: focusEvent) else { return }
-            self?.jump(to: target)
         }
     }
 
@@ -196,8 +207,13 @@ public final class ThreadPresenter {
     /// The list scrolled: older messages are asked for as the reader nears the top, unless the
     /// screen still shows an older update or glides to a message.
     public func scrolled(_ geometry: ScrollGeometry) {
-        guard shownFirst, !isJumping, shownGeneration == generation, geometry.nearsTop, model.canLoadOlder else { return }
-        model.loadOlder()
+        guard shownFirst, !isJumping, shownGeneration == generation else { return }
+        if !model.isLive {
+            // a jump's rows: the switch back to live keeps the row read; newer ones come near the end.
+            if let row = screen?.readingRow { model.setAnchor(row) }
+            if geometry.nearsBottom, model.canLoadNewer { model.loadNewer() }
+        }
+        if geometry.nearsTop, model.canLoadOlder { model.loadOlder() }
     }
 
     // MARK: Jumping to a message
@@ -205,9 +221,44 @@ public final class ThreadPresenter {
     /// Glides to the message a quote answers, once the core brought it in.
     public func jump(toRepliedMessageOf id: String) {
         tasks.run("jump") { [weak self, model] in
-            guard let target = await model.repliedMessage(of: id) else { return }
-            self?.jump(to: target)
+            let landed: Result<JumpResult, JumpError>
+            do throws(JumpError) { landed = .success(try await model.repliedMessage(of: id)) } catch { landed = .failure(error) }
+            self?.land(landed)
         }
+    }
+
+    /// Glides to a message of the chat (a saved one, a search result): among the live rows, or a
+    /// jump's rows around it.
+    public func jump(toMessage message: MessageLink) {
+        tasks.run("jump") { [weak self, model] in
+            let landed: Result<JumpResult, JumpError>
+            do throws(JumpError) { landed = .success(try await model.jump(to: message)) } catch { landed = .failure(error) }
+            self?.land(landed)
+        }
+    }
+
+    /// Where a jump landed: its row, glided to; its Matrix thread, opened at it; or why not.
+    private func land(_ landed: Result<JumpResult, JumpError>) {
+        switch landed {
+        case .success(.here(let row)): jump(to: row)
+        case .success(.inThread(let thread, let message)): screen?.openThread(thread, at: message)
+        case .failure(let error): model.onError?(error)
+        }
+    }
+
+    /// "Jump to bottom": a jump's rows give way to the live ones, at the newest; `false` when the
+    /// rows are live already (the screen scrolls down itself).
+    public func returnToLive() -> Bool {
+        guard !model.isLive else { return false }
+        landsAtBottom = true
+        model.returnToLive()
+        return true
+    }
+
+    /// The core switched the rows: `to` will go where the reader's `from` is now.
+    private func switching(from: String, to: String) {
+        guard let screen, let span = screen.rowSpan(of: from) else { return }
+        switchTo = (to, span.minY - screen.scrollGeometry.offset)
     }
 
     /// Glides to the first unread message, as to a quoted one.
@@ -224,6 +275,7 @@ public final class ThreadPresenter {
     /// Once the message asked for is in the list: glide it to the middle, then flash it. The screen
     /// calls this after each update it shows.
     public func jumpIfShown() {
+        keepSwitchedRow()
         guard let target = jumpTarget, let screen, let span = screen.rowSpan(of: target) else { return }
         jumpTarget = nil
         let geometry = screen.scrollGeometry
@@ -234,6 +286,23 @@ public final class ThreadPresenter {
         if plan.arrived(from: geometry.offset) { return didEndScrolling() }
         screen.scrollList(to: plan.end, animated: true)
     }
+
+    /// The rows switched: the reader's message stays where it was; back to live, the newest shows.
+    private func keepSwitchedRow() {
+        guard let screen, model.isLive else { return }
+        if landsAtBottom {
+            landsAtBottom = false
+            switchTo = nil
+            screen.scrollList(to: screen.scrollGeometry.bottomOffset, animated: false)
+            return
+        }
+        guard let kept = switchTo, let span = screen.rowSpan(of: kept.id) else { return }
+        switchTo = nil
+        screen.scrollList(to: span.minY - kept.top, animated: false)
+    }
+
+    /// An update switching the rows between a jump's and the live ones goes in unanimated.
+    public var isSwitching: Bool { switchTo != nil || landsAtBottom }
 
     /// An animated scroll ended: a message glided to flashes.
     public func didEndScrolling() {

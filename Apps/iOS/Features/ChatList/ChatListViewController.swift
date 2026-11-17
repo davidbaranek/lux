@@ -481,7 +481,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         let cell = collectionView.cellForItem(at: indexPath)
         switch model.destination(of: row) {
         case .chat(let chat): open(chat)
-        case .message(let chat, let eventId): open(chat, focusEvent: eventId)
+        case .message(let chat, let link): open(chat, focus: link)
         case .scheduled(let waiting):
             collectionView.deselectItem(at: indexPath, animated: true)
             cancel(waiting, from: cell)
@@ -494,7 +494,7 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
     /// A search result: its chat (at its message), its thread, or a link's page.
     private func open(_ target: SearchTarget) {
         switch target {
-        case .chat(let row, let focusEvent): open(row, focusEvent: focusEvent)
+        case .chat(let row, let focus): open(row, focus: focus)
         case .thread(let row, let thread): open(row, thread: thread)
         case .link(let url): UIApplication.shared.open(url)
         }
@@ -510,8 +510,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
         navigationItem.searchController?.searchBar.placeholder = String(localized: "Search \(kind.title)")
     }
 
-    private func open(_ row: ChatRow, focusEvent: String? = nil, thread: MatrixThread? = nil) {
-        let chat = ThreadViewController(session: session, row: row, theme: model.theme, list: model, focusEvent: focusEvent)
+    private func open(_ row: ChatRow, focus: MessageLink? = nil, thread: MatrixThread? = nil) {
+        let chat = ThreadViewController(session: session, row: row, theme: model.theme, list: model, focus: focus)
         navigationController?.pushViewController(chat, animated: thread == nil)
         // a thread over its chat: back goes to the chat.
         if let thread { chat.openThread(thread) }

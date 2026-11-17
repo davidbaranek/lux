@@ -42,6 +42,14 @@ public final class ThreadModel {
         didSet { if isLoading != oldValue { onLoading?(isLoading) } }
     }
     public var onLoading: ((Bool) -> Void)?
+    /// The rows are the live ones; false while a jump shows an old message among its neighbours.
+    public private(set) var isLive = true {
+        didSet { if isLive != oldValue { onLive?(isLive) } }
+    }
+    public var onLive: ((Bool) -> Void)?
+    /// The rows switched between a jump's and the live ones: the row `to` goes where `from` was.
+    /// Told before the rows that switched.
+    public var onSwitch: ((_ from: String, _ to: String) -> Void)?
 
     private let account: Task<any ThreadPort, any Error>
     private weak var session: Session?
@@ -53,6 +61,11 @@ public final class ThreadModel {
     /// Older messages were asked for and no frame came since: scrolling asks once.
     private var olderAsked = false
     private var olderAllowed = false
+    /// The same for newer messages of a jump's rows.
+    private var newerAsked = false
+    private var newerAllowed = false
+    /// The row last told to the core as the one the reader looks at.
+    private var anchor: String?
 
     /// The chat of `row`, or its Matrix thread `thread`.
     public init(session: Session, row: ChatRow, thread: MatrixThread? = nil) {
@@ -119,6 +132,8 @@ public final class ThreadModel {
         // the state first: the rows are measured with its first unread message.
         if let state = batch.state { apply(state) }
         olderAsked = false
+        newerAsked = false
+        if let anchor = batch.anchor { onSwitch?(anchor.from, anchor.to) }
         // a page back is a run of inserts at the top: one splice, not one shift of every row each.
         var run: (start: Int, items: [MessageItem]) = (0, [])
         func flushRun() {
@@ -164,6 +179,8 @@ public final class ThreadModel {
         firstUnreadId = state.firstUnread
         isAtStart = state.isAtStart
         olderAllowed = state.canLoadOlder
+        newerAllowed = state.canLoadNewer
+        isLive = state.isLive
         sendRoom = state.sendRoom
         canSendLater = state.canSendLater
         typists = state.typists
@@ -213,16 +230,40 @@ public final class ThreadModel {
         withCore { $0.loadOlder() }
     }
 
-    /// Brings the message `messageId` answers into the chat and returns its id, for the view to
-    /// scroll to; nil when it cannot be found.
-    public func repliedMessage(of messageId: String) async -> String? {
-        await openedCore()?.jumpToReplied(messageId)
+    /// Brings the message `messageId` answers into the chat, as `jump(to:)` does.
+    public func repliedMessage(of messageId: String) async throws(JumpError) -> JumpResult {
+        guard let core = await openedCore() else { throw .failed }
+        return try await core.jumpToReplied(messageId)
     }
 
-    /// Brings a message (by its event id) into the chat and returns its id there, for the view to
-    /// scroll to: a saved message the chat opened at.
-    public func message(ofEvent eventId: String) async -> String? {
-        await openedCore()?.jumpToEvent(eventId)
+    /// Brings a message into the chat: the row to scroll to (among the live rows, or a jump's
+    /// rows around it, until the reader returns), or the Matrix thread it is a reply in.
+    public func jump(to message: MessageLink) async throws(JumpError) -> JumpResult {
+        guard let core = await openedCore() else { throw .failed }
+        return try await core.jump(to: message)
+    }
+
+    /// False while newer messages of a jump's rows load, and once they reach the newest.
+    public var canLoadNewer: Bool { !newerAsked && newerAllowed }
+
+    /// Shows newer messages of a jump's rows (the reader scrolled to their end); at the newest,
+    /// the rows go live again.
+    public func loadNewer() {
+        guard canLoadNewer else { return }
+        newerAsked = true
+        withCore { $0.loadNewer() }
+    }
+
+    /// Shows the live rows again, at the newest ("jump to bottom").
+    public func returnToLive() {
+        withCore { $0.returnToLive() }
+    }
+
+    /// The row the reader looks at among a jump's rows: the switch back to live keeps it in place.
+    public func setAnchor(_ messageId: String) {
+        guard messageId != anchor else { return }
+        anchor = messageId
+        withCore { $0.setAnchor(messageId) }
     }
 
     // MARK: Saved, send later

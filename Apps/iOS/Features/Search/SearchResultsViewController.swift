@@ -203,7 +203,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
         add(.chats, hits.chats.map { row in
             let id = "c\(row.id)"
             rows[id] = row
-            targets[id] = .chat(row, focusEvent: nil)
+            targets[id] = .chat(row, focus: nil)
             return id
         })
         add(.photos, preview(hits.photos, .photos, photoPreview).map { photo in
@@ -234,7 +234,7 @@ final class SearchResultsViewController: UIViewController, UICollectionViewDeleg
             let id = "m\(found.id)"
             rows[id] = found.row
             highlights[id] = found.previewMatches
-            targets[id] = .chat(found.chat, focusEvent: found.id)
+            targets[id] = found.target
             return id
         })
         dataSource.applySnapshotUsingReloadData(snapshot)

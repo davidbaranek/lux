@@ -32,6 +32,10 @@ public struct ScrollGeometry: Sendable, Equatable {
 
     /// The reader is at the newest message (or within a few points of it).
     public var isAtBottom: Bool { fromBottom <= 40 }
+    /// Within a few screens of the bottom: newer messages of a jump's rows are asked for.
+    public var nearsBottom: Bool { fromBottom < height * 3 }
+    /// The offset that shows the bottom.
+    public var bottomOffset: CGFloat { offset + fromBottom }
 
     /// A screen or more above the newest message: the way back is offered.
     public var isScreenAboveBottom: Bool { fromBottom > height }
