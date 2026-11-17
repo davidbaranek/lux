@@ -73,6 +73,6 @@ final class Notifications: NSObject, @MainActor UNUserNotificationCenterDelegate
         }
         await session.answer(action)
         // the app may be suspended right after: the sync stops again when no scene is in front.
-        if UIApplication.shared.applicationState != .active { await session.enterBackground() }
+        if UIApplication.shared.applicationState != .active { await session.enterBackground()?.value }
     }
 }

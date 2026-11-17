@@ -112,15 +112,17 @@ public final class Session {
     }
 
     /// The app went to the background: the sync stops, before the system suspends it (the caller
-    /// holds the time for it, a background task).
-    public func enterBackground() async {
-        await current?.enterBackground()
+    /// holds the time for it, a background task, and waits for the task this gives). Queued at
+    /// once, in turn with the moves to the front.
+    @discardableResult
+    public func enterBackground() -> Task<Void, Never>? {
+        current?.enterBackground()
     }
 
     /// The app is back in front (or the Mac woke): the sync runs again and the lists catch up.
+    /// Queued at once, after the moves told before it.
     public func enterForeground() {
-        guard let current else { return }
-        Task { await current.enterForeground() }
+        current?.enterForeground()
     }
 
     /// A chat's details screen, of a chat in `list`: it tells which place keeps the chat out of
