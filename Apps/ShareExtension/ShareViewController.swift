@@ -14,7 +14,8 @@ final class ShareViewController: UIViewController {
     private let message = UITextField()
     private var sender: ShareSender?
     private var chats: [ShareChat] = []
-    private var shown: [ShareChat] = []
+    private var byId: [String: ShareChat] = [:]
+    private var rows: UITableViewDiffableDataSource<Int, String>!
     private var chosen: ShareChat? { didSet { navigationItem.rightBarButtonItem?.isEnabled = chosen != nil && !sending } }
     private var sending = false
     /// The shared items, read from their providers.
@@ -47,9 +48,13 @@ final class ShareViewController: UIViewController {
         search.searchBarStyle = .minimal
         search.placeholder = String(localized: "Search")
         search.delegate = self
-        list.dataSource = self
         list.delegate = self
         list.register(UITableViewCell.self, forCellReuseIdentifier: Self.chatCell)
+        rows = UITableViewDiffableDataSource(tableView: list) { [weak self] list, indexPath, id in
+            let cell = list.dequeueReusableCell(withIdentifier: Self.chatCell, for: indexPath)
+            if let self, let chat = byId[id] { configure(cell, chat) }
+            return cell
+        }
         avatar.side = 36
         avatar.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
         list.keyboardDismissMode = .onDrag
@@ -114,10 +119,16 @@ final class ShareViewController: UIViewController {
 
     private func filter(_ text: String) {
         let words = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-        shown = words.isEmpty ? chats : chats.filter {
+        let shown = words.isEmpty ? chats : chats.filter {
             $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).contains(words)
         }
-        list.reloadData()
+        byId = Dictionary(chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // a narrower search removes rows; those still found stay as they are (no `reloadData`).
+        var seen = Set<String>()
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+        snapshot.appendSections([0])
+        snapshot.appendItems(shown.map(\.id).filter { seen.insert($0).inserted })
+        rows.apply(snapshot, animatingDifferences: false)
     }
 
     private func picture(for chat: ShareChat) -> UIImage? {
@@ -133,11 +144,12 @@ final class ShareViewController: UIViewController {
                   let self else { return }
             pictures[url] = image
             // only the rows that show it draw again.
-            let rows = shown.indices.filter { [shown] in
-                guard let ref = shown[$0].avatar ?? shown[$0].memberAvatars.first, case .person(let shownURL) = ref else { return false }
+            var snapshot = rows.snapshot()
+            snapshot.reconfigureItems(snapshot.itemIdentifiers.filter { id in
+                guard let chat = byId[id], let ref = chat.avatar ?? chat.memberAvatars.first, case .person(let shownURL) = ref else { return false }
                 return shownURL == url
-            }
-            list.reconfigureRows(at: rows.map { IndexPath(row: $0, section: 0) })
+            })
+            await rows.apply(snapshot, animatingDifferences: false)
         }
         return nil
     }
@@ -187,12 +199,8 @@ final class ShareViewController: UIViewController {
     }
 }
 
-extension ShareViewController: UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { shown.count }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: Self.chatCell, for: indexPath)
-        let chat = shown[indexPath.row]
+extension ShareViewController: UITableViewDelegate, UISearchBarDelegate {
+    private func configure(_ cell: UITableViewCell, _ chat: ShareChat) {
         var content = UIListContentConfiguration.subtitleCell()
         content.text = chat.name
         content.secondaryText = Networks.name(chat.network)
@@ -202,17 +210,17 @@ extension ShareViewController: UITableViewDataSource, UITableViewDelegate, UISea
         content.imageProperties.maximumSize = CGSize(width: 36, height: 36)
         cell.contentConfiguration = content
         cell.accessoryType = chat.id == chosen?.id ? .checkmark : .none
-        return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard !sending else { return }
-        let before = chosen.flatMap { old in shown.firstIndex { $0.id == old.id } }
-        chosen = shown[indexPath.row]
+        guard !sending, let id = rows.itemIdentifier(for: indexPath), let chat = byId[id] else { return }
+        let before = chosen?.id
+        chosen = chat
         // the chosen row tapped again is one row to draw, not two.
-        let rows = Set([before, indexPath.row].compactMap { $0 })
-        tableView.reconfigureRows(at: rows.map { IndexPath(row: $0, section: 0) })
+        var snapshot = rows.snapshot()
+        snapshot.reconfigureItems(Set([before, id].compactMap { $0 }).filter { snapshot.indexOfItem($0) != nil })
+        rows.apply(snapshot, animatingDifferences: false)
     }
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) { filter(searchText) }
