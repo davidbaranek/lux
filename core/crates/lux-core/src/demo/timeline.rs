@@ -30,9 +30,9 @@ use crate::ports::{
 };
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
-    Draft, FileKind, IndexHistory, IndexedFile, IndexedImage, IndexedMessage, Media, MessageKind, OutgoingAttachment,
-    OutgoingKind, Participant, Picture, Quote, Reaction, Reader, Receipt, SharedPost, ThreadReply, ThreadSummary,
-    TimelineMessage, Typist, html,
+    Draft, FileKind, Focused, IndexHistory, IndexedFile, IndexedImage, IndexedMessage, Media, MessageKind,
+    OutgoingAttachment, OutgoingKind, Participant, Picture, Quote, Reaction, Reader, Receipt, SharedPost, ThreadReply,
+    ThreadSummary, TimelineMessage, Typist, html,
 };
 
 /// The demo account's user.
@@ -50,6 +50,10 @@ const FORMATTED: [&str; 5] = [
 
 /// How many room changes wait for a slow listener.
 const CHANGES_BUFFER: usize = 256;
+
+/// How many messages a timeline opened around one holds on each side of it at first, as the
+/// server's context of a message gives them.
+const CONTEXT_SIDE: usize = 50;
 
 /// The demo's chats' timelines, as a backend serves them.
 pub struct DemoTimelines {
@@ -73,6 +77,8 @@ pub struct DemoTimelines {
 struct State {
     /// The rooms' own timelines and their threads', each made on first use.
     timelines: HashMap<TimelineId, ObservableVector<Arc<TimelineMessage>>>,
+    /// Which of the live timeline's messages each timeline opened around a message holds.
+    windows: HashMap<TimelineId, std::ops::Range<usize>>,
     drafts: HashMap<TimelineId, Draft>,
     /// Uploads under way: when each began, and its size.
     uploads: HashMap<MessageId, (SystemTime, u64)>,
@@ -144,6 +150,28 @@ impl DemoTimelines {
         state: &'a mut State,
         timeline: &TimelineId,
     ) -> &'a mut ObservableVector<Arc<TimelineMessage>> {
+        if let Some(event) = &timeline.at
+            && !state.timelines.contains_key(timeline)
+        {
+            let live = self.timeline(state, &timeline.clone().live());
+            let window = live
+                .iter()
+                .position(|message| message.event_id.as_ref() == Some(event))
+                .map_or(0..0, |index| {
+                    index.saturating_sub(CONTEXT_SIDE)..(index + CONTEXT_SIDE + 1).min(live.len())
+                });
+            let copies: Vec<_> = live
+                .iter()
+                .skip(window.start)
+                .take(window.len())
+                .map(|message| around(message, event))
+                .collect();
+            state.windows.insert(timeline.clone(), window);
+            state.timelines.insert(
+                timeline.clone(),
+                ObservableVector::from(copies.into_iter().collect::<Vector<_>>()),
+            );
+        }
         let made = (!state.timelines.contains_key(timeline)).then(|| match &timeline.thread {
             None => history(&timeline.room, self.messages_per_room, self.start),
             Some(root) => {
@@ -389,6 +417,62 @@ fn shared_items(room: &RoomId, message: &TimelineMessage) -> Vec<SharedItem> {
     items
 }
 
+/// The copy of a live message a timeline opened around `event` shows: its own id, as the
+/// server's timelines number their items each on their own.
+fn around(message: &Arc<TimelineMessage>, event: &EventId) -> Arc<TimelineMessage> {
+    let mut copy = (**message).clone();
+    copy.message.id = MessageId::from(format!("@{event}/{}", message.message.id));
+    Arc::new(copy)
+}
+
+impl DemoTimelines {
+    /// Grows the window of a timeline opened around a message by up to `count` of the live
+    /// timeline's messages, older or newer; `true` once it reaches that end.
+    fn widen(&self, timeline: &TimelineId, count: usize, older: bool) -> Result<bool, BackendError> {
+        let Some(event) = timeline.at.clone() else {
+            // a live timeline holds the whole made-up history at once.
+            return Ok(true);
+        };
+        let reached = {
+            let mut state = self.state();
+            let live: Vec<_> = self
+                .timeline(&mut state, &timeline.clone().live())
+                .iter()
+                .cloned()
+                .collect();
+            let Some(window) = state.windows.get(timeline).cloned() else {
+                return Err(BackendError::UnknownMessage);
+            };
+            let (added, window) = if older {
+                let start = window.start.saturating_sub(count);
+                (start..window.start, start..window.end)
+            } else {
+                let end = (window.end + count).min(live.len());
+                (window.end..end, window.start..end)
+            };
+            let reached = if older {
+                window.start == 0
+            } else {
+                window.end == live.len()
+            };
+            state.windows.insert(timeline.clone(), window);
+            let messages = self.timeline(&mut state, timeline);
+            for (offset, index) in added.enumerate() {
+                if let Some(message) = live.get(index) {
+                    let copy = around(message, &event);
+                    if older {
+                        messages.insert(offset, copy);
+                    } else {
+                        messages.push_back(copy);
+                    }
+                }
+            }
+            reached
+        };
+        Ok(reached)
+    }
+}
+
 impl ChatTimelines for DemoTimelines {
     fn changes(&self) -> RoomChanges {
         Box::pin(stream::unfold(self.changes.subscribe(), |mut changes| async move {
@@ -410,6 +494,12 @@ impl ChatTimelines for DemoTimelines {
     async fn messages(&self, timeline: &TimelineId) -> Result<DiffStream<Arc<TimelineMessage>>, BackendError> {
         let (values, batches) = {
             let mut state = self.state();
+            if let Some(event) = &timeline.at {
+                let live = self.timeline(&mut state, &timeline.clone().live());
+                if !live.iter().any(|message| message.event_id.as_ref() == Some(event)) {
+                    return Err(BackendError::UnknownMessage);
+                }
+            }
             self.timeline(&mut state, timeline)
                 .subscribe()
                 .into_values_and_batched_stream()
@@ -426,12 +516,30 @@ impl ChatTimelines for DemoTimelines {
 
     async fn wait_until_filled(&self, _timeline: &TimelineId) {}
 
-    async fn load_older(&self, _timeline: &TimelineId, _count: usize) -> Result<(), BackendError> {
-        Ok(())
+    async fn load_older(&self, timeline: &TimelineId, count: usize) -> Result<(), BackendError> {
+        self.widen(timeline, count, true).map(drop)
     }
 
-    async fn is_at_start(&self, _timeline: &TimelineId) -> Result<bool, BackendError> {
-        Ok(true)
+    async fn load_newer(&self, timeline: &TimelineId, count: usize) -> Result<bool, BackendError> {
+        self.widen(timeline, count, false)
+    }
+
+    async fn focused(&self, timeline: &TimelineId) -> Result<Focused, BackendError> {
+        let event = timeline.at.clone().ok_or(BackendError::UnknownMessage)?;
+        let (_, message) = self.find_ref(timeline, &MessageRef::Event(event))?;
+        Ok(Focused {
+            message: message.message.id.clone(),
+            thread: timeline.thread.clone(),
+        })
+    }
+
+    /// The live timelines hold the whole made-up history; one opened around a message, its window.
+    async fn is_at_start(&self, timeline: &TimelineId) -> Result<bool, BackendError> {
+        Ok(self
+            .state()
+            .windows
+            .get(timeline)
+            .is_none_or(|window| window.start == 0))
     }
 
     async fn show_event(&self, timeline: &TimelineId, event: &EventId) -> Result<Option<MessageId>, BackendError> {
