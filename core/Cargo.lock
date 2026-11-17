@@ -2254,6 +2254,7 @@ dependencies = [
  "linkify",
  "proptest",
  "pulldown-cmark",
+ "ruma-html",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -3784,6 +3785,7 @@ source = "git+https://github.com/ruma/ruma?rev=e03080c0790ba7b24ea37f9fd11794678
 dependencies = [
  "as_variant",
  "html5ever",
+ "ruma-common",
  "tracing",
  "wildmatch",
 ]
