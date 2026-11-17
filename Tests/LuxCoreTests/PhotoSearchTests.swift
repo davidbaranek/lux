@@ -138,6 +138,131 @@ private let recognizesText = ConditionTrait.enabled("Vision reads no text on thi
     }
 }
 
+/// Photos that download only when let: the first download waits for `open()`, and every
+/// download then fails as offline (the photo not at fault, so the reading ends).
+private actor HeldPhotos: MediaSourcePort {
+    private(set) var downloads = 0
+    private var held: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+    private var started: [CheckedContinuation<Void, Never>] = []
+
+    func sharedFile(roomId: String, eventId: String, directory: URL) async throws -> URL {
+        downloads += 1
+        for waiter in started { waiter.resume() }
+        started = []
+        if !isOpen { await withCheckedContinuation { held = $0 } }
+        throw AccountFailure.offline
+    }
+
+    /// Waits until `count` downloads have started.
+    func downloadsStarted(_ count: Int) async {
+        while downloads < count { await withCheckedContinuation { started.append($0) } }
+    }
+
+    func open() {
+        isOpen = true
+        held?.resume()
+        held = nil
+    }
+}
+
+/// The reports of a `PhotoIndexer`, in the order it made them, for a test to await.
+@MainActor
+private final class Reports {
+    private(set) var all: [PhotoIndexer.Progress] = []
+    let changes = Changes()
+    let report: @Sendable (PhotoIndexer.Progress) -> Void
+    private var receiving: Task<Void, Never>?
+
+    init() {
+        let (reports, report) = AsyncStream<PhotoIndexer.Progress>.makeStream()
+        self.report = { report.yield($0) }
+        receiving = Task { [weak self] in
+            for await progress in reports {
+                self?.all.append(progress)
+                self?.changes.send()
+            }
+        }
+    }
+
+    isolated deinit { receiving?.cancel() }
+
+    /// Whether a report showed the reading again after one showed it stopped.
+    var showedReadingAfterAStop: Bool {
+        all.drop(while: \.isReading).dropFirst().contains(where: \.isReading)
+    }
+}
+
+private func photoStore(photos: Int) async throws -> LocalStore {
+    let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
+    try await store.addImages((0..<photos).map {
+        IndexedImage(eventId: "$photo\($0)", roomId: "!room", senderName: "Anna", caption: "", date: .now, isOwn: false)
+    })
+    return store
+}
+
+extension PhotoSearch {
+    /// The photo search's announcements (how far the reading is, the model).
+    fileprivate func announcements() -> (Changes, AnyObject) {
+        let changes = Changes()
+        return (changes, self.changes.observe { changes.send() })
+    }
+}
+
+@Suite struct PhotoReadingStopTests {
+    @MainActor @Test func aStoppedReadingShowsStoppedAtOnceAndReadingAgainStartsAfterIt() async throws {
+        let store = try await photoStore(photos: 3)
+        let source = HeldPhotos()
+        let reports = Reports()
+        let photos = PhotoIndexer(store: store, account: Task { source }, directory: folder(), model: nil, report: reports.report)
+
+        let first = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
+        await source.downloadsStarted(1)
+        #expect(await photos.progress().isReading)
+
+        // the photo being read still downloads, but the reading shows stopped.
+        await photos.stop()
+        #expect(await photos.progress().isReading == false)
+
+        // read again while the stopped one ends: it shows as reading, and starts after it.
+        let again = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
+        await reports.changes.until { reports.showedReadingAfterAStop }
+        #expect(await source.downloads == 1)
+        await source.open()
+        #expect(try await first.value == false)
+        #expect(try await again.value == false)
+        #expect(await source.downloads == 2)
+        #expect(await photos.progress().isReading == false)
+    }
+
+    @MainActor @Test func readNowAndStopShowAtTheTap() async throws {
+        let source = HeldPhotos()
+        let photos = PhotoSearch(store: try await photoStore(photos: 3), account: Task { source }, directory: folder())
+
+        photos.readNow()
+        #expect(photos.isReading)
+        await source.downloadsStarted(1)
+        await photos.pause()
+        #expect(photos.isReading == false)
+        // the stopped photo ends, and with it the reading (its last report made): nothing from
+        // before the stop shows it reading again.
+        await source.open()
+        await photos.stop()
+        #expect(photos.isReading == false)
+    }
+
+    @MainActor @Test func readNowWithNothingToReadEndsShowingStopped() async throws {
+        let photos = PhotoSearch(store: try await photoStore(photos: 0), account: Task { HeldPhotos() }, directory: folder())
+        let (changes, observing) = photos.announcements()
+
+        photos.readNow()
+        #expect(photos.isReading)
+        await changes.until { !photos.isReading }
+        withExtendedLifetime(observing) {}
+        await photos.stop()
+    }
+}
+
 @Test func aKindsNextPageAddsWhatItHasNotShownYet() {
     let chat = ChatRow(id: "!a", name: "Anna", preview: "", date: nil, unreadCount: 0)
     func link(_ id: String) -> FoundLink {
