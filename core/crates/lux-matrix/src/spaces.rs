@@ -22,6 +22,7 @@ use matrix_sdk::ruma::events::space::child::SpaceChildEventContent;
 use matrix_sdk::{Client, Room};
 use matrix_sdk_ui::spaces::{SpaceFilter, SpaceService};
 use tokio::sync::watch;
+use tracing::warn;
 
 use crate::account::MatrixAccount;
 use crate::bridge_state::{bridge_states, bridge_states_on_server};
@@ -135,12 +136,16 @@ async fn read_graph(client: &Client, service: &SpaceService, filters: &Vector<Sp
 }
 
 /// Where the space `room` places its children: each one's `order` and when it was added, by its
-/// `m.space.child` event.
+/// `m.space.child` event. If the store cannot give those events, none is placed: the children go
+/// by their ids ([`SpaceChild`]'s order for children placed alike).
 async fn placed_children(room: &Room) -> HashMap<OwnedRoomId, (Option<String>, Option<u64>)> {
-    let events = room
-        .get_state_events_static::<SpaceChildEventContent>()
-        .await
-        .unwrap_or_default();
+    let events = match room.get_state_events_static::<SpaceChildEventContent>().await {
+        Ok(events) => events,
+        Err(error) => {
+            warn!(%error, "a space's children cannot be read from the store: they go by their ids");
+            Vec::new()
+        }
+    };
     events
         .into_iter()
         .filter_map(|event| match event.deserialize() {
