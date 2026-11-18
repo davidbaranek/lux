@@ -18,8 +18,8 @@ cd .. && sh scripts/check-swift-errors.sh && swift test
 
 `lux-core` does not depend on the SDK, so `cargo test -p lux-core` takes seconds. Use it as the
 inner loop. CI runs the three `cargo` checks, `check-swift-errors.sh`, the Swift tests (also under
-Thread Sanitizer), both apps' builds and their view tests on every pull request. The simulator smoke test runs only
-by hand, before a TestFlight build: from the Actions tab (`workflow_dispatch`) or locally
+Thread Sanitizer), both apps' builds and the Mac app's view tests on every pull request. What needs a simulator (the
+iPhone app's view tests, the smoke test) runs only by hand, before a TestFlight build: from the Actions tab (`workflow_dispatch`) or locally
 (docs/releasing.md). So do the photo search tests that need Vision or its model, which CI's
 virtual machines cannot run (docs/releasing.md says how).
 
@@ -71,8 +71,9 @@ with it (Xcode Cloud builds from the committed project).
   reached them (the rules in [AGENTS.md](AGENTS.md)), and where a chat opens. Nothing is put in a
   window or drawn, and the tests wait on the model's and the views' announcements (`Changes`,
   key-value observing, view notifications), so they need no GPU. The app hosting them runs the demo
-  (`-LuxDemo`, set by the schemes), never the account saved on the machine. CI runs both on every
-  pull request; locally:
+  (`-LuxDemo`, set by the schemes), never the account saved on the machine. CI runs the Mac's on
+  every pull request, and the iPhone's only by hand (the runner's simulator is too slow beside the
+  hosting app's own demo); locally:
 
   ```sh
   xcodebuild test -scheme Lux-Mac-Tests -destination 'platform=macOS'
