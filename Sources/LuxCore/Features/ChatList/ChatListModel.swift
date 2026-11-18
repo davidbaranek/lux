@@ -21,16 +21,16 @@ public final class ChatListModel {
     public var filter: ChatFilter? {
         didSet {
             guard filter != oldValue else { return }
-            if filter == .drafts { list?.setDrafts(Preferences.shared.chatsWithDrafts) }
+            if filter == .drafts { list?.setDrafts(preferences.chatsWithDrafts) }
             list?.setFilter(filter)
         }
     }
 
     /// The order of the place's chats; kept on this device.
-    public var order: ChatOrder = Preferences.shared.chatOrder {
+    public var order: ChatOrder {
         didSet {
             guard order != oldValue else { return }
-            Preferences.shared.chatOrder = order
+            preferences.chatOrder = order
             list?.setOrder(order)
         }
     }
@@ -78,7 +78,7 @@ public final class ChatListModel {
 
     /// Shows the list again with what may have changed outside it (drafts, for the Drafts filter).
     public func refresh() {
-        if filter == .drafts { list?.setDrafts(Preferences.shared.chatsWithDrafts) }
+        if filter == .drafts { list?.setDrafts(preferences.chatsWithDrafts) }
     }
 
     /// The new sections, and the ids of rows that were there before and now show something else.
@@ -110,6 +110,7 @@ public final class ChatListModel {
     private var answered = false
 
     private let account: Task<any ChatListPort, any Error>
+    private let preferences: Preferences
     /// The core's list: it takes intents at once, also before its account opens. Nil when
     /// signed out.
     private let list: (any ChatListView)?
@@ -120,8 +121,9 @@ public final class ChatListModel {
 
     public init(session: Session) {
         account = Task { [account = session.account] in try await account.value }
-        list = session.openChatList(place: .inbox, filter: nil, order: Preferences.shared.chatOrder,
-                                    drafts: Preferences.shared.chatsWithDrafts)
+        preferences = session.preferences
+        order = preferences.chatOrder
+        list = session.openChatList(place: .inbox, filter: nil, order: order, drafts: preferences.chatsWithDrafts)
         // in order: each batch builds on the one before.
         following = Task { [weak self, events = list?.events] in
             guard let events else { return }

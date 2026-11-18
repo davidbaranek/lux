@@ -7,7 +7,11 @@ import Testing
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ChatDetailsTests {
-    private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 120)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 30, messagesPerRoom: 120)
+    }
 
     private func row(_ id: String, name: String = "", isGroup: Bool = false) -> ChatRow {
         ChatRow(id: id, name: name, preview: "", date: nil, isGroup: isGroup)
@@ -99,13 +103,13 @@ struct ChatDetailsTests {
     }
 
     @Test func aChatKeepsItsOwnMessageStyleOverTheAppsAndNamesTheAppsInItsChoices() {
+        let preferences = session.preferences
         let details = session.details(of: row("!room3:demo", isGroup: true))
-        defer { details.chatStyleOverride = nil }
         details.chatStyleOverride = .plain
-        #expect(Preferences.shared.chatStyle(in: "!room3:demo") == .plain)
-        #expect(details.chatStyleChoices.last?.title.contains(Preferences.shared.chatStyle.title) == true)
+        #expect(preferences.chatStyle(in: "!room3:demo") == .plain)
+        #expect(details.chatStyleChoices.last?.title.contains(preferences.chatStyle.title) == true)
         details.chatStyleOverride = nil
-        #expect(Preferences.shared.chatStyle(in: "!room3:demo") == Preferences.shared.chatStyle)
+        #expect(preferences.chatStyle(in: "!room3:demo") == preferences.chatStyle)
     }
 
     @Test func aMergedChatShowsEachOfItsRooms() async throws {

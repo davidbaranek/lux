@@ -6,7 +6,11 @@ import Testing
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ChatListModelTests {
-    private let session = DemoSessions.open(rooms: 40, messagesPerRoom: 5)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 40, messagesPerRoom: 5)
+    }
 
     @Test func theInboxShowsPinnedChatsInAGridAndThePlacesWithTheirNames() async throws {
         let model = ChatListModel(session: session)

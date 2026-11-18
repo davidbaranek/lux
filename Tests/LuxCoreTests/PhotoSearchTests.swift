@@ -120,12 +120,12 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
     }
 }
 
-@Suite(recognizesText, .timeLimit(.minutes(1))) struct PhotoIndexerTests {
+@Suite(recognizesText, .ownPreferences, .timeLimit(.minutes(1))) struct PhotoIndexerTests {
     @Test func readsEveryPhotoOfTheDemoOnce() async throws {
         let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
         let account = RustAccount.demo(rooms: 20, messagesPerRoom: 60)
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
-        let texts = SearchIndexer(store: store, account: Task { account }, maxChats: 2) { report.yield($0) }
+        let texts = SearchIndexer(store: store, account: Task { account }, maxChats: 2, preferences: try Preferences.ofTest) { report.yield($0) }
         try await leased { lease in await texts.update(lease: lease) }
         _ = try await reports.first { !$0.isIndexing }
         let kept = try await store.imageCounts(reader: PhotoReader(model: nil).name)
@@ -210,7 +210,7 @@ extension PhotoSearch {
     }
 }
 
-@Suite(.timeLimit(.minutes(1))) struct PhotoReadingStopTests {
+@Suite(.ownPreferences, .timeLimit(.minutes(1))) struct PhotoReadingStopTests {
     @MainActor @Test func aStoppedReadingShowsStoppedAtOnceAndReadingAgainStartsAfterIt() async throws {
         let store = try await photoStore(photos: 3)
         let source = HeldPhotos()
@@ -238,7 +238,8 @@ extension PhotoSearch {
 
     @MainActor @Test func readNowAndStopShowAtTheTap() async throws {
         let source = HeldPhotos()
-        let photos = PhotoSearch(store: try await photoStore(photos: 3), account: Task { source }, directory: folder())
+        let photos = PhotoSearch(store: try await photoStore(photos: 3), account: Task { source }, directory: folder(),
+                                 preferences: try Preferences.ofTest)
 
         photos.readNow()
         #expect(photos.isReading)
@@ -253,7 +254,8 @@ extension PhotoSearch {
     }
 
     @MainActor @Test func readNowWithNothingToReadEndsShowingStopped() async throws {
-        let photos = PhotoSearch(store: try await photoStore(photos: 0), account: Task { HeldPhotos() }, directory: folder())
+        let photos = PhotoSearch(store: try await photoStore(photos: 0), account: Task { HeldPhotos() }, directory: folder(),
+                                 preferences: try Preferences.ofTest)
         let (changes, observing) = photos.announcements()
 
         photos.readNow()

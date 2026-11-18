@@ -17,12 +17,12 @@ public final class SettingsModel {
 
     /// How far back search reads each chat; changing it reads on at once.
     public var searchHistory: SearchHistory {
-        get { Preferences.shared.searchHistory }
+        get { session.preferences.searchHistory }
         set {
             if let search = session.search {
                 search.readHistory(newValue)
             } else {
-                Preferences.shared.searchHistory = newValue
+                session.preferences.searchHistory = newValue
             }
             changes.send()
         }
@@ -31,7 +31,7 @@ public final class SettingsModel {
     /// Search finds photos by how they look too (the model, on this device); the words in them
     /// and the messages near them it finds always.
     public var searchesPhotosByLook: Bool {
-        session.search?.photos.searchesByLook ?? Preferences.shared.searchesPhotosByLook
+        session.search?.photos.searchesByLook ?? session.preferences.searchesPhotosByLook
     }
 
     /// Where the photos stand now, in one line: what is happening, never what a button would do.
@@ -110,18 +110,18 @@ public final class SettingsModel {
 
     /// Send read receipts: off by default (a bridged chat's other side sees them).
     public var sendsReadReceipts: Bool {
-        get { Preferences.shared.sendsReadReceipts }
+        get { session.preferences.sendsReadReceipts }
         set {
-            Preferences.shared.sendsReadReceipts = newValue
+            session.preferences.sendsReadReceipts = newValue
             changes.send()
         }
     }
 
     /// Bubbles or plain rows, for every chat on this device.
     public var chatStyle: ChatStyle {
-        get { Preferences.shared.chatStyle }
+        get { session.preferences.chatStyle }
         set {
-            Preferences.shared.chatStyle = newValue
+            session.preferences.chatStyle = newValue
             changes.send()
         }
     }

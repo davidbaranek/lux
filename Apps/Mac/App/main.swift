@@ -9,7 +9,7 @@ app.run()
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `-LuxDemo`: made-up chats, no account (measurements, screenshots).
-    private let session = LaunchOptions.isDemo ? Session.demo() : Session()
+    private let session = LaunchOptions.isDemo ? Session.demo(preferences: .shared) : Session(preferences: .shared)
     private var window: NSWindow!
     private var settings: SettingsWindowController?
     private var notifications: MacNotifications?

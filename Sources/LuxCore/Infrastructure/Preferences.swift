@@ -1,10 +1,16 @@
 import Foundation
 
-/// The app's own settings, kept on this device.
+/// The app's own settings, kept on this device in `defaults`. The app's session has `shared`; a
+/// test's, a suite of its own.
 @MainActor
 public final class Preferences {
-    public static let shared = Preferences()
-    private let defaults = UserDefaults.standard
+    /// The app's: its standard defaults.
+    public static let shared = Preferences(defaults: .standard)
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults) {
+        self.defaults = defaults
+    }
 
     /// Send read receipts when a chat is read. Off by default: on a bridged account the other side
     /// (WhatsApp, Instagram) sees the chat read too.

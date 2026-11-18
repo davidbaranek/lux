@@ -41,7 +41,7 @@ final class AccountSession {
     /// opens; `ended` runs if the server ends this device's session.
     init(account: Task<RustAccount, any Error>, chatListSource: ChatListSource, server: String,
          files: AccountPaths, paths: AppPaths, stores: (kept: Task<LocalStore?, Never>, index: Task<LocalStore?, Never>),
-         maxChats: Int? = nil, searchChanged: @escaping @MainActor () -> Void, ended: @escaping @MainActor () async -> Void) {
+         maxChats: Int? = nil, preferences: Preferences, searchChanged: @escaping @MainActor () -> Void, ended: @escaping @MainActor () async -> Void) {
         self.account = account
         self.chatListSource = chatListSource
         self.files = files
@@ -64,7 +64,8 @@ final class AccountSession {
         }
         opening = Task { [weak self, index = stores.index, kept = stores.kept, photos = paths.photoReading] in
             guard let index = await index.value, !Task.isCancelled else { return }
-            self?.search = MessageSearch(store: index, account: Task { try await account.value }, photos: photos, maxChats: maxChats)
+            self?.search = MessageSearch(store: index, account: Task { try await account.value }, photos: photos, maxChats: maxChats,
+                                         preferences: preferences)
             await Self.clearOldIndex(in: kept, besides: index)
         }
     }

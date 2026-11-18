@@ -15,6 +15,7 @@ public final class MessageSearch {
     private let meaning: MessageMeaning
 
     private let store: LocalStore
+    private let preferences: Preferences
     private let indexer: SearchIndexer
     private let account: Task<any SearchSourcePort, any Error>
     private var following: Task<Void, Never>?
@@ -23,14 +24,19 @@ public final class MessageSearch {
     /// The index's, the photos' and the meaning's reading: it ends with the search.
     private let work = ForegroundJobs()
 
-    /// Search over `store`, filled from `account`; photos are downloaded to `photos` to be read.
-    init(store: LocalStore, account: Task<any SearchSourcePort, any Error>, photos directory: URL, maxChats: Int? = nil) {
+    /// Search over `store`, filled from `account` as far back as `preferences` say; photos are
+    /// downloaded to `photos` to be read.
+    init(store: LocalStore, account: Task<any SearchSourcePort, any Error>, photos directory: URL, maxChats: Int? = nil,
+         preferences: Preferences) {
         self.store = store
         self.account = account
+        self.preferences = preferences
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let indexer = SearchIndexer(store: store, account: Task { try await account.value }, maxChats: maxChats) { report.yield($0) }
+        let indexer = SearchIndexer(store: store, account: Task { try await account.value }, maxChats: maxChats,
+                                    preferences: preferences) { report.yield($0) }
         self.indexer = indexer
-        let photos = PhotoSearch(store: store, account: Task { try await account.value }, directory: directory)
+        let photos = PhotoSearch(store: store, account: Task { try await account.value }, directory: directory,
+                                 preferences: preferences)
         self.photos = photos
         let meaning = MessageMeaning(store: store)
         self.meaning = meaning
@@ -96,7 +102,7 @@ public final class MessageSearch {
 
     /// Reads each chat as far back as Settings now asks: on from where it stopped, if further.
     public func readHistory(_ history: SearchHistory) {
-        Preferences.shared.searchHistory = history
+        preferences.searchHistory = history
         Self.update(indexer, in: work)
     }
 

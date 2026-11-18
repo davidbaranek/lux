@@ -51,12 +51,16 @@ public actor SearchIndexer {
     private var stopped = false
     private var again = false
     private let report: @Sendable (Progress) -> Void
+    /// How far back each chat is read (Settings).
+    private let preferences: Preferences
 
     /// `maxChats`: index only the most recent chats (the demo's thousands of made-up ones).
-    init(store: LocalStore, account: Task<any IndexSourcePort, any Error>, maxChats: Int? = nil, report: @escaping @Sendable (Progress) -> Void) {
+    init(store: LocalStore, account: Task<any IndexSourcePort, any Error>, maxChats: Int? = nil, preferences: Preferences,
+         report: @escaping @Sendable (Progress) -> Void) {
         self.store = store
         self.account = account
         self.maxChats = maxChats
+        self.preferences = preferences
         self.report = report
     }
 
@@ -90,7 +94,7 @@ public actor SearchIndexer {
         let rooms = (maxChats.map { Array(all.prefix($0)) } ?? all).flatMap { row in
             (row.isMerged ? row.rooms.map(\.id) : [row.id]).map { IndexedRoom(id: $0, date: row.date) }
         }
-        let horizon = await MainActor.run { Preferences.shared.searchHistory.since(.now) }
+        let horizon = await MainActor.run { [preferences] in preferences.searchHistory.since(.now) }
         // quick: rooms with nothing indexed, or with newer messages; deep: rooms not read back
         // to their start or as far as Settings asks.
         let quick = rooms.filter { room in
