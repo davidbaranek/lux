@@ -659,7 +659,8 @@ impl ChatTimelines for DemoTimelines {
 }
 
 impl ChatSending for DemoTimelines {
-    /// A message with "fail" in it fails, to show the retry and discard actions.
+    /// Shows the message sending, as a server's local echo, then sent at once; a message with
+    /// "fail" in it fails, to show the retry and discard actions.
     async fn send_text(
         &self,
         timeline: &TimelineId,
@@ -668,16 +669,20 @@ impl ChatSending for DemoTimelines {
     ) -> Result<(), BackendError> {
         let room = &timeline.room;
         let mut message = self.own_message(room, text);
-        if text.contains("fail") {
-            message.message.state = SendState::Failed;
-        }
+        message.message.state = SendState::Sending { upload: None };
         if let Some(reply) = reply {
             message.reply = self.quote(timeline, reply);
             message.message.is_reply = message.reply.is_some();
         }
         self.state().drafts.remove(timeline);
-        let date = message.message.date;
+        let (id, date) = (message.message.id.clone(), message.message.date);
         self.append(timeline, message);
+        let answer = if text.contains("fail") {
+            SendState::Failed
+        } else {
+            SendState::Sent
+        };
+        self.edit_message(room, &id, |message| message.message.state = answer)?;
         // a thread's reply is not the chat's newest message in the list.
         if let Some(account) = &self.sent
             && timeline.thread.is_none()
@@ -687,7 +692,12 @@ impl ChatSending for DemoTimelines {
         Ok(())
     }
 
+    /// Only the account's own text messages can be edited, as on a server.
     async fn edit(&self, room: &RoomId, message: &MessageId, text: &str) -> Result<(), BackendError> {
+        let (_, _, found) = self.find(room, message)?;
+        if !found.is_editable {
+            return Err(BackendError::NotAllowed);
+        }
         self.edit_message(room, message, |message| {
             text.clone_into(&mut message.message.body);
             message.message.is_edited = true;
@@ -1239,7 +1249,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sending_reacting_and_deleting_show_as_diffs() {
+    async fn a_reply_quotes_its_message_and_a_deleted_message_shows_as_deleted() {
         let demo = DemoTimelines::new(20);
         let mut messages = demo.messages(&room().into()).await.expect("opens");
         let first = messages.next().await.expect("a reset");
@@ -1253,12 +1263,9 @@ mod tests {
         };
         assert!(value.reply.is_some());
         let id = value.message.id.clone();
-        demo.toggle_reaction(&room(), &id, "👍").await.expect("reacts");
-        let reacted = messages.next().await.expect("a batch");
-        assert!(matches!(&reacted[0], eyeball_im::VectorDiff::Set { value, .. } if value.reactions[0].is_mine));
         demo.delete(&room(), &id).await.expect("deletes");
-        let deleted = messages.next().await.expect("a batch");
-        assert!(matches!(&deleted[0], eyeball_im::VectorDiff::Set { value, .. } if value.kind == MessageKind::Deleted));
+        let (_, _, deleted) = demo.find(&room(), &id).expect("there");
+        assert_eq!(deleted.kind, MessageKind::Deleted);
     }
 
     #[tokio::test]

@@ -37,6 +37,8 @@ uuid.workspace = true
 
 [dev-dependencies]
 jiff.workspace = true
+# the ports' contract, run against the Matrix account (tests/contract.rs).
+lux-core = { workspace = true, features = ["test-support"] }
 matrix-sdk = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 tempfile.workspace = true

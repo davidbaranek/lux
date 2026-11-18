@@ -58,6 +58,11 @@ with it (Xcode Cloud builds from the committed project).
 - Rust: integration tests in each crate's `tests/` through the public API, against
   `matrix-sdk-test`'s mock server. Unit tests beside the code only for pure rules such as diffs and
   parsing.
+- The demo account stands in for the Matrix account under the view models' and the Swift tests.
+  What both must do the same is written once in `lux_core::contract` and run against each (the
+  demo in `lux-core`, the Matrix account in `lux-matrix/tests/contract.rs`, through the
+  `test-support` feature). A difference found there is fixed in the demo, or, when it is one of
+  the demo's own rules, kept out of the contract.
 - Swift: Swift Testing (`@Test`, `#expect`) for new tests. The main flows are tested through the
   view models over the demo account. `Apps/UITests` holds the XCUITests, on the demo with
   `-LuxDemo`: the smoke test (`SmokeTests`, a walk through the app that fails on a crash or a hang)
