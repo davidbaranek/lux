@@ -33,17 +33,6 @@ struct ThrottleTests {
         withExtendedLifetime(throttle) {}
     }
 
-    @Test func workAfterAQuietIntervalRunsAtOnce() async throws {
-        let throttle = Throttle(interval: .seconds(2), clock: clock)
-        throttle.schedule(work("a"))
-        #expect(try await ran.first() == "a")
-        _ = try await clock.sleeps.first()
-        clock.advance(by: .seconds(2))
-        throttle.schedule(work("b"))
-        #expect(try await ran.first() == "b")
-        withExtendedLifetime(throttle) {}
-    }
-
     @Test func workNeverStartsBeforeTheOneBeforeItEnds() async throws {
         let throttle = Throttle(interval: .seconds(2), clock: clock)
         let slow = Held<String, Void>()

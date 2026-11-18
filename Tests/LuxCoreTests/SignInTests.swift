@@ -99,9 +99,10 @@ struct SignInModelTests {
         await server.methods.answer("example.org", with: Self.passwordOnly)
         let signingIn = Task { try await model.signIn(user: " anna ", password: "wrong") }
         // the user's name without spaces, at the server typed.
-        #expect(try await server.signIns.asks.first() == "anna@example.org")
+        let asked = try await server.signIns.asks.first()
+        #expect(asked == "anna@example.org")
         #expect(model.isSigningIn)
-        await server.signIns.answer("anna@example.org", with: AccountFailure.wrongCredentials)
+        await server.signIns.answer(asked, with: AccountFailure.wrongCredentials)
         await #expect(throws: AccountFailure.wrongCredentials) { try await signingIn.value }
         #expect(!model.isSigningIn)
         #expect(server.homeserver == "example.org")
@@ -110,9 +111,10 @@ struct SignInModelTests {
     @Test func closingTheServersPageLeavesTheFormReady() async throws {
         let window = NSWindow()
         let signingIn = Task { try await model.signInInBrowser(presentingFrom: window) }
-        #expect(try await server.signIns.asks.first() == "browser@matrix.org")
+        let asked = try await server.signIns.asks.first()
+        #expect(asked == "browser@matrix.org")
         #expect(model.isSigningIn)
-        await server.signIns.answer("browser@matrix.org", with: CancellationError())
+        await server.signIns.answer(asked, with: CancellationError())
         await #expect(throws: CancellationError.self) { try await signingIn.value }
         #expect(!model.isSigningIn)
     }
