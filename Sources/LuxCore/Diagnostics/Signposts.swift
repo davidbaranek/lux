@@ -14,6 +14,8 @@ public enum Signposts {
     public static let list = OSSignposter(subsystem: AppIdentity.bundleId, category: "list")
     public static let thread = OSSignposter(subsystem: AppIdentity.bundleId, category: "thread")
     public static let images = OSSignposter(subsystem: AppIdentity.bundleId, category: "images")
+    /// Photo search's model: each encoder's load (long when Core ML compiles it for the device).
+    static let model = OSSignposter(subsystem: AppIdentity.bundleId, category: "model")
 
     /// Seconds since the process started (the kernel's start time), for "launch to first chats".
     public static func sinceProcessStart() -> Double {

@@ -103,7 +103,6 @@ public actor PhotoIndexer {
         guard let account = await bestEffort("photo search: the account", { try await account.value }) else { return false }
         let reader = self.reader
         var left = limit ?? .max
-        defer { Task { await reader.readingEnded() } }
         while left > 0, !Task.isCancelled {
             guard let photos = await bestEffort("photo search: photos to read", { try await store.imagesToRead(by: reader.name, limit: min(left, Self.batch)) })
             else { return false }

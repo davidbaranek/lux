@@ -9,7 +9,9 @@ import Vision
 /// one, in any of the languages it learned. Both run on the device
 /// (Core ML, on the Neural Engine where there is one); each loads when first needed, as each is
 /// large: the image encoder while photos are read, the text encoder from the first search on
-/// (until it is loaded, a search finds photos by their words).
+/// (until it is loaded, a search finds photos by their words). Once loaded, each stays until the
+/// app leaves the front or memory runs short (`releaseEncoders`): Core ML keeps what it compiled
+/// for the device, so a load after that is quick, but no reading of a few new photos pays for one.
 actor PhotoSearchModel {
     /// What `model.json` says of the model.
     struct Description: Decodable, Sendable {
@@ -54,6 +56,15 @@ actor PhotoSearchModel {
     private var tokenizer: QueryTokenizer?
     private var table: TokenTable?
     private var preparing: Task<Void, Never>?
+    /// How many times the encoders were let go: an encoder whose load began before the last time
+    /// is used for what it was loaded for, and not kept.
+    private var releases = 0
+    /// The encoders' loads under way, and who waits for them all to end (`close`, before the
+    /// model's files go).
+    private var loading = 0
+    private var loaded: [CheckedContinuation<Void, Never>] = []
+    /// Photo search was turned off: no encoder loads again.
+    private var isClosed = false
 
     /// The model whose files `file` finds (its `model.json`, encoders and tokenizer): an asset
     /// pack names each of its files' places itself, which need not share one folder.
@@ -72,9 +83,12 @@ actor PhotoSearchModel {
 
     /// A photo's unit embedding: the photo squashed to the encoder's square, as it learned. The
     /// first loads the image encoder (compiled for this device the first time: long).
-    func embedding(of image: CGImage, lease _: ForegroundLease) throws -> [Float] {
-        let encoder = try imageEncoder ?? Self.load("ImageEncoder", from: file)
-        imageEncoder = encoder
+    func embedding(of image: CGImage, lease _: ForegroundLease) async throws -> [Float] {
+        try embedding(of: image, by: try await loadedImageEncoder())
+    }
+
+    /// Predicts on the model's actor, which holds the encoder (an `MLModel` is not `Sendable`).
+    private func embedding(of image: CGImage, by encoder: MLModel) throws -> [Float] {
         guard let constraint = encoder.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else {
             throw PhotoSearchError.unexpectedModel
         }
@@ -85,24 +99,30 @@ actor PhotoSearchModel {
         return try floats(output)
     }
 
-    /// Loads the text encoder and the tokenizer off the model's queue: the first load on a device
+    /// The image encoder, loaded now if it is not (photos are read one at a time: one load).
+    private func loadedImageEncoder() async throws -> MLModel {
+        if let imageEncoder { return imageEncoder }
+        let release = releases
+        let encoder = try await load(.image)
+        if release == releases { imageEncoder = encoder }
+        return encoder
+    }
+
+    /// Loads the text encoder and the tokenizer off the model's actor: the first load on a device
     /// compiles the encoder for it, which takes a while (some 20 s on a Mac), and searches go on
     /// by words meanwhile.
     func prepareTextEncoder(lease _: ForegroundLease) {
-        guard textEncoder == nil, preparing == nil else { return }
+        guard textEncoder == nil, preparing == nil, !isClosed else { return }
         let file = file, description = description
-        // compiling and loading the model holds its thread: on its own executor, not the pool.
+        // reading the tokenizer holds its thread: on its own executor, not the pool.
         preparing = Task(executorPreference: ImageWork.executor, priority: .utility) { [weak self] in
-            do {
+            await bestEffort("photo search: the text encoder") {
                 let tokenizer = try QueryTokenizer(file: file("tokenizer.json"), length: description.textLength,
                                                    padId: description.padId, lowercase: description.lowercase)
-                let encoder = try Self.load("TextEncoder", from: file)
                 let table = try description.tokens.flatMap { tokens in
                     try description.width.map { try TokenTable(file: file("embeddings.bin"), tokens: tokens, width: $0) }
                 }
-                await self?.prepared(encoder, tokenizer, table)
-            } catch {
-                Log.app.error("photo search: the text encoder: \(String(describing: error), privacy: .public)")
+                try await self?.loadTextEncoder(tokenizer, table)
             }
         }
     }
@@ -118,7 +138,10 @@ actor PhotoSearchModel {
         await preparing?.value
     }
 
-    private func prepared(_ encoder: MLModel, _ tokenizer: QueryTokenizer, _ table: TokenTable?) {
+    private func loadTextEncoder(_ tokenizer: QueryTokenizer, _ table: TokenTable?) async throws {
+        let encoder = try await load(.text)
+        // released while it loaded (`preparing` cancelled): it is not kept.
+        try Task.checkCancellation()
         textEncoder = encoder
         self.tokenizer = tokenizer
         self.table = table
@@ -156,8 +179,11 @@ actor PhotoSearchModel {
     /// The text encoder is loaded: a search finds photos by their look at once.
     var isTextEncoderReady: Bool { textEncoder != nil }
 
-    /// Lets the text encoder go (the system is short of memory); the next search loads it again.
-    func releaseTextEncoder() {
+    /// Lets both encoders go (the app left the front, or the system is short of memory): their
+    /// memory is the app's again, and the next photo or search loads its encoder again.
+    func releaseEncoders() {
+        releases += 1
+        imageEncoder = nil
         preparing?.cancel()
         preparing = nil
         textEncoder = nil
@@ -165,22 +191,51 @@ actor PhotoSearchModel {
         table = nil
     }
 
-    /// Lets the image encoder go (the photos are read): its memory is the app's again.
-    func releaseImageEncoder() {
-        imageEncoder = nil
+    /// Photo search was turned off: no encoder loads again, and this returns once none of this
+    /// model's loads is under way, so its files can go.
+    func close() async {
+        isClosed = true
+        let preparation = preparing
+        releaseEncoders()
+        await preparation?.value
+        if loading > 0 { await withCheckedContinuation { loaded.append($0) } }
+    }
+
+    /// The model's two encoders.
+    private enum Encoder: String {
+        case image, text
+
+        /// Its own model file, in a model built before both were functions of one.
+        var fileName: String { self == .image ? "ImageEncoder.mlmodelc" : "TextEncoder.mlmodelc" }
+    }
+
+    /// Loads `encoder`, counted in `loading` until it ends.
+    private func load(_ encoder: Encoder) async throws -> MLModel {
+        guard !isClosed else { throw CancellationError() }
+        loading += 1
+        defer {
+            loading -= 1
+            if loading == 0 {
+                for waiting in loaded { waiting.resume() }
+                loaded = []
+            }
+        }
+        return try await Self.load(encoder, from: file)
     }
 
     /// An encoder: a function of the one model that holds both ("image", "text"), or, of a
     /// model built before, its own model file.
-    private static func load(_ name: String, from file: Files) throws -> MLModel {
+    private static func load(_ encoder: Encoder, from file: Files) async throws -> MLModel {
+        let signpost = Signposts.model.beginInterval("load", "\(encoder.rawValue, privacy: .public)")
+        defer { Signposts.model.endInterval("load", signpost) }
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
         let both = try file("Encoders.mlmodelc")
         guard FileManager.default.fileExists(atPath: both.path) else {
-            return try MLModel(contentsOf: file("\(name).mlmodelc"), configuration: configuration)
+            return try await MLModel.load(contentsOf: file(encoder.fileName), configuration: configuration)
         }
-        configuration.functionName = name == "ImageEncoder" ? "image" : "text"
-        return try MLModel(contentsOf: both, configuration: configuration)
+        configuration.functionName = encoder.rawValue
+        return try await MLModel.load(contentsOf: both, configuration: configuration)
     }
 
     private func floats(_ output: any MLFeatureProvider) throws -> [Float] {

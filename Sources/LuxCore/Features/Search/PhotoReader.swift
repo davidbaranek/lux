@@ -28,10 +28,6 @@ struct PhotoReader: PhotoReading {
         }
     }
 
-    func readingEnded() async {
-        await model?.releaseImageEncoder()
-    }
-
     /// The lines of text in `image`, in reading order. Vision's request handler reads on the
     /// calling thread, the first time compiling its model for the device (seconds) and holding
     /// the thread meanwhile: called on `ImageWork`'s. (Its async `RecognizeTextRequest` does the

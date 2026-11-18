@@ -85,7 +85,7 @@ actor MessageMeaning {
             if messages.isEmpty { return true }
             var embeddings: [(eventId: String, embedding: [Float]?)] = []
             for message in messages where !Task.isCancelled {
-                // the encoder went (memory ran short): the rest wait for the next reading.
+                // the encoder went (the app left the front, or memory ran short): the rest wait for the next reading.
                 guard let embedding = await bestEffort("message meaning: an embedding", { try await model.embedding(ofMessage: message.body) })
                 else { return false }
                 embeddings.append((message.eventId, embedding))

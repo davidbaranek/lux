@@ -51,8 +51,6 @@ struct PhotoIndexerReadingTests {
             if unreadable.contains(words) { throw PhotoSearchError.notAPicture }
             return (words, [Float(words.count), 1])
         }
-
-        func readingEnded() async {}
     }
 
     /// A store with `count` photos, the newest first: `$photo0` is the newest.

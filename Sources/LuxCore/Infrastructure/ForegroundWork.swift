@@ -18,6 +18,7 @@ public final class ForegroundWork {
     private var running: [Int: Task<Void, Never>] = [:]
     private var next = 0
     private let returned = Broadcast()
+    private let left = Broadcast()
 
     private init() {}
 
@@ -60,6 +61,7 @@ public final class ForegroundWork {
         let tasks = Array(running.values)
         for task in tasks { task.cancel() }
         for task in tasks { await task.value }
+        left.send()
     }
 
     /// The app is in front again: the work's owners go on.
@@ -72,6 +74,12 @@ public final class ForegroundWork {
     /// Calls `resume` each time the app comes back to the front.
     public func onReturn(_ resume: @escaping @MainActor () -> Void) -> AnyObject {
         returned.observe(resume)
+    }
+
+    /// Calls `release` each time the app has left the front and its work has ended: what the
+    /// work held for the next piece (a loaded model) goes until the app comes back.
+    public func onLeave(_ release: @escaping @MainActor () -> Void) -> AnyObject {
+        left.observe(release)
     }
 }
 

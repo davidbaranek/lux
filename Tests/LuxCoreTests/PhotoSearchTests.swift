@@ -276,6 +276,53 @@ extension PhotoSearch {
     }
 }
 
+/// The model's copy, which Core ML loads from in place of the asset pack's folder.
+@Suite(.ownFolder) struct PhotoModelCopyTests {
+    /// A model's folder as a pack holds it: `model.json` saying `name`, and an encoder's folder.
+    private func pack(_ name: String) throws -> URL {
+        let pack = try folder()
+        try FileManager.default.createDirectory(at: pack.appending(path: "Encoders.mlmodelc"), withIntermediateDirectories: true)
+        try Data(name.utf8).write(to: pack.appending(path: "model.json"))
+        try Data("weights".utf8).write(to: pack.appending(path: "Encoders.mlmodelc/weights.bin"))
+        return pack
+    }
+
+    @Test func aModelIsCopiedOnceAndLoadsFromTheSamePlaceEachTime() throws {
+        let root = try folder()
+        let source = try pack("one")
+        var lookups = 0
+        let first = try PhotoSearchAssets.copied(of: Data("one".utf8), in: root) { lookups += 1; return source }
+        let again = try PhotoSearchAssets.copied(of: Data("one".utf8), in: root) { lookups += 1; return source }
+        #expect(lookups == 1)
+        #expect(again == first)
+        #expect(try String(contentsOf: first.appending(path: "model.json"), encoding: .utf8) == "one")
+        #expect(FileManager.default.fileExists(atPath: first.appending(path: "Encoders.mlmodelc/weights.bin").path))
+        #expect(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+    }
+
+    /// The pack's version says nothing here: only what its model.json says, which changes with
+    /// any of its files (`package.sh`).
+    @Test func aChangedModelIsCopiedAgainAndReplacesTheOldCopyAndWhatAnEndedCopyLeft() throws {
+        let root = try folder()
+        let old = try PhotoSearchAssets.copied(of: Data("old".utf8), in: root) { try pack("old") }
+        // a copy the app was ended in the middle of.
+        try FileManager.default.createDirectory(at: root.appending(path: "\(UUID().uuidString).partial"), withIntermediateDirectories: true)
+        let new = try PhotoSearchAssets.copied(of: Data("new".utf8), in: root) { try pack("new") }
+        #expect(new != old)
+        #expect(try String(contentsOf: new.appending(path: "model.json"), encoding: .utf8) == "new")
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == [new.lastPathComponent])
+    }
+
+    @Test func aFailedLookupLeavesNoCopy() throws {
+        let root = try folder()
+        #expect(throws: PhotoSearchError.unexpectedModel) {
+            try PhotoSearchAssets.copied(of: Data("one".utf8), in: root) { throw PhotoSearchError.unexpectedModel }
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+    }
+}
+
 @Test func aKindsNextPageAddsWhatItHasNotShownYet() {
     let chat = ChatRow(id: "!a", name: "Anna", preview: "", date: nil, unreadCount: 0)
     func link(_ id: String) -> FoundLink {

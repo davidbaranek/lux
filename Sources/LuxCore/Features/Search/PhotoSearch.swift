@@ -44,7 +44,9 @@ public final class PhotoSearch {
     private var model: PhotoSearchModel?
     private var loading: Task<Void, Never>?
     private var saving: AnyObject?
-    /// The system's memory pressure: the text encoder goes when memory runs short.
+    /// The app left the front: the model's encoders go until it is back.
+    private var leaving: AnyObject?
+    /// The system's memory pressure: the model's encoders go when memory runs short.
     private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
 
     init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, preferences: Preferences) {
@@ -62,6 +64,7 @@ public final class PhotoSearch {
             self?.update()
         }
         if searchesByLook { loadModel() }
+        leaving = ForegroundWork.shared.onLeave { [weak self] in self?.releaseMemory() }
         pressure.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.releaseMemory() }
         }
@@ -103,12 +106,15 @@ public final class PhotoSearch {
         }
         loading?.cancel()
         loading = nil
+        let closing = model
         model = nil
         onModel?(nil)
         downloading = nil
         await indexer.stop()
         await indexer.use(PhotoReader(model: nil))
         await bestEffort("photo search: forget the looks") { try await store.forgetImageEmbeddings(reader: PhotoReader(model: nil).name) }
+        // the model's files go once none of its encoders loads from them.
+        await closing?.close()
         await PhotoSearchAssets.remove()
         await indexer.announce()
         update()
@@ -211,9 +217,10 @@ public final class PhotoSearch {
         return await model.isTextEncoderReady
     }
 
-    /// The system is short of memory: the text encoder goes until the next search.
+    /// The app left the front, or the system is short of memory: the model's encoders go until
+    /// the next photo read or search.
     public func releaseMemory() {
-        Task { await model?.releaseTextEncoder() }
+        Task { await model?.releaseEncoders() }
     }
 
     /// The photos that match `text`, the best first; `roomIds` keeps those rooms' (a chat's

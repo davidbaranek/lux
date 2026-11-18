@@ -25,8 +25,6 @@ protocol PhotoReading: Sendable {
     var name: String { get }
     /// What `file` shows: its words, one line each in reading order, and its embedding.
     func read(_ file: URL, lease: ForegroundLease) async throws -> (words: String, embedding: [Float]?)
-    /// A reading ended: what it held to read (the model's image encoder) can go.
-    func readingEnded() async
 }
 
 /// Finding chats and the chats that show rooms, and following changes. What `MessageSearch`
