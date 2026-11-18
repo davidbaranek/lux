@@ -22,12 +22,19 @@ final class TemporaryFolder: Sendable {
         get throws { try #require(current, "a file made outside .ownFolder").url }
     }
 
-    /// A new store in the test's folder, which closes as the test ends.
-    static func store(key: String = String(repeating: "ef", count: 32)) async throws -> LocalStore {
+    /// A store in the test's folder, new unless `name` names one opened before; it closes as the
+    /// test ends.
+    static func store(named name: String = UUID().uuidString,
+                      key: String = String(repeating: "ef", count: 32)) async throws -> LocalStore {
         let folder = try #require(current, "a store opened outside .ownFolder")
-        let store = try await LocalStore.open(file: folder.url.appending(path: "\(UUID().uuidString).sqlite"), key: key)
+        let store = try await LocalStore.open(file: storeFile(named: name), key: key)
         folder.stores.withLock { $0.append(store) }
         return store
+    }
+
+    /// The file of the store `name` in the test's folder.
+    static func storeFile(named name: String) throws -> URL {
+        try ofTest.appending(path: "\(name).sqlite")
     }
 
     /// Closes the test's stores and removes the folder with all in it. A task the test started

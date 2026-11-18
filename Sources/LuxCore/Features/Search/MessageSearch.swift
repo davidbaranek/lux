@@ -72,12 +72,32 @@ public final class MessageSearch {
         }
         // back in front: what came meanwhile is read, and the photos and messages after it.
         returning = ForegroundWork.shared.onReturn { Self.update(indexer, in: work) }
+        // the index found damaged (a crash in a write) gave way to a new, empty one: every chat
+        // is read again, rather than search finding nothing in it.
+        replacing = Task {
+            do {
+                while true {
+                    try await store.replaced()
+                    guard !Task.isCancelled else { return }
+                    Log.app.error("search: the index was damaged; a new one is read")
+                    await indexer.storeReplaced()
+                    Self.update(indexer, in: work)
+                }
+            } catch {
+                Log.app.notice("search: the index closed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     isolated deinit {
         following?.cancel()
         listening?.cancel()
+        replacing?.cancel()
     }
+
+    /// What reads the index again when the store replaces its damaged file: it ends with the
+    /// search.
+    private var replacing: Task<Void, Never>?
 
     private var returning: AnyObject?
 
@@ -89,6 +109,7 @@ public final class MessageSearch {
     func stop() async {
         following?.cancel()
         listening?.cancel()
+        replacing?.cancel()
         await indexer.stop()
         await work.end()
         await photos.stop()

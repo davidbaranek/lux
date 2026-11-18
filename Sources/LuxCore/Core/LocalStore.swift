@@ -35,6 +35,13 @@ public final class LocalStore: Sendable {
         await store.close()
     }
 
+    /// Returns when the store has made a new, empty file in place of one a call found damaged
+    /// (a page that fails its check, after a crash in a write): what it held is to be read again.
+    /// Throws once the store has closed.
+    func replaced() async throws {
+        try await store.replaced()
+    }
+
     // MARK: Writing
 
     /// Adds messages, or changes them (an edit keeps its event id), in one transaction.

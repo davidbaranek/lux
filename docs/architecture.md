@@ -230,6 +230,7 @@ device the server knows.
 | Group pictures without heroes | sliding sync names heroes only for unnamed rooms; a group's members load once for its collage | `mapping.rs`, `members.rs` |
 | Keys for the list | the list asks for its rooms' undecrypted keys as a timeline does, so previews and order are right before a chat opens | `redecrypt.rs` |
 | An ended session signs out | a token the server refuses and none can refresh ends the session; the app asks to sign in | `session.rs`, `Session.swift` |
+| A damaged store gives way to a new one | the index and the kept store are caches: a file the store cannot use (another key, malformed, a page that fails SQLCipher's check after a crash in a write) is replaced on opening, or after the call that finds it, and search reads every chat again; an error of the disk (no space, no permission) leaves the file | `lux-store/src/connection.rs`, `tests/damaged.rs`, `MessageSearch.swift` |
 | The background closes the stores | iOS ends an app holding a file lock in the App Group at suspension; the sync stops and the stores close | `lifecycle.rs` |
 | Muted chats push nothing | muting writes push rules without actions; mentions-only still pushes mentions | `actions.rs`, `tests/push.rs` |
 | What a device needs, decided once | trust and recovery map to one `EncryptionSetup` in `lux-core`; the apps only show it. The SDK cannot tell "no identity" from "not asked yet", so the server is asked | `ports/security.rs`, `lux-matrix/src/security.rs` |

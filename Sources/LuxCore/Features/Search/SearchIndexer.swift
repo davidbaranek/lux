@@ -50,6 +50,8 @@ public actor SearchIndexer {
     private var isRunning = false
     private var stopped = false
     private var again = false
+    /// The store made a new file in place of a damaged one: the next pass starts from nothing.
+    private var replaced = false
     private let report: @Sendable (Progress) -> Void
     /// How far back each chat is read (Settings).
     private let preferences: Preferences
@@ -81,7 +83,21 @@ public actor SearchIndexer {
         stopped = true
     }
 
+    /// The store made a new, empty file in place of a damaged one: the pass under way ends, and
+    /// the next (an update's, or this run's once more) reads every chat again.
+    func storeReplaced() {
+        replaced = true
+        again = true
+    }
+
     private func pass() async {
+        if replaced {
+            replaced = false
+            loaded = false
+            // the pass that was under way may have written a chat into the new file as read
+            // into the old one: it goes, with all else.
+            await bestEffort("search index: empty the new file") { try await store.clearIndex() }
+        }
         if !loaded {
             chats = await bestEffort("search index: the indexed chats") { try await store.chats() } ?? [:]
             loaded = true
@@ -150,7 +166,7 @@ public actor SearchIndexer {
     /// else what came since each's newest indexed (back to `horizon`, a room not read before).
     private func read(_ rooms: [IndexedRoom], deep: Bool, back horizon: Date, from account: any IndexSourcePort) async {
         for (done, room) in rooms.enumerated() {
-            if Task.isCancelled || stopped { return }
+            if Task.isCancelled || stopped || replaced { return }
             report(Progress(chats: done, total: rooms.count, deep: deep, isIndexing: true, messages: 0, isFirstFill: firstFill))
             let indexed = chats[room.id]
             let walksBack = deep || indexed == nil
