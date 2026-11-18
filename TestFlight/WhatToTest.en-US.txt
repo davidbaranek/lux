@@ -1,5 +1,5 @@
 New
-- Jump to an old message: tapping a search result, a reply, a pinned or a saved message opens the chat around that message, however old it is. The button at the bottom returns to the newest messages.
+- Jump to an old message: tapping a search result, a quoted reply or a saved message opens the chat around that message, however old it is. The button at the bottom returns to the newest messages.
 
 Fixed
 - After tapping a notification, the chat shows every message that arrived while you were away, not only the last one.

@@ -1,5 +1,5 @@
 Novinky
-- Skok na starou zprávu: klepnutí na výsledek hledání, odpověď, připnutou nebo uloženou zprávu otevře chat kolem té zprávy, ať je jakkoli stará. Tlačítko dole vrátí na nejnovější zprávy.
+- Skok na starou zprávu: klepnutí na výsledek hledání, citovanou odpověď nebo uloženou zprávu otevře chat kolem té zprávy, ať je jakkoli stará. Tlačítko dole vrátí na nejnovější zprávy.
 
 Opravy
 - Po klepnutí na notifikaci chat ukáže všechny zprávy, které přišly, když jste byli pryč, ne jen tu poslední.
