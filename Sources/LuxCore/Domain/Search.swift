@@ -102,6 +102,8 @@ public struct FoundLink: Sendable, Hashable, Identifiable {
     /// Its message's event id and the address: a message may send several.
     public var id: String { "\(eventId) \(url)" }
     public var eventId: String
+    /// Its message's room (one of a merged chat's).
+    public var roomId: String
     public var chat: ChatRow
     public var senderName: String
     public var url: String
@@ -110,8 +112,9 @@ public struct FoundLink: Sendable, Hashable, Identifiable {
     public var date: Date
     public var isOwn: Bool
 
-    public init(eventId: String, chat: ChatRow, senderName: String, url: String, text: String, date: Date, isOwn: Bool) {
-        self.eventId = eventId; self.chat = chat; self.senderName = senderName; self.url = url; self.text = text
+    public init(eventId: String, roomId: String, chat: ChatRow, senderName: String, url: String, text: String, date: Date,
+                isOwn: Bool) {
+        self.eventId = eventId; self.roomId = roomId; self.chat = chat; self.senderName = senderName; self.url = url; self.text = text
         self.date = date; self.isOwn = isOwn
     }
 
@@ -263,6 +266,8 @@ public struct PhotoRead: Sendable, Equatable {
 /// A message a search found, with its chat.
 public struct FoundItem: Sendable, Hashable, Identifiable {
     public var id: String
+    /// Its room (one of a merged chat's).
+    public var roomId: String
     public var chat: ChatRow
     public var senderName: String
     public var body: String
@@ -270,8 +275,9 @@ public struct FoundItem: Sendable, Hashable, Identifiable {
     public var isOwn: Bool
     /// The found words in `body`, in UTF-16 offsets.
     public var matches: [NSRange]
-    public init(id: String, chat: ChatRow, senderName: String, body: String, date: Date, isOwn: Bool, matches: [NSRange] = []) {
-        self.id = id; self.chat = chat; self.senderName = senderName; self.body = body; self.date = date; self.isOwn = isOwn
+    public init(id: String, roomId: String, chat: ChatRow, senderName: String, body: String, date: Date, isOwn: Bool,
+                matches: [NSRange] = []) {
+        self.id = id; self.roomId = roomId; self.chat = chat; self.senderName = senderName; self.body = body; self.date = date; self.isOwn = isOwn
         self.matches = matches
     }
 }
@@ -412,17 +418,21 @@ public enum SearchHistory: String, CaseIterable, Sendable {
 /// Where a search result leads: its chat (at its message), its thread over its chat, or a link's
 /// page (its message stays a menu's "Show in Chat").
 public enum SearchTarget: Sendable, Hashable {
-    case chat(ChatRow, focusEvent: String?)
+    case chat(ChatRow, focus: MessageLink?)
     case thread(ChatRow, MatrixThread)
     case link(URL)
 }
 
+extension FoundItem {
+    public var target: SearchTarget { .chat(chat, focus: MessageLink(roomId: roomId, eventId: id)) }
+}
+
 extension FoundPhoto {
-    public var target: SearchTarget { .chat(chat, focusEvent: id) }
+    public var target: SearchTarget { .chat(chat, focus: MessageLink(roomId: roomId, eventId: id)) }
 }
 
 extension FoundFile {
-    public var target: SearchTarget { .chat(chat, focusEvent: id) }
+    public var target: SearchTarget { .chat(chat, focus: MessageLink(roomId: roomId, eventId: id)) }
 }
 
 extension FoundThread {
@@ -443,9 +453,9 @@ extension FoundThread {
 extension FoundLink {
     /// Its page; the message, when the address is no web address a browser opens.
     public var target: SearchTarget {
-        if let url = URL(string: url), url.scheme != nil { .link(url) } else { .chat(chat, focusEvent: eventId) }
+        if let url = URL(string: url), url.scheme != nil { .link(url) } else { message }
     }
 
     /// Its message in its chat.
-    public var message: SearchTarget { .chat(chat, focusEvent: eventId) }
+    public var message: SearchTarget { .chat(chat, focus: MessageLink(roomId: roomId, eventId: eventId)) }
 }

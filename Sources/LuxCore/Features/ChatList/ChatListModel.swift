@@ -255,7 +255,7 @@ public final class ChatListModel {
     /// What a row of the list leads to: a chat, a message in it (Saved), a waiting message, a request.
     public enum Destination: Sendable {
         case chat(ChatRow)
-        case message(ChatRow, eventId: String)
+        case message(ChatRow, MessageLink)
         case scheduled(ScheduledMessage)
         case request(ChatRow)
     }
@@ -269,7 +269,7 @@ public final class ChatListModel {
         if let saved = saved[row.id] {
             var chat = row
             chat.id = saved.roomId
-            return .message(chat, eventId: saved.id)
+            return .message(chat, MessageLink(roomId: saved.roomId, eventId: saved.id))
         }
         if let waiting = scheduled[row.id] { return .scheduled(waiting) }
         return .chat(row)

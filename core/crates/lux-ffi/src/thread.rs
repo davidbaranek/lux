@@ -12,8 +12,8 @@ use lux_core::message::Separator;
 use lux_core::network::Network;
 use lux_core::ports::BackendError;
 use lux_core::thread::{
-    ComposerMode, ReadReceipts, ThreadListener, ThreadRow, ThreadSpec, ThreadState, ThreadUpdate, ThreadViewModel,
-    Upload,
+    Anchor, ComposerMode, JumpFailure, Jumped, ReadReceipts, ThreadListener, ThreadRow, ThreadSpec, ThreadState,
+    ThreadUpdate, ThreadViewModel, Upload,
 };
 
 use crate::account::{CoreAccount, CoreAccountError, with_account};
@@ -237,6 +237,10 @@ pub struct CoreThreadState {
     pub pending_files: Vec<String>,
     /// The send room can have messages sent later.
     pub can_send_later: bool,
+    /// The rows are the live ones, not a jump's.
+    pub is_live: bool,
+    /// Newer messages of a jump's rows can be asked for.
+    pub can_load_newer: bool,
 }
 
 impl From<ThreadState> for CoreThreadState {
@@ -253,6 +257,84 @@ impl From<ThreadState> for CoreThreadState {
             mode: state.mode.into(),
             pending_files: state.pending_files.iter().map(|file| path_text(file)).collect(),
             can_send_later: state.can_send_later,
+            is_live: state.is_live,
+            can_load_newer: state.can_load_newer,
+        }
+    }
+}
+
+/// Where a jump landed (`lux_core::thread::Jumped`).
+#[derive(uniffi::Enum)]
+pub enum CoreJumped {
+    /// In this thread, at this row.
+    Here {
+        /// The row to scroll to.
+        row_id: String,
+    },
+    /// In a Matrix thread of the chat: open it at the message.
+    InThread {
+        /// The thread's room.
+        room_id: String,
+        /// The thread's root's event id.
+        root_event_id: String,
+        /// The message's event id.
+        event_id: String,
+    },
+}
+
+impl From<Jumped> for CoreJumped {
+    fn from(jumped: Jumped) -> Self {
+        match jumped {
+            Jumped::Here(row) => Self::Here {
+                row_id: row.to_string(),
+            },
+            Jumped::InThread { room, root, event } => Self::InThread {
+                room_id: room.to_string(),
+                root_event_id: root.to_string(),
+                event_id: event.to_string(),
+            },
+        }
+    }
+}
+
+/// Why a jump did not land. The apps word each case in the user's language.
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum CoreJumpError {
+    /// The server has no such message.
+    #[error("the message is not found")]
+    NotFound,
+    /// The account may not see it.
+    #[error("the message may not be seen")]
+    NotAllowed,
+    /// Anything else.
+    #[error("the message could not be shown")]
+    Failed,
+}
+
+impl From<JumpFailure> for CoreJumpError {
+    fn from(failure: JumpFailure) -> Self {
+        match failure {
+            JumpFailure::NotFound => Self::NotFound,
+            JumpFailure::NotAllowed => Self::NotAllowed,
+            JumpFailure::Failed => Self::Failed,
+        }
+    }
+}
+
+/// The rows switched between a jump's and the live ones: keep `to` where `from` was.
+#[derive(uniffi::Record)]
+pub struct CoreAnchor {
+    /// The row before the switch.
+    pub from: String,
+    /// The row after it.
+    pub to: String,
+}
+
+impl From<Anchor> for CoreAnchor {
+    fn from(anchor: Anchor) -> Self {
+        Self {
+            from: anchor.from.to_string(),
+            to: anchor.to.to_string(),
         }
     }
 }
@@ -264,6 +346,8 @@ pub struct CoreThreadUpdate {
     pub rows: Vec<CoreThreadRowDiff>,
     /// The state, when it changed.
     pub state: Option<CoreThreadState>,
+    /// The rows switched between a jump's and the live ones.
+    pub anchor: Option<CoreAnchor>,
 }
 
 /// Files to send, one message each.
@@ -302,6 +386,7 @@ impl ThreadListener for Listener {
         self.0.on_update(CoreThreadUpdate {
             rows: update.rows.into_iter().map(CoreThreadRowDiff::from).collect(),
             state: update.state.map(CoreThreadState::from),
+            anchor: update.anchor.map(CoreAnchor::from),
         });
     }
 
@@ -341,20 +426,34 @@ impl CoreThread {
         self.model.load_older();
     }
 
-    /// Brings the message `message_id` answers into the thread; its id.
-    pub async fn jump_to_replied(&self, message_id: String) -> Option<String> {
-        self.model
-            .jump_to_replied(message_id.into())
-            .await
-            .map(|id| id.to_string())
+    /// Brings the message `message_id` answers into the thread.
+    pub async fn jump_to_replied(&self, message_id: String) -> Result<CoreJumped, CoreJumpError> {
+        Ok(self.model.jump_to_replied(message_id.into()).await?.into())
     }
 
-    /// Brings the message of `event_id` into the thread; its id there.
-    pub async fn jump_to_event(&self, event_id: String) -> Option<String> {
-        self.model
-            .jump_to_event(EventId::from(event_id))
-            .await
-            .map(|id| id.to_string())
+    /// Brings the message of `event_id` in `room_id` into the thread: among the live rows, or a
+    /// jump's rows around it.
+    pub async fn jump(&self, room_id: String, event_id: String) -> Result<CoreJumped, CoreJumpError> {
+        Ok(self
+            .model
+            .jump(RoomId::from(room_id), EventId::from(event_id))
+            .await?
+            .into())
+    }
+
+    /// Shows newer messages of a jump's rows.
+    pub fn load_newer(&self) {
+        self.model.load_newer();
+    }
+
+    /// Shows the live rows again, at the newest.
+    pub fn return_to_live(&self) {
+        self.model.return_to_live();
+    }
+
+    /// The row the reader looks at: a switch to the live rows keeps it in place.
+    pub fn set_anchor(&self, message_id: String) {
+        self.model.set_anchor(message_id.into());
     }
 
     /// The first unread message when the chat opened.

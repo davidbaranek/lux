@@ -201,7 +201,7 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate, NSMe
         add(.chats, hits.chats.map { row in
             let id = "c\(row.id)"
             rows[id] = row
-            targets[id] = .chat(row, focusEvent: nil)
+            targets[id] = .chat(row, focus: nil)
             return id
         })
         // two rows of the grid.
@@ -229,7 +229,7 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate, NSMe
         add(.messages, hits.messages.map { found in
             let id = "m\(found.id)"
             rows[id] = found.row
-            targets[id] = .chat(found.chat, focusEvent: found.id)
+            targets[id] = found.target
             return id
         })
         dataSource.apply(snapshot, animatingDifferences: false)

@@ -133,7 +133,7 @@ public final class MessageSearch {
         hits.chats = await chats
         hits.messages = messages.compactMap { hit -> FoundItem? in
             guard let chat = shown[hit.roomId] else { return nil }
-            return FoundItem(id: hit.eventId, chat: chat, senderName: hit.senderName, body: hit.excerpt, date: hit.date,
+            return FoundItem(id: hit.eventId, roomId: hit.roomId, chat: chat, senderName: hit.senderName, body: hit.excerpt, date: hit.date,
                              isOwn: hit.isOwn, matches: hit.matches)
         }
         hits.photos = Self.photos(images, in: shown)
@@ -176,7 +176,7 @@ public final class MessageSearch {
             photos: Self.photos(images, in: shown),
             links: foundLinks.compactMap { hit in
                 shown[hit.roomId].map {
-                    FoundLink(eventId: hit.eventId, chat: $0, senderName: hit.senderName, url: hit.url, text: hit.text,
+                    FoundLink(eventId: hit.eventId, roomId: hit.roomId, chat: $0, senderName: hit.senderName, url: hit.url, text: hit.text,
                               date: hit.date, isOwn: hit.isOwn)
                 }
             },

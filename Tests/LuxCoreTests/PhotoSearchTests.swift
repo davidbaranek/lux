@@ -267,7 +267,7 @@ extension PhotoSearch {
 @Test func aKindsNextPageAddsWhatItHasNotShownYet() {
     let chat = ChatRow(id: "!a", name: "Anna", preview: "", date: nil, unreadCount: 0)
     func link(_ id: String) -> FoundLink {
-        FoundLink(eventId: id, chat: chat, senderName: "Anna", url: "https://lux.chat/\(id)", text: "", date: .now, isOwn: false)
+        FoundLink(eventId: id, roomId: chat.id, chat: chat, senderName: "Anna", url: "https://lux.chat/\(id)", text: "", date: .now, isOwn: false)
     }
     var hits = SearchHits(links: [link("$1"), link("$2")])
     hits.append(SearchHits(links: [link("$2"), link("$3")], files: []), of: .links)

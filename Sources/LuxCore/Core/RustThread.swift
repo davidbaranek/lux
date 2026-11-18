@@ -28,8 +28,15 @@ final class RustThreadView: ThreadView {
     // MARK: Intents
 
     func loadOlder() { view.loadOlder() }
-    func jumpToReplied(_ messageId: String) async -> String? { await view.jumpToReplied(messageId: messageId) }
-    func jumpToEvent(_ eventId: String) async -> String? { await view.jumpToEvent(eventId: eventId) }
+    func jumpToReplied(_ messageId: String) async throws(JumpError) -> JumpResult {
+        try await jumped { try await view.jumpToReplied(messageId: messageId) }
+    }
+    func jump(to message: MessageLink) async throws(JumpError) -> JumpResult {
+        try await jumped { try await view.jump(roomId: message.roomId, eventId: message.eventId) }
+    }
+    func loadNewer() { view.loadNewer() }
+    func returnToLive() { view.returnToLive() }
+    func setAnchor(_ messageId: String) { view.setAnchor(messageId: messageId) }
     func firstUnread() async -> String? { await view.firstUnread() }
     func loaded() async { await view.loaded() }
     func toggleDetail(_ messageId: String) { view.toggleDetail(messageId: messageId) }
@@ -80,7 +87,8 @@ private final class Listener: CoreThreadListener {
 
     func onUpdate(update: CoreThreadUpdate) {
         let state = Signposts.thread.beginInterval("map")
-        let batch = ThreadBatch(rows: update.rows.map(ThreadRowChange.init), state: update.state.map(ThreadState.init))
+        let batch = ThreadBatch(rows: update.rows.map(ThreadRowChange.init), state: update.state.map(ThreadState.init),
+                                anchor: update.anchor.map { (from: $0.from, to: $0.to) })
         Signposts.thread.endInterval("map", state, "\(update.rows.count) changes")
         continuation.yield(.update(batch))
     }
@@ -94,6 +102,23 @@ private final class Listener: CoreThreadListener {
 }
 
 // MARK: Mappings
+
+/// A jump's answer as the app's, its failure worded by the app.
+private func jumped(_ jump: () async throws -> CoreJumped) async throws(JumpError) -> JumpResult {
+    do {
+        return switch try await jump() {
+        case .here(let rowId): .here(rowId)
+        case .inThread(let roomId, let rootEventId, let eventId):
+            .inThread(MatrixThread(roomId: roomId, rootEventId: rootEventId), MessageLink(roomId: roomId, eventId: eventId))
+        }
+    } catch CoreJumpError.NotFound {
+        throw .notFound
+    } catch CoreJumpError.NotAllowed {
+        throw .notAllowed
+    } catch {
+        throw .failed
+    }
+}
 
 private extension CoreReadReceipts {
     init(_ receipts: ReadReceipts) {
@@ -135,7 +160,8 @@ private extension ThreadState {
                   needsReadReceipt: state.needsReadReceipt,
                   typists: state.typists.map { Typist(name: $0.name, avatar: $0.avatar.map { .person(url: $0) }) },
                   shownRoom: state.shownRoom, sendRoom: state.sendRoom, mode: mode,
-                  pendingFiles: state.pendingFiles.map { URL(fileURLWithPath: $0) }, canSendLater: state.canSendLater)
+                  pendingFiles: state.pendingFiles.map { URL(fileURLWithPath: $0) }, canSendLater: state.canSendLater,
+                  isLive: state.isLive, canLoadNewer: state.canLoadNewer)
     }
 }
 

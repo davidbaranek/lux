@@ -39,10 +39,6 @@ pub(crate) const FIRST_SCREEN: usize = 60;
 
 /// How many events one page back asks the server for.
 const PAGE: u16 = 50;
-/// The most pages back a message is looked for when its time is not known: about a thousand events.
-const PAGES_TO_AN_EVENT: usize = 20;
-/// The most pages back a message is looked for, to its time: some twenty thousand events.
-const PAGES_TO_A_TIME: usize = 400;
 
 /// How many pages back the first unread message is looked for.
 const UNREAD_PAGES: usize = 10;
@@ -295,46 +291,6 @@ impl RoomTimeline {
             }
         }
         Ok(())
-    }
-
-    /// Pages back until the timeline has the message of `event`; its id, `None` when the room's
-    /// start came first (or too many pages).
-    pub(crate) async fn show_event(&self, event: &EventId) -> Result<Option<MessageId>, BackendError> {
-        // as far back as the event was sent, which the store or the server tells: a busy room's
-        // photo found by a search may be many thousands of events back. Without its time, about
-        // a thousand events back, as far as a saved message or a reply is looked for.
-        let sent = self
-            .room
-            .load_or_fetch_event(event, None)
-            .await
-            .ok()
-            .and_then(|found| found.timestamp())
-            .and_then(MilliSecondsSinceUnixEpoch::to_system_time);
-        let pages = if sent.is_some() {
-            PAGES_TO_A_TIME
-        } else {
-            PAGES_TO_AN_EVENT
-        };
-        for _ in 0..pages {
-            let messages = self.snapshot();
-            if let Some(message) = messages.iter().find(|message| {
-                message
-                    .event_id
-                    .as_ref()
-                    .is_some_and(|id| id.as_str() == event.as_str())
-            }) {
-                return Ok(Some(message.message.id.clone()));
-            }
-            // the start of the room, or past the event's time: it is not one the chat shows.
-            let passed = sent
-                .zip(messages.front())
-                .is_some_and(|(sent, oldest)| oldest.message.date < sent);
-            if *self.at_start.borrow() || passed {
-                return Ok(None);
-            }
-            self.page_back(PAGE).await?;
-        }
-        Ok(None)
     }
 
     /// One page back of `events`, returned once the follower mapped it; whether the timeline

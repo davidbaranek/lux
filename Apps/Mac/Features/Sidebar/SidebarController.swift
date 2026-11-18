@@ -6,7 +6,7 @@ import LuxCore
 /// the search's models and wires them to the views.
 final class SidebarController: NSViewController, NSSearchFieldDelegate {
     /// A chat to show (nil: none), and a message in it to scroll to.
-    var onOpen: ((ChatRow?, _ focusEvent: String?) -> Void)?
+    var onOpen: ((ChatRow?, _ focus: MessageLink?) -> Void)?
     /// A thread to show beside its chat.
     var onOpenThread: ((ChatRow, MatrixThread) -> Void)?
     var onAccount: (() -> Void)?
@@ -138,7 +138,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             onPlaceTitle?(placeTitle)
             updateTheme()
         }
-        list.onSelect = { [weak self] row, focusEvent in self?.onOpen?(row, focusEvent) }
+        list.onSelect = { [weak self] row, focus in self?.onOpen?(row, focus) }
         results.onOpen = { [weak self] target in self?.open(target) }
         results.onShowAll = { [weak self] kind in self?.showAll(kind) }
         searchModel.onUpdate = { [weak self] hits in self?.results.show(hits) }
@@ -258,7 +258,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     /// A result: its chat (at its message), its thread beside its chat, or a link's page.
     private func open(_ target: SearchTarget) {
         switch target {
-        case .chat(let row, let focusEvent): onOpen?(row, focusEvent)
+        case .chat(let row, let focus): onOpen?(row, focus)
         case .thread(let row, let thread): onOpenThread?(row, thread)
         case .link(let url): NSWorkspace.shared.open(url)
         }

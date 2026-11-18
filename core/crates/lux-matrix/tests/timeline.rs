@@ -192,13 +192,6 @@ async fn paging_back_shows_older_messages_and_reaches_the_start() {
     );
     timelines.load_older(&room().into(), 20).await.unwrap();
     assert!(timelines.is_at_start(&room().into()).await.unwrap());
-
-    // a saved message is found in the timeline by its event id.
-    let found = timelines
-        .show_event(&room().into(), &lux_core::ids::EventId::from("$oldest"))
-        .await
-        .unwrap();
-    assert_eq!(found.as_ref(), Some(&page[0].message.id));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -999,24 +992,6 @@ const QUIET_PAGES: usize = 5;
 
 /// Far less than the second each quiet page used to cost, far more than mapping takes.
 const AT_ONCE: Duration = Duration::from_secs(2);
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_jump_over_pages_without_messages_does_not_wait_on_them() {
-    let server = MatrixMockServer::new().await;
-    let timelines = chat_with_quiet_pages(&server, QUIET_PAGES).await;
-
-    let started = std::time::Instant::now();
-    let found = timelines
-        .show_event(&room().into(), &lux_core::ids::EventId::from("$target"))
-        .await
-        .unwrap();
-
-    let took = started.elapsed();
-    assert!(took < AT_ONCE, "the jump took {took:?}");
-    let page = snapshot(&timelines).await;
-    let target = page.iter().find(|message| message.message.body == "target").unwrap();
-    assert_eq!(found.as_ref(), Some(&target.message.id));
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn paging_back_over_pages_without_messages_does_not_wait_on_them() {

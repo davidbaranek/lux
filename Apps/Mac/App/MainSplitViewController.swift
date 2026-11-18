@@ -44,7 +44,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         inspectorItem.isCollapsed = true
         addSplitViewItem(inspectorItem)
         self.inspectorItem = inspectorItem
-        sidebarController.onOpen = { [weak self] row, focusEvent in self?.open(row, focusEvent: focusEvent) }
+        sidebarController.onOpen = { [weak self] row, focus in self?.open(row, focus: focus) }
         // a thread search found: its chat, and the thread beside it.
         sidebarController.onOpenThread = { [weak self] row, thread in
             guard let self else { return }
@@ -81,7 +81,7 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         chatTitle.pictureStart = detail.view.convert(NSPoint(x: BubbleMetrics().sideMargin, y: 0), to: nil).x
     }
 
-    private func open(_ row: ChatRow?, focusEvent: String? = nil) {
+    private func open(_ row: ChatRow?, focus: MessageLink? = nil) {
         openRow = row
         // the inspector follows the chat: its details for the new one; another chat's thread goes.
         if inspector.shown is ChatDetailsController, let row {
@@ -90,10 +90,10 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             closeInspector()
         }
         if let row {
-            let thread = ThreadController(session: session, row: row, theme: listModel.theme, focusEvent: focusEvent)
+            let thread = ThreadController(session: session, row: row, theme: listModel.theme, focus: focus)
             thread.onShownRoom = { [weak self] in self?.updateNetworks() }
             // its Matrix threads open in the inspector beside it.
-            thread.onOpenThread = { [weak self] matrixThread in self?.showThread(matrixThread) }
+            thread.onOpenThread = { [weak self] matrixThread, message in self?.showThread(matrixThread, at: message) }
             openThread = thread
             detail.show(thread)
             view.window?.title = row.name
@@ -136,14 +136,15 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         return controller
     }
 
-    /// A Matrix thread of the open chat in the inspector, beside the chat.
-    private func showThread(_ thread: MatrixThread) {
+    /// A Matrix thread of the open chat in the inspector, beside the chat (at one of its messages, if given).
+    private func showThread(_ thread: MatrixThread, at message: MessageLink? = nil) {
         guard let row = openRow else { return }
         if let shown = inspector.shown as? ThreadController, shown.model.thread == thread, !inspectorItem.isCollapsed {
             view.window?.makeFirstResponder(shown.field)
+            if let message { shown.presenter.jump(toMessage: message) }
             return
         }
-        let controller = ThreadController(session: session, row: row, theme: listModel.theme, thread: thread)
+        let controller = ThreadController(session: session, row: row, theme: listModel.theme, focus: message, thread: thread)
         inspector.show(controller)
         openInspector()
     }

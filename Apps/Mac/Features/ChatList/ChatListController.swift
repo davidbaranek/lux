@@ -5,7 +5,7 @@ import LuxCore
 /// Row views are recycled by the table; a row renders again only when what it shows changed.
 final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDelegate, ChatListScreen {
     /// A chat to show (nil: none), and a message in it to scroll to (a saved one).
-    var onSelect: ((ChatRow?, _ focusEvent: String?) -> Void)?
+    var onSelect: ((ChatRow?, _ focus: MessageLink?) -> Void)?
     private let session: Session
     /// The list's logic, shared with the iPhone: updates, the activity bubble.
     let presenter: ChatListPresenter
@@ -158,7 +158,7 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
     private func open(_ row: ChatRow) {
         switch model.destination(of: row) {
         case .chat(let chat): onSelect?(chat, nil)
-        case .message(let chat, let eventId): onSelect?(chat, eventId)
+        case .message(let chat, let link): onSelect?(chat, link)
         case .scheduled(let waiting): cancel(waiting, name: row.name)
         case .request(let request): answer(request)
         }

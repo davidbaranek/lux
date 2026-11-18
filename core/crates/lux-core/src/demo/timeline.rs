@@ -562,13 +562,6 @@ impl ChatTimelines for DemoTimelines {
             .is_none_or(|window| window.start == 0))
     }
 
-    async fn show_event(&self, timeline: &TimelineId, event: &EventId) -> Result<Option<MessageId>, BackendError> {
-        Ok(self
-            .find_ref(timeline, &MessageRef::Event(event.clone()))
-            .ok()
-            .map(|(_, message)| message.message.id.clone()))
-    }
-
     /// The demo's chats have their last five messages unread; their threads are read.
     async fn first_unread(&self, timeline: &TimelineId) -> Result<Option<MessageId>, BackendError> {
         #[cfg(test)]
