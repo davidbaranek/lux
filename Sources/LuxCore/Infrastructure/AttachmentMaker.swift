@@ -26,8 +26,15 @@ public enum AttachmentMaker {
 
     /// Copies `source` into a folder of its own in `directory` (the picker's file goes away) and
     /// describes it; `name` is the one to show, the file's own by default.
+    /// ImageIO's scaling holds its thread: it runs on `ImageWork`'s, not Swift's pool.
     @concurrent
     public static func prepare(_ source: URL, name: String? = nil, in directory: URL) async throws -> OutgoingAttachment {
+        try await withTaskExecutorPreference(ImageWork.executor) {
+            try await make(source, name: name, in: directory)
+        }
+    }
+
+    private static func make(_ source: URL, name: String?, in directory: URL) async throws -> OutgoingAttachment {
         let name = name ?? source.lastPathComponent
         let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
