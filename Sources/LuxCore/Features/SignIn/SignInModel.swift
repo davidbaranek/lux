@@ -30,12 +30,16 @@ public final class SignInModel {
     }
     private var lastMethods = LoginMethods(password: true, browser: true)
 
-    private let session: Session
+    private let session: any SignInPort
     private var checking: Task<Void, Never>?
 
-    public init(session: Session) {
-        self.session = session
-        homeserver = session.homeserver
+    public convenience init(session: Session) {
+        self.init(port: session)
+    }
+
+    init(port: any SignInPort) {
+        session = port
+        homeserver = port.homeserver
     }
 
     public func start() { check(homeserver, after: .zero) }
