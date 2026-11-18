@@ -15,12 +15,13 @@ public final class SearchListModel {
     public private(set) var hasLoaded = false
     public var onUpdate: ((_ hits: SearchHits) -> Void)?
 
-    private let session: Session
+    /// The account's search, once its index has opened.
+    private let messageSearch: @MainActor () -> MessageSearch?
     private var running: Task<Void, Never>?
     private var loading = false
 
-    init(session: Session, kind: SearchKind, query: String) {
-        self.session = session
+    init(search: @escaping @MainActor () -> MessageSearch?, kind: SearchKind, query: String) {
+        messageSearch = search
         self.kind = kind
         self.query = query
         reload(after: .zero)
@@ -38,9 +39,9 @@ public final class SearchListModel {
         guard !loading, !isAtEnd, running == nil else { return }
         loading = true
         let (kind, query, offset) = (kind, query, hits.count(of: kind))
-        Task { [session] in
+        Task {
             defer { loading = false }
-            guard let search = session.search else { return }
+            guard let search = messageSearch() else { return }
             let page = await search.list(kind, query, offset: offset, limit: kind.page)
             guard query == self.query, running == nil else { return }
             isAtEnd = page.count(of: kind) < kind.page
@@ -52,9 +53,9 @@ public final class SearchListModel {
     private func reload(after wait: Duration) {
         running?.cancel()
         let (kind, query) = (kind, query)
-        running = Task { [session] in
+        running = Task {
             try? await Task.sleep(for: wait)
-            guard !Task.isCancelled, let search = session.search else { return }
+            guard !Task.isCancelled, let search = messageSearch() else { return }
             if kind == .photos, !query.isEmpty { search.photos.prepareForSearch() }
             var page = await search.list(kind, query, offset: 0, limit: kind.page)
             guard !Task.isCancelled else { return }

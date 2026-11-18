@@ -10,7 +10,8 @@ public final class SearchModel {
     public private(set) var hits = SearchHits()
     public var onUpdate: ((_ hits: SearchHits) -> Void)?
 
-    private let session: Session
+    /// The account's search, once its index has opened.
+    private let messageSearch: @MainActor () -> MessageSearch?
     private var running: Task<Void, Never>?
 
     /// Search is open: what chats shared lately follows the index while no words are typed.
@@ -19,15 +20,20 @@ public final class SearchModel {
     private var indexProgress: AnyObject?
     private let lately = Throttle(interval: .seconds(2))
 
-    public init(session: Session) {
-        self.session = session
+    public convenience init(session: Session) {
+        self.init(search: { session.search }, searchChanges: session.searchChanges)
+    }
+
+    /// Search over `search`, which `searchChanges` tells has opened or closed.
+    init(search: @escaping @MainActor () -> MessageSearch?, searchChanges: Broadcast) {
+        messageSearch = search
         // the index opens a moment after the account, and fills as it reads.
-        searchOpened = session.searchChanges.observe { [weak self] in self?.followIndex() }
+        searchOpened = searchChanges.observe { [weak self] in self?.followIndex() }
         followIndex()
     }
 
     private func followIndex() {
-        indexProgress = session.search?.progressChanges.observe { [weak self] in
+        indexProgress = messageSearch()?.progressChanges.observe { [weak self] in
             guard let self, isOpen, query.isEmpty else { return }
             lately.schedule { @MainActor [weak self] in self?.showLately() }
         }
@@ -40,12 +46,12 @@ public final class SearchModel {
     }
 
     /// How far the index is; nil before it opens.
-    public var progress: SearchIndexer.Progress? { session.search?.progress }
+    public var progress: SearchIndexer.Progress? { messageSearch()?.progress }
 
     /// The user started searching (the field took the focus): photo search gets ready to find
     /// photos by their look.
     public func prepare() {
-        session.search?.photos.prepareForSearch()
+        messageSearch()?.photos.prepareForSearch()
         let opening = !isOpen
         isOpen = true
         if opening, query.isEmpty { showLately() }
@@ -54,8 +60,8 @@ public final class SearchModel {
     /// What chats shared lately, shown before any words are typed (as Messages does).
     private func showLately() {
         running?.cancel()
-        running = Task { [session] in
-            guard let search = session.search else { return }
+        running = Task {
+            guard let search = messageSearch() else { return }
             let lately = await search.lately()
             guard !Task.isCancelled, query.isEmpty else { return }
             hits = lately
@@ -65,7 +71,7 @@ public final class SearchModel {
 
     /// A list of one kind, all of it or what has the words typed now: for its own page.
     public func list(_ kind: SearchKind) -> SearchListModel {
-        SearchListModel(session: session, kind: kind, query: query)
+        SearchListModel(search: messageSearch, kind: kind, query: query)
     }
 
     public func search(_ text: String) {
@@ -78,9 +84,9 @@ public final class SearchModel {
             showLately()
             return
         }
-        running = Task { [session] in
+        running = Task {
             try? await Task.sleep(for: .milliseconds(120))
-            guard !Task.isCancelled, let search = session.search else { return }
+            guard !Task.isCancelled, let search = messageSearch() else { return }
             let state = Signposts.list.beginInterval("search")
             var found = await search.search(text)
             Signposts.list.endInterval("search", state, "\(found.chats.count) chats, \(found.messages.count) messages")
