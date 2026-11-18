@@ -1,10 +1,10 @@
 # Every pull request into dev and main, and every push to them: the Rust core (formatting, lints,
 # tests), Swift that forces or swallows an error (scripts/check-swift-errors.sh), the shared Swift
-# package's tests (also under Thread Sanitizer), both apps built and their view tests (Apps/ViewTests)
-# run. Branch protection requires
-# `check`, which passes only when every one of those jobs did. The iPhone app's smoke test on a
-# simulator (Apps/UITests/SmokeTests.swift) runs only by hand, before a TestFlight build, and
-# `check` does not wait for it.
+# package's tests (also under Thread Sanitizer), both apps built and the Mac app's view tests
+# (Apps/ViewTests) run. Branch protection requires
+# `check`, which passes only when every one of those jobs did. What needs a simulator runs only by
+# hand (the Actions tab), before a TestFlight build, and `check` does not wait for it: the iPhone
+# app's view tests and its smoke test (Apps/UITests/SmokeTests.swift).
 #
 # The apps link the core's XCFramework (Vendor/, `cargo xtask apple`). `sdk` builds its simulator
 # and Mac slices once (the dev profile: optimized SDK, light core) and caches it by the core's
@@ -195,8 +195,13 @@ jobs:
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
             CODE_SIGN_ENTITLEMENTS= 2>&1 | tee build/mac-views.log
           sh scripts/check-build-warnings.sh build/mac-views.log
+      # the iPhone's view tests only by hand: on the runner the simulator shares three cores with
+      # the app hosting the tests, which fills its own demo of 2 000 chats meanwhile, and a test's
+      # session took over a minute to close (run 44338775771). They come back to every pull
+      # request once the host does no such work.
       # the newest "iPhone NN Pro", as the smoke test picks it.
       - name: Pick an iPhone simulator
+        if: github.event_name == 'workflow_dispatch'
         id: simulator
         run: |
           id=$(xcrun simctl list devices available --json \
@@ -204,6 +209,7 @@ jobs:
           test -n "$id" && test "$id" != null
           echo "id=$id" >> "$GITHUB_OUTPUT"
       - name: Test the iPhone app's views
+        if: github.event_name == 'workflow_dispatch'
         timeout-minutes: 15
         run: |
           set -o pipefail
