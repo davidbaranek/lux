@@ -1,6 +1,7 @@
 # Every pull request into dev and main, and every push to them: the Rust core (formatting, lints,
 # tests), Swift that forces or swallows an error (scripts/check-swift-errors.sh), the shared Swift
-# package's tests (also under Thread Sanitizer) and both apps built. Branch protection requires
+# package's tests (also under Thread Sanitizer), both apps built and their view tests (Apps/ViewTests)
+# run. Branch protection requires
 # `check`, which passes only when every one of those jobs did. The iPhone app's smoke test on a
 # simulator (Apps/UITests/SmokeTests.swift) runs only by hand, before a TestFlight build, and
 # `check` does not wait for it.
@@ -150,7 +151,7 @@ jobs:
     needs: sdk
     runs-on: xcode-27
     # a hung build or simulator ends here, not after the default six hours on the runner.
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/xcode
@@ -180,6 +181,50 @@ jobs:
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
             CODE_SIGN_ENTITLEMENTS= 2>&1 | tee build/mac.log
           sh scripts/check-build-warnings.sh build/mac.log
+      # the view tests (Apps/ViewTests), in the apps they test, each over a demo session of its
+      # own: no window, nothing drawn or animated, so the runner's missing GPU does not slow them,
+      # and they wait on the models' announcements, never a clock. Ad-hoc signed, as the builds
+      # above: no team, no profile (the Mac also without its entitlements).
+      - name: Test the Mac app's views
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          xcodebuild test -scheme Lux-Mac-Tests -destination 'platform=macOS,arch=arm64' -only-testing:Lux-Mac-Tests \
+            -derivedDataPath build/DerivedData -resultBundlePath build/MacViews.xcresult -skipPackagePluginValidation \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
+            CODE_SIGN_ENTITLEMENTS= 2>&1 | tee build/mac-views.log
+          sh scripts/check-build-warnings.sh build/mac-views.log
+      # the newest "iPhone NN Pro", as the smoke test picks it.
+      - name: Pick an iPhone simulator
+        id: simulator
+        run: |
+          id=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | test("^iPhone [0-9]+ Pro$"))] | sort_by(.name) | last | .udid')
+          test -n "$id" && test "$id" != null
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Test the iPhone app's views
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          xcodebuild test -scheme Lux-iOS-Tests -destination 'id=${{ steps.simulator.outputs.id }}' -only-testing:Lux-iOS-Tests \
+            -derivedDataPath build/DerivedData -resultBundlePath build/iOSViews.xcresult -skipPackagePluginValidation \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= 2>&1 | tee build/ios-views.log
+          sh scripts/check-build-warnings.sh build/ios-views.log
+      - name: Keep the view tests' results and any crash report
+        if: failure()
+        run: |
+          mkdir -p build/crashes
+          cp ~/Library/Logs/DiagnosticReports/*.ips build/crashes/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: view-tests
+          path: |
+            build/MacViews.xcresult
+            build/iOSViews.xcresult
+            build/crashes
 
   # the demo account walked through on a simulator: fails on a crash or a 10 s hang. Only by hand
   # (the Actions tab), before a TestFlight build.
