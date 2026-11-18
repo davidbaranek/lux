@@ -33,6 +33,18 @@ not answer within 10 s; a failed run keeps the result bundle and any crash repor
 artifact. To run it locally: `xcodebuild test -scheme Lux-iOS -destination 'platform=iOS
 Simulator,name=iPhone 17' -only-testing:Lux-iOS-UITests/SmokeTests`.
 
+Photo search's reading by Vision and its model run by hand too, before a release, on a Mac with a
+GPU: GitHub's virtual machines read no text, so CI skips them (what photo reading decides without
+Vision, `PhotoIndexerReadingTests`, runs on every pull request). `PhotoReaderTests` and
+`PhotoIndexerTests` need Vision; `findsAPhotoByHowItLooks` and `findsAMessageByWhatItMeans` need
+the model as well (`scripts/image-search/package.sh` writes it):
+
+```sh
+LUX_PHOTO_MODEL=<out>/PhotoSearch swift test --filter 'PhotoReaderTests|PhotoIndexerTests'
+```
+
+Each skipped test says why in the test log; on a Mac where Vision reads, none may be skipped.
+
 TestFlight's archives are built by Xcode Cloud.
 
 ## TestFlight

@@ -17,6 +17,18 @@ protocol MediaSourcePort: Sendable {
     func sharedFile(roomId: String, eventId: String, directory: URL) async throws -> URL
 }
 
+/// Reads what a photo shows: its words and, with a model, how it looks. What `PhotoIndexer` needs
+/// to read photos; `PhotoReader` (Vision, and the photo search model) is the app's.
+protocol PhotoReading: Sendable {
+    /// Who reads, kept with what was read: a reader that reads more (the model arrived) or
+    /// better (a newer version) reads every photo again.
+    var name: String { get }
+    /// What `file` shows: its words, one line each in reading order, and its embedding.
+    func read(_ file: URL, lease: ForegroundLease) async throws -> (words: String, embedding: [Float]?)
+    /// A reading ended: what it held to read (the model's image encoder) can go.
+    func readingEnded() async
+}
+
 /// Finding chats and the chats that show rooms, and following changes. What `MessageSearch`
 /// needs of an account besides what its indexers do.
 protocol ChatLookupPort: Sendable {

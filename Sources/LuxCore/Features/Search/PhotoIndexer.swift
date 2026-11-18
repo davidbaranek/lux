@@ -23,24 +23,24 @@ public actor PhotoIndexer {
     private let account: Task<any MediaSourcePort, any Error>
     private let directory: URL
     private let report: @Sendable (Progress) -> Void
-    private var reader: PhotoReader
+    private var reader: any PhotoReading
     /// The newest reading asked for, if any: it reads after the one before it ends (one at a
     /// time), and a stop cancels it and, through it, every reading before it.
     private var running: Task<Bool, Never>?
 
-    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, model: PhotoSearchModel?,
+    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, reader: any PhotoReading,
          report: @escaping @Sendable (Progress) -> Void) {
         self.store = store
         self.account = account
         self.directory = directory
-        reader = PhotoReader(model: model)
+        self.reader = reader
         self.report = report
     }
 
-    /// The model arrived (the photos are read again with it), or went (photo search is off): a
-    /// photo the last reader gave up on is tried again by this one.
-    func use(_ model: PhotoSearchModel?) async {
-        reader = PhotoReader(model: model)
+    /// Another reader (the model arrived, and the photos are read again with it, or went: photo
+    /// search is off): a photo the last reader gave up on is tried again by this one.
+    func use(_ reader: any PhotoReading) async {
+        self.reader = reader
         await bestEffort("photo search: retry unread photos") { try await store.retryUnreadImages() }
     }
 
@@ -103,7 +103,7 @@ public actor PhotoIndexer {
         guard let account = await bestEffort("photo search: the account", { try await account.value }) else { return false }
         let reader = self.reader
         var left = limit ?? .max
-        defer { Task { await reader.model?.releaseImageEncoder() } }
+        defer { Task { await reader.readingEnded() } }
         while left > 0, !Task.isCancelled {
             guard let photos = await bestEffort("photo search: photos to read", { try await store.imagesToRead(by: reader.name, limit: min(left, Self.batch)) })
             else { return false }
@@ -150,7 +150,7 @@ public actor PhotoIndexer {
     }
 
     /// One photo read: downloaded into its own folder, read, and deleted.
-    private func read(_ photo: (eventId: String, roomId: String), by reader: PhotoReader,
+    private func read(_ photo: (eventId: String, roomId: String), by reader: any PhotoReading,
                       from account: any MediaSourcePort, lease: ForegroundLease) async -> Outcome {
         let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { bestEffort("photo search: the photo's folder stays") { try FileManager.default.removeItemIfPresent(at: folder) } }

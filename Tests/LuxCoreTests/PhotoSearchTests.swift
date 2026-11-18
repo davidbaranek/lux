@@ -132,7 +132,7 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
         let kept = try await store.imageCounts(reader: PhotoReader(model: nil).name)
         #expect(kept.total > 0 && kept.read == 0)
 
-        let photos = PhotoIndexer(store: store, account: Task { account }, directory: try folder(), model: nil) { _ in }
+        let photos = PhotoIndexer(store: store, account: Task { account }, directory: try folder(), reader: PhotoReader(model: nil)) { _ in }
         #expect(try await leased { lease in await photos.read(limit: nil, lease: lease) })
         #expect(try await store.imageCounts(reader: PhotoReader(model: nil).name).withWords == kept.total)
         // nothing is left to read, and the downloads are gone.
@@ -216,7 +216,7 @@ extension PhotoSearch {
         let store = try await photoStore(photos: 3)
         let source = HeldPhotos()
         let reports = Reports()
-        let photos = PhotoIndexer(store: store, account: Task { source }, directory: try folder(), model: nil, report: reports.report)
+        let photos = PhotoIndexer(store: store, account: Task { source }, directory: try folder(), reader: PhotoReader(model: nil), report: reports.report)
 
         let first = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
         try await source.started.first()
