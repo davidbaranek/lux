@@ -57,8 +57,37 @@ In Xcode: Product › Xcode Cloud › Create Workflow, for the `Lux-iOS` scheme:
 - **Start condition:** Tag Changes, tags beginning with `testflight/`.
 - **Environment:** the Xcode the project is developed with.
 - **Actions:** Archive `Lux-iOS` (iOS) and Archive `Lux-Mac` (macOS), deployment preparation
-  TestFlight (Internal Testing Only).
+  **TestFlight and App Store**. A build archived for TestFlight (Internal Testing Only) can never
+  reach external testers, and the App Store Connect API cannot change this setting (the
+  workflow's TestFlight post-action is not in it), so set it in Xcode.
 - **Post-action:** TestFlight Internal Testing, the internal group.
+
+### External testers
+
+External testers (the `External` group) get a build only after Beta App Review approves it, once
+per version (later builds of an approved version usually pass at once). App Store Connect keeps,
+under TestFlight › Test Information:
+
+- the beta app description and the "what to test" notes, in English and Czech;
+- the feedback email, and a privacy policy URL;
+- Beta App Review's contact (name, phone, email) and a demo account: a real Matrix account on a
+  homeserver the reviewers can reach, with a few chats. The demo mode (`-LuxDemo`) is a launch
+  argument, which a reviewer cannot set. The demo account is `@lux-review:matrix.bardav.com`,
+  with chats from `@lux-review-anna` and `@lux-review-tom`; its password lives in 1Password and in
+  App Store Connect only, never in the repository.
+
+The privacy policy is [privacy.md](privacy.md), linked from App Store Connect at its GitHub URL on
+`dev`.
+
+The `PhotoSearch` asset pack goes through Beta App Review too: its newest version's external beta
+release must be `READY_FOR_BETA_SUBMISSION` when the build is submitted
+(`betaAppReviewSubmissions` with the build), and should then move to `WAITING_FOR_REVIEW`.
+External testers get the pack once it is approved.
+
+Export compliance: `ITSAppUsesNonExemptEncryption` is `NO`. Lux uses only standard encryption
+(Matrix's Olm and Megolm, TLS) in a mass-market app, which needs no export documentation in App
+Store Connect. Distributing on the App Store in France additionally needs a French encryption
+declaration, to be decided before the App Store release.
 
 ## Crashes from TestFlight
 
