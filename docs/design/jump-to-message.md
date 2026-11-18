@@ -173,10 +173,14 @@ window of short messages where 25 a side may not.
   they name the room and message, and the adapter finds the open timeline that shows the message
   (`Opened::of_room` includes focused timelines). Reactions and edits from others update the rows
   (SDK aggregations); thread summaries on detached roots stay as loaded.
-- **Highlight.** The target flashes once it is in the middle of the list (`ThreadPresenter.glide` →
-  `screen.flash`). The presenter goes on with a jump after every update the screen shows, the
-  first one too: the jump's rows fill in over several updates, each of which may move the row or
-  stop the glide, so the glide aims at the row again until it arrives.
+- **Scroll position and highlight.** The presenter decides one `ScrollIntent` per update
+  (`.bottom`, `.keep(row, top)`, `.centre(row)`, `.firstUnread(row)`, `.none`), and the screen
+  applies it once, unanimated, right after its snapshot; an inset change keeps the same place
+  (`ThreadPresenter.keepingPlace`). While the jump's rows fill in (the model loads), every update
+  centres the target at once, so nothing animates across updates. Only a target already shown with
+  nothing loading glides there (one animation, which the next update would end on the row). Once
+  the target is in the middle and nothing loads, it is the highlighted message: the cells read it
+  (`configurationUpdateHandler` on the iPhone, the row's cell view on the Mac) and flash once.
 
 ### The seam back to live
 
@@ -320,7 +324,9 @@ pub struct TimelineId {
   `loadNewer()`, `returnToLive()`, `isLive`, `canLoadNewer`, and the `ThreadPresenter(focusEvent:)`
   init becomes `focus: MessageLink?` (room + event) handed to the core's `ThreadSpec` instead of a
   jump after `start()`.
-- `ThreadPresenter` keeps all of it: `scrolled(_:)` asks `loadOlder` near the top and, when
+- `ThreadPresenter` keeps all of it: `displayed(_:)` (from the lists' own display callbacks,
+  `collectionView(_:willDisplay:forItemAt:)` and `tableView(_:didAdd:forRow:)`, and after each
+  update the screen shows) asks `loadOlder` near the top and, when
   `!isLive`, `loadNewer` near the bottom; `jumpToBottom()` is `returnToLive()` when detached, a
   scroll otherwise; `send` returns to live through the core. A source switch arrives as an ordinary
   update with an anchor; the presenter keeps the anchor row's offset (or goes to the bottom on

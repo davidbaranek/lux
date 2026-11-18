@@ -173,12 +173,28 @@ public final class ThreadModel {
             }
         }
         flushRun()
+        // the user sent a message from here: the newest row, new and their own, is its local echo.
+        if awaitsEcho, isLive, let newest = messages.last, newest.isOwn, Self.added(newest.id, in: batch.rows) {
+            awaitsEcho = false
+            sentNow = newest.id
+        }
         let first = !hasLoaded
         hasLoaded = true
         Signposts.thread.endInterval("messages", interval, "\(batch.rows.count) changes, \(self.messages.count) messages")
         if first || !batch.rows.isEmpty { onUpdate?(messages) }
         // found after the chat opened (a slow server): the view places the marker now.
         if !first, let found = firstUnreadId, found != unreadBefore { onFirstUnread?(found) }
+    }
+
+    /// Whether `changes` bring the row `id` in (not a change of a row already there).
+    private static func added(_ id: String, in changes: [ThreadRowChange]) -> Bool {
+        changes.contains { change in
+            switch change {
+            case .pushBack(let item), .pushFront(let item), .insert(_, let item): item.id == id
+            case .append(let items): items.contains { $0.id == id }
+            default: false
+            }
+        }
     }
 
     private func apply(_ state: ThreadState) {
@@ -368,8 +384,18 @@ public final class ThreadModel {
     public func send(_ text: String, via room: String? = nil) {
         // sending clears the chat's kept draft (a Matrix thread's is its own).
         if canSend(text), thread == nil { preferences.setHasDraft(false, in: chatId) }
+        // a new message (not an edit) comes back as the newest row, its local echo.
+        if canSend(text) {
+            if case .edit = mode {} else { awaitsEcho = true }
+        }
         withCore { $0.send(text, via: room) }
     }
+
+    /// The user sent a message here whose local echo has not come yet.
+    private var awaitsEcho = false
+    /// The local echo of the message the user last sent from here, once its row is in: the
+    /// chat follows it to the bottom.
+    public private(set) var sentNow: String?
 
     /// The text and reply the composer had when the chat was left.
     public func loadDraft() async -> String {

@@ -102,6 +102,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     private var layouts: [String: MessageLayout] = [:]
     /// The scrolls the presenter asked for: only the last one's glide tells its end.
     private var scrolls = 0
+    /// The message a jump brought into view: its row flashes (`MessageCellView.isJumpTarget`).
+    private var highlighted: String?
     private let text = MessageText()
     /// The inspector is opening or closing beside the chat: the chat resizes live, as it does
     /// while the user drags the window's edge.
@@ -312,6 +314,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             if let self, let message = messages[id], let layout = layouts[id] {
                 cell.show(message, layout: layout, isGroup: row.isGroup, text: text, images: images)
             }
+            // the jump's message flashes, also when its row shows later.
+            cell.isJumpTarget = self?.highlighted == id
             cell.onLink = { NSWorkspace.shared.open($0) }
             cell.onBubbleTap = { [weak self] in self?.model.toggleDetail(of: id) }
             cell.onReactionTap = { [weak self] key in self?.model.toggleReaction(key, on: id) }
@@ -337,7 +341,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         NotificationCenter.default.addObserver(self, selector: #selector(userStartedScrolling),
                                                name: NSScrollView.willStartLiveScrollNotification, object: scroll)
         scroll.contentView.postsBoundsChangedNotifications = true
-        model.onLoading = { [weak self] loading in
+        presenter.onLoading = { [weak self] loading in
             self?.loading.set(visible: loading)
             self?.updateEmpty()
         }
@@ -393,18 +397,14 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         // the last message ends above the composer, which floats over the chat, and above
         // "Anna is typing…" while it shows.
         let bottom = composer.frame.height + 28 + (typingShown ? typing.intrinsicContentSize.height + 16 : 0)
-        if scroll.contentInsets.bottom != bottom {
-            let atBottom = isAtBottom
+        guard scroll.contentInsets.bottom != bottom else { return anchorToBottom() }
+        // the list stays where the presenter has it: at the newest, the new room included, on the
+        // jump's message, or on the row read.
+        presenter.keepingPlace {
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentInsets = NSEdgeInsets(top: view.safeAreaInsets.top, left: 0, bottom: bottom, right: 0)
-            // still at the very end, the new room included.
-            if atBottom {
-                let clip = scroll.contentView
-                clip.scroll(to: NSPoint(x: 0, y: max(-scroll.contentInsets.top, table.bounds.height + bottom - clip.bounds.height)))
-                scroll.reflectScrolledClipView(clip)
-            }
+            anchorToBottom()
         }
-        anchorToBottom()
     }
 
     /// A chat shorter than the window sits at its bottom, by the composer (as Messages does): older
@@ -425,13 +425,6 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         view.window?.makeFirstResponder(field)
     }
 
-    private var isAtBottom: Bool { scrollGeometry.isAtBottom }
-
-    private func scrollToBottom() {
-        guard !order.isEmpty else { return }
-        table.scrollRowToVisible(order.count - 1)
-    }
-
     /// An empty chat says so, once the server has had its say.
     private func updateEmpty() {
         empty.isHidden = !(model.hasLoaded && !model.isLoading && order.isEmpty)
@@ -447,8 +440,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     /// until the full measure at the end; the reader stays at the bottom, or on the row they read.
     private func relayoutShown(width: CGFloat) {
         guard shownFirst, !order.isEmpty else { return }
-        let atBottom = isAtBottom
-        let anchor = atBottom ? nil : readingAnchor(in: order)
+        presenter.keepingPlace { relayout(shownRowsFor: width) }
+    }
+
+    private func relayout(shownRowsFor width: CGFloat) {
         let shown = table.rows(in: scroll.contentView.bounds)
         let rows = max(0, shown.location - 4)..<min(order.count, NSMaxRange(shown) + 4)
         let firstUnread = model.firstUnreadId, style = model.chatStyle, metrics = presenter.layoutCache.metrics
@@ -469,20 +464,12 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             table.noteHeightOfRows(withIndexesChanged: resized)
         }
         anchorToBottom()
-        if atBottom { scrollToBottom() } else if let anchor { keep(anchor) }
     }
 
-    func show(_ new: [MessageItem], layouts: [String: MessageLayout], changed: [String]) {
+    func show(_ new: [MessageItem], layouts: [String: MessageLayout], changed: [String], scroll intent: ScrollIntent) {
         let ids = new.map(\.id)
         defer { updateEmpty() }
-        guard ids != order || !changed.isEmpty || !shownFirst else { return }
-        // the first messages (also after an empty first answer) land at the bottom.
-        // a message of yours just went out: the chat follows it to the bottom, as Messages does.
-        // a jump's rows take newer pages at their end, none of them sent now.
-        let sentNow = new.last.map { $0.isOwn && messages[$0.id] == nil && shownFirst && model.isLive } ?? false
-        let atBottom = !shownFirst || order.isEmpty || isAtBottom || sentNow
-        let prepended = order.first.map { ids.first != $0 } ?? false
-        let oldOrder = order, oldLayouts = self.layouts
+        guard ids != order || !changed.isEmpty || !shownFirst else { return place(intent) }
         messages = Dictionary(new.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         self.layouts = layouts
         order = ids
@@ -491,19 +478,18 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         snapshot.appendItems(ids)
         let state = Signposts.thread.beginInterval("apply")
         defer { Signposts.thread.endInterval("apply", state, "\(changed.count) changed") }
-        // the row the reader is looking at, and where on screen: it stays there whatever changes above it.
-        let anchor = shownFirst && !atBottom ? readingAnchor(in: oldOrder) : nil
-        // rows going in above the reader: the clip moves down by their height first (and by the
-        // change of the old first row, whose run or day may change), so the table lays out only
+        // the row the reader is looking at stays where it is, whatever goes in above it: the clip
+        // moves to the row's new place first (the heights are exact), so the table lays out only
         // the rows that stay on screen, and makes no views for rows the reader never sees.
-        if prepended, shownFirst, let oldFirst = oldOrder.first, let at = ids.firstIndex(of: oldFirst), at > 0 {
-            let height = { (id: String) in layouts[id]?.height ?? 44 }
-            let above = ids[..<at].reduce(CGFloat(0)) { $0 + height($1) } + height(oldFirst) - (oldLayouts[oldFirst]?.height ?? 44)
+        if shownFirst, case .keep(let id, let top) = intent, let at = ids.firstIndex(of: id) {
+            let y = ids[..<at].reduce(CGFloat(0)) { $0 + (layouts[$1]?.height ?? 44) } - top
             let clip = scroll.contentView
-            // quietly: told now, the table would lay out the rows before the insert at the new place.
-            clip.postsBoundsChangedNotifications = false
-            clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + above))
-            clip.postsBoundsChangedNotifications = true
+            if abs(y - clip.bounds.minY) > 0.5 {
+                // quietly: told now, the table would lay out the rows before the insert at the new place.
+                clip.postsBoundsChangedNotifications = false
+                clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: y))
+                clip.postsBoundsChangedNotifications = true
+            }
         }
         // no animation: the table would slide rows from their old places and animate new heights,
         // and the chat would visibly shift under the reader; but a caption the user unfolds or
@@ -526,14 +512,15 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             }
             if !resized.isEmpty { table.noteHeightOfRows(withIndexesChanged: resized) }
         }
-        if !shownFirst || atBottom {
-            if !shownFirst, LaunchOptions.isBenchmark {
+        let first = !shownFirst
+        if first {
+            if LaunchOptions.isBenchmark {
                 tasks.run { [scroll] in
                     try await Task.sleep(for: .seconds(2))
                     ScrollBenchmark(scroll, name: "chat", direction: -1).run()
                 }
             }
-            if !shownFirst, fadesIn {
+            if fadesIn {
                 // the first messages appear with a quick fade, already in place.
                 scroll.alphaValue = 0
                 NSAnimationContext.runAnimationGroup { context in
@@ -541,21 +528,15 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
                     scroll.animator().alphaValue = 1
                 }
             }
-            let first = !shownFirst
             presenter.didShowFirst()
-            anchorToBottom()
-            if first {
-                scrollToFirstUnreadOrBottom()
-                onReady?()
-                onReady = nil
-            } else {
-                scrollToBottom()
-            }
-        } else if let anchor {
-            anchorToBottom()
-            keep(anchor)
         }
-        if presenter.takeLateUnreadScroll() { scrollToFirstUnreadOrBottom() }
+        anchorToBottom()
+        // the one place this update leaves the list, unanimated.
+        place(intent)
+        if first {
+            onReady?()
+            onReady = nil
+        }
         updateJumpToUnread()
     }
 
@@ -571,16 +552,6 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         let row = table.row(at: NSPoint(x: 0, y: max(top, 0)))
         guard shown.indices.contains(row) else { return nil }
         return (shown[row], table.rect(ofRow: row).minY - clip.bounds.minY)
-    }
-
-    /// Scrolls so the anchor's row starts where it did, without animation; nothing when it already does.
-    private func keep(_ anchor: (id: String, offset: CGFloat)) {
-        guard let row = order.firstIndex(of: anchor.id) else { return }
-        let clip = scroll.contentView
-        let y = table.rect(ofRow: row).minY - anchor.offset
-        guard abs(y - clip.bounds.minY) > 0.5 else { return }
-        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y))
-        scroll.reflectScrolledClipView(clip)
     }
 
     /// A merged chat's composer shows the network a message goes through.
@@ -607,14 +578,6 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         presenter.jumpToFirstUnread()
     }
 
-    /// A chat opens at its first unread message when there is more than a screen of them, else at
-    /// its newest message.
-    private func scrollToFirstUnreadOrBottom() {
-        guard let id = model.firstUnreadId, let marker = rowSpan(of: id)?.minY,
-              let offset = scrollGeometry.opening(atUnread: marker) else { return scrollToBottom() }
-        scrollList(to: offset, animated: false)
-    }
-
     @objc private func scrolled() {
         let geometry = scrollGeometry
         // a screen or more above the newest message: offer the way back.
@@ -622,7 +585,11 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         jumpToBottom.fade(in: shownFirst && (geometry.isScreenAboveBottom || !model.isLive))
         updateJumpToUnread()
         if shownFirst, geometry.fromBottom < 40 { model.didReadLatest() }
-        presenter.scrolled(geometry)
+    }
+
+    /// A row comes on screen: near the top, older messages are asked for (near a jump's end, newer ones).
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        presenter.displayed(scrollGeometry)
     }
 
     @objc private func scrollToNewest() {
@@ -682,9 +649,14 @@ extension ThreadController: ThreadScreen {
         onOpenThread?(thread, message)
     }
 
-    func flash(_ id: String) {
-        guard let row = order.firstIndex(of: id) else { return }
-        (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? MessageCellView)?.flash()
+    func highlight(_ id: String?) {
+        let previous = highlighted
+        highlighted = id
+        // rows on screen read it again; one shown later reads it as it is made.
+        for changed in [previous, id].compactMap(\.self) {
+            guard let row = dataSource.row(forItemIdentifier: changed) else { continue }
+            (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? MessageCellView)?.isJumpTarget = changed == id
+        }
     }
 }
 

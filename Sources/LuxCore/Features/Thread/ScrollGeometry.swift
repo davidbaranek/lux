@@ -53,6 +53,43 @@ public struct ScrollGeometry: Sendable, Equatable {
     }
 }
 
+/// Where an update leaves a chat's list: decided once per update by the presenter, applied once
+/// by the screen right after its snapshot, without animation. Nothing else moves the list.
+public enum ScrollIntent: Sendable, Equatable {
+    /// Where it is.
+    case none
+    /// At the newest message.
+    case bottom
+    /// The row starts `top` points below the list's offset, where the reader saw it (rows coming
+    /// in above it, a new width, the rows switching back to live).
+    case keep(String, top: CGFloat)
+    /// The row in the middle of what the reader sees (a jump to it).
+    case centre(String)
+    /// At the first unread message, under the bar, when more than a screen follows it; else at
+    /// the newest (a chat opening).
+    case firstUnread(String)
+}
+
+extension ScrollGeometry {
+    /// The offset `intent` asks for, within the content; nil: the list stays (no intent, or its
+    /// row is not in the list). `rowSpan`: a row's top and bottom in the content.
+    public func offset(for intent: ScrollIntent, rowSpan: (String) -> (minY: CGFloat, maxY: CGFloat)?) -> CGFloat? {
+        let range = range
+        switch intent {
+        case .none:
+            return nil
+        case .bottom:
+            return range.upperBound
+        case .keep(let id, let top):
+            return rowSpan(id).map { min(max($0.minY - top, range.lowerBound), range.upperBound) }
+        case .centre(let id):
+            return rowSpan(id).map { JumpPlan(toRowFrom: $0.minY, to: $0.maxY, in: self).end }
+        case .firstUnread(let id):
+            return rowSpan(id).flatMap { opening(atUnread: $0.minY) } ?? range.upperBound
+        }
+    }
+}
+
 /// How the chat glides to a message (a quoted one, the first unread): its middle to the middle of
 /// what the reader sees, as far as the content allows. A far message is first brought to a screen
 /// away (`start`), so the glide is always one screen long at most.

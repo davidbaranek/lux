@@ -181,6 +181,15 @@ final class MessageCellView: NSTableCellView {
         super.prepareForReuse()
         setBoundsOrigin(.zero)
         replyArrow.alphaValue = 0
+        isJumpTarget = false
+        bubble.layer?.removeAnimation(forKey: "flash")
+        band.layer?.removeAnimation(forKey: "flash")
+    }
+
+    /// The message a jump brought into view: it flashes once as it becomes so, not again when the
+    /// row is shown anew meanwhile. Set after `show(_:layout:isGroup:text:images:)`.
+    var isJumpTarget = false {
+        didSet { if isJumpTarget, !oldValue { flash() } }
     }
 
     /// A click on the bubble's padding or its time; its text, quote and media handle their own.
@@ -217,7 +226,7 @@ final class MessageCellView: NSTableCellView {
 
     /// Draws the eye to the bubble after a jump to it: the bubble takes the accent colour, then
     /// fades back to its own.
-    func flash() {
+    private func flash() {
         guard let (message, layout) = shown, let layer = (layout.band == nil ? bubble : band).layer else { return }
         let own = message.isOwn
         effectiveAppearance.performAsCurrentDrawingAppearance {

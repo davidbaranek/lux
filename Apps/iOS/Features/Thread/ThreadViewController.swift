@@ -34,6 +34,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private var swipeToReply: SwipeToReply?
     /// Where the presenter's glide ends, while it goes.
     private var glideEnd: CGFloat?
+    /// The message a jump brought into view: its cell flashes (`MessageCell.isJumpTarget`).
+    private var highlighted: String?
     /// Back to the newest message, when the reader is a screen or more above it.
     private lazy var jumpToBottom = UIButton(configuration: .glass(), primaryAction: UIAction { [weak self] _ in
         // a jump's rows give way to the live ones; live rows scroll down.
@@ -128,6 +130,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             guard let self, let message = messages[id], let layout = layouts[id] else { return }
             cell.ownFill = ownFill
             cell.show(message, layout: layout, isGroup: row.isGroup, text: text, images: images)
+            // the jump's message flashes, also when its cell shows later or is configured again.
+            cell.configurationUpdateHandler = { [weak self] cell, _ in
+                (cell as? MessageCell)?.isJumpTarget = self?.highlighted == id
+            }
             cell.onQuoteTap = message.quote == nil ? nil : { [weak self] in self?.presenter.jump(toRepliedMessageOf: id) }
             cell.onLink = { url in UIApplication.shared.open(url) }
             cell.onBubbleTap = { [weak self] in self?.model.toggleDetail(of: id) }
@@ -246,7 +252,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             self.presenter.measure(with: self.text)
         }
         presenter.measure(with: text)
-        model.onLoading = { [weak self] loading in
+        presenter.onLoading = { [weak self] loading in
             self?.loading.set(visible: loading)
             self?.updateEmpty()
         }
@@ -292,13 +298,14 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         // while someone types, their line sits between the messages and the composer.
         let typingRoom = model.typists.isEmpty ? 0 : typing.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).height + 6
         let inset = view.bounds.maxY - composer.frame.minY + 8 + typingRoom - view.safeAreaInsets.bottom
-        if abs(collectionView.contentInset.bottom - inset) > 0.5 {
-            let atBottom = isAtBottom
+        guard abs(collectionView.contentInset.bottom - inset) > 0.5 else { return anchorToBottom() }
+        // the list stays where the presenter has it: at the newest, on the jump's message, or on
+        // the row read.
+        presenter.keepingPlace {
             collectionView.contentInset.bottom = inset
             collectionView.verticalScrollIndicatorInsets.bottom = inset
-            if atBottom { scrollToBottom(animated: false) }
+            anchorToBottom()
         }
-        anchorToBottom()
     }
 
     /// A chat shorter than the screen sits at its bottom, by the composer (as Messages does): older
@@ -319,16 +326,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         collectionView.scrollToItem(at: IndexPath(item: order.count - 1, section: 0), at: .bottom, animated: animated)
     }
 
-    func show(_ new: [MessageItem], layouts: [String: MessageLayout], changed: [String]) {
+    func show(_ new: [MessageItem], layouts: [String: MessageLayout], changed: [String], scroll: ScrollIntent) {
         let ids = new.map(\.id)
         let shownFirst = presenter.shownFirst
         defer { updateEmpty() }
-        guard ids != order || !changed.isEmpty || !shownFirst else { return }
-        // a message of yours just went out: the chat follows it to the bottom, as Messages does. A
-        // jump's rows take newer pages at their end, none of them sent now.
-        let sentNow = new.last.map { $0.isOwn && messages[$0.id] == nil && shownFirst && model.isLive } ?? false
-        let atBottom = isAtBottom || sentNow
-        // older messages came in above: keep what is on screen where it is.
+        guard ids != order || !changed.isEmpty || !shownFirst else { return place(scroll) }
+        // older messages came in above: they go in unanimated, the reader's row kept in place.
         let prepended = order.first.map { first in ids.first != first } ?? false
         messages = Dictionary(new.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         self.layouts = layouts
@@ -338,13 +341,13 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         snapshot.appendItems(ids)
         let state = Signposts.thread.beginInterval("apply")
         defer { Signposts.thread.endInterval("apply", state, "\(changed.count) changed") }
-        // the first messages (also after an empty first answer) land at the bottom, unanimated.
-        if !shownFirst || order.count == ids.count && dataSource.snapshot().numberOfItems == 0 {
+        // the first messages (also after an empty first answer) go in unanimated, where the chat opens.
+        if !shownFirst || dataSource.snapshot().numberOfItems == 0 {
             presenter.didShowFirst()
             dataSource.applySnapshotUsingReloadData(snapshot)
             collectionView.layoutIfNeeded()
             anchorToBottom()
-            scrollToFirstUnreadOrBottom()
+            place(scroll)
             updateJumpToUnread()
             // the first messages appear with a quick fade, already in place.
             collectionView.alpha = 0
@@ -360,42 +363,29 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
         let existing = Set(dataSource.snapshot().itemIdentifiers)
         snapshot.reconfigureItems(changed.filter(existing.contains))
-        if prepended {
-            let fromBottom = collectionView.contentSize.height - collectionView.contentOffset.y
-            dataSource.apply(snapshot, animatingDifferences: false)
-            collectionView.collectionViewLayout.invalidateLayout()
-            collectionView.layoutIfNeeded()
-            anchorToBottom()
-            collectionView.contentOffset.y = collectionView.contentSize.height - fromBottom
-        } else if presenter.takeUnfolding(in: changed) {
+        if presenter.takeUnfolding(in: changed) {
             // a caption the user unfolds or folds grows or shrinks before their eyes, the rows
-            // below moving with it.
+            // below (and the list's place) moving with it.
             UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut]) { [self] in
                 dataSource.apply(snapshot, animatingDifferences: false)
                 collectionView.collectionViewLayout.invalidateLayout()
                 collectionView.layoutIfNeeded()
+                anchorToBottom()
+                place(scroll)
             }
         } else {
-            // while the server's pages come in, the chat stays still: no animated inserts or scrolls.
-            let animate = !model.isLoading && !presenter.isSwitching
-            dataSource.apply(snapshot, animatingDifferences: animate)
-            // a reconfigured row may have a new height: the flow layout asks again.
-            if !changed.isEmpty { collectionView.collectionViewLayout.invalidateLayout() }
+            // while the server's pages come in, the rows switch, or older rows go in above the
+            // reader, the chat stays still: no animated inserts.
+            dataSource.apply(snapshot, animatingDifferences: !model.isLoading && !presenter.isSwitching && !prepended)
+            // a reconfigured row, or the old first row under new ones, may have a new height: the flow layout asks again.
+            if !changed.isEmpty || prepended { collectionView.collectionViewLayout.invalidateLayout() }
             collectionView.layoutIfNeeded()
             anchorToBottom()
-            if atBottom { scrollToBottom(animated: animate) }
+            // the one place this update leaves the list, unanimated.
+            place(scroll)
         }
-        if presenter.takeLateUnreadScroll() { scrollToFirstUnreadOrBottom() }
         updateJumpToUnread()
         if isAtBottom { model.didReadLatest() }
-    }
-
-    /// A chat opens at its first unread message when there is more than a screen of them, else at
-    /// its newest message.
-    private func scrollToFirstUnreadOrBottom() {
-        guard let id = model.firstUnreadId, let marker = rowSpan(of: id)?.minY,
-              let offset = scrollGeometry.opening(atUnread: marker) else { return scrollToBottom(animated: false) }
-        collectionView.contentOffset.y = offset
     }
 
     /// An empty chat says so, once the server has had its say.
@@ -467,12 +457,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     }
 
     var readingRow: String? {
+        // the layout's rows in the list's bounds, whether or not their cells are made yet.
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        return collectionView.indexPathsForVisibleItems
-            .compactMap { path in collectionView.layoutAttributesForItem(at: path).map { (path.item, $0.frame) } }
-            .filter { $0.1.midY >= top }
-            .min { $0.0 < $1.0 }
-            .flatMap { order.indices.contains($0.0) ? order[$0.0] : nil }
+        return (collectionView.collectionViewLayout.layoutAttributesForElements(in: collectionView.bounds) ?? [])
+            .filter { $0.representedElementCategory == .cell && $0.frame.midY >= top }
+            .min { $0.indexPath.item < $1.indexPath.item }
+            .flatMap { order.indices.contains($0.indexPath.item) ? order[$0.indexPath.item] : nil }
     }
 
     /// The chat's details, from its title, as Messages opens a conversation's.
@@ -556,7 +546,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             UIView.animate(withDuration: 0.2) { self.jumpToBottom.alpha = showJump ? 1 : 0 }
         }
         updateJumpToUnread()
-        presenter.scrolled(geometry)
+    }
+
+    /// A row comes on screen: near the top, older messages are asked for (near a jump's end, newer ones).
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        presenter.displayed(scrollGeometry)
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -639,9 +633,14 @@ extension ThreadViewController: ThreadScreen {
         if !animated { collectionView.layoutIfNeeded() }
     }
 
-    func flash(_ id: String) {
-        guard let index = order.firstIndex(of: id) else { return }
-        (collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? MessageCell)?.flash()
+    func highlight(_ id: String?) {
+        let previous = highlighted
+        highlighted = id
+        // visible cells read it again; one shown later reads it as it is configured.
+        for changed in [previous, id].compactMap(\.self) {
+            guard let path = dataSource.indexPath(for: changed) else { continue }
+            collectionView.cellForItem(at: path)?.setNeedsUpdateConfiguration()
+        }
     }
 }
 

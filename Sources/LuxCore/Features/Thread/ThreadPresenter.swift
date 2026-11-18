@@ -2,11 +2,14 @@ import CoreGraphics
 import Foundation
 
 /// What a chat's screen does for its presenter: it shows measured messages (its snapshot and
-/// their animation), says where its rows are and where it is scrolled, and scrolls.
+/// their animation) and puts the list where the presenter says, says where its rows are and where
+/// it is scrolled, and glides.
 @MainActor
 public protocol ThreadScreen: AnyObject {
-    /// Shows `messages`, measured; `changed`: the rows that look different (every row after a relayout).
-    func show(_ messages: [MessageItem], layouts: [String: MessageLayout], changed: [String])
+    /// Shows `messages`, measured; `changed`: the rows that look different (every row after a
+    /// relayout). Right after the snapshot is applied and laid out, the list goes where `scroll`
+    /// says, at once and unanimated (`place(_:)`): no other code moves it for the update.
+    func show(_ messages: [MessageItem], layouts: [String: MessageLayout], changed: [String], scroll: ScrollIntent)
     /// The draft the chat had, for the composer.
     func showDraft(_ text: String)
     /// Where the list is scrolled now.
@@ -16,19 +19,28 @@ public protocol ThreadScreen: AnyObject {
     /// Scrolls to `offset`. Animated, it calls `didEndScrolling()` when the glide stops, once; a
     /// later scroll asked for while it goes takes over, and the glide it replaces ends silently.
     func scrollList(to offset: CGFloat, animated: Bool)
-    /// Draws the eye to a message the chat glided to.
-    func flash(_ id: String)
+    /// The message a jump brought into view, whose row flashes once as it shows (a row shown
+    /// later, or shown again, reads it too); nil once the flash is over.
+    func highlight(_ id: String?)
     /// The row the reader looks at: the first whose top half is on screen.
     var readingRow: String? { get }
     /// Opens a Matrix thread of the chat, at one of its messages if given (a jump to a thread's reply).
     func openThread(_ thread: MatrixThread, at message: MessageLink?)
 }
 
+extension ThreadScreen {
+    /// Puts the list where `intent` says, at once, without animation; a glide under way stops there.
+    public func place(_ intent: ScrollIntent) {
+        guard let offset = scrollGeometry.offset(for: intent, rowSpan: rowSpan) else { return }
+        scrollList(to: offset, animated: false)
+    }
+}
+
 /// One chat's screen without its views, the same on iPhone and Mac: it opens the chat (the draft,
 /// the first unread message, the opening fill, a message to open at), measures every update off
-/// the main thread and hands the newest to the screen, glides to quoted messages, asks for older
-/// messages as the reader nears the top, and tells the session the chat is on screen. The screen
-/// keeps its views, its snapshot and their animation.
+/// the main thread and hands the newest to the screen with where its list goes, brings quoted
+/// messages into view, asks for older messages as the reader nears the top, and tells the session
+/// the chat is on screen. The screen keeps its views, its snapshot and their animation.
 @MainActor
 public final class ThreadPresenter {
     public let model: ThreadModel
@@ -40,6 +52,8 @@ public final class ThreadPresenter {
     /// The width the messages are measured for; nothing is measured before it is known.
     public private(set) var width: CGFloat = 0
     public let isGroup: Bool
+    /// Messages started or stopped coming from the server (after the presenter's own use of it).
+    public var onLoading: ((Bool) -> Void)?
 
     private weak var session: Session?
     /// The chat's rooms, whose notifications it stands for.
@@ -54,18 +68,23 @@ public final class ThreadPresenter {
     private var generation = 0
     /// The last update the screen shows: until it catches up, its rows are not the model's.
     private var shownGeneration = 0
+    /// The screen is applying an update: rows it puts on screen meanwhile are not the reader's.
+    private var isShowing = false
     /// The first messages (or "No messages") are drawn.
     public private(set) var shownFirst = false
+    /// Messages are on screen: the next update keeps the reader's place, it does not open the chat.
+    private var shownRows = false
     /// The user moved the chat: a first unread message found late no longer moves it.
     public private(set) var userScrolled = false
     /// The first unread message came late: the next update moves the chat to it.
     private var scrollsToLateUnread = false
-    /// The message a quote or the way up asked for: glided to (and flashed) once it is shown.
-    private var jumpTarget: String?
-    /// The message the chat glides to, until it is in the middle of the list and flashes.
-    private var gliding: String?
-    /// Gliding to a message: older pages wait, one landing above would move it.
-    public var isJumping: Bool { gliding != nil }
+    /// The message a jump brings into view (a quote, a search result, the way up): every update
+    /// centres it, unanimated, until it is shown and nothing loads; then it flashes.
+    private var target: String?
+    /// The target is shown and nothing loaded: one animated glide brings it to the middle.
+    private var gliding = false
+    /// Bringing a message into view; the reader scrolling ends it.
+    public var isJumping: Bool { target != nil }
     /// The message whose shared post's caption the user just unfolded or folded: its next change animates.
     private var unfolding: String?
     /// The rows switched between a jump's and the live ones: this row goes where the reader's was,
@@ -73,6 +92,11 @@ public final class ThreadPresenter {
     private var switchTo: (id: String, top: CGFloat)?
     /// The reader returned to the live rows: the next update lands at the bottom.
     private var landsAtBottom = false
+    /// The local echo the chat last followed to the bottom.
+    private var followedEcho: String?
+    /// The update the screen is showing switches the rows between a jump's and the live ones: it
+    /// goes in unanimated.
+    public private(set) var isSwitching = false
 
     /// The chat of `row`, or its Matrix thread `thread`; `focus`: a message to open at (a saved one,
     /// a search result).
@@ -87,6 +111,10 @@ public final class ThreadPresenter {
         model.onUpdate = { [weak self] messages in self?.show(messages) }
         model.onSwitch = { [weak self] from, to in self?.switching(from: from, to: to) }
         model.onFirstUnread = { [weak self] _ in self?.showLateFirstUnread() }
+        model.onLoading = { [weak self] loading in
+            self?.settle()
+            self?.onLoading?(loading)
+        }
         // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
         styleObservation = session.preferences.chatStyleChanges.observe { [weak self] in self?.remeasure() }
     }
@@ -148,8 +176,8 @@ public final class ThreadPresenter {
 
     private func remeasure() { show(model.messages, relayout: true) }
 
-    /// Measures `new` off the main thread, then the screen shows it, unless a newer update came
-    /// meanwhile, and a jump goes on with the rows shown. `relayout`: every row may have a new size.
+    /// Measures `new` off the main thread, then the screen shows it, where this update puts the
+    /// list, unless a newer update came meanwhile. `relayout`: every row may have a new size.
     public func show(_ new: [MessageItem], relayout: Bool = false) {
         // nothing to draw before the model's first answer (an empty chat is drawn as one).
         guard width > 0, let text, model.hasLoaded else { return }
@@ -163,8 +191,7 @@ public final class ThreadPresenter {
             Signposts.thread.endInterval("measure", state, "\(new.count) messages, \(changed.count) changed")
             guard let self, generation == self.generation else { return }
             shownGeneration = generation
-            screen?.show(new, layouts: layouts, changed: relayout ? new.map(\.id) : changed)
-            jumpOn()
+            present(new, layouts: layouts, changed: relayout ? new.map(\.id) : changed)
         }
     }
 
@@ -172,6 +199,23 @@ public final class ThreadPresenter {
     private static func measure(_ messages: [MessageItem], cache: MessageLayoutCache, showsSender: Bool, firstUnread: String?,
                                 style: ChatStyle, width: CGFloat, text: any TextMeasuring) async -> ([String: MessageLayout], [String]) {
         cache.update(messages, showsSender: showsSender, firstUnread: firstUnread, style: style, width: width, measure: text)
+    }
+
+    /// Hands an update to the screen with the one place its list goes; a jump's message shown in
+    /// the middle with nothing loading has arrived.
+    private func present(_ new: [MessageItem], layouts: [String: MessageLayout], changed: [String]) {
+        guard let screen else { return }
+        let intent = intent(for: layouts)
+        // the update centres the jump's message: a glide under way ends there.
+        if case .centre = intent { gliding = false }
+        isShowing = true
+        screen.show(new, layouts: layouts, changed: changed, scroll: intent)
+        isShowing = false
+        isSwitching = false
+        if !new.isEmpty { shownRows = true }
+        settle()
+        // the update's rows are on screen, in their place: as when the list shows a row.
+        displayed(screen.scrollGeometry)
     }
 
     // MARK: Showing
@@ -184,12 +228,6 @@ public final class ThreadPresenter {
     private func showLateFirstUnread() {
         scrollsToLateUnread = shownFirst && !userScrolled
         show(model.messages)
-    }
-
-    /// Whether this update moves the chat to the first unread message, found late; asked once.
-    public func takeLateUnreadScroll() -> Bool {
-        defer { scrollsToLateUnread = false }
-        return scrollsToLateUnread
     }
 
     /// Unfolds or folds a shared post's caption: its next change animates.
@@ -207,17 +245,78 @@ public final class ThreadPresenter {
 
     // MARK: Scrolling
 
-    /// The reader took the chat over (dragged it, scrolled it, went to the newest): a glide under
+    /// Where the update whose rows are `shown` (their layouts) leaves the list, decided once, in
+    /// this order: a message the user just sent, at the bottom (a jump under way gives way); the
+    /// jump's message in the middle; a chat opening at its first unread message; the rows
+    /// switched, at the newest or the reader's row; a first unread message found late; else where
+    /// the reader is.
+    private func intent(for shown: [String: MessageLayout]) -> ScrollIntent {
+        if shownRows, model.isLive, let echo = model.sentNow, echo != followedEcho, shown[echo] != nil {
+            followedEcho = echo
+            target = nil
+            gliding = false
+            return .bottom
+        }
+        if let id = target, shown[id] == nil, !model.messages.contains(where: { $0.id == id }) {
+            // the jump's message left the chat (the rows switched): nothing to bring into view.
+            target = nil
+            gliding = false
+        }
+        if let target, shown[target] != nil { return .centre(target) }
+        if !shownRows { return model.firstUnreadId.map { .firstUnread($0) } ?? .bottom }
+        if model.isLive, landsAtBottom {
+            landsAtBottom = false
+            switchTo = nil
+            isSwitching = true
+            return .bottom
+        }
+        if model.isLive, let kept = switchTo, shown[kept.id] != nil {
+            switchTo = nil
+            isSwitching = true
+            return .keep(kept.id, top: kept.top)
+        }
+        if scrollsToLateUnread {
+            scrollsToLateUnread = false
+            if let unread = model.firstUnreadId { return .firstUnread(unread) }
+        }
+        return standingIntent()
+    }
+
+    /// Where the list stays through a change that is not the reader's (an update, a new inset):
+    /// on the jump's message, at the newest, or on the row the reader looks at.
+    public func standingIntent() -> ScrollIntent {
+        guard let screen else { return .none }
+        if let target, screen.rowSpan(of: target) != nil { return .centre(target) }
+        let geometry = screen.scrollGeometry
+        if geometry.isAtBottom { return .bottom }
+        guard let row = screen.readingRow, let span = screen.rowSpan(of: row) else { return .none }
+        return .keep(row, top: span.minY - geometry.offset)
+    }
+
+    /// Runs `change` (a new inset, rows measured again), which moves the content, and puts the
+    /// list back where it was: on the jump's message, at the newest, or on the row read.
+    public func keepingPlace(during change: () -> Void) {
+        let intent = standingIntent()
+        change()
+        guard let screen else { return }
+        if case .centre = intent { gliding = false }
+        screen.place(intent)
+        settle()
+    }
+
+    /// The reader took the chat over (dragged it, scrolled it, went to the newest): a jump under
     /// way stops there, unflashed, and a first unread message found late no longer moves the chat.
     public func userStartedScrolling() {
         userScrolled = true
-        gliding = nil
+        target = nil
+        gliding = false
     }
 
-    /// The list scrolled: older messages are asked for as the reader nears the top, unless the
-    /// screen still shows an older update or glides to a message.
-    public func scrolled(_ geometry: ScrollGeometry) {
-        guard shownFirst, !isJumping, shownGeneration == generation else { return }
+    /// The list put a row on screen: older messages are asked for as the reader nears the top,
+    /// and newer ones of a jump's rows near their end, unless the screen still shows an older
+    /// update or is applying one.
+    public func displayed(_ geometry: ScrollGeometry) {
+        guard shownFirst, !isShowing, shownGeneration == generation else { return }
         if !model.isLive {
             // a jump's rows: the switch back to live keeps the row read; newer ones come near the end.
             if let row = screen?.readingRow { model.setAnchor(row) }
@@ -228,7 +327,7 @@ public final class ThreadPresenter {
 
     // MARK: Jumping to a message
 
-    /// Glides to the message a quote answers, once the core brought it in.
+    /// Brings the message a quote answers into view, once the core brought it in.
     public func jump(toRepliedMessageOf id: String) {
         tasks.run("jump") { [weak self, model] in
             let landed: Result<JumpResult, JumpError>
@@ -237,8 +336,8 @@ public final class ThreadPresenter {
         }
     }
 
-    /// Glides to a message of the chat (a saved one, a search result): among the live rows, or a
-    /// jump's rows around it.
+    /// Brings a message of the chat into view (a saved one, a search result): among the live rows,
+    /// or a jump's rows around it.
     public func jump(toMessage message: MessageLink) {
         tasks.run("jump") { [weak self, model] in
             let landed: Result<JumpResult, JumpError>
@@ -247,7 +346,7 @@ public final class ThreadPresenter {
         }
     }
 
-    /// Where a jump landed: its row, glided to; its Matrix thread, opened at it; or why not.
+    /// Where a jump landed: its row, brought into view; its Matrix thread, opened at it; or why not.
     private func land(_ landed: Result<JumpResult, JumpError>) {
         switch landed {
         case .success(.here(let row)): jump(to: row)
@@ -271,69 +370,55 @@ public final class ThreadPresenter {
         switchTo = (to, span.minY - screen.scrollGeometry.offset)
     }
 
-    /// Glides to the first unread message, as to a quoted one.
+    /// Brings the first unread message into view, as a quoted one.
     public func jumpToFirstUnread() {
         guard let id = model.firstUnreadId else { return }
         jump(to: id)
     }
 
+    /// The message to bring into view. Shown, with nothing loading, it glides to the middle (from a
+    /// screen away when it is far); while messages load, it is put in the middle at once, and every
+    /// update keeps it there; not shown yet, the update that shows it does.
     private func jump(to id: String) {
-        jumpTarget = id
-        jumpIfShown()
-    }
-
-    /// After every update the screen shows, the first one too: the switched row keeps its place, a
-    /// message asked for glides once its row is shown, and a glide under way aims at its row again,
-    /// which the update may have moved, or whose glide it may have stopped.
-    private func jumpOn() {
-        keepSwitchedRow()
-        if jumpTarget != nil { jumpIfShown() } else { glide() }
-    }
-
-    /// Once the message asked for is in the list: glide it to the middle, then flash it.
-    private func jumpIfShown() {
-        guard let target = jumpTarget, screen?.rowSpan(of: target) != nil else { return }
-        jumpTarget = nil
-        gliding = target
-        glide()
-    }
-
-    /// Glides to the middle of the message's row, from a screen away when it is far, or, there
-    /// already, flashes it; a row gone from the list (the rows switched) ends the glide.
-    private func glide() {
-        guard let target = gliding, let screen else { return }
-        guard let span = screen.rowSpan(of: target) else {
-            gliding = nil
-            return
-        }
+        target = id
+        gliding = false
+        guard let screen, shownRows, !isShowing, shownGeneration == generation, let span = screen.rowSpan(of: id) else { return }
+        guard !model.isLoading else { return screen.place(.centre(id)) }
         let geometry = screen.scrollGeometry
         let plan = JumpPlan(toRowFrom: span.minY, to: span.maxY, in: geometry)
-        if plan.arrived(from: geometry.offset) {
-            gliding = nil
-            return screen.flash(target)
-        }
+        guard !plan.arrived(from: geometry.offset) else { return settle() }
         if let start = plan.start { screen.scrollList(to: start, animated: false) }
+        gliding = true
         screen.scrollList(to: plan.end, animated: true)
     }
 
-    /// The rows switched: the reader's message stays where it was; back to live, the newest shows.
-    private func keepSwitchedRow() {
-        guard let screen, model.isLive else { return }
-        if landsAtBottom {
-            landsAtBottom = false
-            switchTo = nil
-            screen.scrollList(to: screen.scrollGeometry.bottomOffset, animated: false)
-            return
-        }
-        guard let kept = switchTo, let span = screen.rowSpan(of: kept.id) else { return }
-        switchTo = nil
-        screen.scrollList(to: span.minY - kept.top, animated: false)
+    /// An animated scroll ended: the glide's message is put in the middle, should anything have
+    /// moved it meanwhile, and flashes.
+    public func didEndScrolling() {
+        guard gliding, let target, let screen else { return }
+        gliding = false
+        screen.place(.centre(target))
+        settle()
     }
 
-    /// An update switching the rows between a jump's and the live ones goes in unanimated.
-    public var isSwitching: Bool { switchTo != nil || landsAtBottom }
+    /// The jump's message is in the middle, no glide goes, and nothing loads: it has arrived, and
+    /// flashes. Until then each update (or the glide's end) brings it back to the middle.
+    private func settle() {
+        guard let id = target, !gliding, !model.isLoading, shownGeneration == generation, !isShowing,
+              screen?.rowSpan(of: id) != nil else { return }
+        target = nil
+        highlight(id)
+    }
 
-    /// An animated scroll ended: a message glided to flashes, in the middle of the list; a glide
-    /// something stopped short of it goes on.
-    public func didEndScrolling() { glide() }
+    /// The message's row flashes, then the highlight ends.
+    private func highlight(_ id: String) {
+        screen?.highlight(id)
+        tasks.run("highlight") { [weak self] in
+            try await Task.sleep(for: Self.flash)
+            self?.screen?.highlight(nil)
+        }
+    }
+
+    /// How long the jump's message stays highlighted: its rows' pulse.
+    public static let flash = Duration.milliseconds(1_600)
 }
