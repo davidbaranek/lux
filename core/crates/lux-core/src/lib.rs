@@ -9,6 +9,8 @@ mod actions;
 pub mod bridged_space;
 pub mod bridges;
 pub mod chat;
+#[cfg(any(test, feature = "test-support"))]
+pub mod contract;
 pub mod demo;
 pub mod details;
 pub mod diff;

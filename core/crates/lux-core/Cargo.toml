@@ -26,6 +26,10 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 # the view models' tasks: their timers, channels and the runtime they run on.
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
 
+[features]
+# the ports' contract (`contract`), for another crate's tests to run it against its backend.
+test-support = []
+
 [dev-dependencies]
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros", "test-util"] }
