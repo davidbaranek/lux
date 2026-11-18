@@ -407,6 +407,7 @@ fn notifications(index: usize, changed: &ChatState) -> NotificationMode {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::time::SystemTime;
 
     use super::{ChatState, chat, room_index};
@@ -420,8 +421,15 @@ mod tests {
         assert_eq!(first.pinned, Some(0.0));
         assert_eq!(first.unread_count, 1);
         let later = chat(22, start, None).unwrap();
-        assert_eq!(later.name, "Eva Marková 22");
+        // the same number, the same room.
+        assert_eq!(chat(22, start, None), Some(later.clone()));
         assert_eq!(later.folder, Folder::Inbox);
+        // past the names the demo has, each room still has one of its own.
+        let names: HashSet<String> = (0..100)
+            .filter_map(|index| chat(index, start, None))
+            .map(|chat| chat.name)
+            .collect();
+        assert_eq!(names.len(), 100);
         assert_eq!(chat(10, start, None).unwrap().folder, Folder::Archive);
         assert_eq!(chat(3, start, None).unwrap().member_avatars.len(), 2);
         let deleted = ChatState {
