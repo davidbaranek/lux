@@ -12,8 +12,9 @@ import Vision
 /// `LUX_PHOTO_MODEL=<folder> swift test`.
 private let modelFolder = ProcessInfo.processInfo.environment["LUX_PHOTO_MODEL"].map { URL(fileURLWithPath: $0) }
 
-private func folder() -> URL {
-    FileManager.default.temporaryDirectory.appending(path: "lux-photos-\(UUID().uuidString)", directoryHint: .isDirectory)
+/// A new folder in the test's own (`.ownFolder`).
+private func folder() throws -> URL {
+    try TemporaryFolder.ofTest.appending(path: UUID().uuidString, directoryHint: .isDirectory)
 }
 
 /// A picture of a receipt: lines of black text on white, as a PNG file.
@@ -33,7 +34,7 @@ private func receipt(_ lines: [String]) throws -> URL {
         context.textPosition = CGPoint(x: 60, y: size.height - 120 - CGFloat(index) * 90)
         CTLineDraw(CTLineCreateWithAttributedString(text), context)
     }
-    let file = folder().appending(path: "receipt.png")
+    let file = try folder().appending(path: "receipt.png")
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     let destination = try #require(CGImageDestinationCreateWithURL(file as CFURL, UTType.png.identifier as CFString, 1, nil))
     CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil)
@@ -63,7 +64,7 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
     }
 }
 
-@Suite(recognizesText, .timeLimit(.minutes(1))) struct PhotoReaderTests {
+@Suite(recognizesText, .ownFolder, .timeLimit(.minutes(1))) struct PhotoReaderTests {
     @Test func readsTheWordsInAPhotoWithoutTheModel() async throws {
         let reader = PhotoReader(model: nil)
         let read = try await leased { [file = try receipt(["Faktura 2024-118", "Celkem 1 250 Kč"])] lease in
@@ -120,9 +121,9 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
     }
 }
 
-@Suite(recognizesText, .ownPreferences, .timeLimit(.minutes(1))) struct PhotoIndexerTests {
+@Suite(recognizesText, .ownPreferences, .ownFolder, .timeLimit(.minutes(1))) struct PhotoIndexerTests {
     @Test func readsEveryPhotoOfTheDemoOnce() async throws {
-        let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
+        let store = try await TemporaryFolder.store()
         let account = RustAccount.demo(rooms: 20, messagesPerRoom: 60)
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let texts = SearchIndexer(store: store, account: Task { account }, maxChats: 2, preferences: try Preferences.ofTest) { report.yield($0) }
@@ -131,7 +132,7 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
         let kept = try await store.imageCounts(reader: PhotoReader(model: nil).name)
         #expect(kept.total > 0 && kept.read == 0)
 
-        let photos = PhotoIndexer(store: store, account: Task { account }, directory: folder(), model: nil) { _ in }
+        let photos = PhotoIndexer(store: store, account: Task { account }, directory: try folder(), model: nil) { _ in }
         #expect(try await leased { lease in await photos.read(limit: nil, lease: lease) })
         #expect(try await store.imageCounts(reader: PhotoReader(model: nil).name).withWords == kept.total)
         // nothing is left to read, and the downloads are gone.
@@ -195,7 +196,7 @@ private final class Reports {
 }
 
 private func photoStore(photos: Int) async throws -> LocalStore {
-    let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
+    let store = try await TemporaryFolder.store()
     try await store.addImages((0..<photos).map {
         IndexedImage(eventId: "$photo\($0)", roomId: "!room", senderName: "Anna", caption: "", date: .now, isOwn: false)
     })
@@ -210,12 +211,12 @@ extension PhotoSearch {
     }
 }
 
-@Suite(.ownPreferences, .timeLimit(.minutes(1))) struct PhotoReadingStopTests {
+@Suite(.ownPreferences, .ownFolder, .timeLimit(.minutes(1))) struct PhotoReadingStopTests {
     @MainActor @Test func aStoppedReadingShowsStoppedAtOnceAndReadingAgainStartsAfterIt() async throws {
         let store = try await photoStore(photos: 3)
         let source = HeldPhotos()
         let reports = Reports()
-        let photos = PhotoIndexer(store: store, account: Task { source }, directory: folder(), model: nil, report: reports.report)
+        let photos = PhotoIndexer(store: store, account: Task { source }, directory: try folder(), model: nil, report: reports.report)
 
         let first = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
         try await source.started.first()
@@ -238,7 +239,7 @@ extension PhotoSearch {
 
     @MainActor @Test func readNowAndStopShowAtTheTap() async throws {
         let source = HeldPhotos()
-        let photos = PhotoSearch(store: try await photoStore(photos: 3), account: Task { source }, directory: folder(),
+        let photos = PhotoSearch(store: try await photoStore(photos: 3), account: Task { source }, directory: try folder(),
                                  preferences: try Preferences.ofTest)
 
         photos.readNow()
@@ -254,7 +255,7 @@ extension PhotoSearch {
     }
 
     @MainActor @Test func readNowWithNothingToReadEndsShowingStopped() async throws {
-        let photos = PhotoSearch(store: try await photoStore(photos: 0), account: Task { HeldPhotos() }, directory: folder(),
+        let photos = PhotoSearch(store: try await photoStore(photos: 0), account: Task { HeldPhotos() }, directory: try folder(),
                                  preferences: try Preferences.ofTest)
         let (changes, observing) = photos.announcements()
 

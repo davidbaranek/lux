@@ -159,12 +159,15 @@ public final class Session {
     /// Demo data, for measurements and screenshots with no account (`-LuxDemo`): the Rust core's
     /// made-up account with `rooms` chats of `messagesPerRoom` messages, its encryption starting at
     /// `encryption`; with `verificationRequestAfter`, another of its devices asks to verify that
-    /// many seconds after the app listens. Its files are its own, in a temporary folder: demo
-    /// sessions side by side (the tests) never share one. Its settings are `preferences`.
+    /// many seconds after the app listens. Its files are its own, in `folder` (a new temporary one
+    /// unless given): demo sessions side by side (the tests) never share one. Its settings are
+    /// `preferences`.
     public static func demo(rooms: Int = 2_000, messagesPerRoom: Int = 3_000, encryption: DemoEncryption = .launched,
                             verificationRequestAfter: Int? = LaunchOptions.demoVerificationRequest ? 4 : nil,
+                            folder: URL = FileManager.default.temporaryDirectory
+                                .appending(path: "lux-\(UUID().uuidString)", directoryHint: .isDirectory),
                             preferences: Preferences) -> Session {
-        let session = Session(configuration: .main, paths: .temporary(), preferences: preferences)
+        let session = Session(configuration: .main, paths: .inside(folder), preferences: preferences)
         let account = RustAccount.demo(rooms: rooms, messagesPerRoom: messagesPerRoom, encryption: encryption,
                                        verificationRequestAfter: verificationRequestAfter)
         let files = session.paths.account("demo")
