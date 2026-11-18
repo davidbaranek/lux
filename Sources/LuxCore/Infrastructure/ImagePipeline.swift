@@ -44,6 +44,12 @@ public final class ImagePipeline: Sendable {
         }
     }
 
+    /// The account closes: the images loading are written (or not) before this returns, so its
+    /// folder can go, and none loads after it; a list still on screen shows no new picture.
+    func close() async {
+        await loads.close()
+    }
+
     /// Starts loading images a list will show soon (its prefetching), at a low priority.
     public func prefetch(_ refs: [ImageRef], pixels: Int, shape: Shape = .original) {
         for ref in refs where cached(ref, pixels: pixels, shape: shape) == nil {
@@ -98,11 +104,13 @@ private final class MemoryCache: @unchecked Sendable {
     func setObject(_ image: CGImage, forKey key: String, cost: Int) { cache.setObject(image, forKey: key as NSString, cost: cost) }
 }
 
-/// Joins callers of one image to one load.
+/// Joins callers of one image to one load, and ends them all with the account.
 private actor Loads {
     private var running: [String: Task<CGImage?, Never>] = [:]
+    private var isClosed = false
 
     func run(_ key: String, _ load: @escaping @Sendable () async -> CGImage?) async -> CGImage? {
+        guard !isClosed else { return nil }
         if let task = running[key] { return await task.value }
         // the decoding (and the demo's drawing) holds its thread: on its own executor, not the pool.
         let task = Task(executorPreference: ImageWork.executor, priority: .userInitiated) { await load() }
@@ -110,5 +118,13 @@ private actor Loads {
         let image = await task.value
         running[key] = nil
         return image
+    }
+
+    /// No load starts any more, and those under way are cancelled and waited for.
+    func close() async {
+        isClosed = true
+        let loads = Array(running.values)
+        for load in loads { load.cancel() }
+        for load in loads { _ = await load.value }
     }
 }
