@@ -3,7 +3,7 @@ import Testing
 @testable import LuxCore
 
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct MergedChatTests {
     private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 40)
 
@@ -25,7 +25,7 @@ struct MergedChatTests {
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
         await model.start()
-        await changes.until { Set(model.messages.map(\.roomId)).count == 2 }
+        try await changes.until { Set(model.messages.map(\.roomId)).count == 2 }
         #expect(Set(model.messages.map(\.roomId)) == ["!room4:demo", "!room18:demo"])
         #expect(model.messages.map(\.date) == model.messages.map(\.date).sorted())
         #expect(Set(model.messages.compactMap(\.network)) == ["telegram", "whatsapp"])
@@ -39,7 +39,7 @@ struct MergedChatTests {
         let changes = model.changes()
         await model.start()
         model.show(room: "!room18:demo")
-        await changes.until { model.shownRoom == "!room18:demo" }
+        try await changes.until { model.shownRoom == "!room18:demo" }
         #expect(Set(model.messages.map(\.roomId)) == ["!room18:demo"])
         #expect(model.sendRoom == "!room18:demo")
     }
@@ -49,14 +49,14 @@ struct MergedChatTests {
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
         await model.start()
-        await changes.until { !model.messages.isEmpty }
+        try await changes.until { !model.messages.isEmpty }
         let last = model.messages.last?.id
         let id = try #require(last)
         model.toggleDetail(of: id)
-        await changes.until { model.messages.last?.showsDetail == true }
+        try await changes.until { model.messages.last?.showsDetail == true }
         #expect(model.messages.last?.detailText?.hasPrefix("WhatsApp · ") == true || model.messages.last?.detailText?.hasPrefix("Telegram · ") == true)
         model.toggleDetail(of: id)
-        await changes.until { model.messages.last?.showsDetail == false }
+        try await changes.until { model.messages.last?.showsDetail == false }
         #expect(model.messages.last?.detailText == nil)
     }
 }

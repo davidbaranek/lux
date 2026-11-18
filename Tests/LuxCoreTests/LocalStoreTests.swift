@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import LuxCore
 
-@Suite struct LocalStoreTests {
+@Suite(.timeLimit(.minutes(1))) struct LocalStoreTests {
     let key = String(repeating: "ab", count: 32)
 
     func file() -> URL {
@@ -29,7 +29,7 @@ import Testing
     }
 }
 
-@Suite struct SearchIndexerTests {
+@Suite(.timeLimit(.minutes(1))) struct SearchIndexerTests {
     @Test func indexesTheNewestChatsAndThenOnlyWhatIsNew() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-indexer-\(UUID().uuidString)/index.sqlite")
         let store = try await LocalStore.open(file: file, key: String(repeating: "ef", count: 32))
@@ -38,7 +38,7 @@ import Testing
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let indexer = SearchIndexer(store: store, account: Task { account }, maxChats: 3) { report.yield($0) }
         try await leased { lease in await indexer.update(lease: lease) }
-        for await progress in reports where !progress.isIndexing { break }
+        _ = try await reports.first { !$0.isIndexing }
 
         // the three newest chats, and only they.
         let listed = await account.chats()
@@ -51,7 +51,7 @@ import Testing
         #expect(any.excerpt.lowercased().contains("coff"))
         // nothing new: a second run adds nothing.
         try await leased { lease in await indexer.update(lease: lease) }
-        for await progress in reports where !progress.isIndexing { break }
+        _ = try await reports.first { !$0.isIndexing }
         #expect(try await store.messageCount() == first)
         await store.close()
     }
@@ -68,7 +68,7 @@ import Testing
         let indexer = SearchIndexer(store: store, account: Task { account }, maxChats: 3) { report.yield($0) }
 
         try await leased { lease in await indexer.update(lease: lease) }
-        for await progress in reports where !progress.isIndexing { break }
+        _ = try await reports.first { !$0.isIndexing }
 
         #expect(try await store.search("farewell").isEmpty)
         #expect(try await store.chats()["!left"] == nil)
@@ -76,23 +76,23 @@ import Testing
 }
 
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct MergedChatSearchTests {
     @Test func everyRoomOfAMergedChatIsIndexed() async throws {
         let session = DemoSessions.open(rooms: 20, messagesPerRoom: 5)
         let list = ChatListModel(session: session)
         let shown = list.changes()
-        await shown.until { list.rows.count >= 2 }
+        try await shown.until { list.rows.count >= 2 }
         let (first, second) = (list.rows[0], list.rows[1])
         list.merge(first, with: second)
-        await shown.until { list.rows.contains { $0.isMerged } }
+        try await shown.until { list.rows.contains { $0.isMerged } }
 
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-indexer-\(UUID().uuidString)/index.sqlite")
         let store = try await LocalStore.open(file: file, key: String(repeating: "ef", count: 32))
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let indexer = SearchIndexer(store: store, account: Task { [account = session.account] in try await account.value }, maxChats: 1) { report.yield($0) }
         try await leased { lease in await indexer.update(lease: lease) }
-        for await progress in reports where !progress.isIndexing { break }
+        _ = try await reports.first { !$0.isIndexing }
 
         let indexed = try await store.chats()
         #expect(indexed[first.id] != nil && indexed[second.id] != nil)
@@ -101,7 +101,7 @@ struct MergedChatSearchTests {
 
 /// The search index follows the whole account, not the place on screen.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct MessageSearchTests {
     @Test func aChangeInAChatOutsideThePlaceOnScreenMakesTheIndexReadAgain() async throws {
         let session = DemoSessions.open(rooms: 40, messagesPerRoom: 5)
@@ -110,7 +110,7 @@ struct MessageSearchTests {
         let list = ChatListModel(session: session)
         let shown = list.changes()
         list.place = .network("signal")
-        await shown.until { !list.rows.isEmpty && list.rows.allSatisfy { $0.network == "signal" } }
+        try await shown.until { !list.rows.isEmpty && list.rows.allSatisfy { $0.network == "signal" } }
         let elsewhere = try #require(await account.chats().first { $0.network != "signal" })
 
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-search-\(UUID().uuidString)/index.sqlite")
@@ -118,7 +118,7 @@ struct MessageSearchTests {
         let search = MessageSearch(store: store, account: Task { [account = session.account] in try await account.value },
                                    photos: file.deletingLastPathComponent())
         let (read, token) = search.changes()
-        await read.until { search.progress?.isIndexing == false }
+        try await read.until { search.progress?.isIndexing == false }
         #expect(try await store.search("lighthouse").isEmpty)
 
         // a new message there: the index reads that chat again, and search finds it.
@@ -128,8 +128,8 @@ struct MessageSearchTests {
         let sent = chat.changes()
         await chat.start()
         chat.send("meet at the lighthouse")
-        await sent.until { chat.messages.last?.body == "meet at the lighthouse" }
-        await read.until { readsAgain && search.progress?.isIndexing == false }
+        try await sent.until { chat.messages.last?.body == "meet at the lighthouse" }
+        try await read.until { readsAgain && search.progress?.isIndexing == false }
         let found = try await store.search("lighthouse")
         #expect(found.map(\.roomId) == [elsewhere.id])
         withExtendedLifetime((token, counting)) {}
@@ -139,7 +139,7 @@ struct MessageSearchTests {
 }
 
 /// The search index over its port alone: a made-up server with two chats, one message each.
-@Suite struct IndexSourcePortTests {
+@Suite(.timeLimit(.minutes(1))) struct IndexSourcePortTests {
     private struct Server: IndexSourcePort {
         let now = Date()
 

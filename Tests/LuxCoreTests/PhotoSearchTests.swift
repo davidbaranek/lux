@@ -63,7 +63,7 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
     }
 }
 
-@Suite(recognizesText) struct PhotoReaderTests {
+@Suite(recognizesText, .timeLimit(.minutes(1))) struct PhotoReaderTests {
     @Test func readsTheWordsInAPhotoWithoutTheModel() async throws {
         let reader = PhotoReader(model: nil)
         let read = try await leased { [file = try receipt(["Faktura 2024-118", "Celkem 1 250 Kč"])] lease in
@@ -120,14 +120,14 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
     }
 }
 
-@Suite(recognizesText) struct PhotoIndexerTests {
+@Suite(recognizesText, .timeLimit(.minutes(1))) struct PhotoIndexerTests {
     @Test func readsEveryPhotoOfTheDemoOnce() async throws {
         let store = try await LocalStore.open(file: folder().appending(path: "index.sqlite"), key: String(repeating: "ef", count: 32))
         let account = RustAccount.demo(rooms: 20, messagesPerRoom: 60)
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let texts = SearchIndexer(store: store, account: Task { account }, maxChats: 2) { report.yield($0) }
         try await leased { lease in await texts.update(lease: lease) }
-        for await progress in reports where !progress.isIndexing { break }
+        _ = try await reports.first { !$0.isIndexing }
         let kept = try await store.imageCounts(reader: PhotoReader(model: nil).name)
         #expect(kept.total > 0 && kept.read == 0)
 
@@ -143,21 +143,21 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
 /// download then fails as offline (the photo not at fault, so the reading ends).
 private actor HeldPhotos: MediaSourcePort {
     private(set) var downloads = 0
+    /// Each download as it starts.
+    nonisolated let started: AsyncStream<Void>
+    private let starting: AsyncStream<Void>.Continuation
     private var held: CheckedContinuation<Void, Never>?
     private var isOpen = false
-    private var started: [CheckedContinuation<Void, Never>] = []
+
+    init() {
+        (started, starting) = AsyncStream.makeStream()
+    }
 
     func sharedFile(roomId: String, eventId: String, directory: URL) async throws -> URL {
         downloads += 1
-        for waiter in started { waiter.resume() }
-        started = []
+        starting.yield()
         if !isOpen { await withCheckedContinuation { held = $0 } }
         throw AccountFailure.offline
-    }
-
-    /// Waits until `count` downloads have started.
-    func downloadsStarted(_ count: Int) async {
-        while downloads < count { await withCheckedContinuation { started.append($0) } }
     }
 
     func open() {
@@ -210,7 +210,7 @@ extension PhotoSearch {
     }
 }
 
-@Suite struct PhotoReadingStopTests {
+@Suite(.timeLimit(.minutes(1))) struct PhotoReadingStopTests {
     @MainActor @Test func aStoppedReadingShowsStoppedAtOnceAndReadingAgainStartsAfterIt() async throws {
         let store = try await photoStore(photos: 3)
         let source = HeldPhotos()
@@ -218,7 +218,7 @@ extension PhotoSearch {
         let photos = PhotoIndexer(store: store, account: Task { source }, directory: folder(), model: nil, report: reports.report)
 
         let first = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
-        await source.downloadsStarted(1)
+        try await source.started.first()
         #expect(await photos.progress().isReading)
 
         // the photo being read still downloads, but the reading shows stopped.
@@ -227,7 +227,7 @@ extension PhotoSearch {
 
         // read again while the stopped one ends: it shows as reading, and starts after it.
         let again = Task { try await leased { lease in await photos.read(limit: nil, lease: lease) } }
-        await reports.changes.until { reports.showedReadingAfterAStop }
+        try await reports.changes.until { reports.showedReadingAfterAStop }
         #expect(await source.downloads == 1)
         await source.open()
         #expect(try await first.value == false)
@@ -242,7 +242,7 @@ extension PhotoSearch {
 
         photos.readNow()
         #expect(photos.isReading)
-        await source.downloadsStarted(1)
+        try await source.started.first()
         await photos.pause()
         #expect(photos.isReading == false)
         // the stopped photo ends, and with it the reading (its last report made): nothing from
@@ -258,7 +258,7 @@ extension PhotoSearch {
 
         photos.readNow()
         #expect(photos.isReading)
-        await changes.until { !photos.isReading }
+        try await changes.until { !photos.isReading }
         withExtendedLifetime(observing) {}
         await photos.stop()
     }

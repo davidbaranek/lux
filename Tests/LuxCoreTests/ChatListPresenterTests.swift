@@ -24,7 +24,7 @@ private final class RecordingListScreen: ChatListScreen {
 
 /// The chat list's screen without its views, over the demo account.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ChatListPresenterTests {
     private let session = DemoSessions.open(rooms: 40, messagesPerRoom: 5)
 
@@ -38,7 +38,7 @@ struct ChatListPresenterTests {
 
     @Test func theFirstChatsComeFirstWithTheInboxsPinnedGridAndTitles() async throws {
         let (presenter, screen) = started()
-        await screen.changes.until { !screen.updates.isEmpty }
+        try await screen.changes.until { !screen.updates.isEmpty }
         let first = try #require(screen.updates.first)
         #expect(presenter.model.place == .inbox)
         #expect(first.isFirst)
@@ -48,21 +48,21 @@ struct ChatListPresenterTests {
         #expect(screen.updates.dropFirst().allSatisfy { !$0.isFirst })
     }
 
-    @Test func anotherPlaceReplacesTheListAndThenChangesRowByRow() async {
+    @Test func anotherPlaceReplacesTheListAndThenChangesRowByRow() async throws {
         let (presenter, screen) = started()
-        await screen.changes.until { !screen.updates.isEmpty }
+        try await screen.changes.until { !screen.updates.isEmpty }
         presenter.model.place = .network("signal")
-        await screen.changes.until { screen.updates.last?.sections.flatMap(\.rows).allSatisfy { $0.network == "signal" } == true }
+        try await screen.changes.until { screen.updates.last?.sections.flatMap(\.rows).allSatisfy { $0.network == "signal" } == true }
         let arrived = screen.updates.firstIndex { $0.isNewPlace }
         #expect(arrived != nil)
         #expect(screen.updates.filter(\.isNewPlace).count == 1)
     }
 
-    @Test func theBubbleShowsWhileTheListLoadsAndGoesOnceItIsDone() async {
+    @Test func theBubbleShowsWhileTheListLoadsAndGoesOnceItIsDone() async throws {
         let (presenter, screen) = started()
         // the screen is told what the bubble says as soon as it is there.
         #expect(screen.activities.first?.1 == true)
-        await screen.changes.until { presenter.model.loadState == .done && presenter.activity == nil }
+        try await screen.changes.until { presenter.model.loadState == .done && presenter.activity == nil }
         #expect(screen.activities.last.map { $0.0 == nil && $0.1 } == true)
     }
 

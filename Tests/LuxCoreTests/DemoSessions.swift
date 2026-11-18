@@ -35,7 +35,13 @@ struct ClosesDemoSessions: SuiteTrait, TestTrait, TestScoping {
                       performing function: @Sendable () async throws -> Void) async throws {
         guard testCase != nil else { return try await function() }
         let opened = DemoSessions()
-        try await DemoSessions.$opened.withValue(opened) { try await function() }
+        // a test stopped by a failed wait closes its sessions too.
+        do {
+            try await DemoSessions.$opened.withValue(opened) { try await function() }
+        } catch {
+            await opened.close()
+            throw error
+        }
         await opened.close()
     }
 }

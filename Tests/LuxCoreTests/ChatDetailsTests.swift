@@ -5,7 +5,7 @@ import Testing
 /// A chat's details over the Rust core's demo account: a group's state and what its admin may
 /// change, its members found as the user types, what it shared, and a merged chat's rooms.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ChatDetailsTests {
     private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 120)
 

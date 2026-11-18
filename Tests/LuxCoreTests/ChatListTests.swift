@@ -4,14 +4,14 @@ import Testing
 
 /// The chat list over the Rust core's demo account: the view model composes, the model applies.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ChatListModelTests {
     private let session = DemoSessions.open(rooms: 40, messagesPerRoom: 5)
 
-    @Test func theInboxShowsPinnedChatsInAGridAndThePlacesWithTheirNames() async {
+    @Test func theInboxShowsPinnedChatsInAGridAndThePlacesWithTheirNames() async throws {
         let model = ChatListModel(session: session)
         let changes = model.changes()
-        await changes.until { model.sections.count == 2 && !model.places.isEmpty }
+        try await changes.until { model.sections.count == 2 && !model.places.isEmpty }
         #expect(model.sections.map(\.style) == [.grid, .list])
         #expect(model.sections[0].rows.map(\.id) == ["!room0:demo", "!room1:demo", "!room2:demo"])
         #expect(model.rows.contains { $0.isMerged && $0.rooms.map(\.id) == ["!room4:demo", "!room18:demo"] })
@@ -21,83 +21,83 @@ struct ChatListModelTests {
         // only the top of a tree of spaces is a place.
         #expect(!model.places.contains { $0.id == .space("!space-work-design:demo") })
         #expect(model.labels.map(\.name) == ["Work"])
-        await changes.until { model.loadState == .done }
+        try await changes.until { model.loadState == .done }
     }
 
-    @Test func aPlaceAndAFilterShowOnlyTheirChats() async {
+    @Test func aPlaceAndAFilterShowOnlyTheirChats() async throws {
         let model = ChatListModel(session: session)
         let changes = model.changes()
-        await changes.until { !model.rows.isEmpty }
+        try await changes.until { !model.rows.isEmpty }
         model.place = .network("signal")
-        await changes.until { !model.rows.isEmpty && model.rows.allSatisfy { $0.network == "signal" } }
+        try await changes.until { !model.rows.isEmpty && model.rows.allSatisfy { $0.network == "signal" } }
         model.filter = .unread
-        await changes.until { !model.rows.isEmpty && model.rows.allSatisfy(\.isUnread) }
+        try await changes.until { !model.rows.isEmpty && model.rows.allSatisfy(\.isUnread) }
         model.place = .requests
-        await changes.until { model.rows.map(\.id) == ["!invite-1:demo", "!invite-2:demo"] }
+        try await changes.until { model.rows.map(\.id) == ["!invite-1:demo", "!invite-2:demo"] }
         if case .request = model.destination(of: model.rows[0]) {} else { Issue.record("a request leads to its answer") }
     }
 
-    @Test func aPlaceChosenBeforeTheListOpensIsTheFirstShown() async {
+    @Test func aPlaceChosenBeforeTheListOpensIsTheFirstShown() async throws {
         let model = ChatListModel(session: session)
         let changes = model.changes()
         model.place = .network("signal")
-        await changes.until { !model.rows.isEmpty }
+        try await changes.until { !model.rows.isEmpty }
         #expect(model.place == .network("signal"))
         #expect(model.rows.allSatisfy { $0.network == "signal" })
     }
 
-    @Test func aLabelNamedLikeAnotherFailsInTheUsersWords() async {
+    @Test func aLabelNamedLikeAnotherFailsInTheUsersWords() async throws {
         let model = ChatListModel(session: session)
         var failure: AccountFailure?
         model.onError = { failure = $0 as? AccountFailure }
         let changes = model.changes()
-        await changes.until { model.labels.map(\.name) == ["Work"] }
+        try await changes.until { model.labels.map(\.name) == ["Work"] }
         model.makeLabel(named: "Work", with: nil)
-        await changes.until { failure != nil }
+        try await changes.until { failure != nil }
         #expect(failure == .labelNameTaken)
         #expect(failure?.isForTheUser == true)
         #expect(failure?.errorDescription == String(localized: "A label with that name already exists."))
     }
 
-    @Test func aChatsActionMovesItAndTheUITakesOnlyTheChangedRows() async {
+    @Test func aChatsActionMovesItAndTheUITakesOnlyTheChangedRows() async throws {
         let model = ChatListModel(session: session)
         var updates: [(ids: [String], changed: [String])] = []
         model.onUpdate = { sections, changed in updates.append((sections.flatMap(\.rows).map(\.id), changed)) }
         let changes = model.changes()
-        await changes.until { model.rows.contains { $0.id == "!room5:demo" } }
+        try await changes.until { model.rows.contains { $0.id == "!room5:demo" } }
         model.change("!room5:demo", .archive)
-        await changes.until { !model.rows.contains { $0.id == "!room5:demo" } }
+        try await changes.until { !model.rows.contains { $0.id == "!room5:demo" } }
         model.setUnread("!room6:demo", true)
-        await changes.until { model.rows.first { $0.id == "!room6:demo" }?.isMarkedUnread == true }
+        try await changes.until { model.rows.first { $0.id == "!room6:demo" }?.isMarkedUnread == true }
         #expect(updates.last?.changed == ["!room6:demo"])
         model.place = .folder(.archive)
-        await changes.until { model.rows.contains { $0.id == "!room5:demo" } }
+        try await changes.until { model.rows.contains { $0.id == "!room5:demo" } }
     }
 
-    @Test func theBadgeIsTheInboxsCountWithTheChatsItCountsAndTheRoomsItDoesNot() async {
+    @Test func theBadgeIsTheInboxsCountWithTheChatsItCountsAndTheRoomsItDoesNot() async throws {
         let model = ChatListModel(session: session)
         var badge: BadgeState?
         model.onBadge = { badge = $0 }
         let changes = model.changes()
-        await changes.until { model.rows.contains { $0.id == "!room5:demo" } && badge != nil }
+        try await changes.until { model.rows.contains { $0.id == "!room5:demo" } && badge != nil }
         let inbox = model.places.first { $0.id == .inbox }?.unread
         #expect(badge?.count == inbox)
         #expect(badge?.counted.count ?? 0 >= badge?.count ?? 0)
         model.change("!room5:demo", .archive)
-        await changes.until { badge?.uncounted.contains("!room5:demo") == true }
+        try await changes.until { badge?.uncounted.contains("!room5:demo") == true }
         #expect(badge?.counted.contains("!room5:demo") == false)
     }
 
-    @Test func aHiddenPlaceSaysSoAndTheInboxNeverHides() async {
+    @Test func aHiddenPlaceSaysSoAndTheInboxNeverHides() async throws {
         let model = ChatListModel(session: session)
         let changes = model.changes()
-        await changes.until { model.places.contains { $0.id == .network("signal") } }
+        try await changes.until { model.places.contains { $0.id == .network("signal") } }
         model.setHidden(.network("signal"), true)
         model.setHidden(.inbox, true)
-        await changes.until { model.places.first { $0.id == .network("signal") }?.isHidden == true }
+        try await changes.until { model.places.first { $0.id == .network("signal") }?.isHidden == true }
         #expect(model.places.first { $0.id == .inbox }?.isHidden == false)
         model.showAllPlaces()
-        await changes.until { model.places.allSatisfy { !$0.isHidden } }
+        try await changes.until { model.places.allSatisfy { !$0.isHidden } }
     }
 }
 

@@ -14,22 +14,43 @@ final class Changes {
         for continuation in woken { continuation.resume() }
     }
 
-    /// Returns once `done` holds, checked at each announcement, or once `limit` passed.
+    /// Returns once `done` holds, checked at each announcement. Once `limit` passed without it,
+    /// the test stops here, as at a failed `#require`.
     func until(_ done: () -> Bool, within limit: Duration = .seconds(10),
-               sourceLocation: SourceLocation = #_sourceLocation) async {
+               sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = ContinuousClock.now + limit
         let timeout = Task { [weak self] in
-            guard (try? await Task.sleep(until: deadline)) != nil else { return }
+            try await Task.sleep(until: deadline)
             self?.send()
         }
-        // half-way, every thread of the process into the log: a machine that is only slow and
-        // threads that hold the others up look the same to this wait otherwise.
-        let stall = StallReport(after: limit / 2, at: sourceLocation)
-        defer { timeout.cancel(); stall.cancel() }
+        defer { timeout.cancel() }
         while !done(), ContinuousClock.now < deadline {
             await withCheckedContinuation { waiting.append($0) }
         }
-        #expect(done(), sourceLocation: sourceLocation)
+        try #require(done(), "not within \(limit)", sourceLocation: sourceLocation)
+    }
+}
+
+extension AsyncSequence where Self: Sendable, Element: Sendable {
+    /// The first element that `matches`, awaited no longer than `limit`. If none came by then, or
+    /// the sequence ended first, the test stops here, as at a failed `#require`.
+    func first(where matches: @escaping @Sendable (Element) -> Bool = { _ in true },
+               within limit: Duration = .seconds(10),
+               sourceLocation: SourceLocation = #_sourceLocation) async throws -> Element {
+        let found = try await withThrowingTaskGroup(of: Element?.self) { group in
+            group.addTask {
+                for try await element in self where matches(element) { return element }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: limit)
+                return nil
+            }
+            // the first to end decides, and the other is cancelled.
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
+        }
+        return try #require(found, "nothing came within \(limit)", sourceLocation: sourceLocation)
     }
 }
 
@@ -93,31 +114,4 @@ extension VerificationModel {
     var isComparing: Bool {
         if case .compare = step { true } else { false }
     }
-}
-
-/// Where every thread of the test process is, sampled into the log once `after` passed, unless
-/// cancelled first. It runs on a thread of its own, not Swift's cooperative pool, so it reports
-/// even when that pool's threads are all held. Not the main actor's: a closure made in its
-/// isolation is its too, and traps when the global queue runs it.
-private final class StallReport {
-    private let report: DispatchWorkItem
-
-    init(after: Duration, at location: SourceLocation) {
-        report = DispatchWorkItem {
-            let sample = Process()
-            sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-            sample.arguments = [String(ProcessInfo.processInfo.processIdentifier), "2", "-file", "/dev/stdout"]
-            print("a wait at \(location) still waits: the process's threads, sampled")
-            do {
-                try sample.run()
-                sample.waitUntilExit()
-            } catch {
-                print("no sample: \(error)")
-            }
-        }
-        let seconds = Double(after.components.seconds) + Double(after.components.attoseconds) / 1e18
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + seconds, execute: report)
-    }
-
-    func cancel() { report.cancel() }
 }
