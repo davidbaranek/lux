@@ -55,6 +55,14 @@ struct Kept {
     positions: BTreeMap<String, u64>,
     /// A device whose keys do not reach the server yet: it refuses their upload.
     held_uploads: Option<String>,
+    /// How many times the account's keys changed: a device's keys, the cross-signing keys or a
+    /// signature taken.
+    keys_changes: u64,
+    /// How many of those each device has heard of.
+    keys_changes_seen: HashMap<String, u64>,
+    /// A device whose `/keys/query` is answered as before any device's keys reached the server:
+    /// a late answer to a query asked then.
+    answered_from_before: Option<String>,
 }
 
 /// What the server saw of the devices' keys, as it happens: a test awaits it.
@@ -210,13 +218,15 @@ impl Homeserver {
         Mock::given(method("POST"))
             .and(path("/_matrix/client/v3/keys/upload"))
             .and(move |request: &Request| {
-                let kept = kept.lock().unwrap();
+                let mut kept = kept.lock().unwrap();
                 let device = device_of(&kept, request);
                 let held = kept.held_uploads.as_ref() == Some(&device);
                 let body: Value = serde_json::from_slice(&request.body).unwrap_or_default();
-                // the preset's mock answers and keeps them. Wiremock answers a request before it
-                // reads the next, so a test that sees them here finds them kept.
+                // the preset's mock answers and keeps them. Wiremock matches and answers a
+                // request under one lock, so a test, or a sync, that sees them here finds them
+                // kept.
                 if !held && body.get("device_keys").is_some() {
+                    kept.keys_changes += 1;
                     seen.send_if_modified(|seen| seen.keys.insert(device));
                 }
                 held
@@ -226,6 +236,22 @@ impl Homeserver {
             .with_priority(1)
             .mount(server)
             .await;
+
+        // the cross-signing keys and the signatures: the preset keeps them, the account's devices
+        // hear they changed.
+        for uploaded in ["device_signing", "signatures"] {
+            let kept = Arc::clone(&self.kept);
+            Mock::given(method("POST"))
+                .and(path(format!("/_matrix/client/v3/keys/{uploaded}/upload")))
+                .and(move |_: &Request| {
+                    kept.lock().unwrap().keys_changes += 1;
+                    false
+                })
+                .respond_with(ResponseTemplate::new(500))
+                .with_priority(1)
+                .mount(server)
+                .await;
+        }
 
         // the held device asks for its own keys: the server has none of them yet.
         let kept = Arc::clone(&self.kept);
@@ -247,6 +273,22 @@ impl Homeserver {
                 seen.send_modify(|seen| seen.held_keys_asked = true);
                 ResponseTemplate::new(200).set_body_json(json!({ "device_keys": { USER: {} }, "failures": {} }))
             })
+            // before the preset's.
+            .with_priority(1)
+            .mount(server)
+            .await;
+
+        // a device that hears an answer asked before the others' keys reached the server.
+        let kept = Arc::clone(&self.kept);
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/keys/query"))
+            .and(move |request: &Request| {
+                let kept = kept.lock().unwrap();
+                kept.answered_from_before.as_ref() == Some(&device_of(&kept, request))
+            })
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "device_keys": { USER: {} }, "failures": {} })),
+            )
             // before the preset's.
             .with_priority(1)
             .mount(server)
@@ -324,8 +366,9 @@ fn device_of(kept: &Kept, request: &Request) -> String {
     kept.devices.get(token).cloned().unwrap()
 }
 
-/// A sliding sync answer: the device's to-device messages and the account's keys changed on the
-/// encryption connection, the account data it has not had on the others; no rooms.
+/// A sliding sync answer: the device's to-device messages, and whether the account's keys changed
+/// since it last heard, on the encryption connection; the account data it has not had on the
+/// others; no rooms.
 fn sliding_sync(kept: &Mutex<Kept>, request: &Request) -> ResponseTemplate {
     let body: Value = serde_json::from_slice(&request.body).unwrap_or_default();
     let connection = body["conn_id"].as_str().unwrap_or_default().to_owned();
@@ -339,12 +382,23 @@ fn sliding_sync(kept: &Mutex<Kept>, request: &Request) -> ResponseTemplate {
     let mut answer = json!({ "pos": position.to_string(), "lists": {}, "rooms": {} });
     let mut news = false;
     if connection == "encryption" {
-        let events = kept.to_device.remove(&device).unwrap_or_default();
-        news = !events.is_empty();
+        // as a homeserver does, the account is in `changed` only when its keys changed since the
+        // device last heard: the device asks for them again then, and its answer holds them.
+        let all = kept.keys_changes;
+        let heard = kept.keys_changes_seen.insert(device.clone(), all).unwrap_or_default();
+        let changed: Vec<&str> = if heard < all { vec![USER] } else { Vec::new() };
+        // the messages come in the next answer: the SDK asks for the keys alongside the next sync
+        // and handles that answer after its own, so a message from a device it just heard of
+        // finds the device's keys.
+        let events = if changed.is_empty() {
+            kept.to_device.remove(&device).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        news = !events.is_empty() || !changed.is_empty();
         answer["extensions"] = json!({
             "to_device": { "next_batch": position.to_string(), "events": events },
-            // the account's devices may have changed: each device asks again.
-            "e2ee": { "device_lists": { "changed": [USER], "left": [] } },
+            "e2ee": { "device_lists": { "changed": changed, "left": [] } },
         });
     } else {
         answer["lists"] = json!({ "all_rooms": { "count": 0 } });
@@ -558,6 +612,25 @@ async fn a_verified_device_verifies_another_of_the_account() {
     tokio::join!(done(&mut asking_steps), done(&mut asked_steps));
 
     setup_becomes(&mut setup, EncryptionSetup::Ready).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_the_store_lost_to_a_late_answer_is_asked_for_at_the_server() {
+    let mut server = Homeserver::start().await;
+    let (first, _) = account_with_recovery(&mut server).await;
+    let _second = server.sign_in("SECONDDEVICE").await;
+    server.has_keys_of("SECONDDEVICE").await;
+
+    // an answer from before the second's keys, handled last: the first's store drops the second.
+    server.kept().answered_from_before = Some("FIRSTDEVICE".to_owned());
+    first.own_devices().await.unwrap();
+    server.kept().answered_from_before = None;
+
+    let asking = first.verify_device("SECONDDEVICE").await.unwrap();
+    assert_eq!(
+        asking.other_device().map(|device| device.id),
+        Some("SECONDDEVICE".to_owned())
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

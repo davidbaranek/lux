@@ -25,7 +25,6 @@ use matrix_sdk::encryption::recovery::{RecoveryError, RecoveryState as SdkRecove
 use matrix_sdk::encryption::secret_storage::SecretStorageError;
 use matrix_sdk::encryption::verification::{SasState, SasVerification, VerificationRequest, VerificationRequestState};
 use matrix_sdk::event_handler::EventHandlerHandle;
-use matrix_sdk::ruma::OwnedDeviceId;
 use matrix_sdk::ruma::api::client::discovery::get_authorization_server_metadata::v1::{
     AccountManagementActionData, DeviceDeleteData,
 };
@@ -35,6 +34,7 @@ use matrix_sdk::ruma::api::error::ErrorKind;
 use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 use matrix_sdk::ruma::events::key::verification::cancel::CancelCode;
 use matrix_sdk::ruma::events::key::verification::request::ToDeviceKeyVerificationRequestEvent;
+use matrix_sdk::ruma::{DeviceId, OwnedDeviceId};
 use tokio::sync::{broadcast, watch};
 use tokio::time::{Instant, sleep};
 use tracing::warn;
@@ -136,14 +136,23 @@ impl Security for MatrixAccount {
         if self.client.device_id().is_some_and(|this| this.as_str() == device) {
             return Err(BackendError::NotAllowed);
         }
-        let device = self
-            .client
-            .encryption()
-            .get_device(&own, device.into())
-            .await
-            .map_err(BackendError::store)?
-            // a device that has no keys cannot verify.
-            .ok_or(BackendError::NotAllowed)?;
+        let encryption = self.client.encryption();
+        let id: &DeviceId = device.into();
+        let device = if let Some(device) = encryption.get_device(&own, id).await.map_err(BackendError::store)? {
+            device
+        } else {
+            // the store can lag the server's list the device was picked from: an answer to an
+            // earlier `/keys/query`, asked before the device's keys reached the server and
+            // handled after the list's, leaves the device out until the sync's next query. The
+            // server's answer to a query asked now holds it.
+            encryption.request_user_identity(&own).await.map_err(from_sdk)?;
+            encryption
+                .get_device(&own, id)
+                .await
+                .map_err(BackendError::store)?
+                // a device that has no keys on the server cannot verify.
+                .ok_or(BackendError::NotAllowed)?
+        };
         let request = device
             .request_verification_with_methods(methods())
             .await
@@ -361,7 +370,7 @@ async fn trust(client: &Client) -> DeviceTrust {
     }
 }
 
-fn own_device(device: &Device, this: Option<&matrix_sdk::ruma::DeviceId>) -> OwnDevice {
+fn own_device(device: &Device, this: Option<&DeviceId>) -> OwnDevice {
     OwnDevice {
         id: device.device_id().to_string(),
         name: device.display_name().map(str::to_owned),
