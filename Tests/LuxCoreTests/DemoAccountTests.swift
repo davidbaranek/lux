@@ -36,8 +36,9 @@ struct DemoThreadTests {
     }
 }
 
-/// Matrix threads in the demo: a root's summary in the chat, the thread's own timeline, replying
-/// there, the chat's threads, and joining a bridged thread by its reaction (mautrix-discord's).
+/// Matrix threads in the demo, as the models show them: a root's summary in the chat, the
+/// thread's own timeline, replying there, and the chat's threads. What the core decides (the
+/// rows, joining a bridged thread by its reaction) is tested in `lux-core` (`thread/tests.rs`).
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoMatrixThreadTests {
@@ -47,9 +48,8 @@ struct DemoMatrixThreadTests {
         session = try DemoSessions.open(rooms: 6, messagesPerRoom: 30)
     }
 
-    private func opened(_ thread: MatrixThread? = nil, in chat: ChatRow? = nil) async throws -> (ThreadModel, Changes) {
-        let first = try await session.account.value.chats().first
-        let row = try #require(chat ?? first)
+    private func opened(_ thread: MatrixThread? = nil) async throws -> (ThreadModel, Changes) {
+        let row = try #require(await session.account.value.chats().first)
         let model = ThreadModel(session: session, row: row, thread: thread)
         let changes = model.changes()
         await model.start()
@@ -80,22 +80,6 @@ struct DemoMatrixThreadTests {
         withExtendedLifetime(observation) {}
         #expect(threads.threads == threads.threads.sorted { $0.activity > $1.activity })
     }
-
-    @Test func reactingJoinThreadToTheBridgesNoticeBringsTheThreadsReplies() async throws {
-        for row in try await session.account.value.chats() where !row.isMerged {
-            let (chat, _) = try await opened(in: row)
-            for root in chat.messages where root.thread != nil {
-                let (thread, changes) = try await opened(MatrixThread(roomId: root.roomId, rootEventId: root.eventId), in: row)
-                guard let notice = thread.messages.first(where: { $0.body.hasPrefix("Thread created.") }) else { continue }
-                #expect(notice.reactions.contains { $0.key == "join thread" && !$0.isMine })
-                let before = thread.messages.count
-                thread.toggleReaction("join thread", on: notice.id)
-                try await changes.until { thread.messages.count == before + 2 }
-                return
-            }
-        }
-        Issue.record("no bridged thread among the demo's")
-    }
 }
 
 /// The account's chats as the core reads them, beside the chat list.
@@ -115,12 +99,6 @@ struct DemoChatsTests {
         let found = await account.findChats(words, limit: 20)
         #expect(found.contains { $0.id == chat.id })
         #expect(await account.findChats("zzz-no-such-chat", limit: 20).isEmpty)
-    }
-
-    @Test func aRoomOfAMergedChatOpensTheMergedChat() async throws {
-        let shown = await session.chat(ofRoom: "!room18:demo")
-        #expect(shown?.isMerged == true)
-        #expect(shown?.rooms.map(\.id) == ["!room4:demo", "!room18:demo"])
     }
 }
 

@@ -91,16 +91,19 @@ struct TaskBagTests {
     @Test func aNewerTaskOfTheSameKeyCancelsTheOlder() async throws {
         let bag = TaskBag()
         let changes = Changes()
-        var finished: [String] = []
+        var olderCancelled = false
+        var newerRan = false
         bag.run("jump") {
-            try await Task.sleep(for: .seconds(30))
-            finished.append("older")
+            do { try await Task.sleep(for: .seconds(30)) } catch is CancellationError {
+                olderCancelled = true
+                changes.send()
+            }
         }
         bag.run("jump") {
-            finished.append("newer")
+            newerRan = true
             changes.send()
         }
-        try await changes.until { finished == ["newer"] && bag.count == 0 }
+        try await changes.until { olderCancelled && newerRan }
     }
 }
 

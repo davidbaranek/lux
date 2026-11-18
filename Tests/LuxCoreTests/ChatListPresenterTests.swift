@@ -74,6 +74,7 @@ struct ChatListPresenterTests {
         let model = ChatListModel(session: session)
         let row = await model.chat(ofRoom: "!room18:demo")
         // a merged room opens as its merged chat.
+        #expect(row?.isMerged == true)
         #expect(row?.rooms.map(\.id) == ["!room4:demo", "!room18:demo"])
     }
 

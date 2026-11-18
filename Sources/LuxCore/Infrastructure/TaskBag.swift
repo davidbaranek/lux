@@ -14,9 +14,6 @@ public final class TaskBag {
 
     isolated deinit { cancelAll() }
 
-    /// The tasks running now.
-    public var count: Int { tasks.count }
-
     /// Starts `work`. A cancellation it throws (a cancelled `Task.sleep`, say) only ends it.
     /// `key`: a newer task of the same key cancels the older one (a newer jump, a newer download).
     public func run(_ key: String? = nil, _ work: @escaping @MainActor () async throws -> Void) {

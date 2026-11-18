@@ -242,16 +242,25 @@ extension PhotoSearch {
         let photos = PhotoSearch(store: try await photoStore(photos: 3), account: Task { source }, directory: try folder(),
                                  preferences: try Preferences.ofTest)
 
+        let (changes, observing) = photos.announcements()
         photos.readNow()
         #expect(photos.isReading)
         try await source.started.first()
         await photos.pause()
         #expect(photos.isReading == false)
-        // the stopped photo ends, and with it the reading (its last report made): nothing from
-        // before the stop shows it reading again.
+        // from the stop on, every reading shown is kept.
+        var shownReadingAgain = false
+        let watching = photos.changes.observe { if photos.isReading { shownReadingAgain = true } }
+        // the stopped photo ends, and with it the reading (its last report made).
         await source.open()
         await photos.stop()
+        // the reports arrive in order, each with the photos' counts: once the counts show, the
+        // report made as the reading started (the one that said it was reading) has come, or
+        // given way to a newer one.
+        try await changes.until { photos.progress.total == 3 }
+        #expect(!shownReadingAgain)
         #expect(photos.isReading == false)
+        withExtendedLifetime((observing, watching)) {}
     }
 
     @MainActor @Test func readNowWithNothingToReadEndsShowingStopped() async throws {
