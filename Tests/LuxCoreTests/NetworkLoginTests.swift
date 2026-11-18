@@ -5,7 +5,7 @@ import Testing
 /// The server's networks over the Rust core's demo account: what it offers, signing in, and
 /// what the chat list's bubble says of them.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct NetworksModelTests {
     private let session = DemoSessions.open(rooms: 10, messagesPerRoom: 2)
 
@@ -68,6 +68,7 @@ struct NetworksModelTests {
 /// The networks model over its port alone, with no account behind it: a bridge that cannot be
 /// found shows as such, and the others still load.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct NetworksPortTests {
     private struct Bridges: NetworksPort {
         let offers: [NetworkOffer]

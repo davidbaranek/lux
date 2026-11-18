@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 /// The account's profile over the Rust core's demo account: renaming it, and setting and removing
 /// its picture, as every screen sees them.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ProfileTests {
     private let session = DemoSessions.open(rooms: 4, messagesPerRoom: 2)
 
@@ -74,6 +74,7 @@ struct ProfileTests {
 /// The profile model over its port alone: a rename goes to the server and the profile shows
 /// what the server then has.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct ProfilePortTests {
     private actor Server: ProfilePort {
         private var name: String?

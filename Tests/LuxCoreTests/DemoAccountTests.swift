@@ -4,7 +4,7 @@ import LuxBindings
 @testable import LuxCore
 
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoThreadTests {
     @Test func reactionsToggle() async throws {
         let session = DemoSessions.open(rooms: 3, messagesPerRoom: 10)
@@ -12,12 +12,12 @@ struct DemoThreadTests {
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
         await model.start()
-        await changes.until { !model.messages.isEmpty }
+        try await changes.until { !model.messages.isEmpty }
         let first = model.messages[0].id
         model.toggleReaction("👍", on: first)
-        await changes.until { model.messages[0].reactions.contains { $0.key == "👍" && $0.isMine } }
+        try await changes.until { model.messages[0].reactions.contains { $0.key == "👍" && $0.isMine } }
         model.toggleReaction("👍", on: first)
-        await changes.until { !model.messages[0].reactions.contains { $0.key == "👍" } }
+        try await changes.until { !model.messages[0].reactions.contains { $0.key == "👍" } }
     }
 
     @Test func aSentMessageShowsAndAnAnswerGoesToItsMessage() async throws {
@@ -26,11 +26,11 @@ struct DemoThreadTests {
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
         await model.start()
-        await changes.until { !model.messages.isEmpty }
+        try await changes.until { !model.messages.isEmpty }
         model.reply(to: model.messages[0])
-        await changes.until { model.mode != .message }
+        try await changes.until { model.mode != .message }
         model.send("  hello  ")
-        await changes.until { model.messages.last?.body == "hello" }
+        try await changes.until { model.messages.last?.body == "hello" }
         #expect(model.messages.last?.quote != nil)
         #expect(model.mode == .message)
     }
@@ -39,7 +39,7 @@ struct DemoThreadTests {
 /// Matrix threads in the demo: a root's summary in the chat, the thread's own timeline, replying
 /// there, the chat's threads, and joining a bridged thread by its reaction (mautrix-discord's).
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoMatrixThreadTests {
     private let session = DemoSessions.open(rooms: 6, messagesPerRoom: 30)
 
@@ -49,7 +49,7 @@ struct DemoMatrixThreadTests {
         let model = ThreadModel(session: session, row: row, thread: thread)
         let changes = model.changes()
         await model.start()
-        await changes.until { !model.messages.isEmpty }
+        try await changes.until { !model.messages.isEmpty }
         return (model, changes)
     }
 
@@ -61,8 +61,8 @@ struct DemoMatrixThreadTests {
         #expect(thread.messages.first?.eventId == root.eventId)
         #expect(thread.messages.count == before + 1)
         thread.send("in the thread")
-        await changes.until { thread.messages.last?.body == "in the thread" }
-        await chatChanges.until { chat.messages.first { $0.eventId == root.eventId }?.thread?.replies == before + 1 }
+        try await changes.until { thread.messages.last?.body == "in the thread" }
+        try await chatChanges.until { chat.messages.first { $0.eventId == root.eventId }?.thread?.replies == before + 1 }
         #expect(!chat.messages.contains { $0.body == "in the thread" })
     }
 
@@ -72,7 +72,7 @@ struct DemoMatrixThreadTests {
         let changes = Changes()
         let observation = threads.changes.observe { changes.send() }
         await threads.loadMore()
-        await changes.until { !threads.threads.isEmpty }
+        try await changes.until { !threads.threads.isEmpty }
         withExtendedLifetime(observation) {}
         #expect(threads.threads == threads.threads.sorted { $0.activity > $1.activity })
     }
@@ -86,7 +86,7 @@ struct DemoMatrixThreadTests {
                 #expect(notice.reactions.contains { $0.key == "join thread" && !$0.isMine })
                 let before = thread.messages.count
                 thread.toggleReaction("join thread", on: notice.id)
-                await changes.until { thread.messages.count == before + 2 }
+                try await changes.until { thread.messages.count == before + 2 }
                 return
             }
         }
@@ -96,7 +96,7 @@ struct DemoMatrixThreadTests {
 
 /// The account's chats as the core reads them, beside the chat list.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoChatsTests {
     private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 5)
 

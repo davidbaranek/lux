@@ -72,8 +72,9 @@ struct JumpPlanTests {
 }
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct TaskBagTests {
-    @Test func aTaskEndsWithItsBag() async {
+    @Test func aTaskEndsWithItsBag() async throws {
         let ended = Changes()
         var cancelled = false
         var bag: TaskBag? = TaskBag()
@@ -84,7 +85,7 @@ struct TaskBagTests {
             }
         }
         bag = nil
-        await ended.until { cancelled }
+        try await ended.until { cancelled }
     }
 
     @Test func aNewerTaskOfTheSameKeyCancelsTheOlder() async throws {
@@ -99,7 +100,7 @@ struct TaskBagTests {
             finished.append("newer")
             changes.send()
         }
-        await changes.until { finished == ["newer"] && bag.count == 0 }
+        try await changes.until { finished == ["newer"] && bag.count == 0 }
     }
 }
 
@@ -165,7 +166,7 @@ private struct GridMeasure: TextMeasuring {
 
 /// The chat's screen without its views, over the demo account.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ThreadPresenterTests {
     private let session = DemoSessions.open(rooms: 10, messagesPerRoom: 60)
 
@@ -184,7 +185,7 @@ struct ThreadPresenterTests {
 
     @Test func theChatOpensWithItsDraftAndItsMessagesMeasured() async throws {
         let (presenter, screen) = try await opened()
-        await screen.changes.until { screen.draft != nil && !(screen.shown.last ?? []).isEmpty }
+        try await screen.changes.until { screen.draft != nil && !(screen.shown.last ?? []).isEmpty }
         #expect(screen.draft == "")
         let shown = try #require(screen.shown.last)
         #expect(shown.map(\.id) == presenter.model.messages.map(\.id))
@@ -199,7 +200,7 @@ struct ThreadPresenterTests {
         presenter.measure(with: GridMeasure())
         let changes = presenter.model.changes()
         await presenter.model.start()
-        await changes.until { presenter.model.hasLoaded }
+        try await changes.until { presenter.model.hasLoaded }
         presenter.show(presenter.model.messages)
         #expect(screen.shown.isEmpty)
     }
@@ -215,7 +216,7 @@ struct ThreadPresenterTests {
 
     @Test func aThreadAndItsChatAreOnScreenTogether() async throws {
         let (presenter, screen) = try await opened()
-        await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
+        try await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
         let root = try #require(presenter.model.messages.last { !$0.eventId.isEmpty })
         let rows = try await session.account.value.chats()
         let row = try #require(rows.first { $0.id == presenter.model.chatId })
@@ -233,7 +234,7 @@ struct ThreadPresenterTests {
 
     @Test func theWayUpGlidesToTheFirstUnreadMessageAndFlashesIt() async throws {
         let (presenter, screen) = try await opened()
-        await screen.changes.until { presenter.model.firstUnreadId != nil && (screen.shown.last ?? []).count > 10 }
+        try await screen.changes.until { presenter.model.firstUnreadId != nil && (screen.shown.last ?? []).count > 10 }
         presenter.didShowFirst()
         let unread = try #require(presenter.model.firstUnreadId)
         screen.offset = 0
@@ -250,12 +251,12 @@ struct ThreadPresenterTests {
 
     @Test func aLaterUpdateWinsOverAnOlderOneStillMeasuring() async throws {
         let (presenter, screen) = try await opened()
-        await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
+        try await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
         let count = screen.shown.count
         let all = presenter.model.messages
         presenter.show(Array(all.prefix(3)))
         presenter.show(all)
-        await screen.changes.until { screen.shown.count > count }
+        try await screen.changes.until { screen.shown.count > count }
         #expect(screen.shown.count == count + 1)
         #expect(screen.shown.last?.map(\.id) == all.map(\.id))
     }
@@ -263,7 +264,7 @@ struct ThreadPresenterTests {
     @Test func aChatOpenedAtAMessageGlidesToItAndFlashesIt() async throws {
         // the demo's events are its messages' ids: the chat's sixth message.
         let (presenter, screen) = try await opened { row in MessageLink(roomId: row.id, eventId: "\(row.id)/5") }
-        await screen.changes.until { presenter.isJumping }
+        try await screen.changes.until { presenter.isJumping }
         presenter.didEndScrolling()
         let target = try #require(screen.flashed.first)
         #expect(presenter.model.messages.first { $0.id == target }?.eventId.hasSuffix("/5") == true)
@@ -272,18 +273,18 @@ struct ThreadPresenterTests {
 
     @Test func aMessageTheServerDoesNotHaveIsSaidSoAndTheChatStaysLive() async throws {
         let (presenter, screen) = try await opened()
-        await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
+        try await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
         var failure: Error?
         presenter.model.onError = { failure = $0; screen.changes.send() }
         presenter.jump(toMessage: MessageLink(roomId: presenter.model.chatId, eventId: "$gone"))
-        await screen.changes.until { failure != nil }
+        try await screen.changes.until { failure != nil }
         #expect(failure as? JumpError == .notFound)
         #expect(presenter.model.isLive)
     }
 
     @Test func jumpToBottomOnTheLiveRowsLeavesTheScrollToTheScreen() async throws {
         let (presenter, screen) = try await opened()
-        await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
+        try await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
         #expect(!presenter.returnToLive())
     }
 
@@ -301,10 +302,10 @@ struct ThreadPresenterTests {
         presenter.resize(to: 390)
         presenter.start()
         let changes = presenter.model.changes()
-        await changes.until { !presenter.model.isLive && presenter.model.messages.contains { $0.eventId == "\(row.id)/10" } }
+        try await changes.until { !presenter.model.isLive && presenter.model.messages.contains { $0.eventId == "\(row.id)/10" } }
         presenter.didShowFirst()
         #expect(presenter.returnToLive())
-        await changes.until { presenter.model.isLive }
+        try await changes.until { presenter.model.isLive }
         #expect(presenter.model.messages.last?.eventId == "\(row.id)/399")
     }
 }

@@ -5,6 +5,7 @@ import Testing
 /// The uploads over their port alone: a file goes to its chat's queue, its upload followed as
 /// the core streams it; what cannot go reaches the chat that sent it; the account's end ends them.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct UploadsTests {
     /// The account's send queues: each file sent gets a stream the test drives.
     private actor Server: UploadsPort {
@@ -69,28 +70,26 @@ struct UploadsTests {
         let (uploads, finishes, _, _) = uploads(over: server)
         var starts = 0
         uploads.onStart = { starts += 1 }
-        let (progressed, progressing) = AsyncStream.makeStream(of: Void.self)
-        uploads.onProgress = { progressing.yield() }
+        let (progressed, progressing) = AsyncStream.makeStream(of: Int64.self)
+        uploads.onProgress = { [weak uploads] in progressing.yield(uploads?.progress.completedUnitCount ?? 0) }
 
         uploads.send([try file("a.txt", bytes: 100), try file("b.txt", bytes: 300)], to: "!r", caption: "Both", replyTo: "$q",
                      failure: { Issue.record($0) })
         #expect(starts == 1 && uploads.files == 2 && uploads.isActive)
-        var queued = server.queued.makeAsyncIterator()
-        let first = try #require(await queued.next())
-        let second = try #require(await queued.next())
+        let first = try await server.queued.first()
+        let second = try await server.queued.first()
         // the caption and the answer go with the first file alone.
         #expect((first.name, first.caption, first.replyTo) == ("a.txt", "Both", "$q"))
         #expect((second.name, second.caption, second.replyTo) == ("b.txt", nil, nil))
 
         first.states.yield(.uploading(0.5))
-        for await _ in progressed where uploads.progress.completedUnitCount == 50 { break }
+        _ = try await progressed.first { $0 == 50 }
         #expect(uploads.progress.totalUnitCount == 400)
         first.states.end(.sent)
         second.states.yield(.uploading(1))
         second.states.end(.sent)
 
-        var finished = finishes.makeAsyncIterator()
-        #expect(await finished.next() == true)
+        #expect(try await finishes.first() == true)
         #expect(uploads.finished == 2 && !uploads.isActive)
         #expect(uploads.progress.fractionCompleted == 1)
     }
@@ -100,11 +99,9 @@ struct UploadsTests {
         let (uploads, finishes, failures, report) = uploads(over: server)
         uploads.send([try file("large.txt", bytes: 11)], to: "!r", replyTo: nil, failure: report)
 
-        var failed = failures.makeAsyncIterator()
-        let failure = try #require(await failed.next())
+        let failure = try await failures.first()
         #expect(failure.localizedDescription == AttachmentMaker.Failure.tooLarge(name: "large.txt", limit: 10).localizedDescription)
-        var finished = finishes.makeAsyncIterator()
-        #expect(await finished.next() == false)
+        #expect(try await finishes.first() == false)
         #expect(uploads.finished == 1)
     }
 
@@ -112,49 +109,40 @@ struct UploadsTests {
         let (uploads, finishes, failures, report) = uploads(over: Server(refusal: Refused()))
         uploads.send([try file("a.txt", bytes: 5)], to: "!r", replyTo: nil, failure: report)
 
-        var failed = failures.makeAsyncIterator()
-        #expect(await failed.next() as? Refused == Refused())
-        var finished = finishes.makeAsyncIterator()
-        #expect(await finished.next() == false)
+        #expect(try await failures.first() as? Refused == Refused())
+        #expect(try await finishes.first() == false)
     }
 
     @Test func anUploadThatFailsEndsTheBatchNotAllThrough() async throws {
         let server = Server()
         let (uploads, finishes, _, _) = uploads(over: server)
         uploads.send([try file("a.txt", bytes: 5)], to: "!r", replyTo: nil, failure: { Issue.record($0) })
-        var queued = server.queued.makeAsyncIterator()
-        let sent = try #require(await queued.next())
+        let sent = try await server.queued.first()
         // the chat shows it failed, with its retry: no error besides.
         sent.states.end(.failed)
 
-        var finished = finishes.makeAsyncIterator()
-        #expect(await finished.next() == false)
+        #expect(try await finishes.first() == false)
     }
 
     @Test func aDiscardedFileIsThroughWithoutFailing() async throws {
         let server = Server()
         let (uploads, finishes, _, _) = uploads(over: server)
         uploads.send([try file("a.txt", bytes: 5)], to: "!r", replyTo: nil, failure: { Issue.record($0) })
-        var queued = server.queued.makeAsyncIterator()
-        try #require(await queued.next()).states.finish()
+        try await server.queued.first().states.finish()
 
-        var finished = finishes.makeAsyncIterator()
-        #expect(await finished.next() == true)
+        #expect(try await finishes.first() == true)
     }
 
     @Test func closingWithTheAccountStopsFollowingAndEndsTheBatch() async throws {
         let server = Server()
         let (uploads, finishes, _, _) = uploads(over: server)
         uploads.send([try file("a.txt", bytes: 5)], to: "!r", replyTo: nil, failure: { Issue.record($0) })
-        var queued = server.queued.makeAsyncIterator()
-        _ = try #require(await queued.next())
+        _ = try await server.queued.first()
 
         uploads.close()
-        var finished = finishes.makeAsyncIterator()
-        #expect(await finished.next() == false)
+        #expect(try await finishes.first() == false)
         #expect(!uploads.isActive)
-        var unfollowed = server.unfollowed.makeAsyncIterator()
-        #expect(await unfollowed.next() != nil)
+        try await server.unfollowed.first()
     }
 
     @Test func sendingAfterAllWentStartsAFreshBatch() async throws {
@@ -162,19 +150,17 @@ struct UploadsTests {
         let (uploads, finishes, _, _) = uploads(over: server)
         var starts = 0
         uploads.onStart = { starts += 1 }
-        var queued = server.queued.makeAsyncIterator()
-        var finished = finishes.makeAsyncIterator()
 
         uploads.send([try file("a.txt", bytes: 5)], to: "!r", replyTo: nil, failure: { Issue.record($0) })
         let first = uploads.progress
-        try #require(await queued.next()).states.end(.sent)
-        #expect(await finished.next() == true)
+        try await server.queued.first().states.end(.sent)
+        #expect(try await finishes.first() == true)
 
         uploads.send([try file("b.txt", bytes: 7)], to: "!r", replyTo: nil, failure: { Issue.record($0) })
         #expect(starts == 2 && uploads.files == 1 && uploads.finished == 0)
         #expect(uploads.progress !== first)
-        try #require(await queued.next()).states.end(.sent)
-        #expect(await finished.next() == true)
+        try await server.queued.first().states.end(.sent)
+        #expect(try await finishes.first() == true)
         #expect(uploads.progress.completedUnitCount == 7)
     }
 }
@@ -190,7 +176,7 @@ private extension AsyncStream<UploadState>.Continuation {
 /// The uploads over the Rust core's demo account: the core streams a file's upload to the end,
 /// and another account's uploads are another's.
 @MainActor
-@Suite(.closesDemoSessions)
+@Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoUploadsTests {
     @Test func aFileGoesThroughTheCoresStream() async throws {
         let session = DemoSessions.open(rooms: 2, messagesPerRoom: 2)
@@ -203,8 +189,7 @@ struct DemoUploadsTests {
         uploads.onFinish = { finishing.yield($0) }
 
         uploads.send([file], to: "!room1:demo", replyTo: nil, failure: { Issue.record($0) })
-        var finished = finishes.makeAsyncIterator()
-        #expect(await finished.next() == true)
+        #expect(try await finishes.first() == true)
         #expect(uploads.progress.fractionCompleted == 1)
     }
 
