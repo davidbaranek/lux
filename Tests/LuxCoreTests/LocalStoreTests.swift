@@ -33,11 +33,17 @@ import Testing
     @Test func indexesTheNewestChatsAndThenOnlyWhatIsNew() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-indexer-\(UUID().uuidString)/index.sqlite")
         let store = try await LocalStore.open(file: file, key: String(repeating: "ef", count: 32))
-        let account = RustAccount.demo(rooms: 2_000, messagesPerRoom: 3_000)
+        // more chats than it reads, each with more than one quick read's pages.
+        let account = RustAccount.demo(rooms: 10, messagesPerRoom: 300)
         let (reports, report) = AsyncStream<SearchIndexer.Progress>.makeStream()
         let indexer = SearchIndexer(store: store, account: Task { account }, maxChats: 3) { report.yield($0) }
         try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
+
+        // the three newest chats, and only they.
+        let listed = await account.chats()
+        let newest = listed.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }.prefix(3)
+        #expect(Set(try await store.chats().keys) == Set(newest.map(\.id)))
         let first = try await store.messageCount()
         #expect(first > 0)
         // every word of a message's text finds it, by its words' starts.
@@ -47,6 +53,7 @@ import Testing
         try await leased { lease in await indexer.update(lease: lease) }
         for await progress in reports where !progress.isIndexing { break }
         #expect(try await store.messageCount() == first)
+        await store.close()
     }
 
     @Test func aChatGoneFromTheListIsForgotten() async throws {
@@ -104,28 +111,30 @@ struct MessageSearchTests {
         let shown = list.changes()
         list.place = .network("signal")
         await shown.until { !list.rows.isEmpty && list.rows.allSatisfy { $0.network == "signal" } }
-        let elsewhere = try #require(await account.chats().first { $0.network != "signal" && !$0.isPinned })
+        let elsewhere = try #require(await account.chats().first { $0.network != "signal" })
 
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lux-search-\(UUID().uuidString)/index.sqlite")
-        let search = MessageSearch(store: try await LocalStore.open(file: file, key: String(repeating: "5e", count: 32)),
-                                   account: Task { [account = session.account] in try await account.value }, photos: file.deletingLastPathComponent(), maxChats: 3)
+        let store = try await LocalStore.open(file: file, key: String(repeating: "5e", count: 32))
+        let search = MessageSearch(store: store, account: Task { [account = session.account] in try await account.value },
+                                   photos: file.deletingLastPathComponent())
         let (read, token) = search.changes()
-        var reports = 0
-        // each report with its time: a slow index (CI under Thread Sanitizer) and a stuck one look
-        // the same to the wait below; the log tells them apart.
-        let started = ContinuousClock.now
-        let counting = search.progressChanges.observe {
-            reports += 1
-            print("index progress +\(ContinuousClock.now - started): \(String(describing: search.progress))")
-        }
         await read.until { search.progress?.isIndexing == false }
-        print("index progress settled +\(ContinuousClock.now - started) after \(reports) reports: \(String(describing: search.progress))")
-        let filled = reports
+        #expect(try await store.search("lighthouse").isEmpty)
 
-        list.change(elsewhere.id, .pin)
-        await read.until { reports > filled }
+        // a new message there: the index reads that chat again, and search finds it.
+        var readsAgain = false
+        let counting = search.progressChanges.observe { if search.progress?.isIndexing == true { readsAgain = true } }
+        let chat = ThreadModel(session: session, row: elsewhere)
+        let sent = chat.changes()
+        await chat.start()
+        chat.send("meet at the lighthouse")
+        await sent.until { chat.messages.last?.body == "meet at the lighthouse" }
+        await read.until { readsAgain && search.progress?.isIndexing == false }
+        let found = try await store.search("lighthouse")
+        #expect(found.map(\.roomId) == [elsewhere.id])
         withExtendedLifetime((token, counting)) {}
         await search.stop()
+        await store.close()
     }
 }
 
