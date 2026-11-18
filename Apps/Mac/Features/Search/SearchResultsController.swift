@@ -12,6 +12,8 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate, NSMe
     var onOpen: ((SearchTarget) -> Void)?
     /// Opens a kind's own list.
     var onShowAll: ((SearchKind) -> Void)?
+    /// Esc while a result has the keyboard: search ends.
+    var onCancel: (() -> Void)?
 
     private let images: ImagePipeline?
     private let table = NSTableView()
@@ -45,6 +47,9 @@ final class SearchResultsController: NSViewController, NSTableViewDelegate, NSMe
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    /// Esc reaches the view controller through the responder chain from the results' table.
+    override func cancelOperation(_ sender: Any?) { onCancel?() }
 
     override func loadView() {
         table.addTableColumn(NSTableColumn(identifier: .init("found")))

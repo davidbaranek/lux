@@ -4,6 +4,10 @@ import LuxCore
 /// The window's sidebar: the rail, and beside it a search field over the chat list (or, while
 /// searching, what the search found, or one kind of it all: "Show All"). It owns the list's and
 /// the search's models and wires them to the views.
+///
+/// As in Messages, what shows follows the field, with no mode of its own: words show what they
+/// found; no words show what chats shared lately while the field or the results have the
+/// keyboard, and the chats once it goes elsewhere. The field's clear button and Esc end search.
 final class SidebarController: NSViewController, NSSearchFieldDelegate {
     /// A chat to show (nil: none), and a message in it to scroll to.
     var onOpen: ((ChatRow?, _ focus: MessageLink?) -> Void)?
@@ -29,21 +33,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     /// One kind's list, while it shows in place of the results.
     private var listing: SearchListController?
     private let search = SidebarSearchField()
-    /// Ends search, beside the field while search shows.
-    private lazy var closeSearch: NSButton = {
-        let button = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: String(localized: "Close Search"))!,
-                              target: self, action: #selector(closeSearchClicked))
-        button.bezelStyle = .glass
-        button.borderShape = .circle
-        button.toolTip = String(localized: "Close Search")
-        button.setAccessibilityIdentifier("close-search")
-        button.translatesAutoresizingMaskIntoConstraints = false
-        return button
-    }()
-    /// The close button is shown (or coming): its animation only presents this.
-    private var isCloseSearchShown = false
-    /// The field's end: short of the close button while search shows.
-    private var searchTrailing: NSLayoutConstraint!
+    /// The window's first responder, followed: search with no words ends as the keyboard leaves it.
+    private var focusChanges: NSKeyValueObservation?
     private let content = NSView()
     /// The shown place's colour over the whole sidebar.
     private let tint = ThemeTint(strength: ThemeTint.sidebar)
@@ -74,17 +65,16 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         // the field took the focus (a click, Cmd-F, Tab): what chats shared lately shows before
         // any words.
         search.onFocus = { [weak self] in self?.startSearching() }
-        // the field's clear button ends search. Its own action only empties the field, and the
+        search.onWindow = { [weak self] window in self?.followFocus(in: window) }
+        // the field's clear button clears and ends search, as `NSSearchToolbarItem`'s does
+        // (`resignsFirstResponderWithCancel`). Its own action only empties the field, and the
         // delegate's `searchFieldDidEndSearching` comes for any emptying, also words deleted to
         // the last letter, which keep search open.
         if let clear = (search.cell as? NSSearchFieldCell)?.cancelButtonCell {
             clear.target = self
-            clear.action = #selector(closeSearchClicked)
+            clear.action = #selector(clearClicked)
         }
-        closeSearch.alphaValue = 0
-        closeSearch.isHidden = true
-        searchTrailing = search.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10)
-        for view in [tint, rail.view, search, closeSearch, content] {
+        for view in [tint, rail.view, search, content] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -97,13 +87,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             rail.view.topAnchor.constraint(equalTo: container.topAnchor),
             rail.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             search.leadingAnchor.constraint(equalTo: rail.view.trailingAnchor, constant: 10),
-            searchTrailing,
+            search.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
             search.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 6),
-            // as tall as the field, round, at the sidebar's edge: it comes out of the field's end.
-            closeSearch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            closeSearch.centerYAnchor.constraint(equalTo: search.centerYAnchor),
-            closeSearch.heightAnchor.constraint(equalTo: search.heightAnchor),
-            closeSearch.widthAnchor.constraint(equalTo: closeSearch.heightAnchor),
             content.leadingAnchor.constraint(equalTo: rail.view.trailingAnchor),
             content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             content.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 6),
@@ -150,6 +135,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         list.onSelect = { [weak self] row, focus in self?.onOpen?(row, focus) }
         results.onOpen = { [weak self] target in self?.open(target) }
         results.onShowAll = { [weak self] kind in self?.showAll(kind) }
+        results.onCancel = { [weak self] in self?.endSearch() }
         searchModel.onUpdate = { [weak self] hits in self?.results.show(hits) }
         // the index's progress under the results; the index opens a moment after the account.
         searchOpened = session.searchChanges.observe { [weak self] in self?.followIndex() }
@@ -218,43 +204,37 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         return true
     }
 
-    @objc private func closeSearchClicked() { endSearch() }
+    @objc private func clearClicked() { endSearch() }
 
-    /// The close button comes out of the field's end as the field gives it room; going, it fades
-    /// as the field grows back over its place.
-    private func showCloseSearch(_ shown: Bool) {
-        guard shown != isCloseSearchShown else { return }
-        isCloseSearchShown = shown
-        let room = search.frame.height + 6
-        closeSearch.isHidden = false
-        if shown {
-            // from under the field's end, small, to its place.
-            closeSearch.wantsLayer = true
-            let slide = CABasicAnimation(keyPath: "transform")
-            slide.fromValue = CATransform3DScale(CATransform3DMakeTranslation(-room / 2, 0, 0), 0.4, 0.4, 1)
-            slide.toValue = CATransform3DIdentity
-            slide.duration = 0.3
-            slide.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.25, 0.5, 1)
-            closeSearch.layer?.add(slide, forKey: "slide")
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = shown ? 0.3 : 0.22
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
-            searchTrailing.animator().constant = shown ? -10 - room : -10
-            closeSearch.animator().alphaValue = shown ? 1 : 0
-            view.layoutSubtreeIfNeeded()
-        } completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                // shown again while it faded: it stays.
-                guard let self, !self.isCloseSearchShown else { return }
-                self.closeSearch.isHidden = true
-            }
+    /// Follows the keyboard in the sidebar's window (its `firstResponder` is key-value observing
+    /// compliant).
+    private func followFocus(in window: NSWindow?) {
+        focusChanges = window?.observe(\.firstResponder) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.focusChanged() }
         }
     }
 
-    /// Back to the chats: a kind's list goes, the field empties, and the keyboard is the chats'.
+    /// The keyboard went to a view other than the field or what it found, and the field has no
+    /// words: the chats show again. Words keep what they found, wherever the keyboard is.
+    /// The window itself as first responder is no view: within one `makeFirstResponder` the
+    /// window holds the keyboard between the view that resigns and the one that takes it.
+    private func focusChanged() {
+        guard search.stringValue.isEmpty, content.subviews.first !== list.view,
+              view.window?.firstResponder is NSView, !searchHasFocus else { return }
+        endSearch()
+    }
+
+    /// The field (its field editor is inside it while it edits), the results or a kind's list
+    /// has the keyboard.
+    private var searchHasFocus: Bool {
+        guard let focused = view.window?.firstResponder as? NSView else { return false }
+        return [search, results.view, listing?.view].contains { $0.map(focused.isDescendant(of:)) ?? false }
+    }
+
+    /// Back to the chats: a kind's list goes, the field empties, and the keyboard, if search had
+    /// it, is the chats'.
     private func endSearch() {
+        let hadFocus = searchHasFocus
         listing?.removeFromParent()
         listing = nil
         search.stringValue = ""
@@ -262,9 +242,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         searchModel.search("")
         searchModel.close()
         show(list.view)
-        if let window = view.window, (window.firstResponder as? NSText)?.delegate === search {
-            window.makeFirstResponder(list.initialFocus)
-        }
+        if hadFocus { view.window?.makeFirstResponder(list.initialFocus) }
     }
 
     /// A result: its chat (at its message), its thread beside its chat, or a link's page.
@@ -281,6 +259,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         let controller = SearchListController(model: searchModel.list(kind), images: session.images)
         controller.onOpen = { [weak self] target in self?.open(target) }
         controller.onBack = { [weak self] in self?.closeList() }
+        controller.onCancel = { [weak self] in self?.endSearch() }
         listing?.removeFromParent()
         listing = controller
         addChild(controller)
@@ -316,7 +295,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
 
     private func show(_ child: NSView, _ change: Change = .fade) {
         guard child.superview != content else { return }
-        showCloseSearch(child !== list.view)
+        // between search's own views (the results, a kind's list), the keyboard in the one going
+        // stays in search: the field takes it before the window would.
+        if child !== list.view, let going = content.subviews.first, going !== list.view,
+           let focused = view.window?.firstResponder as? NSView, focused.isDescendant(of: going) {
+            view.window?.makeFirstResponder(search)
+        }
         if content.window != nil {
             let fade = CATransition()
             fade.type = .fade
@@ -343,6 +327,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
 /// opens nothing.
 final class SidebarSearchField: NSSearchField {
     var onFocus: (() -> Void)?
+    /// The field went into a window, or out of one.
+    var onWindow: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindow?(window)
+    }
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()

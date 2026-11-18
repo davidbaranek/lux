@@ -9,6 +9,8 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
     /// Back to the results.
     var onBack: (() -> Void)?
     var onOpen: ((SearchTarget) -> Void)?
+    /// Esc while an item has the keyboard: search ends.
+    var onCancel: (() -> Void)?
 
     let model: SearchListModel
     private let images: ImagePipeline?
@@ -193,6 +195,9 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
     }
 
     @objc private func goBack() { onBack?() }
+
+    /// Esc reaches the view controller through the responder chain from the list or the grid.
+    override func cancelOperation(_ sender: Any?) { onCancel?() }
 
     // MARK: Rows
 
