@@ -16,49 +16,18 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use lux_core::ports::{
-    AccountProfile, BackendError, Picture, PictureFormat, SecretStore, SecretStoreError, SessionSecrets, SignIn,
-    StoreKey,
-};
-use lux_matrix::{MatrixAccount, MatrixSignIn, StoreFolder};
+use lux_core::ports::{AccountProfile, BackendError, Picture, PictureFormat};
 use matrix_sdk::ruma::mxc_uri;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, Request, Respond, ResponseTemplate};
 
+mod support;
+use support::signed_in;
+
 /// The whole profile, or one of its fields.
 const PROFILE: &str = r"^/_matrix/client/v3/profile/[^/]+(/(displayname|avatar_url))?$";
-
-/// The platform's Keychain, in memory.
-#[derive(Default)]
-struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
-
-impl SecretStore for MemorySecrets {
-    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-
-    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = Some(secrets.clone());
-        Ok(())
-    }
-
-    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
-        Ok(self.1.lock().unwrap().clone())
-    }
-
-    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
-        *self.1.lock().unwrap() = Some(key.clone());
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = None;
-        *self.1.lock().unwrap() = None;
-        Ok(())
-    }
-}
 
 /// The profile's fields as the server keeps them.
 #[derive(Clone, Default)]
@@ -104,9 +73,7 @@ impl Respond for Fields {
 
 /// A server keeping a profile named `name`, whose `capabilities` are as given.
 async fn server(name: &str, capabilities: Value) -> (MatrixMockServer, Fields) {
-    let server = MatrixMockServer::new().await;
-    server.mock_versions().with_simplified_sliding_sync().ok().mount().await;
-    server.mock_login().ok().mount().await;
+    let server = support::server().await;
     Mock::given(method("GET"))
         .and(path("/_matrix/client/v3/capabilities"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "capabilities": capabilities })))
@@ -119,17 +86,6 @@ async fn server(name: &str, capabilities: Value) -> (MatrixMockServer, Fields) {
         .mount(server.server())
         .await;
     (server, fields)
-}
-
-/// A signed-in account of `server`, in a new folder (kept with it).
-async fn signed_in(server: &MatrixMockServer) -> (MatrixAccount, tempfile::TempDir) {
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
-    (account, folder)
 }
 
 #[tokio::test(flavor = "multi_thread")]

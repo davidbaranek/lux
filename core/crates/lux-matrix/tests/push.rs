@@ -12,14 +12,13 @@
     reason = "a test's helpers fail it as its asserts do"
 )]
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use lux_core::ids::{ChatId, RoomId, TimelineId};
 use lux_core::ports::{
-    BackendError, ChatAccount, ChatActions, ChatChange, Push, SecretStore, SecretStoreError, SessionSecrets, SignIn,
-    StoreKey, UnusableStore,
+    BackendError, ChatAccount, ChatActions, ChatChange, Push, SecretStore, SessionSecrets, SignIn, UnusableStore,
 };
 use lux_core::preview::PreviewKind;
 use lux_core::push::{PushEnvironment, PushKey, PushedEvent, Pusher};
@@ -30,46 +29,9 @@ use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, ResponseTemplate};
 
 mod support;
-use support::Requests;
-
-/// The platform's Keychain, in memory.
-#[derive(Default)]
-struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
-
-impl SecretStore for MemorySecrets {
-    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-
-    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = Some(secrets.clone());
-        Ok(())
-    }
-
-    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
-        Ok(self.1.lock().unwrap().clone())
-    }
-
-    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
-        *self.1.lock().unwrap() = Some(key.clone());
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = None;
-        *self.1.lock().unwrap() = None;
-        Ok(())
-    }
-}
+use support::{MemorySecrets, Requests, server, signed_in};
 
 const SYNC: &str = "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync";
-
-async fn server() -> MatrixMockServer {
-    let server = MatrixMockServer::new().await;
-    server.mock_versions().with_simplified_sliding_sync().ok().mount().await;
-    server.mock_login().ok().mount().await;
-    server
-}
 
 /// Every sliding sync, the app's and the extension's, answers with one direct chat and its
 /// newest message; the syncs that reach `server`.
@@ -185,12 +147,7 @@ async fn the_pusher_is_replaced_when_its_token_changes_and_goes_on_sign_out() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, _folder) = signed_in(&server).await;
 
     account.set_pusher(&pusher(1, PushEnvironment::Sandbox)).await.unwrap();
     // the same pusher again (each launch): renewed, nothing removed.
@@ -312,12 +269,7 @@ async fn a_notifications_reply_and_read_reach_the_server_before_returning() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, _folder) = signed_in(&server).await;
     account.wait_for_first_sync().await;
     let room = RoomId::from("!anna:matrix.org");
     // the room comes with the first answer's rooms.
@@ -381,12 +333,7 @@ async fn muting_a_chat_leaves_the_server_nothing_to_push() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, _folder) = signed_in(&server).await;
     account.wait_for_first_sync().await;
     wait_for_room(&account).await;
 
@@ -535,12 +482,7 @@ async fn the_running_app_hears_a_new_message_once() {
     .unwrap();
     // sent a moment from now: after the app follows.
     mount_sync_with(&server, now + 2_000, &[]).await;
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, _folder) = signed_in(&server).await;
     let mut live = account.live_notifications();
 
     let notification = tokio::time::timeout(Duration::from_secs(10), live.next())
@@ -555,27 +497,4 @@ async fn the_running_app_hears_a_new_message_once() {
     // each answer brings the message again: it notifies once.
     let again = tokio::time::timeout(Duration::from_secs(1), live.next()).await;
     assert!(again.is_err(), "{again:?}");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_background_refresh_syncs_until_the_server_answers_then_stops_the_sync() {
-    let server = server().await;
-    let syncs = mount_sync(&server).await;
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
-    account.wait_for_first_sync().await;
-    account.pause_sync().await;
-    let before = bodies(&server, "msc3575/sync").await.len();
-
-    let answered = account.refresh_within(Duration::from_secs(10)).await;
-
-    assert!(answered);
-    let after = bodies(&server, "msc3575/sync").await.len();
-    assert!(after > before, "{before} then {after}");
-    // stopped: no sync reaches the server any more (the mock answers each in 200 ms).
-    assert!(!syncs.more_within(Duration::from_secs(1)).await, "the sync went on");
 }

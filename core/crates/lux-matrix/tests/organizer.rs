@@ -13,57 +13,28 @@
     reason = "a test's helpers fail it as its asserts do"
 )]
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use lux_core::chat::{Chat, Folder};
 use lux_core::ids::{ChatId, RoomId};
 use lux_core::organizer::Organized;
-use lux_core::ports::{
-    ChatAccount, ChatActions, ChatChange, ChatTimelines, DiffStream, Organizing, Scheduling, SecretStore,
-    SecretStoreError, SessionSecrets, SignIn, StoreKey,
-};
+use lux_core::ports::{ChatAccount, ChatActions, ChatChange, ChatTimelines, DiffStream, Organizing, Scheduling};
 use lux_core::timeline::TimelineMessage;
-use lux_matrix::{MatrixAccount, MatrixSignIn, StoreFolder};
+use lux_matrix::MatrixAccount;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use serde_json::{Value, json};
 use wiremock::matchers::{body_partial_json, method, path, path_regex, query_param_contains};
 use wiremock::{Mock, ResponseTemplate};
 
+mod support;
+use support::signed_in;
+
 const ROOM: &str = "!anna:matrix.org";
 const OTHER: &str = "!bob:matrix.org";
 /// The rooms' newest message.
 const NEWEST: u64 = 1_700_000_000_000;
-
-#[derive(Default)]
-struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
-
-impl SecretStore for MemorySecrets {
-    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-
-    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = Some(secrets.clone());
-        Ok(())
-    }
-
-    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
-        Ok(self.1.lock().unwrap().clone())
-    }
-
-    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
-        *self.1.lock().unwrap() = Some(key.clone());
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = None;
-        *self.1.lock().unwrap() = None;
-        Ok(())
-    }
-}
 
 fn room(name: &str, sender: &str, ts: u64) -> Value {
     json!({
@@ -107,9 +78,7 @@ async fn sync_once(server: &MatrixMockServer, body: Value) {
 
 /// A server that answers the first sync with the rooms and `account_data`, then waits.
 async fn server(account_data: &[Value]) -> MatrixMockServer {
-    let server = MatrixMockServer::new().await;
-    server.mock_versions().with_simplified_sliding_sync().ok().mount().await;
-    server.mock_login().ok().mount().await;
+    let server = support::server().await;
     // the rooms are not encrypted.
     Mock::given(method("GET"))
         .and(path_regex(
@@ -133,13 +102,6 @@ async fn server(account_data: &[Value]) -> MatrixMockServer {
         .mount(server.server())
         .await;
     server
-}
-
-async fn sign_in(server: &MatrixMockServer, folder: &tempfile::TempDir) -> MatrixAccount {
-    MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()))
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap()
 }
 
 /// Follows the chat list until `done` holds.
@@ -221,8 +183,7 @@ async fn the_account_data_from_the_sync_organizes_the_list() {
         }}),
     ])
     .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
 
     let list = list_until(&account, |list| {
         both_listed(list) && find(list, ROOM).is_some_and(|chat| chat.folder == Folder::Archive)
@@ -268,8 +229,7 @@ async fn archiving_writes_the_mark_and_the_list_shows_it_at_once() {
         json!({ "archived": { ROOM: { "ts": NEWEST }, OTHER: { "ts": NEWEST } }, "later": 1 }),
     )
     .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, |list| {
         listed(list, ROOM) && find(list, OTHER).is_some_and(|chat| chat.folder == Folder::Archive)
     })
@@ -291,8 +251,7 @@ async fn a_deleted_chat_leaves_the_list_and_its_thread_is_cut() {
         json!({ "hidden": { ROOM: { "ts": NEWEST } }, "cleared": { ROOM: { "ts": NEWEST } } }),
     )
     .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, |list| listed(list, ROOM)).await;
     let mut thread = account.timelines().messages(&RoomId::from(ROOM).into()).await.unwrap();
     let mut messages = eyeball_im::Vector::new();
@@ -335,8 +294,7 @@ async fn a_deleted_chat_gives_search_nothing_from_before_the_delete() {
         })))
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, |list| listed(list, ROOM)).await;
     let since = std::time::SystemTime::UNIX_EPOCH;
     let room = RoomId::from(ROOM);
@@ -411,8 +369,7 @@ async fn accept_label_writes(server: &MatrixMockServer, name: &str, rooms: u64, 
 async fn a_chat_put_in_a_new_label_shows_in_it_and_is_written_as_records() {
     let server = server(&[]).await;
     accept_label_writes(&server, "Work", 1, 2).await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, both_listed).await;
 
     let label = account.make_label(" Work ").await.unwrap();
@@ -434,8 +391,7 @@ async fn a_chat_put_in_a_new_label_shows_in_it_and_is_written_as_records() {
 async fn a_label_name_taken_in_another_case_is_refused() {
     let server = server(&[]).await;
     accept_label_writes(&server, "Work", 0, 1).await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, both_listed).await;
 
     account.make_label("Work").await.unwrap();
@@ -456,8 +412,7 @@ async fn merged_chats_are_written_and_show_as_one() {
         json!({ "merges": [{ "name": "Anna", "rooms": [ROOM, OTHER], "default": OTHER }] }),
     )
     .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, both_listed).await;
 
     let merged = account
@@ -481,8 +436,7 @@ async fn a_reminder_of_a_merged_chat_is_written_for_each_of_its_rooms() {
         json!({ "reminders": { ROOM: { "at": at }, OTHER: { "at": at } } }),
     )
     .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, |list| find(list, "merge:M").is_some()).await;
 
     let when = std::time::UNIX_EPOCH + Duration::from_millis(at);
@@ -505,8 +459,7 @@ async fn the_places_arrangement_is_written() {
         json!({ "order": ["network:whatsapp"], "hidden": ["space:!s"] }),
     )
     .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
 
     let mut arrangement = lux_core::places::Arrangement::default();
     arrangement.order.push("network:whatsapp".into());
@@ -537,8 +490,7 @@ async fn the_labels_records_are_read_from_the_server_at_launch() {
         })))
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     let organized = organized_until(&account, |organized| organized.labels.len() == 2).await;
     assert_eq!(organized.labels[0].name, "Work");
     assert_eq!(organized.labels[1].name, "Later");
@@ -557,8 +509,7 @@ async fn pinning_tags_the_room_after_the_pinned_ones() {
         .expect(1)
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, |list| find(list, ROOM).is_some()).await;
     account.change(&ChatId::from(ROOM), ChatChange::Pin).await.unwrap();
 }
@@ -573,8 +524,7 @@ async fn a_refusal_reaches_the_caller_with_the_servers_status_and_code() {
         .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "errcode": "M_BAD_JSON", "error": "no" })))
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, |list| find(list, ROOM).is_some()).await;
 
     let refused = account.change(&ChatId::from(ROOM), ChatChange::Pin).await;
@@ -610,8 +560,7 @@ async fn a_message_is_sent_later_by_the_server() {
         }]})))
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = sign_in(&server, &folder).await;
+    let (account, _folder) = signed_in(&server).await;
     list_until(&account, |list| find(list, ROOM).is_some()).await;
 
     let room = RoomId::from(ROOM);

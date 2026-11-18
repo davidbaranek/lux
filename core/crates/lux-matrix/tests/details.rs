@@ -12,15 +12,11 @@
     reason = "a test's helpers fail it as its asserts do"
 )]
 
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use lux_core::ids::RoomId;
-use lux_core::ports::{
-    ChatAccount, ChatDetails, NotificationMode, Role, SecretStore, SecretStoreError, SessionSecrets, SharedContent,
-    SignIn, StoreKey,
-};
-use lux_matrix::{MatrixAccount, MatrixSignIn, StoreFolder};
+use lux_core::ports::{ChatAccount, ChatDetails, NotificationMode, Role, SharedContent};
+use lux_matrix::MatrixAccount;
 use matrix_sdk::ruma::{event_id, mxc_uri, owned_mxc_uri, room_id, user_id};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::event_factory::EventFactory;
@@ -28,35 +24,7 @@ use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path, path_regex};
 use wiremock::{Mock, ResponseTemplate};
 
-/// The platform's Keychain, in memory.
-#[derive(Default)]
-struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
-
-impl SecretStore for MemorySecrets {
-    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-
-    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = Some(secrets.clone());
-        Ok(())
-    }
-
-    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
-        Ok(self.1.lock().unwrap().clone())
-    }
-
-    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
-        *self.1.lock().unwrap() = Some(key.clone());
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = None;
-        *self.1.lock().unwrap() = None;
-        Ok(())
-    }
-}
+mod support;
 
 const OWN: &str = "@cheeky_monkey:matrix.org";
 
@@ -66,9 +34,7 @@ fn crew() -> RoomId {
 
 /// A server whose sync brings one encrypted group, "Climbing crew", which the account administers.
 async fn server() -> MatrixMockServer {
-    let server = MatrixMockServer::new().await;
-    server.mock_versions().with_simplified_sliding_sync().ok().mount().await;
-    server.mock_login().ok().mount().await;
+    let server = support::server().await;
     let state = |kind: &str, key: &str, content: serde_json::Value| {
         json!({
             "type": kind, "state_key": key, "content": content, "sender": OWN,
@@ -109,12 +75,7 @@ async fn server() -> MatrixMockServer {
 
 /// A signed-in account of `server`, synced once, in a new folder (kept with it).
 async fn signed_in(server: &MatrixMockServer) -> (MatrixAccount, tempfile::TempDir) {
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, folder) = support::signed_in(server).await;
     tokio::time::timeout(Duration::from_secs(10), account.wait_for_first_sync())
         .await
         .unwrap();

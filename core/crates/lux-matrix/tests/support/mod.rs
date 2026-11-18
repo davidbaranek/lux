@@ -1,5 +1,6 @@
-//! What the tests share: the requests a mock answered, counted as they arrive, so a test awaits
-//! the next one instead of polling the server.
+//! What the tests share: the Keychain in memory, a mock server that signs an account in, and the
+//! requests a mock answered, counted as they arrive, so a test awaits the next one instead of
+//! polling the server.
 
 // each test crate uses only part of it.
 #![allow(dead_code)]
@@ -8,8 +9,60 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use lux_core::ports::{SecretStore, SecretStoreError, SessionSecrets, SignIn, StoreKey};
+use lux_matrix::{MatrixAccount, MatrixSignIn, StoreFolder};
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use tokio::sync::watch;
 use wiremock::{Request, Respond, ResponseTemplate};
+
+/// The platform's Keychain, in memory.
+#[derive(Default)]
+pub struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
+
+impl SecretStore for MemorySecrets {
+    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
+        *self.0.lock().unwrap() = Some(secrets.clone());
+        Ok(())
+    }
+
+    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
+        Ok(self.1.lock().unwrap().clone())
+    }
+
+    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
+        *self.1.lock().unwrap() = Some(key.clone());
+        Ok(())
+    }
+
+    fn delete(&self) -> Result<(), SecretStoreError> {
+        *self.0.lock().unwrap() = None;
+        *self.1.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+/// A mock server with sliding sync that signs any password in; a test mounts the rest.
+pub async fn server() -> MatrixMockServer {
+    let server = MatrixMockServer::new().await;
+    server.mock_versions().with_simplified_sliding_sync().ok().mount().await;
+    server.mock_login().ok().mount().await;
+    server
+}
+
+/// A signed-in account of `server`, in a new folder (kept with it).
+pub async fn signed_in(server: &MatrixMockServer) -> (MatrixAccount, tempfile::TempDir) {
+    let folder = tempfile::tempdir().unwrap();
+    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
+    let account = sign_in
+        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
+        .await
+        .unwrap();
+    (account, folder)
+}
 
 /// How many requests a mock answered, per sliding sync connection (`conn_id`; empty for
 /// a request without one).
@@ -72,7 +125,14 @@ impl Requests {
             .expect("the counts are kept here");
     }
 
-    /// Whether another request arrives within `window`.
+    /// Waits for another request, for at most ten seconds.
+    pub async fn another(&self) {
+        let before: usize = self.counts().values().sum();
+        self.until(|counts| counts.values().sum::<usize>() > before).await;
+    }
+
+    /// Whether another request arrives within `window`: for a check that none does, as waiting
+    /// for one is [`another`](Self::another).
     pub async fn more_within(&self, window: Duration) -> bool {
         let mut counts = self.counts.subscribe();
         matches!(tokio::time::timeout(window, counts.changed()).await, Ok(Ok(())))
