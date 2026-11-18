@@ -40,6 +40,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()
+    /// The close button is shown (or coming): its animation only presents this.
+    private var isCloseSearchShown = false
     /// The field's end: short of the close button while search shows.
     private var searchTrailing: NSLayoutConstraint!
     private let content = NSView()
@@ -72,6 +74,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         // the field took the focus (a click, Cmd-F, Tab): what chats shared lately shows before
         // any words.
         search.onFocus = { [weak self] in self?.startSearching() }
+        // the field's clear button ends search. Its own action only empties the field, and the
+        // delegate's `searchFieldDidEndSearching` comes for any emptying, also words deleted to
+        // the last letter, which keep search open.
+        if let clear = (search.cell as? NSSearchFieldCell)?.cancelButtonCell {
+            clear.target = self
+            clear.action = #selector(closeSearchClicked)
+        }
         closeSearch.alphaValue = 0
         closeSearch.isHidden = true
         searchTrailing = search.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10)
@@ -196,15 +205,16 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         show(results.view)
     }
 
-    /// The field's clear button, or Esc with words in it: search ends, back to the chats.
-    func searchFieldDidEndSearching(_ sender: NSSearchField) {
-        endSearch()
-    }
-
-    /// Esc in the empty field ends search too (the field alone would do nothing).
+    /// Esc: the words go and search stays open, as when they are deleted; in the empty field,
+    /// search ends.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        guard selector == #selector(NSResponder.cancelOperation(_:)), search.stringValue.isEmpty else { return false }
-        endSearch()
+        guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        if search.stringValue.isEmpty {
+            endSearch()
+        } else {
+            search.stringValue = ""
+            searchChanged()
+        }
         return true
     }
 
@@ -213,7 +223,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
     /// The close button comes out of the field's end as the field gives it room; going, it fades
     /// as the field grows back over its place.
     private func showCloseSearch(_ shown: Bool) {
-        guard shown == closeSearch.isHidden else { return }
+        guard shown != isCloseSearchShown else { return }
+        isCloseSearchShown = shown
         let room = search.frame.height + 6
         closeSearch.isHidden = false
         if shown {
@@ -235,7 +246,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             view.layoutSubtreeIfNeeded()
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, self.closeSearch.alphaValue == 0 else { return }
+                // shown again while it faded: it stays.
+                guard let self, !self.isCloseSearchShown else { return }
                 self.closeSearch.isHidden = true
             }
         }
