@@ -271,24 +271,33 @@ async fn write(file: &Path, data: Vec<u8>) -> Result<(), BackendError> {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::ruma::owned_mxc_uri;
+    use std::collections::HashSet;
+    use std::path::Component;
 
     use super::*;
 
     #[test]
-    fn file_names_are_one_per_url_and_tell_the_size() {
-        let request = thumbnail(MediaSource::Plain(owned_mxc_uri!("mxc://example.org/abc-123")), 160);
-        let name = file_name(&request);
-        assert!(name.ends_with("-160x160"));
-        assert!(
-            name.chars()
-                .all(|character| character.is_ascii_hexdigit() || "-x0123456789".contains(character))
-        );
-        // these two read alike once their punctuation is gone.
-        let one = file_name(&original(MediaSource::Plain(owned_mxc_uri!("mxc://a-b.org/x"))));
-        let other = file_name(&original(MediaSource::Plain(owned_mxc_uri!("mxc://a.b-org/x"))));
-        assert_ne!(one, other);
-        assert_eq!(one.len(), 64);
+    fn a_file_name_is_one_per_url_and_size_and_stays_in_its_folder() {
+        let url = |url: &str| MediaSource::Plain(OwnedMxcUri::from(url));
+        let names = [
+            // these two read alike once their punctuation is gone.
+            file_name(&original(url("mxc://a-b.org/x"))),
+            file_name(&original(url("mxc://a.b-org/x"))),
+            file_name(&thumbnail(url("mxc://a-b.org/x"), 160)),
+            file_name(&thumbnail(url("mxc://a-b.org/x"), 320)),
+            // a url is the server's text: it may say anything a path would.
+            file_name(&original(url("mxc://example.org/../../x"))),
+        ];
+        assert_eq!(names.iter().collect::<HashSet<_>>().len(), names.len(), "{names:?}");
+        assert_eq!(file_name(&thumbnail(url("mxc://a-b.org/x"), 160)), names[2]);
+        // a name is one file (or folder) right in the cache's folder, whatever its url says.
+        for name in &names {
+            assert_eq!(
+                Path::new(name).components().collect::<Vec<_>>(),
+                [Component::Normal(name.as_ref())],
+                "{name}"
+            );
+        }
     }
 
     #[test]

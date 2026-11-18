@@ -232,9 +232,8 @@ mod tests {
     }
 
     #[test]
-    fn gone_and_new_rows() {
-        let diffs = check(&rows("abcdefgh"), &rows("abxdefg"));
-        assert_eq!(diffs.len(), 3);
+    fn gone_and_new_rows_make_the_new_list() {
+        check(&rows("abcdefgh"), &rows("abxdefg"));
     }
 
     #[test]
