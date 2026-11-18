@@ -364,12 +364,45 @@ public final class Session {
         return await account.refresh(within: within)
     }
 
-    /// Ends the account's work and lets its stores close, the account kept (a test's demo
-    /// session as the test ends: no store is left to close as the process exits).
+    /// Ends the account's work, stops its sync (the chat list kept for the next launch) and closes
+    /// its stores, the account kept: as the app ends, and a test's demo session as the test
+    /// ends. No store is left open for the process's exit, where SQLCipher frees its ciphers'
+    /// memory under a store's thread.
     public func close() async {
-        await current?.close()
-        await current?.closeStores()
-        current = nil
+        guard let current else { return }
+        await current.close()
+        await current.enterBackground().value
+        await current.closeStores()
+        self.current = nil
+    }
+
+    /// The app ends: the long work (index, photos, the model) and the session close, waited for
+    /// at most `limit`. A store's call still under way then holds the process's exit a moment
+    /// (`lux-store`'s exit hold), as an exit nobody announced does.
+    public func closeAsTheAppEnds(within limit: Duration) async {
+        let closing = Task {
+            await ForegroundWork.shared.leave()
+            await close()
+        }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await closing.value }
+            group.addTask { _ = try? await Task.sleep(for: limit) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
+    /// As `closeAsTheAppEnds`, from a call the process exits after (the iPhone's
+    /// `applicationWillTerminate`, a test bundle's end): it returns once the session has closed,
+    /// or after `limit`, the main run loop running meanwhile, so the work on the main actor goes
+    /// on.
+    public func closeBeforeReturning(within limit: Duration) {
+        Task { await closeAsTheAppEnds(within: limit) }
+        let deadline = ContinuousClock.now + limit
+        while isSignedIn, ContinuousClock.now < deadline {
+            // false when no source is set up: the loop then goes round until the deadline.
+            _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
     }
 
     public func signOut() async {

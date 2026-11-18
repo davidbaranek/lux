@@ -23,6 +23,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    /// The system ends the app while it runs in the background (a suspended app is ended without
+    /// notice, which a store's write-ahead log survives): UIKit exits the process once this
+    /// returns, and the account's session closes first, within the seconds the system gives.
+    func applicationWillTerminate(_ application: UIApplication) {
+        Self.session.closeBeforeReturning(within: .seconds(4))
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
         Self.notifications.registered(token: token)
     }

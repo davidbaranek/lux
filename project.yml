@@ -306,6 +306,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         # the app's product is Lux, not its target's name (XcodeGen's default host).
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Lux.app/Lux
+        # closes the host app's own demo session as the bundle ends (Apps/ViewTests/Shared).
+        INFOPLIST_KEY_NSPrincipalClass: HostSessionCloser
   Lux-Mac-Tests:
     type: bundle.unit-test
     platform: macOS
@@ -316,6 +318,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(LUX_BUNDLE_ID).tests
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Lux.app/Contents/MacOS/Lux
+        # closes the host app's own demo session as the bundle ends (Apps/ViewTests/Shared).
+        INFOPLIST_KEY_NSPrincipalClass: HostSessionCloser
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "Apple Development"
 schemes:
