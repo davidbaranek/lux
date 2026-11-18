@@ -1,6 +1,6 @@
 //! The schema, as numbered migrations: the file's `user_version` says how many it has.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Error, Result};
 
@@ -98,28 +98,35 @@ const MIGRATIONS: &[&str] = &[
     ",
 ];
 
-/// Brings the file's schema up to this version's, each migration in its own transaction.
+/// Brings the file's schema up to this version's, each migration in its own transaction. Two
+/// processes may open the file at once (the app and its share extension): each migration takes
+/// the write lock first and reads the version under it, so none runs twice.
 pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
     let supported = u32::try_from(MIGRATIONS.len()).unwrap_or(u32::MAX);
+    // read without a lock first: a file up to date, as nearly every open finds it, takes none.
+    if version(connection, supported)? == supported {
+        return Ok(());
+    }
+    loop {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let found = version(&transaction, supported)?;
+        let Some(migration) = MIGRATIONS.get(usize::try_from(found).unwrap_or(usize::MAX)) else {
+            return Ok(());
+        };
+        // a migration that shipped runs on the schema of the version before it.
+        transaction.execute_batch(migration).map_err(Error::Migration)?;
+        transaction.pragma_update(None, "user_version", found + 1)?;
+        transaction.commit()?;
+    }
+}
+
+/// The file's schema version; a newer one than `supported` is an error.
+fn version(connection: &Connection, supported: u32) -> Result<u32> {
     let found: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if found > supported {
         return Err(Error::NewerSchema { found, supported });
     }
-    for (version, migration) in (found + 1..).zip(MIGRATIONS.iter().skip(usize::try_from(found).unwrap_or(usize::MAX)))
-    {
-        let transaction = connection.transaction()?;
-        // a migration that shipped runs on the schema of the version before it: an SQL error is
-        // a file whose schema is not the one its version says.
-        transaction
-            .execute_batch(migration)
-            .map_err(|error| match error.sqlite_error_code() {
-                Some(rusqlite::ErrorCode::Unknown) => Error::Damaged,
-                _ => Error::from(error),
-            })?;
-        transaction.pragma_update(None, "user_version", version)?;
-        transaction.commit()?;
-    }
-    Ok(())
+    Ok(found)
 }
 
 #[cfg(test)]

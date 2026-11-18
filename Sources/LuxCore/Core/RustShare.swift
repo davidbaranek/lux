@@ -43,7 +43,8 @@ public final class ShareSender: Sendable {
         return ShareSender(sender: sender, chats: await chats(of: account, store: kept.store))
     }
 
-    /// The chats the app kept in the account's store; none before it first kept its list.
+    /// The chats the app kept in the account's store; none before it first kept its list, or
+    /// when the store cannot be read (the app, which owns it, replaces a damaged one).
     private static func chats(of account: AccountPaths, store: String) async -> [ShareChat] {
         guard let key = await SearchKey.existingKey(for: store),
               let local = await bestEffort("share: the kept chats", { try await LocalStore.open(file: account.keptStore, key: key) })

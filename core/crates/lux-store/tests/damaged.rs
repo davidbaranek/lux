@@ -182,7 +182,8 @@ async fn a_log_frame_that_fails_its_check_gives_way_to_a_new_store() {
     works_as_new(&store).await;
 }
 
-/// A store that is not a cache (`open`) reports the damage and keeps its file.
+/// A store that is not a cache (`open`: the share extension, beside the app that owns the file)
+/// reports the damage and keeps its file; what is not damaged it still reads.
 #[tokio::test]
 async fn a_store_that_is_not_a_cache_keeps_its_damaged_file() {
     let folder = TempDir::new().unwrap();
@@ -194,10 +195,57 @@ async fn a_store_that_is_not_a_cache_keeps_its_damaged_file() {
 
     let store = Store::open(&path, key()).await.unwrap();
     assert!(matches!(store.kept("photo".into()).await, Err(Error::Damaged)));
-    // SQLCipher keeps the error on the connection: every call after it fails too.
-    assert!(matches!(found(&store, "výletu").await, Err(Error::Damaged)));
+    assert_eq!(found(&store, "výletu").await.unwrap(), 300);
     store.close().await;
     assert_eq!(fs::read(&path).unwrap(), bytes);
+}
+
+/// Two processes open a file of an older version at once (the app and its share extension after
+/// an update): each migration runs once, and neither takes the other's for damage.
+#[tokio::test]
+async fn two_stores_migrating_one_file_at_once_both_open_it() {
+    for _ in 0..20 {
+        let folder = TempDir::new().unwrap();
+        let path = file(&folder);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // an encrypted file without a schema: every migration is to run.
+        raw(&path)
+            .execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t(x); DROP TABLE t;")
+            .unwrap();
+        let (first, second) = tokio::join!(Store::open_or_replace(&path, key()), Store::open(&path, key()));
+        let (first, second) = (first.unwrap(), second.unwrap());
+        first.add(messages(3)).await.unwrap();
+        assert_eq!(second.message_count().await.unwrap(), 3);
+        first.close().await;
+        second.close().await;
+    }
+}
+
+/// Damage that comes back soon after the store made a new file gives way a few times, then
+/// stays, for its cause to be found: the calls report it.
+#[tokio::test]
+async fn damage_that_keeps_coming_back_stops_being_replaced() {
+    let folder = TempDir::new().unwrap();
+    let path = file(&folder);
+    let store = Store::open_or_replace(&path, key()).await.unwrap();
+    for replacement in 0..3 {
+        store.add(messages(300)).await.unwrap();
+        store.keep("photo".into(), vec![7; 40 * PAGE]).await.unwrap();
+        // closed (its log written into the file), damaged, and opened again by the next call.
+        store.release().await.unwrap();
+        let mut bytes = fs::read(&path).unwrap();
+        damage_kept_value(&mut bytes);
+        fs::write(&path, &bytes).unwrap();
+        let replaced = store.replaced();
+        assert!(matches!(store.kept("photo".into()).await, Err(Error::Damaged)));
+        if replacement < 2 {
+            replaced.await.unwrap();
+            works_as_new(&store).await;
+        } else {
+            store.release().await.unwrap();
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+    }
 }
 
 /// The disk refuses (no permission): the error surfaces and the file stays as it was.
