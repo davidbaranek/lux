@@ -140,12 +140,6 @@ public final class Session {
                          preferences: preferences) { [weak self] in self?.search?.photos }
     }
 
-    /// The chat that shows a room (its own, or the merged chat it is in); nil when the list has
-    /// none (a notification's room not synced yet).
-    public func chat(ofRoom roomId: String) async -> ChatRow? {
-        await bestEffort("the chat of a room") { try await account.value.chats(ofRooms: [roomId])[roomId] } ?? nil
-    }
-
     /// Where the demo's encryption starts.
     public enum DemoEncryption: Sendable {
         case ready, unverified, noRecovery
