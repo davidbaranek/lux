@@ -50,6 +50,20 @@ struct ChatListModelTests {
         #expect(model.rows.allSatisfy { $0.network == "signal" })
     }
 
+    @Test func aBatchOfThePlaceBeforeNeitherMovesTheChoiceBackNorShows() async throws {
+        let model = ChatListModel(session: session)
+        var shown: [(place: Place, networks: Set<String>)]?
+        model.onUpdate = { sections, _ in shown?.append((model.place, Set(sections.flatMap(\.rows).map(\.network)))) }
+        let changes = model.changes()
+        try await changes.until { !model.rows.isEmpty }
+        // the inbox's batches keep coming while the account loads: one may be on its way.
+        shown = []
+        model.place = .network("signal")
+        try await changes.until { model.loadState == .done && shown?.isEmpty == false }
+        #expect(model.place == .network("signal"))
+        #expect(shown?.allSatisfy { $0.place == .network("signal") && $0.networks == ["signal"] } == true)
+    }
+
     @Test func aLabelNamedLikeAnotherFailsInTheUsersWords() async throws {
         let model = ChatListModel(session: session)
         var failure: AccountFailure?

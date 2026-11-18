@@ -35,6 +35,13 @@ pub struct DueReminder {
 pub struct ListUpdate {
     /// The place shown: the one asked for, or the inbox when that place went away.
     pub place: PlaceId,
+    /// The newest of the apps' selections ([`select_place`]'s numbers, 0 for the place the list
+    /// started at) this batch shows, when newer than the last batch's. A batch sent before the
+    /// newest selection was taken still shows the place asked for before it: its `place` and rows
+    /// are of that place, not a move away from the newest one.
+    ///
+    /// [`select_place`]: super::ChatListViewModel::select_place
+    pub selection: Option<u64>,
     /// The places, arranged, when any changed.
     pub places: Option<Vec<ListedPlace>>,
     /// The colour of the places without one of their own, when it changed.
@@ -62,7 +69,8 @@ impl ListUpdate {
     /// Nothing changed: the batch is not sent.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.places.is_none()
+        self.selection.is_none()
+            && self.places.is_none()
             && self.theme.is_none()
             && self.sections.is_none()
             && self.rows.is_empty()
