@@ -5,11 +5,34 @@ import Testing
 
 /// The sidebar's search over a demo account of its own, driven as AppKit drives it (the keyboard
 /// given to the field, its field editor's typing, deleting and Esc, its clear button) and seen
-/// through what the sidebar shows: the results or the chats. The sidebar is in a window that is
-/// never shown, so the keyboard has somewhere to be.
+/// through what the sidebar shows: the results or the chats, and the close button beside the
+/// field. The sidebar is in a window that is never shown, so the keyboard has somewhere to be.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct SidebarSearchViewTests {
+    @Test func theCloseButtonShowsWhileSearchShowsAndEndsIt() async throws {
+        try await DemoAccount.with { session in
+            let sidebar = try ShownSidebar(session)
+            #expect(!sidebar.showsClose, "the close button shows over the chats")
+
+            // the field searching with no words yet: what chats shared lately.
+            try sidebar.type("")
+            await sidebar.settled()
+            #expect(sidebar.showsResults)
+            #expect(sidebar.showsClose, "no close button with an empty field")
+
+            try sidebar.type("a")
+            await sidebar.settled()
+            #expect(sidebar.showsClose, "no close button with results")
+
+            sidebar.close.performClick(nil)
+            await sidebar.settled()
+            #expect(!sidebar.showsResults)
+            #expect(!sidebar.showsClose)
+            #expect(sidebar.field.stringValue.isEmpty)
+        }
+    }
+
     @Test func deletingAllTheWordsKeepsSearchWhileTheFieldHasTheKeyboard() async throws {
         try await DemoAccount.with { session in
             let sidebar = try ShownSidebar(session)
@@ -17,8 +40,10 @@ struct SidebarSearchViewTests {
             #expect(sidebar.showsResults)
 
             try sidebar.deleteAll()
+            await sidebar.settled()
             #expect(sidebar.field.stringValue.isEmpty)
             #expect(sidebar.showsResults, "deleting the words ended search")
+            #expect(sidebar.showsClose)
         }
     }
 
@@ -34,7 +59,9 @@ struct SidebarSearchViewTests {
 
             // elsewhere: the chats.
             #expect(sidebar.window.makeFirstResponder(sidebar.elsewhere))
+            await sidebar.settled()
             #expect(!sidebar.showsResults)
+            #expect(!sidebar.showsClose)
         }
     }
 
@@ -63,16 +90,17 @@ struct SidebarSearchViewTests {
         }
     }
 
-    @Test func theFieldsClearButtonEndsSearch() async throws {
+    @Test func theFieldsClearButtonOnlyClearsTheWords() async throws {
         try await DemoAccount.with { session in
             let sidebar = try ShownSidebar(session)
             try sidebar.type("a")
             #expect(sidebar.showsResults)
 
             try #require((sidebar.field.cell as? NSSearchFieldCell)?.cancelButtonCell).performClick(sidebar.field)
+            await sidebar.settled()
             #expect(sidebar.field.stringValue.isEmpty)
-            #expect(!sidebar.showsResults)
-            #expect(!sidebar.fieldHasKeyboard)
+            #expect(sidebar.showsResults, "the field's clear button ended search")
+            #expect(sidebar.showsClose)
         }
     }
 
@@ -86,7 +114,9 @@ struct SidebarSearchViewTests {
             #expect(sidebar.showsResults, "Esc with words ended search")
 
             try sidebar.escape()
+            await sidebar.settled()
             #expect(!sidebar.showsResults)
+            #expect(!sidebar.showsClose)
             #expect(!sidebar.fieldHasKeyboard)
         }
     }
@@ -99,35 +129,23 @@ struct SidebarSearchViewTests {
 
             // Esc goes up the responder chain from the table, as its key handling sends it.
             #expect(try sidebar.results.tryToPerform(#selector(NSResponder.cancelOperation(_:)), with: nil))
+            await sidebar.settled()
             #expect(!sidebar.showsResults)
+            #expect(!sidebar.showsClose)
             #expect(sidebar.field.stringValue.isEmpty)
-        }
-    }
-
-    @Test func searchHasNoCloseButtonBesideTheField() async throws {
-        try await DemoAccount.with { session in
-            let sidebar = try ShownSidebar(session)
-            try sidebar.type("a")
-            sidebar.controller.view.layoutSubtreeIfNeeded()
-
-            // the field keeps the sidebar's width; nothing stands beside it.
-            #expect(sidebar.field.frame.maxX == sidebar.controller.view.bounds.maxX - 10)
-            let besideField = sidebar.controller.view.subviews.filter {
-                $0 !== sidebar.field && $0.frame.minX >= sidebar.field.frame.minX && $0.frame.intersects(sidebar.field.frame)
-            }
-            #expect(besideField.isEmpty, "\(besideField)")
         }
     }
 }
 
 /// The sidebar's controller, its view laid out at a sidebar's size in a window that is never
 /// shown, beside a text view standing for the rest of the window (a chat's composer), with its
-/// search field and what shows under it.
+/// search field, its close button and what shows under them.
 @MainActor
 private struct ShownSidebar {
     let controller: SidebarController
     let window: NSWindow
     let field: NSSearchField
+    let close: NSButton
     /// A view outside the sidebar that takes the keyboard.
     let elsewhere = NSTextView(frame: NSRect(x: 360, y: 0, width: 300, height: 900))
 
@@ -140,7 +158,19 @@ private struct ShownSidebar {
         window.contentView?.addSubview(elsewhere)
         controller.view.layoutSubtreeIfNeeded()
         field = try #require(controller.view.subviews.lazy.compactMap { $0 as? NSSearchField }.first)
+        close = try #require(controller.view.subviews.lazy.compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "close-search" })
     }
+
+    /// Returns once the animations started so far have ended.
+    func settled() async {
+        await withCheckedContinuation { done in
+            NSAnimationContext.runAnimationGroup { _ in } completionHandler: { done.resume() }
+        }
+    }
+
+    /// The close button is on screen beside the field.
+    var showsClose: Bool { !close.isHidden && close.alphaValue > 0 }
 
     /// The field's field editor while the field has the keyboard (given to it first).
     private func editor() throws -> NSTextView {
