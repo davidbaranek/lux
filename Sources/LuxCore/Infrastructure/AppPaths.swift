@@ -15,6 +15,9 @@ public struct AppPaths: Sendable {
     let media: URL
     /// What lives for a moment (photos being read).
     let scratch: URL
+    /// Photo search's model, kept where Core ML loads it from, one folder per version of its
+    /// asset pack (`PhotoSearchAssets`).
+    let photoModels: URL
 
     /// The accounts' folders the app opens: the group's, else its own.
     var accounts: URL { shared ?? own }
@@ -33,14 +36,16 @@ public struct AppPaths: Sendable {
         return AppPaths(shared: shared,
                         own: support.appending(path: "matrix", directoryHint: .isDirectory),
                         media: caches.appending(path: "lux-media", directoryHint: .isDirectory),
-                        scratch: fileManager.temporaryDirectory)
+                        scratch: fileManager.temporaryDirectory,
+                        photoModels: support.appending(path: "PhotoSearch", directoryHint: .isDirectory))
     }
 
     /// All in `root`, a folder of the demo's own: no two demo sessions share a file.
     static func inside(_ root: URL) -> AppPaths {
         AppPaths(shared: nil, own: root.appending(path: "matrix", directoryHint: .isDirectory),
                         media: root.appending(path: "media", directoryHint: .isDirectory),
-                        scratch: root.appending(path: "tmp", directoryHint: .isDirectory))
+                        scratch: root.appending(path: "tmp", directoryHint: .isDirectory),
+                        photoModels: root.appending(path: "PhotoSearch", directoryHint: .isDirectory))
     }
 
     /// The files of the account kept as `store`.

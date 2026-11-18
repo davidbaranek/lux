@@ -19,6 +19,12 @@ trap 'rm -rf "$root"' EXIT
 mkdir -p "$root/PhotoSearch" "$out"
 xcrun coremlcompiler compile "$model/Encoders.mlpackage" "$root/PhotoSearch" >/dev/null
 cp "$model/embeddings.bin" "$model/tokenizer.json" "$model/model.json" "$root/PhotoSearch/"
+# model.json says which files it came with ("content", the digest of all the others): the app
+# keeps its copy of the model under model.json's digest, so a pack whose files changed in any way
+# is copied again (PhotoSearchAssets).
+content=$(cd "$root/PhotoSearch" && find . -type f ! -path ./model.json -print0 | LC_ALL=C sort -z \
+    | xargs -0 shasum -a 256 | shasum -a 256 | cut -c1-64)
+plutil -replace content -string "$content" "$root/PhotoSearch/model.json"
 cp "$here/Manifest.json" "$root/"
 (cd "$root" && xcrun ba-package Manifest.json -o "$out/PhotoSearch.aar")
 # the same folder, unpacked: what the app reads from the pack (for tests on this Mac).
