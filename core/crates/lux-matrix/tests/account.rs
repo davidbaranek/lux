@@ -12,6 +12,7 @@
     reason = "a test's helpers fail it as its asserts do"
 )]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -641,6 +642,91 @@ async fn a_send_that_failed_for_a_moment_goes_out_by_itself_while_the_sync_runs(
     })
     .await
     .expect("the message did not go out");
+}
+
+/// Whether the server is out of reach: a test switches it.
+#[derive(Clone, Default)]
+struct Unreachable(Arc<AtomicBool>);
+
+impl wiremock::Match for Unreachable {
+    fn matches(&self, _: &wiremock::Request) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// While `unreachable`, `endpoint` of `server` fails as a server out of reach does; the
+/// requests it fails.
+async fn fails_while(server: &MatrixMockServer, unreachable: &Unreachable, endpoint: impl Into<String>) -> Requests {
+    let failed = Requests::default();
+    Mock::given(wiremock::matchers::path_regex(endpoint))
+        .and(unreachable.clone())
+        .respond_with(failed.answering(ResponseTemplate::new(503)))
+        .with_priority(1)
+        .mount(server.server())
+        .await;
+    failed
+}
+
+/// Waits until the message `body` of `messages`, applied to `rows`, is in `state`.
+async fn until_state(
+    messages: &mut lux_core::ports::DiffStream<Arc<lux_core::timeline::TimelineMessage>>,
+    rows: &mut eyeball_im::Vector<Arc<lux_core::timeline::TimelineMessage>>,
+    body: &str,
+    state: SendState,
+) {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while let Some(batch) = messages.next().await {
+            for diff in batch {
+                diff.apply(rows);
+            }
+            if rows
+                .iter()
+                .any(|message| message.message.body == body && message.message.state == state)
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{body:?} is not {state:?}"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_that_failed_offline_waits_for_the_server_and_goes_out_once_it_is_back() {
+    let server = server().await;
+    sync_anna(&server).await;
+    server.mock_room_state_encryption().plain().mount().await;
+    server.mock_room_send().ok(event_id!("$sent")).mount().await;
+    let unreachable = Unreachable::default();
+    fails_while(&server, &unreachable, "/sync$").await;
+    let checks = fails_while(&server, &unreachable, "^/_matrix/client/versions$").await;
+    let sends = fails_while(&server, &unreachable, "/send/m.room.message/").await;
+    let (account, _folder) = signed_in(&server).await;
+    tokio::time::timeout(Duration::from_secs(10), account.wait_for_first_sync())
+        .await
+        .unwrap();
+    let room = RoomId::from("!anna:matrix.org");
+    let timelines = account.timelines();
+    let mut messages = timelines.messages(&room.clone().into()).await.unwrap();
+    let mut rows = eyeball_im::Vector::new();
+
+    // the server goes out of reach: the sync stops and checks for it to come back.
+    unreachable.0.store(true, Ordering::SeqCst);
+    checks.another().await;
+    timelines
+        .send_text(&room.clone().into(), "are you there?", None)
+        .await
+        .unwrap();
+    until_state(&mut messages, &mut rows, "are you there?", SendState::Failed).await;
+
+    // longer than a send that failed waits while the sync runs: offline, it is not tried again.
+    assert!(
+        !sends.more_within(Duration::from_secs(7)).await,
+        "sent again while offline"
+    );
+
+    unreachable.0.store(false, Ordering::SeqCst);
+    until_state(&mut messages, &mut rows, "are you there?", SendState::Sent).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
