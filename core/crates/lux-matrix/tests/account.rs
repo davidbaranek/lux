@@ -22,11 +22,10 @@ use lux_core::ids::MediaId;
 use lux_core::ids::{ChatId, RoomId};
 use lux_core::message::SendState;
 use lux_core::ports::{
-    BackendError, Bridges, ChatAccount, ChatSending, ChatTimelines, SecretStore, SecretStoreError, Security,
-    SessionSecrets, SignIn, StoreKey,
+    BackendError, Bridges, ChatAccount, ChatSending, ChatTimelines, SecretStore, Security, SessionSecrets, SignIn,
 };
 use lux_core::preview::{Membership, PreviewKind};
-use lux_matrix::{KeptList, MatrixAccount, MatrixSignIn, StoreFolder};
+use lux_matrix::{KeptList, MatrixSignIn, StoreFolder};
 use lux_store::{Key, Store};
 use matrix_sdk::ruma::event_id;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
@@ -41,44 +40,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, ResponseTemplate};
 
 mod support;
-use support::{Counts, Requests};
-
-/// The platform's Keychain, in memory.
-#[derive(Default)]
-struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
-
-impl SecretStore for MemorySecrets {
-    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-
-    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = Some(secrets.clone());
-        Ok(())
-    }
-
-    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
-        Ok(self.1.lock().unwrap().clone())
-    }
-
-    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
-        *self.1.lock().unwrap() = Some(key.clone());
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = None;
-        *self.1.lock().unwrap() = None;
-        Ok(())
-    }
-}
-
-async fn server() -> MatrixMockServer {
-    let server = MatrixMockServer::new().await;
-    server.mock_versions().with_simplified_sliding_sync().ok().mount().await;
-    server.mock_login().ok().mount().await;
-    server
-}
+use support::{Counts, MemorySecrets, Requests, server, signed_in};
 
 /// The chat's preview is the text `text`.
 fn says(chat: &Chat, text: &str) -> bool {
@@ -144,10 +106,10 @@ async fn sync_anna(server: &MatrixMockServer) -> Requests {
     syncs
 }
 
-/// Whether the account syncs: a new sliding sync arrives within a second (the mock answers each
-/// in 200 ms).
-async fn syncing(syncs: &Requests) -> bool {
-    syncs.more_within(Duration::from_secs(1)).await
+/// Whether the account's sync stopped: no sliding sync arrives within a second (the mock answers
+/// each in 200 ms). That it goes on is awaited instead, with [`Requests::another`].
+async fn stopped(syncs: &Requests) -> bool {
+    !syncs.more_within(Duration::from_secs(1)).await
 }
 
 /// Waits until each of the sync's two loops (the room list's, the encryption's) sent another
@@ -160,17 +122,6 @@ async fn both_loops_sent_since(syncs: &Requests, before: &Counts) {
                 .all(|id| now.get(*id).unwrap_or(&0) > before.get(*id).unwrap_or(&0))
         })
         .await;
-}
-
-/// A signed-in account of `server`, in a new folder (kept with it).
-async fn signed_in(server: &MatrixMockServer) -> (MatrixAccount, tempfile::TempDir) {
-    let folder = tempfile::tempdir().unwrap();
-    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()));
-    let account = sign_in
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
-    (account, folder)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -428,11 +379,7 @@ async fn every_latest_event_reads_as_what_happened_and_a_direct_chat_shows_its_p
         )
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()))
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, _folder) = signed_in(&server).await;
     let mut chats = account.chats();
     let mut rows = eyeball_im::Vector::new();
     let kind_of = |rows: &eyeball_im::Vector<Arc<Chat>>, id: &str| {
@@ -496,11 +443,7 @@ async fn a_room_with_messages_from_before_the_account_arrived_tells_of_the_newes
         )
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()))
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, _folder) = signed_in(&server).await;
     let mut chats = account.chats();
     let mut rows = eyeball_im::Vector::new();
     until(&mut chats, &mut rows, |rows| {
@@ -576,11 +519,7 @@ async fn an_edit_of_an_old_message_keeps_the_date_of_the_message() {
         )
         .mount(server.server())
         .await;
-    let folder = tempfile::tempdir().unwrap();
-    let account = MatrixSignIn::new(StoreFolder::new(folder.path()), Arc::new(MemorySecrets::default()))
-        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
-        .await
-        .unwrap();
+    let (account, _folder) = signed_in(&server).await;
     let mut chats = account.chats();
     let mut rows = eyeball_im::Vector::new();
     until(&mut chats, &mut rows, |rows| {
@@ -720,19 +659,25 @@ async fn a_refresh_stops_the_sync_only_in_the_background() {
 
     // the app came to the front during a refresh: the sync goes on.
     assert!(account.refresh_within(Duration::from_secs(10)).await);
-    assert!(syncing(&syncs).await);
+    syncs.another().await;
 
-    // in the background, a refresh syncs once, then stops again, and so does one out of time.
+    // in the background, a refresh syncs until the server answers, then stops again, and so
+    // does one out of time.
     account.pause_sync().await;
-    assert!(!syncing(&syncs).await);
+    assert!(stopped(&syncs).await);
+    let before = syncs.counts();
     assert!(account.refresh_within(Duration::from_secs(10)).await);
-    assert!(!syncing(&syncs).await);
+    assert!(
+        syncs.counts().get("room-list") > before.get("room-list"),
+        "the refresh's sync reached the server"
+    );
+    assert!(stopped(&syncs).await);
     assert!(!account.refresh_within(Duration::ZERO).await);
-    assert!(!syncing(&syncs).await);
+    assert!(stopped(&syncs).await);
 
     // back in front, the stores open again and the chats are still there.
     account.resume_sync().await;
-    assert!(syncing(&syncs).await);
+    syncs.another().await;
     let mut chats = account.chats();
     let first = chats.next().await.unwrap();
     let mut rows = eyeball_im::Vector::new();
@@ -763,7 +708,7 @@ async fn a_pause_during_a_refresh_leaves_the_sync_stopped() {
     // the app goes to the background again as a refresh begins: the refresh syncs, then stops.
     let ((), answered) = tokio::join!(account.pause_sync(), refresh());
     assert!(answered);
-    assert!(!syncing(&syncs).await);
+    assert!(stopped(&syncs).await);
 
     // and while the server holds the room list's request (the encryption's loop goes on, so a
     // sync that missed the stop shows): the refresh ends at once, unanswered, and the sync stays
@@ -778,7 +723,7 @@ async fn a_pause_during_a_refresh_leaves_the_sync_stopped() {
     let (answered, ()) = tokio::join!(refresh(), pause);
     assert!(!answered, "answered with a pause while the room list's request is held");
     assert!(
-        !syncing(&syncs).await,
+        stopped(&syncs).await,
         "syncing after a pause while the room list's request is held"
     );
 
@@ -791,11 +736,11 @@ async fn a_pause_during_a_refresh_leaves_the_sync_stopped() {
         account.pause_sync().await;
     };
     let (_, ()) = tokio::join!(refresh(), pause);
-    assert!(!syncing(&syncs).await, "syncing after a pause as the server answers");
+    assert!(stopped(&syncs).await, "syncing after a pause as the server answers");
 
     // the stores open again in front, and the chats are still there.
     account.resume_sync().await;
-    assert!(syncing(&syncs).await);
+    syncs.another().await;
     let mut chats = account.chats();
     let first = chats.next().await.unwrap();
     let mut rows = eyeball_im::Vector::new();
@@ -828,10 +773,10 @@ async fn a_refresh_dropped_while_it_waits_leaves_the_sync_stopped() {
         () = started => {}
     }
 
-    assert!(!syncing(&syncs).await);
+    assert!(stopped(&syncs).await);
     syncs.release();
     account.resume_sync().await;
-    assert!(syncing(&syncs).await);
+    syncs.another().await;
 }
 
 /// A member's join, as a room's state carries it.

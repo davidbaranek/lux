@@ -13,54 +13,28 @@
     reason = "a test's helpers fail it as its asserts do"
 )]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use lux_core::ports::{
-    BackendError, DeviceSignOut, EncryptionSetup, SecretStore, SecretStoreError, Security, SessionSecrets, SignIn,
-    StoreKey, ValueStream, Verification, VerificationEmoji, VerificationStep,
+    BackendError, DeviceSignOut, EncryptionSetup, Security, SignIn, ValueStream, Verification, VerificationEmoji,
+    VerificationStep,
 };
 use lux_matrix::{MatrixAccount, MatrixSignIn, StoreFolder};
 use matrix_sdk::ruma::user_id;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use serde_json::{Value, json};
+use tokio::sync::watch;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, Request, ResponseTemplate};
 
+mod support;
+use support::MemorySecrets;
+
 const USER: &str = "@ada:example.org";
-
-/// The platform's Keychain, in memory.
-#[derive(Default)]
-struct MemorySecrets(Mutex<Option<SessionSecrets>>, Mutex<Option<StoreKey>>);
-
-impl SecretStore for MemorySecrets {
-    fn load(&self) -> Result<Option<SessionSecrets>, SecretStoreError> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-
-    fn save(&self, secrets: &SessionSecrets) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = Some(secrets.clone());
-        Ok(())
-    }
-
-    fn store_key(&self) -> Result<Option<StoreKey>, SecretStoreError> {
-        Ok(self.1.lock().unwrap().clone())
-    }
-
-    fn save_store_key(&self, key: &StoreKey) -> Result<(), SecretStoreError> {
-        *self.1.lock().unwrap() = Some(key.clone());
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<(), SecretStoreError> {
-        *self.0.lock().unwrap() = None;
-        *self.1.lock().unwrap() = None;
-        Ok(())
-    }
-}
 
 /// What the homeserver keeps between requests.
 #[derive(Default)]
@@ -83,10 +57,21 @@ struct Kept {
     held_uploads: Option<String>,
 }
 
+/// What the server saw of the devices' keys, as it happens: a test awaits it.
+#[derive(Default)]
+struct Seen {
+    /// The devices whose keys the server took.
+    keys: BTreeSet<String>,
+    /// The device whose upload is refused asked the server for its own keys, and heard there are
+    /// none.
+    held_keys_asked: bool,
+}
+
 /// A homeserver for one account and its devices.
 struct Homeserver {
     mock: MatrixMockServer,
     kept: Arc<Mutex<Kept>>,
+    seen: Arc<watch::Sender<Seen>>,
     /// The devices' folders, kept until the end of the test.
     folders: Vec<tempfile::TempDir>,
 }
@@ -101,6 +86,7 @@ impl Homeserver {
         let server = Self {
             mock,
             kept,
+            seen: Arc::new(watch::channel(Seen::default()).0),
             folders: Vec::new(),
         };
         server.mount().await;
@@ -111,21 +97,29 @@ impl Homeserver {
         self.kept.lock().unwrap()
     }
 
-    async fn mount(&self) {
-        let server = self.mock.server();
-        let kept = Arc::clone(&self.kept);
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/v3/keys/upload"))
-            .and(move |request: &Request| {
-                let kept = kept.lock().unwrap();
-                kept.held_uploads.as_ref() == Some(&device_of(&kept, request))
-            })
-            .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "errcode": "M_UNKNOWN" })))
-            // before the preset's, which keeps them.
-            .with_priority(1)
-            .mount(server)
-            .await;
+    /// Waits until the server has `device`'s keys.
+    async fn has_keys_of(&self, device: &str) {
+        let mut seen = self.seen.subscribe();
+        within(
+            &format!("{device}'s keys"),
+            seen.wait_for(|seen| seen.keys.contains(device)),
+        )
+        .await
+        .unwrap();
+    }
 
+    /// Waits until the device whose upload is refused asks for its own keys, and hears there are
+    /// none: it waits for them.
+    async fn held_keys_asked(&self) {
+        let mut seen = self.seen.subscribe();
+        within("a look for the held keys", seen.wait_for(|seen| seen.held_keys_asked))
+            .await
+            .unwrap();
+    }
+
+    async fn mount(&self) {
+        self.mount_keys().await;
+        let server = self.mock.server();
         let kept = Arc::clone(&self.kept);
         Mock::given(method("POST"))
             .and(path("/_matrix/client/v3/login"))
@@ -203,6 +197,58 @@ impl Homeserver {
         Mock::given(method("POST"))
             .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
             .respond_with(move |request: &Request| sliding_sync(&kept, request))
+            .mount(server)
+            .await;
+    }
+
+    /// The devices' keys: the preset keeps them, refused for the held device, and what the
+    /// server saw of them goes to [`Seen`].
+    async fn mount_keys(&self) {
+        let server = self.mock.server();
+        let kept = Arc::clone(&self.kept);
+        let seen = Arc::clone(&self.seen);
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/keys/upload"))
+            .and(move |request: &Request| {
+                let kept = kept.lock().unwrap();
+                let device = device_of(&kept, request);
+                let held = kept.held_uploads.as_ref() == Some(&device);
+                let body: Value = serde_json::from_slice(&request.body).unwrap_or_default();
+                // the preset's mock answers and keeps them. Wiremock answers a request before it
+                // reads the next, so a test that sees them here finds them kept.
+                if !held && body.get("device_keys").is_some() {
+                    seen.send_if_modified(|seen| seen.keys.insert(device));
+                }
+                held
+            })
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "errcode": "M_UNKNOWN" })))
+            // before the preset's, which keeps them.
+            .with_priority(1)
+            .mount(server)
+            .await;
+
+        // the held device asks for its own keys: the server has none of them yet.
+        let kept = Arc::clone(&self.kept);
+        let seen = Arc::clone(&self.seen);
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/keys/query"))
+            .and(move |request: &Request| {
+                let kept = kept.lock().unwrap();
+                let Some(held) = kept.held_uploads.as_ref() else {
+                    return false;
+                };
+                let body: Value = serde_json::from_slice(&request.body).unwrap_or_default();
+                device_of(&kept, request) == *held
+                    && body["device_keys"][USER]
+                        .as_array()
+                        .is_some_and(|devices| devices.iter().any(|device| device == held))
+            })
+            .respond_with(move |_: &Request| {
+                seen.send_modify(|seen| seen.held_keys_asked = true);
+                ResponseTemplate::new(200).set_body_json(json!({ "device_keys": { USER: {} }, "failures": {} }))
+            })
+            // before the preset's.
+            .with_priority(1)
             .mount(server)
             .await;
     }
@@ -418,11 +464,11 @@ async fn the_recovery_key_waits_for_the_device_keys_to_reach_the_server() {
         },
     )
     .await;
-    // the key, entered while the device's keys are still on their way.
-    let kept = Arc::clone(&server.kept);
-    let arrive = async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        kept.lock().unwrap().held_uploads = None;
+    // the key, entered while the device's keys are still on their way: they arrive once the
+    // device has found them missing.
+    let arrive = async {
+        server.held_keys_asked().await;
+        server.kept().held_uploads = None;
     };
     let (recovered, ()) = tokio::join!(within("the recovery", second.recover(&key)), arrive);
     recovered.unwrap();
@@ -482,16 +528,10 @@ async fn a_verified_device_verifies_another_of_the_account() {
     )
     .await;
 
-    let devices = within("the devices", async {
-        loop {
-            let devices = first.own_devices().await.unwrap();
-            if devices.len() == 2 {
-                return devices;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await;
+    // the account's devices, as the server has them once the second's keys are there.
+    server.has_keys_of("SECONDDEVICE").await;
+    let devices = first.own_devices().await.unwrap();
+    assert_eq!(devices.len(), 2, "{devices:?}");
     assert!(devices[0].is_this_device && devices[0].is_verified, "this device first");
     assert_eq!(devices[1].id, "SECONDDEVICE");
     assert!(!devices[1].is_verified);
