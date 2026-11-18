@@ -104,13 +104,16 @@ id!(
 );
 
 /// One of a room's timelines: the room's own (its main thread, where a thread's replies do not
-/// show), or the Matrix thread of one of its messages (the root, then its replies).
+/// show), or the Matrix thread of one of its messages (the root, then its replies); live, or
+/// opened around one of its messages (a jump to an old one: its neighbours, paged both ways).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TimelineId {
     /// The room.
     pub room: RoomId,
     /// The thread's root message; `None`: the room's own timeline.
     pub thread: Option<EventId>,
+    /// The message the timeline is opened around; `None`: the live one, at the newest.
+    pub at: Option<EventId>,
 }
 
 impl TimelineId {
@@ -120,14 +123,34 @@ impl TimelineId {
         Self {
             room,
             thread: Some(started_by),
+            at: None,
         }
+    }
+
+    /// This timeline opened around the message of `event` instead of at the newest.
+    #[must_use]
+    pub fn around(self, event: EventId) -> Self {
+        Self {
+            at: Some(event),
+            ..self
+        }
+    }
+
+    /// This timeline at the newest: the live one.
+    #[must_use]
+    pub fn live(self) -> Self {
+        Self { at: None, ..self }
     }
 }
 
 /// The room's own timeline.
 impl From<RoomId> for TimelineId {
     fn from(room: RoomId) -> Self {
-        Self { room, thread: None }
+        Self {
+            room,
+            thread: None,
+            at: None,
+        }
     }
 }
 

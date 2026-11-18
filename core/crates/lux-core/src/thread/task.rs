@@ -976,6 +976,7 @@ impl<B: ThreadBackend> Thread<B> {
         TimelineId {
             room: room.clone(),
             thread: self.root.clone(),
+            at: None,
         }
     }
 

@@ -342,3 +342,122 @@ async fn the_share_extension_sends_to_a_room_the_app_synced() {
         .await
         .unwrap();
 }
+
+// MARK: jumps and the extensions' locks
+
+/// How many context requests the server has had: one per jump the SDK fetches.
+async fn context_requests(server: &MatrixMockServer) -> usize {
+    server
+        .server()
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| request.url.path().contains("/context/"))
+        .count()
+}
+
+/// The app, signed in over its own store, after `jumps` jumps to old messages of one room; the
+/// extension's client on the same store; and the server's context requests so far.
+async fn jumped(
+    server: &MatrixMockServer,
+    folder: &StoreFolder,
+    secrets: &Arc<MemorySecrets>,
+    jumps: usize,
+) -> (Client, Client, crate::MatrixTimelines) {
+    use lux_core::ids::{EventId, RoomId, TimelineId};
+    use lux_core::ports::ChatTimelines;
+    use matrix_sdk::ruma::{OwnedEventId, room_id, user_id};
+    use matrix_sdk::test_utils::mocks::RoomContextResponseTemplate;
+    use matrix_sdk_test::event_factory::EventFactory;
+
+    let room = room_id!("!chat:example.org");
+    server
+        .mock_room_state_encryption()
+        .expect_any_access_token()
+        .plain()
+        .mount()
+        .await;
+    let app = restore(folder, secrets, Process::App).await.unwrap().unwrap();
+    server.sync_joined_room(&app, room).await;
+    let factory = EventFactory::new().room(room);
+    let timelines = crate::MatrixTimelines::new(app.clone());
+    for jump in 0..jumps {
+        let event = OwnedEventId::try_from(format!("$old{jump}")).unwrap();
+        server
+            .mock_room_event_context()
+            .room(room)
+            .match_event_id()
+            // the signed-in session's token, not the mock's default one.
+            .expect_any_access_token()
+            .ok(RoomContextResponseTemplate::new(
+                factory
+                    .text_msg("old")
+                    .sender(user_id!("@alice:example.org"))
+                    .event_id(&event)
+                    .into_event(),
+            ))
+            .mount()
+            .await;
+        let around = TimelineId::from(RoomId::from(room.as_str())).around(EventId::from(event.as_str()));
+        drop(timelines.messages(&around).await.unwrap());
+    }
+    let extension = restore(folder, secrets, Process::NotificationExtension)
+        .await
+        .unwrap()
+        .unwrap();
+    (app, extension, timelines)
+}
+
+/// The app's event cache takes its store's lock again: a sync of the room brings a message.
+async fn app_syncs(server: &MatrixMockServer, app: &Client, body: &str) {
+    use matrix_sdk::ruma::{room_id, user_id};
+    use matrix_sdk_test::JoinedRoomBuilder;
+    use matrix_sdk_test::event_factory::EventFactory;
+
+    let room = room_id!("!chat:example.org");
+    let factory = EventFactory::new().room(room);
+    server
+        .sync_room(
+            app,
+            JoinedRoomBuilder::new(room)
+                .add_timeline_event(factory.text_msg(body).sender(user_id!("@bob:example.org"))),
+        )
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_extensions_work_never_makes_the_app_fetch_its_jumps_again() {
+    let server = server().await;
+    let (_root, folder, secrets) = signed_in(&server).await;
+    for jumps in [1, 10, 50] {
+        let (app, extension, timelines) = jumped(&server, &folder, &secrets, jumps).await;
+        // what the notification extension does: its own sync of the room, over the same store,
+        // with no event cache of its own.
+        app_syncs(&server, &extension, "pushed").await;
+        let before = context_requests(&server).await;
+        app_syncs(&server, &app, "seen").await;
+        let after = context_requests(&server).await;
+        println!(
+            "context requests after the extension's work, {jumps} jumps: {}",
+            after - before
+        );
+        assert_eq!(after, before, "{jumps} jumps");
+        drop((timelines, extension, app));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_process_taking_the_event_cache_lock_makes_the_app_fetch_every_jump_again() {
+    let server = server().await;
+    let (_root, folder, secrets) = signed_in(&server).await;
+    let (app, extension, timelines) = jumped(&server, &folder, &secrets, 10).await;
+    // the one call of a client without an event cache that takes its store's lock.
+    extension.get_store_sizes().await.unwrap();
+    let before = context_requests(&server).await;
+    app_syncs(&server, &app, "seen").await;
+    let after = context_requests(&server).await;
+    // the lock came back dirty: the SDK (14a0ada) reloads each jump's cache from the server.
+    assert_eq!(after - before, 10);
+    drop((timelines, extension, app));
+}

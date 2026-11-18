@@ -1,11 +1,14 @@
 //! One open timeline: a room's own (live, its Matrix threads' replies hidden behind their roots'
-//! summaries) or a Matrix thread's (the SDK's thread focus: the root, then the replies). The
-//! SDK's `Timeline`, the task that maps its items to the core's messages (the only writer of the
-//! list), and the opening fill. Which of them show is the thread's choice (`lux_core::thread`).
+//! summaries) or a Matrix thread's (the SDK's thread focus: the root, then the replies), or either
+//! opened around one message (the SDK's event focus: the server's context of it, paged both
+//! ways). The SDK's `Timeline`, the task that maps its items to the core's messages (the only
+//! writer of the list), and the opening fill. Which of them show is the thread's choice
+//! (`lux_core::thread`).
 
 use lux_core::gone::OtherEndGone;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use eyeball_im::{Vector, VectorDiff};
@@ -19,14 +22,14 @@ use matrix_sdk::ruma::events::receipt::{Receipt, ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use matrix_sdk_ui::Timeline;
 use matrix_sdk_ui::timeline::{
-    EventTimelineItem, RoomExt, TimelineEventItemId, TimelineFocus, TimelineItem, TimelineReadReceiptTracking,
-    VirtualTimelineItem,
+    EventTimelineItem, RoomExt, TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus, TimelineItem,
+    TimelineReadReceiptTracking, VirtualTimelineItem,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::warn;
 
-use super::errors::from_timeline;
+use super::errors::{from_focus, from_timeline};
 use super::items::ItemMapper;
 use super::previews::LinkPreviews;
 use crate::live_list::LiveList;
@@ -50,44 +53,41 @@ const PAGE_APPLIED: Duration = Duration::from_secs(1);
 /// The SDK's items as the follower has mapped them: the messages list is never behind these.
 type Mapped = Vector<Arc<TimelineItem>>;
 
+/// How many events the server's context of a message holds, around it: as many as a tall window
+/// of short messages shows, from one request.
+const CONTEXT: u16 = 100;
+
 /// A room's or a Matrix thread's live timeline, open until the account closes.
 pub(crate) struct RoomTimeline {
     pub(crate) room: Room,
     /// The Matrix thread's root; `None`: the room's own timeline.
     pub(crate) thread: Option<OwnedEventId>,
+    /// The message the timeline was opened around; `None`: the live one.
+    pub(crate) around: Option<OwnedEventId>,
     pub(crate) timeline: Arc<Timeline>,
     messages: LiveList<Arc<TimelineMessage>>,
     mapped: watch::Receiver<Mapped>,
     at_start: watch::Receiver<bool>,
+    /// A timeline opened around a message paged back to the room's (the thread's) first: the SDK
+    /// marks the start only on a live timeline.
+    reached_start: AtomicBool,
     filled: watch::Receiver<bool>,
     _tasks: Vec<crate::task::Owned>,
 }
 
 impl RoomTimeline {
     /// Opens the room's live timeline (the Matrix thread of `thread` instead, if given), and
-    /// starts filling its first screen.
+    /// starts filling its first screen; around the message of `around` instead, if given, its
+    /// first screen the server's context of it.
     pub(crate) async fn open(
         room: Room,
         thread: Option<OwnedEventId>,
+        around: Option<OwnedEventId>,
         changes: broadcast::Sender<RoomId>,
         mut cuts: watch::Receiver<Arc<Organized>>,
         previews: LinkPreviews,
     ) -> Result<Self, BackendError> {
-        let (focus, prefix) = match &thread {
-            Some(started_by) => (
-                TimelineFocus::Thread {
-                    thread_id: started_by.clone(),
-                },
-                format!("{}/{started_by}/", room.room_id()),
-            ),
-            // a thread's replies show in its own timeline; the room's shows its root, summed up.
-            None => (
-                TimelineFocus::Live {
-                    hide_threaded_events: true,
-                },
-                format!("{}/", room.room_id()),
-            ),
-        };
+        let (focus, prefix) = focus_of(room.room_id(), thread.as_ref(), around.as_ref());
         let timeline = Arc::new(
             room.timeline_builder()
                 .with_focus(focus)
@@ -98,8 +98,10 @@ impl RoomTimeline {
                 .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
                 .build()
                 .await
-                .map_err(from_timeline)?,
+                .map_err(if around.is_some() { from_focus } else { from_timeline })?,
         );
+        // a timeline around a thread's reply shows that thread: its root carries no summary.
+        let in_thread = thread.is_some() || timeline.is_threaded();
         let room_id = RoomId::from(room.room_id().as_str());
         let cut_of = |organized: &Organized, room: &RoomId| organized.marks.cleared.get(room.as_str()).copied();
         let cut = cut_of(&cuts.borrow_and_update(), &room_id);
@@ -111,14 +113,15 @@ impl RoomTimeline {
         let (items, stream) = timeline.subscribe().await;
         let (stale_roots, mut stale) = mpsc::unbounded_channel();
         let mut follower = Follower {
-            follows_roots: thread.is_none(),
+            follows_roots: !in_thread,
             followed_roots: HashSet::new(),
             root_followers: JoinSet::new(),
             stale_roots,
             timeline: Arc::clone(&timeline),
-            mapper: match thread {
-                Some(_) => ItemMapper::new(room.clone(), previews.clone()).in_thread(),
-                None => ItemMapper::new(room.clone(), previews.clone()),
+            mapper: if in_thread {
+                ItemMapper::new(room.clone(), previews.clone()).in_thread()
+            } else {
+                ItemMapper::new(room.clone(), previews.clone())
             },
             filter: Filtered::new(),
             messages: messages.clone(),
@@ -163,7 +166,18 @@ impl RoomTimeline {
                 }
             }
         });
-        let fill = crate::task::spawn(keep_filled(Arc::clone(&timeline), filled_sender, mapped.clone()));
+        // the context of a message is its first screen, and only the live timeline is reset by a
+        // limited sync: a focused one has its own cache, which sync events never reach.
+        let fill = if around.is_some() {
+            filled_sender.send_replace(true);
+            None
+        } else {
+            Some(crate::task::spawn(keep_filled(
+                Arc::clone(&timeline),
+                filled_sender,
+                mapped.clone(),
+            )))
+        };
         // a sender's name comes with the room's members; their profiles arrive as changes.
         let members = crate::task::spawn({
             let timeline = Arc::clone(&timeline);
@@ -172,12 +186,14 @@ impl RoomTimeline {
         Ok(Self {
             room,
             thread,
+            around,
             timeline,
             messages,
             mapped,
             at_start,
+            reached_start: AtomicBool::new(false),
             filled,
-            _tasks: vec![follow, fill, members],
+            _tasks: [Some(follow), fill, Some(members)].into_iter().flatten().collect(),
         })
     }
 
@@ -202,7 +218,64 @@ impl RoomTimeline {
 
     /// The timeline holds the room's first message.
     pub(crate) fn is_at_start(&self) -> bool {
-        *self.at_start.borrow()
+        *self.at_start.borrow() || self.reached_start.load(Ordering::Relaxed)
+    }
+
+    /// A timeline opened around a message: one page back of at least `count` events. Its
+    /// messages come through the list as the SDK maps them; nothing waits for them here.
+    pub(crate) async fn page_back_around(&self, count: usize) -> Result<(), BackendError> {
+        let reached = self
+            .timeline
+            .paginate_backwards(u16::try_from(count).unwrap_or(u16::MAX).max(PAGE))
+            .await
+            .map_err(from_timeline)?;
+        self.reached_start.fetch_or(reached, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// A timeline opened around a message: one page forward of at least `count` events; `true`
+    /// once it holds the newest.
+    pub(crate) async fn page_forward(&self, count: usize) -> Result<bool, BackendError> {
+        if self.around.is_none() {
+            // a live timeline is at the newest.
+            return Ok(true);
+        }
+        self.timeline
+            .paginate_forwards(u16::try_from(count).unwrap_or(u16::MAX).max(PAGE))
+            .await
+            .map_err(from_timeline)
+    }
+
+    /// The message the timeline was opened around: its id, and the thread the SDK shows it in.
+    pub(crate) async fn focused(&self) -> Result<lux_core::timeline::Focused, BackendError> {
+        let target = self.around.as_ref().ok_or(BackendError::UnknownMessage)?;
+        let item = self
+            .timeline
+            .items()
+            .await
+            .iter()
+            .filter_map(|item| item.as_event().cloned())
+            .find(|event| event.event_id() == Some(target.as_ref()))
+            .ok_or(BackendError::UnknownMessage)?;
+        // the message as the chat shows it: the cut or the filter may hide it.
+        let shown = self
+            .snapshot()
+            .iter()
+            .find(|message| {
+                message
+                    .event_id
+                    .as_ref()
+                    .is_some_and(|id| id.as_str() == target.as_str())
+            })
+            .map(|message| message.message.id.clone())
+            .ok_or(BackendError::UnknownMessage)?;
+        Ok(lux_core::timeline::Focused {
+            message: shown,
+            thread: item
+                .content()
+                .thread_root()
+                .map(|root| lux_core::ids::EventId::from(root.as_str())),
+        })
     }
 
     /// Pages back until the timeline holds `count` more messages, or the room's first.
@@ -441,6 +514,46 @@ impl RoomTimeline {
             .iter()
             .find_map(|id| messages.iter().find(|message| message.message.id.as_str() == *id))
             .map(|message| message.message.id.clone()))
+    }
+}
+
+/// The SDK's focus of a timeline, and the prefix that makes its messages' ids unique among all
+/// timelines' (the SDK numbers each timeline's items from 0: the room, the thread and the message
+/// it is opened around tell a merged chat's, a thread's root in two timelines and a jump's apart).
+fn focus_of(
+    room: &matrix_sdk::ruma::RoomId,
+    thread: Option<&OwnedEventId>,
+    around: Option<&OwnedEventId>,
+) -> (TimelineFocus, String) {
+    match (thread, around) {
+        // the SDK tells a thread's reply by itself and shows its thread around it; the same
+        // mode in the room's and the thread's timeline reuses the SDK's one fetch of it.
+        (_, Some(target)) => (
+            TimelineFocus::Event {
+                target: target.clone(),
+                num_context_events: CONTEXT,
+                thread_mode: TimelineEventFocusThreadMode::Automatic {
+                    hide_threaded_events: true,
+                },
+            },
+            match thread {
+                Some(started_by) => format!("{room}/{started_by}/@{target}/"),
+                None => format!("{room}/@{target}/"),
+            },
+        ),
+        (Some(started_by), None) => (
+            TimelineFocus::Thread {
+                thread_id: started_by.clone(),
+            },
+            format!("{room}/{started_by}/"),
+        ),
+        // a thread's replies show in its own timeline; the room's shows its root, summed up.
+        (None, None) => (
+            TimelineFocus::Live {
+                hide_threaded_events: true,
+            },
+            format!("{room}/"),
+        ),
     }
 }
 
