@@ -1,9 +1,11 @@
 # Thread Sanitizer suppressions for `swift test --sanitize=thread` (.github/workflows/ci.yml).
 #
-# UniFFI's async calls (Vendor/LuxBindings, generated): Swift suspends in withUnsafeContinuation
-# and passes the continuation's handle to the Rust future; a tokio thread resumes it from
-# `uniffiFutureContinuationCallback` once the future is ready. The hand-off goes through Rust
-# (tokio's wakers and atomics), which is not built with the sanitizer, so TSan sees the write and
-# the resume with no ordering between them and reports a race that is not one. Only that callback:
+# UniFFI's async calls (Vendor/LuxBindings, generated): Swift suspends in withUnsafeContinuation,
+# and `uniffiFutureContinuationCallback` resumes the continuation once the Rust future is ready,
+# at times before the task has reached the await. The task then goes on in place, and TSan sees
+# the resume and the read after it unordered: the Swift runtime gives the sanitizer no acquire on
+# that path, and it reports a race that is not one. It depends on timing: often on the runner
+# (3 cores, macOS 27.0), rarely on a fast Mac (once in some 15 runs, under load, on macOS 27.3).
+# The line goes once Swift's runtime tells the sanitizer about that acquire. Only that callback:
 # a race anywhere else in the bindings or in LuxCore is still reported.
 race:uniffiFutureContinuationCallback

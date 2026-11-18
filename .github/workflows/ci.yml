@@ -110,11 +110,22 @@ jobs:
           fail-on-cache-miss: true
       - name: Test
         run: swift test
+      # TSan names a race's functions with LLVM's symbolizer, not atos: it symbolizes a report before
+      # it matches a suppression, and two reports at once, each waiting seconds on a cold atos, held
+      # TSan's locks and stopped every thread of the test process for 15-25 s. llvm-symbolizer is one
+      # process that answers at once, and it reads non-exported symbols (a fileprivate function, such
+      # as the one suppressed), which TSan's in-process dladdr does not. The runner image has Homebrew's
+      # llvm@20. Its names are mangled; swift-demangle makes the report Swift (pipefail keeps the exit).
+      - name: The symbolizer is there
+        run: test -x /opt/homebrew/opt/llvm@20/bin/llvm-symbolizer
       - name: Test under Thread Sanitizer
-        run: swift test --sanitize=thread --scratch-path .build/tsan
+        shell: bash
+        run: swift test --sanitize=thread --scratch-path .build/tsan 2>&1 | xcrun swift-demangle
         env:
-          # one false race at the Rust boundary is suppressed (Tests/tsan-suppressions.txt).
-          TSAN_OPTIONS: halt_on_error=1 suppressions=${{ github.workspace }}/Tests/tsan-suppressions.txt
+          # one false race, on the runner's macOS, is suppressed (Tests/tsan-suppressions.txt).
+          TSAN_OPTIONS: >-
+            halt_on_error=1 suppressions=${{ github.workspace }}/Tests/tsan-suppressions.txt
+            external_symbolizer_path=/opt/homebrew/opt/llvm@20/bin/llvm-symbolizer
       # a test process that dies leaves its crash report there, not in the log.
       - name: Keep the crash reports
         if: failure()
