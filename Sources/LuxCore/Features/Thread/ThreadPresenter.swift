@@ -13,7 +13,8 @@ public protocol ThreadScreen: AnyObject {
     var scrollGeometry: ScrollGeometry { get }
     /// The top and bottom of the message's row in the content; nil while it is not in the list.
     func rowSpan(of id: String) -> (minY: CGFloat, maxY: CGFloat)?
-    /// Scrolls to `offset`; animated, it calls `didEndScrolling()` once there.
+    /// Scrolls to `offset`. Animated, it calls `didEndScrolling()` when the glide stops, once; a
+    /// later scroll asked for while it goes takes over, and the glide it replaces ends silently.
     func scrollList(to offset: CGFloat, animated: Bool)
     /// Draws the eye to a message the chat glided to.
     func flash(_ id: String)
@@ -56,14 +57,15 @@ public final class ThreadPresenter {
     /// The first messages (or "No messages") are drawn.
     public private(set) var shownFirst = false
     /// The user moved the chat: a first unread message found late no longer moves it.
-    public var userScrolled = false
+    public private(set) var userScrolled = false
     /// The first unread message came late: the next update moves the chat to it.
     private var scrollsToLateUnread = false
     /// The message a quote or the way up asked for: glided to (and flashed) once it is shown.
     private var jumpTarget: String?
+    /// The message the chat glides to, until it is in the middle of the list and flashes.
+    private var gliding: String?
     /// Gliding to a message: older pages wait, one landing above would move it.
-    public private(set) var isJumping = false
-    private var flashOnArrival: String?
+    public var isJumping: Bool { gliding != nil }
     /// The message whose shared post's caption the user just unfolded or folded: its next change animates.
     private var unfolding: String?
     /// The rows switched between a jump's and the live ones: this row goes where the reader's was,
@@ -147,7 +149,7 @@ public final class ThreadPresenter {
     private func remeasure() { show(model.messages, relayout: true) }
 
     /// Measures `new` off the main thread, then the screen shows it, unless a newer update came
-    /// meanwhile. `relayout`: every row may have a new size.
+    /// meanwhile, and a jump goes on with the rows shown. `relayout`: every row may have a new size.
     public func show(_ new: [MessageItem], relayout: Bool = false) {
         // nothing to draw before the model's first answer (an empty chat is drawn as one).
         guard width > 0, let text, model.hasLoaded else { return }
@@ -162,6 +164,7 @@ public final class ThreadPresenter {
             guard let self, generation == self.generation else { return }
             shownGeneration = generation
             screen?.show(new, layouts: layouts, changed: relayout ? new.map(\.id) : changed)
+            jumpOn()
         }
     }
 
@@ -203,6 +206,13 @@ public final class ThreadPresenter {
     }
 
     // MARK: Scrolling
+
+    /// The reader took the chat over (dragged it, scrolled it, went to the newest): a glide under
+    /// way stops there, unflashed, and a first unread message found late no longer moves the chat.
+    public func userStartedScrolling() {
+        userScrolled = true
+        gliding = nil
+    }
 
     /// The list scrolled: older messages are asked for as the reader nears the top, unless the
     /// screen still shows an older update or glides to a message.
@@ -272,18 +282,37 @@ public final class ThreadPresenter {
         jumpIfShown()
     }
 
-    /// Once the message asked for is in the list: glide it to the middle, then flash it. The screen
-    /// calls this after each update it shows.
-    public func jumpIfShown() {
+    /// After every update the screen shows, the first one too: the switched row keeps its place, a
+    /// message asked for glides once its row is shown, and a glide under way aims at its row again,
+    /// which the update may have moved, or whose glide it may have stopped.
+    private func jumpOn() {
         keepSwitchedRow()
-        guard let target = jumpTarget, let screen, let span = screen.rowSpan(of: target) else { return }
+        if jumpTarget != nil { jumpIfShown() } else { glide() }
+    }
+
+    /// Once the message asked for is in the list: glide it to the middle, then flash it.
+    private func jumpIfShown() {
+        guard let target = jumpTarget, screen?.rowSpan(of: target) != nil else { return }
         jumpTarget = nil
+        gliding = target
+        glide()
+    }
+
+    /// Glides to the middle of the message's row, from a screen away when it is far, or, there
+    /// already, flashes it; a row gone from the list (the rows switched) ends the glide.
+    private func glide() {
+        guard let target = gliding, let screen else { return }
+        guard let span = screen.rowSpan(of: target) else {
+            gliding = nil
+            return
+        }
         let geometry = screen.scrollGeometry
         let plan = JumpPlan(toRowFrom: span.minY, to: span.maxY, in: geometry)
+        if plan.arrived(from: geometry.offset) {
+            gliding = nil
+            return screen.flash(target)
+        }
         if let start = plan.start { screen.scrollList(to: start, animated: false) }
-        isJumping = true
-        flashOnArrival = target
-        if plan.arrived(from: geometry.offset) { return didEndScrolling() }
         screen.scrollList(to: plan.end, animated: true)
     }
 
@@ -304,10 +333,7 @@ public final class ThreadPresenter {
     /// An update switching the rows between a jump's and the live ones goes in unanimated.
     public var isSwitching: Bool { switchTo != nil || landsAtBottom }
 
-    /// An animated scroll ended: a message glided to flashes.
-    public func didEndScrolling() {
-        isJumping = false
-        if let id = flashOnArrival { screen?.flash(id) }
-        flashOnArrival = nil
-    }
+    /// An animated scroll ended: a message glided to flashes, in the middle of the list; a glide
+    /// something stopped short of it goes on.
+    public func didEndScrolling() { glide() }
 }

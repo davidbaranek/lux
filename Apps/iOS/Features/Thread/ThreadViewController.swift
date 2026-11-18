@@ -32,10 +32,14 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     /// "Anna is typing…" with her picture, above the composer.
     private let typing = TypingView()
     private var swipeToReply: SwipeToReply?
+    /// Where the presenter's glide ends, while it goes.
+    private var glideEnd: CGFloat?
     /// Back to the newest message, when the reader is a screen or more above it.
     private lazy var jumpToBottom = UIButton(configuration: .glass(), primaryAction: UIAction { [weak self] _ in
         // a jump's rows give way to the live ones; live rows scroll down.
-        guard let self, !presenter.returnToLive() else { return }
+        guard let self else { return }
+        presenter.userStartedScrolling()
+        guard !presenter.returnToLive() else { return }
         scrollToBottom(animated: true)
     })
 
@@ -320,8 +324,9 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         let shownFirst = presenter.shownFirst
         defer { updateEmpty() }
         guard ids != order || !changed.isEmpty || !shownFirst else { return }
-        // a message of yours just went out: the chat follows it to the bottom, as Messages does.
-        let sentNow = new.last.map { $0.isOwn && messages[$0.id] == nil && shownFirst } ?? false
+        // a message of yours just went out: the chat follows it to the bottom, as Messages does. A
+        // jump's rows take newer pages at their end, none of them sent now.
+        let sentNow = new.last.map { $0.isOwn && messages[$0.id] == nil && shownFirst && model.isLive } ?? false
         let atBottom = isAtBottom || sentNow
         // older messages came in above: keep what is on screen where it is.
         let prepended = order.first.map { first in ids.first != first } ?? false
@@ -353,7 +358,6 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             }
             return
         }
-        defer { presenter.jumpIfShown() }
         let existing = Set(dataSource.snapshot().itemIdentifiers)
         snapshot.reconfigureItems(changed.filter(existing.contains))
         if prepended {
@@ -536,6 +540,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        // UIKit also ends an animation another scroll replaced, where it stopped: only the
+        // presenter's last glide, arrived, is its end.
+        guard let end = glideEnd, abs(scrollView.contentOffset.y - end) < 1 else { return }
+        glideEnd = nil
         presenter.didEndScrolling()
     }
 
@@ -552,7 +560,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        presenter.userScrolled = true
+        presenter.userStartedScrolling()
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -626,6 +634,7 @@ extension ThreadViewController: ThreadScreen {
     }
 
     func scrollList(to offset: CGFloat, animated: Bool) {
+        glideEnd = animated ? offset : nil
         collectionView.setContentOffset(CGPoint(x: collectionView.contentOffset.x, y: offset), animated: animated)
         if !animated { collectionView.layoutIfNeeded() }
     }
