@@ -25,7 +25,7 @@ use futures_util::stream;
 use lux_core::ids::{EventId, MessageId, RoomId, TimelineId};
 use lux_core::organizer::Organized;
 use lux_core::ports::{BackendError, ChatTimelines, DiffStream, RoomChanges, TimelineHold, TypingStream};
-use lux_core::timeline::{IndexHistory, TimelineMessage};
+use lux_core::timeline::{Focused, IndexHistory, TimelineMessage};
 use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
 use matrix_sdk::{Client, Room};
 use tokio::sync::{broadcast, watch};
@@ -89,12 +89,12 @@ impl MatrixTimelines {
     async fn open(&self, timeline: &TimelineId) -> Result<Arc<RoomTimeline>, BackendError> {
         let sdk_room = self.room(&timeline.room)?;
         let key = key(timeline)?;
-        let thread = key.thread.clone();
+        let (thread, around) = (key.thread.clone(), key.around.clone());
         let cell = self.opened.use_room(key).await.ok_or(BackendError::SignedOut)?;
         let (changes, cuts, previews) = (self.changes.clone(), self.cuts.clone(), self.previews.clone());
         // opening builds the SDK's timeline, a large future: on the heap, not in each caller's.
         cell.get_or_try_init(|| async move {
-            Box::pin(RoomTimeline::open(sdk_room, thread, changes, cuts, previews))
+            Box::pin(RoomTimeline::open(sdk_room, thread, around, changes, cuts, previews))
                 .await
                 .map(Arc::new)
         })
@@ -133,13 +133,12 @@ impl MatrixTimelines {
 fn key(timeline: &TimelineId) -> Result<Key, BackendError> {
     let room = OwnedRoomId::try_from(timeline.room.as_str())
         .map_err(|_| BackendError::UnknownChat(lux_core::ids::ChatId::Room(timeline.room.clone())))?;
-    let thread = match &timeline.thread {
-        Some(started_by) => {
-            Some(OwnedEventId::try_from(started_by.as_str()).map_err(|_| BackendError::UnknownMessage)?)
-        }
-        None => None,
-    };
-    Ok(Key { room, thread })
+    let event = |event: &EventId| OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage);
+    Ok(Key {
+        room,
+        thread: timeline.thread.as_ref().map(event).transpose()?,
+        around: timeline.at.as_ref().map(event).transpose()?,
+    })
 }
 
 impl ChatTimelines for MatrixTimelines {
@@ -179,7 +178,19 @@ impl ChatTimelines for MatrixTimelines {
     }
 
     async fn load_older(&self, timeline: &TimelineId, count: usize) -> Result<(), BackendError> {
-        self.open(timeline).await?.load_older(count).await
+        let opened = self.open(timeline).await?;
+        if timeline.at.is_some() {
+            return opened.page_back_around(count).await;
+        }
+        opened.load_older(count).await
+    }
+
+    async fn load_newer(&self, timeline: &TimelineId, count: usize) -> Result<bool, BackendError> {
+        self.open(timeline).await?.page_forward(count).await
+    }
+
+    async fn focused(&self, timeline: &TimelineId) -> Result<Focused, BackendError> {
+        self.open(timeline).await?.focused().await
     }
 
     async fn is_at_start(&self, timeline: &TimelineId) -> Result<bool, BackendError> {

@@ -715,6 +715,7 @@ pub(crate) fn timeline_id(room_id: String, thread_root: Option<String>) -> Timel
     TimelineId {
         room: RoomId::from(room_id),
         thread: thread_root.map(EventId::from),
+        at: None,
     }
 }
 

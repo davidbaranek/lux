@@ -18,7 +18,9 @@ use futures_core::Stream;
 
 use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::message::SendState;
-use crate::timeline::{Draft, ImageSource, IndexHistory, OutgoingAttachment, Receipt, TimelineMessage, Typist};
+use crate::timeline::{
+    Draft, Focused, ImageSource, IndexHistory, OutgoingAttachment, Receipt, TimelineMessage, Typist,
+};
 
 use super::{BackendError, DiffStream};
 
@@ -73,6 +75,14 @@ pub trait ChatTimelines: Send + Sync {
 
     /// The timeline's messages, oldest first, as they change: a `Reset` with those it has, then
     /// each batch. No two messages share an id, in this timeline or any other.
+    ///
+    /// A timeline opened around a message ([`TimelineId::at`]) is fetched first: its first batch
+    /// holds that message and its neighbours. It shows no new messages (those come to the live
+    /// one), only what changes on those it holds.
+    ///
+    /// # Errors
+    /// [`BackendError::UnknownMessage`] when the server has no such message, and
+    /// [`BackendError::NotAllowed`] when the account may not see it.
     fn messages(
         &self,
         timeline: &TimelineId,
@@ -88,6 +98,18 @@ pub trait ChatTimelines: Send + Sync {
     /// Pages back on the server until the timeline holds `count` more messages than now, or the
     /// timeline's first one. Which of them show is the thread's choice ([`Window`](crate::timeline::Window)).
     fn load_older(&self, timeline: &TimelineId, count: usize) -> impl Future<Output = Result<(), BackendError>> + Send;
+
+    /// Pages forward on the server, a timeline opened around a message (a live one is always at
+    /// the newest): `true` once it holds the newest message, nothing newer to ask for.
+    fn load_newer(
+        &self,
+        timeline: &TimelineId,
+        count: usize,
+    ) -> impl Future<Output = Result<bool, BackendError>> + Send;
+
+    /// The message a timeline was opened around ([`TimelineId::at`]): its id there, and the
+    /// Matrix thread the server put it in (a thread's reply shows among its thread's).
+    fn focused(&self, timeline: &TimelineId) -> impl Future<Output = Result<Focused, BackendError>> + Send;
 
     /// The timeline holds its first message (a thread's root), its first screen in: there is
     /// nothing older on the server.
