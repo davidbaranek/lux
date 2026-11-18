@@ -100,6 +100,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     private let empty = NSTextField(labelWithString: String(localized: "No messages"))
     private var shownFirst: Bool { presenter.shownFirst }
     private var layouts: [String: MessageLayout] = [:]
+    /// The scrolls the presenter asked for: only the last one's glide tells its end.
+    private var scrolls = 0
     private let text = MessageText()
     /// The inspector is opening or closing beside the chat: the chat resizes live, as it does
     /// while the user drags the window's edge.
@@ -181,7 +183,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             guard let self, row < order.count, let message = messages[order[row]] else { return }
             model.reply(to: message)
         }
-        table.onScrollWheel = { [weak self] in self?.presenter.userScrolled = true }
+        table.onScrollWheel = { [weak self] in self?.presenter.userStartedScrolling() }
         table.setAccessibilityIdentifier("messages")
         scroll.documentView = table
         scroll.hasVerticalScroller = true
@@ -476,7 +478,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         guard ids != order || !changed.isEmpty || !shownFirst else { return }
         // the first messages (also after an empty first answer) land at the bottom.
         // a message of yours just went out: the chat follows it to the bottom, as Messages does.
-        let sentNow = new.last.map { $0.isOwn && messages[$0.id] == nil && shownFirst } ?? false
+        // a jump's rows take newer pages at their end, none of them sent now.
+        let sentNow = new.last.map { $0.isOwn && messages[$0.id] == nil && shownFirst && model.isLive } ?? false
         let atBottom = !shownFirst || order.isEmpty || isAtBottom || sentNow
         let prepended = order.first.map { ids.first != $0 } ?? false
         let oldOrder = order, oldLayouts = self.layouts
@@ -502,7 +505,6 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: clip.bounds.minY + above))
             clip.postsBoundsChangedNotifications = true
         }
-        defer { presenter.jumpIfShown() }
         // no animation: the table would slide rows from their old places and animate new heights,
         // and the chat would visibly shift under the reader; but a caption the user unfolds or
         // folds grows or shrinks before their eyes.
@@ -558,7 +560,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     }
 
     @objc private func userStartedScrolling() {
-        presenter.userScrolled = true
+        presenter.userStartedScrolling()
     }
 
     /// The first row whose top half is on screen, and how far below the clip's top it starts.
@@ -625,6 +627,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 
     @objc private func scrollToNewest() {
         // a jump's rows give way to the live ones; live rows scroll down.
+        presenter.userStartedScrolling()
         guard !order.isEmpty, !presenter.returnToLive() else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.allowsImplicitAnimation = true
@@ -652,6 +655,9 @@ extension ThreadController: ThreadScreen {
 
     func scrollList(to offset: CGFloat, animated: Bool) {
         let clip = scroll.contentView
+        // AppKit ends a replaced animation group too: only the last scroll asked for tells its end.
+        scrolls += 1
+        let asked = scrolls
         guard animated else {
             clip.scroll(to: NSPoint(x: 0, y: offset))
             return scroll.reflectScrolledClipView(clip)
@@ -665,7 +671,7 @@ extension ThreadController: ThreadScreen {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.scroll.reflectScrolledClipView(clip)
-                self.presenter.didEndScrolling()
+                if asked == self.scrolls { self.presenter.didEndScrolling() }
             }
         })
     }

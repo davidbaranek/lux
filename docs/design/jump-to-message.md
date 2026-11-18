@@ -173,7 +173,10 @@ window of short messages where 25 a side may not.
   they name the room and message, and the adapter finds the open timeline that shows the message
   (`Opened::of_room` includes focused timelines). Reactions and edits from others update the rows
   (SDK aggregations); thread summaries on detached roots stay as loaded.
-- **Highlight.** The target flashes as today (`ThreadPresenter.jumpIfShown` → `screen.flash`).
+- **Highlight.** The target flashes once it is in the middle of the list (`ThreadPresenter.glide` →
+  `screen.flash`). The presenter goes on with a jump after every update the screen shows, the
+  first one too: the jump's rows fill in over several updates, each of which may move the row or
+  stop the glide, so the glide aims at the row again until it arrives.
 
 ### The seam back to live
 
