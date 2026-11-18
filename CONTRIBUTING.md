@@ -18,7 +18,7 @@ cd .. && sh scripts/check-swift-errors.sh && swift test
 
 `lux-core` does not depend on the SDK, so `cargo test -p lux-core` takes seconds. Use it as the
 inner loop. CI runs the three `cargo` checks, `check-swift-errors.sh`, the Swift tests (also under
-Thread Sanitizer) and both apps' builds on every pull request. The simulator smoke test runs only
+Thread Sanitizer), both apps' builds and their view tests on every pull request. The simulator smoke test runs only
 by hand, before a TestFlight build: from the Actions tab (`workflow_dispatch`) or locally
 (docs/releasing.md). So do the photo search tests that need Vision or its model, which CI's
 virtual machines cannot run (docs/releasing.md says how).
@@ -64,6 +64,24 @@ with it (Xcode Cloud builds from the committed project).
   and the performance tests (`PerformanceTests`: the launch, and scrolling the chat list and a
   chat). Both run by hand: the smoke test before a TestFlight build, from the Actions tab or
   locally.
+- Views: `Apps/ViewTests` holds the view controllers' tests (Swift Testing), in two bundles the
+  apps host, `Lux-iOS-Tests` and `Lux-Mac-Tests`, each with its scheme. A test makes a controller
+  over a demo session of its own (`DemoAccount`), loads its view and reads what UIKit or AppKit
+  shows, never the controller's private state: a list's diffable snapshot, its cells, how an update
+  reached them (the rules in [AGENTS.md](AGENTS.md)), and where a chat opens. Nothing is put in a
+  window or drawn, and the tests wait on the model's and the views' announcements (`Changes`,
+  key-value observing, view notifications), so they need no GPU. The app hosting them runs the demo
+  (`-LuxDemo`, set by the schemes), never the account saved on the machine. CI runs both on every
+  pull request; locally:
+
+  ```sh
+  xcodebuild test -scheme Lux-Mac-Tests -destination 'platform=macOS'
+  xcodebuild test -scheme Lux-iOS-Tests -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+  ```
+
+  A Lux already running on the Mac with the same bundle id (a TestFlight build) keeps the Mac's
+  test host from launching (LaunchServices error -10699): quit it, or build the tests under
+  another id, `LUX_BUNDLE_ID=com.example.lux.tests`.
 - Name a test after the behaviour it checks, for example "a muted chat sends no notification".
   Await the observable change with a timeout, never a sleep.
 - Test with a test account on a test server, never a personal one. Bridges pass read receipts,
