@@ -5,9 +5,8 @@
 //! iOS ends an app that holds a lock on a file in a shared container; the next job opens it again.
 //!
 //! [`Worker::close`] ends the thread and awaits it, blocking no thread meanwhile. A handle dropped
-//! without it stops the thread and waits for it there: the connection is closed when the handle
-//! drops, never by a thread still running while the process exits (SQLCipher's teardown at exit
-//! frees what an unfinished close still uses).
+//! without it stops the thread and waits for it there. A process that exits while the thread runs
+//! waits for its call in SQLite, and the thread makes no other ([`crate::exit`]).
 
 use lux_core::gone::OtherEndGone;
 use std::sync::mpsc;
@@ -16,6 +15,7 @@ use std::thread::{self, JoinHandle};
 use rusqlite::Connection;
 use tokio::sync::oneshot;
 
+use crate::exit::{self, Call};
 use crate::{Error, Result};
 
 type Job = Box<dyn FnOnce(Result<&mut Connection>) + Send>;
@@ -42,7 +42,9 @@ impl Worker {
     pub(crate) async fn start(open: impl Fn() -> Result<Connection> + Send + 'static) -> Result<Self> {
         let (messages, inbox) = mpsc::channel::<Message>();
         let (opened, opening) = oneshot::channel();
+        exit::watch();
         let thread = thread::Builder::new().name("lux-store".into()).spawn(move || {
+            let first = Call::begin();
             let mut connection = match open() {
                 Ok(connection) => {
                     opened.send(Ok(())).other_end_may_be_gone("the store's opener");
@@ -53,7 +55,10 @@ impl Worker {
                     return;
                 }
             };
+            drop(first);
             for message in inbox {
+                // each message runs in SQLite: opening, a job, closing.
+                let _call = Call::begin();
                 match message {
                     Message::Run(job) => match &mut connection {
                         Some(connection) => job(Ok(connection)),

@@ -135,7 +135,10 @@ Each port has one adapter; each piece of mutable state has one owning task:
   (`clippy::unwrap_used` denied). Panics are bugs.
 - Async with Tokio. Live data as `Stream`s or `eyeball` observables, as the SDK uses; one task
   owns each piece of mutable state (no shared locks across await points). A thread or task the
-  core starts ends with the object that owns it, never at the process's exit.
+  core starts ends with the object that owns it, never at the process's exit. A process may still
+  exit with a store open (the app quits, iOS ends it, a test runner is done): its exit waits for
+  the store's call in SQLite and lets no other start, since SQLCipher frees its ciphers' memory in
+  an exit handler of its own (`lux-store/src/exit.rs`).
 - Ownership instead of copies: `Arc` for shared immutable data, borrowing in pure functions,
   no deep clones on hot paths: the chat list shares unchanged chats as `Arc`s from the room list
   to the apps, the timeline keeps its messages as `Arc`s.

@@ -2318,6 +2318,7 @@ dependencies = [
 name = "lux-store"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "lux-core",
  "matrix-sdk-base",
  "matrix-sdk-sqlite",
