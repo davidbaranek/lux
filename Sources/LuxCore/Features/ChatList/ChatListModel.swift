@@ -6,17 +6,31 @@ import Foundation
 /// UI which rows changed, and forwards the user's intents.
 @MainActor
 public final class ChatListModel {
+    /// The sections of the place shown. A batch the core sent before it took the newest place
+    /// asked for is of the place before: it builds `listed`, and shows with the newest place's.
     public private(set) var sections: [ChatSection] = []
     /// Every row shown, in order.
     public var rows: [ChatRow] { sections.flatMap(\.rows) }
     public private(set) var places: [PlaceItem] = []
-    /// The place the list shows; setting it shows that place's chats.
+    /// The place the list shows; setting it shows that place's chats. The user's choice: a batch
+    /// changes it only when it shows the newest choice and the core moved away from it (the place
+    /// went away), never with a place asked for before it.
     public var place: Place = .inbox {
         didSet {
-            guard place != oldValue, !followingPlace else { return }
-            list?.select(place)
+            guard place != oldValue, !followingPlace, let list else { return }
+            askedSelection = list.select(place)
         }
     }
+    /// The newest selection asked of the core (0: the place the list opened at), and the newest a
+    /// batch showed.
+    private var askedSelection: UInt64 = 0
+    private var shownSelection: UInt64 = 0
+    /// The core's sections as its batches built them, shown once they are of the newest place.
+    private var listed: [ChatSection] = []
+    /// The rows changed in batches of a place asked for before, and whether there were any such
+    /// batches: they show with the newest place's.
+    private var heldChanges: [String] = []
+    private var held = false
     /// Which of the place's chats show; nil shows them all.
     public var filter: ChatFilter? {
         didSet {
@@ -189,7 +203,9 @@ public final class ChatListModel {
         defer { for id in Array(batchWaiters.keys) { resumeWaiter(id) } }
         let state = Signposts.list.beginInterval("batch")
         let first = !published
-        let changed = sections.apply(batch)
+        if let selection = batch.selection { shownSelection = selection }
+        let current = shownSelection == askedSelection
+        let changed = listed.apply(batch)
         saved.merge(batch.saved) { _, new in new }
         scheduled.merge(batch.scheduled) { _, new in new }
         if let labels = batch.labels { self.labels = labels }
@@ -198,7 +214,7 @@ public final class ChatListModel {
         if let reminders = batch.reminders {
             notifications.sync(reminders.map { (roomId: $0.chatId, name: $0.name, date: $0.date) })
         }
-        if batch.place != place {
+        if current, batch.place != place {
             followingPlace = true
             place = batch.place
             followingPlace = false
@@ -218,12 +234,21 @@ public final class ChatListModel {
             onPlaces?(places)
         }
         Signposts.list.endInterval("batch", state, "\(changed.count) changed")
-        guard first || batch.sections != nil || !batch.rows.isEmpty else { return }
+        guard current else {
+            heldChanges.append(contentsOf: changed)
+            held = true
+            return
+        }
+        guard first || held || batch.sections != nil || !batch.rows.isEmpty else { return }
+        sections = listed
+        let shownChanges = heldChanges + changed
+        heldChanges.removeAll()
+        held = false
         if first {
             for row in sections.flatMap(\.rows).prefix(Self.prefetchedOnLaunch) { prefetch(row.id) }
         }
         published = true
-        onUpdate?(sections, changed)
+        onUpdate?(sections, shownChanges)
     }
 
     // MARK: Prefetching

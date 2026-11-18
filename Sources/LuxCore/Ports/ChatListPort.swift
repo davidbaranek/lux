@@ -6,7 +6,10 @@ import Foundation
 protocol ChatListView: Sendable {
     /// The list's batches and failed intents as they come.
     var events: AsyncStream<ChatListEvent> { get }
-    func select(_ place: Place)
+    /// Shows `place`; returns this selection's number, which the batches that show it carry
+    /// (`ChatListBatch.selection`). Each is greater than the one before; 0 is the place the list
+    /// opened at.
+    func select(_ place: Place) -> UInt64
     func setFilter(_ filter: ChatFilter?)
     func setOrder(_ order: ChatOrder)
     func setDrafts(_ drafts: Set<String>)

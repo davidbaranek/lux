@@ -161,8 +161,12 @@ impl From<DueReminder> for CoreDueReminder {
 /// One frame's changes to the chat list; what did not change is none or empty.
 #[derive(uniffi::Record)]
 pub struct CoreListUpdate {
-    /// The place shown.
+    /// The place shown: the one asked for, or the inbox when that place went away.
     pub place: CorePlace,
+    /// The newest selection ([`CoreChatList::select_place`]'s number, 0 for the place the list
+    /// started at) this batch shows, when newer than the last batch's: a batch before the newest
+    /// selection's shows the place asked for before.
+    pub selection: Option<u64>,
     /// The places, when any changed.
     pub places: Option<Vec<CoreListedPlace>>,
     /// The colour of the places without one of their own, when it changed.
@@ -210,6 +214,7 @@ impl From<ListUpdate> for CoreListUpdate {
     fn from(update: ListUpdate) -> Self {
         Self {
             place: update.place.into(),
+            selection: update.selection,
             places: update
                 .places
                 .map(|places| places.into_iter().map(CoreListedPlace::from).collect()),
@@ -384,9 +389,9 @@ impl CoreChatList {
         }
     }
 
-    /// Shows `place`.
-    pub fn select_place(&self, place: CorePlace) {
-        self.list.select_place(PlaceId::from(place));
+    /// Shows `place`; returns this selection's number, which the batches that show it carry.
+    pub fn select_place(&self, place: CorePlace) -> u64 {
+        self.list.select_place(PlaceId::from(place))
     }
 
     /// Shows only the chats `filter` admits; none shows them all.

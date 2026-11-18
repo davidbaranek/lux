@@ -26,6 +26,8 @@ struct Shown {
     theme: Option<Theme>,
     kept_out: Option<HashMap<ChatId, PlaceId>>,
     badge: Option<Badge>,
+    /// The selection the last batch answered.
+    selection: Option<u64>,
 }
 
 /// The list's state.
@@ -36,6 +38,8 @@ pub(crate) struct ListState {
     /// An arrangement the user just made, shown until the account has it.
     arranging: Option<Arrangement>,
     place: PlaceId,
+    /// The newest of the apps' selections taken: 0, the place the list started at, until one.
+    selection: u64,
     filter: Option<ChatFilter>,
     order: ChatOrder,
     drafts: HashSet<ChatId>,
@@ -60,6 +64,7 @@ impl ListState {
             organized: Arc::default(),
             arranging: None,
             place,
+            selection: 0,
             filter,
             order,
             drafts,
@@ -75,8 +80,13 @@ impl ListState {
         !self.snapshot.chats.is_empty()
     }
 
-    /// Shows `place`; true when it is another.
-    pub(crate) fn select(&mut self, place: PlaceId) -> bool {
+    /// Shows `place`, the apps' selection numbered `selection`; true when it is another place.
+    /// A selection older than one taken (asked for from another thread, it came later) is not.
+    pub(crate) fn select(&mut self, place: PlaceId, selection: u64) -> bool {
+        if selection <= self.selection {
+            return false;
+        }
+        self.selection = selection;
         let changed = self.place != place;
         self.place = place;
         changed
@@ -214,35 +224,16 @@ impl ListState {
             }
             self.shown.sections.push((header.clone(), new));
         }
-        let labels = (self.shown.labels.as_ref() != Some(&self.snapshot.labels)).then(|| self.snapshot.labels.clone());
-        if let Some(labels) = &labels {
-            self.shown.labels = Some(labels.clone());
-        }
-        let due = reminders(&self.snapshot.chats);
-        let reminders = (self.shown.reminders.as_ref() != Some(&due)).then_some(due);
-        if let Some(reminders) = &reminders {
-            self.shown.reminders = Some(reminders.clone());
-        }
-        let loading = (self.shown.loading != Some(loading)).then_some(loading);
-        if loading.is_some() {
-            self.shown.loading = loading;
-        }
-        let theme = (self.shown.theme != Some(arrangement.theme)).then_some(arrangement.theme);
-        if theme.is_some() {
-            self.shown.theme = theme;
-        }
-        let now_kept_out = places::kept_out(&self.snapshot, &arrangement);
-        let kept_out = (self.shown.kept_out.as_ref() != Some(&now_kept_out)).then_some(now_kept_out);
-        if let Some(kept_out) = &kept_out {
-            self.shown.kept_out = Some(kept_out.clone());
-        }
-        let now_badge = places::badge(&self.snapshot, &arrangement);
-        let badge = (self.shown.badge.as_ref() != Some(&now_badge)).then_some(now_badge);
-        if let Some(badge) = &badge {
-            self.shown.badge = Some(badge.clone());
-        }
+        let labels = news(&mut self.shown.labels, self.snapshot.labels.clone());
+        let reminders = news(&mut self.shown.reminders, reminders(&self.snapshot.chats));
+        let loading = news(&mut self.shown.loading, loading);
+        let theme = news(&mut self.shown.theme, arrangement.theme);
+        let kept_out = news(&mut self.shown.kept_out, places::kept_out(&self.snapshot, &arrangement));
+        let badge = news(&mut self.shown.badge, places::badge(&self.snapshot, &arrangement));
+        let selection = news(&mut self.shown.selection, self.selection);
         ListUpdate {
             place: self.place.clone(),
+            selection,
             places,
             theme,
             sections: headers_changed.then_some(headers),
@@ -254,6 +245,15 @@ impl ListState {
             badge,
         }
     }
+}
+
+/// `now` when it is not what was last `shown` (it is from now on), else `None`.
+fn news<T: PartialEq + Clone>(shown: &mut Option<T>, now: T) -> Option<T> {
+    if shown.as_ref() == Some(&now) {
+        return None;
+    }
+    *shown = Some(now.clone());
+    Some(now)
 }
 
 /// The chats with a reminder, by chat id.

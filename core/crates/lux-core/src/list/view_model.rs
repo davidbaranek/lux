@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::mem;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use eyeball_im::VectorDiff;
@@ -78,7 +79,8 @@ impl Default for ListSetup {
 
 /// What the apps ask of the list, and what its own actions report back.
 enum Intent {
-    Place(PlaceId),
+    /// A place, with the number of its selection.
+    Place(PlaceId, u64),
     Filter(Option<ChatFilter>),
     Order(ChatOrder),
     Drafts(HashSet<ChatId>),
@@ -128,6 +130,8 @@ enum Action {
 /// A chat list: the handle on its task. Dropped, the task stops.
 pub struct ChatListViewModel {
     intents: mpsc::UnboundedSender<Intent>,
+    /// The last selection's number.
+    selections: AtomicU64,
     task: JoinHandle<()>,
 }
 
@@ -149,7 +153,11 @@ impl ChatListViewModel {
     {
         let (intents, inbox) = mpsc::unbounded_channel();
         let task = runtime.spawn(run(kept, backend, setup, inbox, intents.clone(), listener));
-        Self { intents, task }
+        Self {
+            intents,
+            selections: AtomicU64::new(0),
+            task,
+        }
     }
 
     fn send(&self, intent: Intent) {
@@ -157,9 +165,12 @@ impl ChatListViewModel {
         self.intents.send(intent).other_end_may_be_gone("the list's task");
     }
 
-    /// Shows `place`.
-    pub fn select_place(&self, place: PlaceId) {
-        self.send(Intent::Place(place));
+    /// Shows `place`; returns this selection's number, which the batches that show it carry
+    /// ([`ListUpdate::selection`]). Each selection's is greater than the one before.
+    pub fn select_place(&self, place: PlaceId) -> u64 {
+        let selection = self.selections.fetch_add(1, Ordering::Relaxed) + 1;
+        self.send(Intent::Place(place, selection));
+        selection
     }
 
     /// Shows only the chats `filter` admits; `None` shows them all.
@@ -449,9 +460,9 @@ async fn read_scheduled<B: ChatListBackend>(account: &B, outbox: &mpsc::Unbounde
 /// An intent's change to the list; true when the list must be composed again.
 fn handle<B: ChatListBackend>(intent: Intent, state: &mut ListState, actor: &mut Actor<B>) -> bool {
     match intent {
-        Intent::Place(place) => {
+        Intent::Place(place, selection) => {
             let opens_scheduled = place == PlaceId::Scheduled;
-            if state.select(place) && opens_scheduled {
+            if state.select(place, selection) && opens_scheduled {
                 actor.act(Action::ReadScheduled);
             }
         }
@@ -850,6 +861,24 @@ mod tests {
                 break;
             }
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_batch_says_the_newest_selection_it_shows() {
+        let demo = demo();
+        let (list, mut batches) = list(&demo);
+        let first = next(&mut batches).await;
+        assert_eq!((first.place.clone(), first.selection), (PlaceId::INBOX, Some(0)));
+        let signal = PlaceId::Network(Network::from_id("signal"));
+        assert_eq!(list.select_place(signal.clone()), 1);
+        let batch = next(&mut batches).await;
+        assert_eq!((batch.place, batch.selection), (signal, Some(1)));
+        // asked for and left before a batch: nothing else changed, the batch still says so.
+        assert_eq!(list.select_place(PlaceId::Folder(Folder::Archive)), 2);
+        assert_eq!(list.select_place(PlaceId::INBOX), 3);
+        let batch = next(&mut batches).await;
+        assert_eq!((batch.place, batch.selection), (PlaceId::INBOX, Some(3)));
+        nothing_more(&mut batches).await;
     }
 
     #[tokio::test(start_paused = true)]

@@ -31,6 +31,9 @@ struct ChatListBatch: Sendable {
 
     /// The place shown: the one asked for, or the inbox when it went away.
     var place: Place
+    /// The newest selection (`ChatListView.select`'s number) this batch shows, when newer than the
+    /// last batch's. Until the newest one asked for comes, a batch shows a place asked for before.
+    var selection: UInt64?
     var places: [PlaceItem]?
     /// The colour of the places without one of their own, when it changed.
     var theme: PlaceTheme?

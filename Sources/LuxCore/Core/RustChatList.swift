@@ -38,7 +38,7 @@ final class RustChatList: ChatListView {
         }
     }
 
-    func select(_ place: Place) { list.selectPlace(place: CorePlace(place)) }
+    func select(_ place: Place) -> UInt64 { list.selectPlace(place: CorePlace(place)) }
     func setFilter(_ filter: ChatFilter?) { list.setFilter(filter: filter.map(CoreChatFilter.init)) }
     func setOrder(_ order: ChatOrder) { list.setOrder(order: CoreChatOrder(order)) }
     func setDrafts(_ drafts: Set<String>) { list.setDrafts(drafts: Array(drafts)) }
@@ -114,7 +114,7 @@ private extension ChatListBatch {
         let rows = update.rows.map { section in
             SectionEdits(section: section.section.key, edits: section.diffs.map { $0.edit.map(row) })
         }
-        self.init(place: place,
+        self.init(place: place, selection: update.selection,
                   places: update.places?.map { listed in
                       let place = Place(listed.place)
                       let avatar: ImageRef? = if case .space(let id) = place { listed.avatar.map { .room(id: id, version: $0) } } else { nil }
