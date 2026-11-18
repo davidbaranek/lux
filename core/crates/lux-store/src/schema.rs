@@ -108,7 +108,14 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
     for (version, migration) in (found + 1..).zip(MIGRATIONS.iter().skip(usize::try_from(found).unwrap_or(usize::MAX)))
     {
         let transaction = connection.transaction()?;
-        transaction.execute_batch(migration)?;
+        // a migration that shipped runs on the schema of the version before it: an SQL error is
+        // a file whose schema is not the one its version says.
+        transaction
+            .execute_batch(migration)
+            .map_err(|error| match error.sqlite_error_code() {
+                Some(rusqlite::ErrorCode::Unknown) => Error::Damaged,
+                _ => Error::from(error),
+            })?;
         transaction.pragma_update(None, "user_version", version)?;
         transaction.commit()?;
     }

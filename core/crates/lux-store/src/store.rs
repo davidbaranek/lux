@@ -136,28 +136,41 @@ impl Store {
     ///
     /// # Errors
     /// [`Error::Unreadable`] when `key` does not open the file, [`Error::NotEncrypted`] when the
-    /// library links plain SQLite, [`Error::NewerSchema`] for a newer app's file, and the file's
-    /// and SQLite's own errors.
+    /// library links plain SQLite, [`Error::NewerSchema`] for a newer app's file,
+    /// [`Error::Damaged`] for a damaged one, and the file's and SQLite's own errors. A call that
+    /// finds the file damaged later fails with [`Error::Damaged`].
     pub async fn open(path: impl Into<PathBuf>, key: Key) -> Result<Self> {
         let path = path.into();
-        let worker = Worker::start(move || connect(&path, &key)).await?;
+        let worker = Worker::start(move || connect(&path, &key), None).await?;
         Ok(Self { worker })
     }
 
-    /// Opens the store, or replaces a file it cannot read (another key, a newer app's, not a
-    /// database) with a new one: the store is a cache, and what it held is read again.
+    /// Opens the store, or makes a new one in place of a file it cannot use (another key, a newer
+    /// app's, not a database, damaged): the store is a cache, and what it held is read again. A
+    /// call that finds the file damaged later fails with [`Error::Damaged`], and the next call
+    /// has a new, empty store ([`Store::replaced`] tells it).
     ///
     /// # Errors
-    /// As [`Store::open`], but for a file it replaced.
+    /// As [`Store::open`], but for a file it cannot use: the disk's and the system's (no space,
+    /// no permission), which leave the file as it is.
     pub async fn open_or_replace(path: impl Into<PathBuf>, key: Key) -> Result<Self> {
         let path = path.into();
-        match Self::open(path.clone(), key.clone()).await {
-            Err(Error::Unreadable | Error::NewerSchema { .. }) => {
-                remove_database(&path)?;
-                Self::open(path, key).await
-            }
-            opened => opened,
-        }
+        let discarded = path.clone();
+        let worker = Worker::start(
+            move || connect(&path, &key),
+            Some(Box::new(move || remove_database(&discarded))),
+        )
+        .await?;
+        Ok(Self { worker })
+    }
+
+    /// Ready when the store, opened by [`Store::open_or_replace`], has made a new, empty file in
+    /// place of one found damaged since this call: what the old one held is to be read again.
+    ///
+    /// # Errors
+    /// [`Error::Closed`] once the store has closed.
+    pub fn replaced(&self) -> impl Future<Output = Result<()>> + Send + use<> {
+        self.worker.replaced()
     }
 
     /// Adds messages, or changes them (an edit keeps its event id), in one transaction.
@@ -929,11 +942,17 @@ fn connect(path: &Path, key: &Key) -> Result<Connection> {
             Some(rusqlite::ErrorCode::OutOfMemory) => Error::Unreadable,
             _ => Error::from_sqlite(error),
         })?;
-    connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
-    schema::migrate(&mut connection)?;
-    embedding::register(&connection)?;
-    register_covers(&connection)?;
+    prepare(&mut connection).map_err(Error::examined)?;
     Ok(connection)
+}
+
+/// The connection, its key right, made ready: WAL, the schema, the SQL functions.
+fn prepare(connection: &mut Connection) -> Result<()> {
+    connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+    schema::migrate(connection)?;
+    embedding::register(connection)?;
+    register_covers(connection)?;
+    Ok(())
 }
 
 /// The photos a search's rows name, in their order, each with why `reason` says it was found.

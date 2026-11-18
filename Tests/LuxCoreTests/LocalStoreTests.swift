@@ -66,6 +66,59 @@ import Testing
     }
 }
 
+/// An index damaged as a crash in a write leaves it (a page that fails its check) gives way to a
+/// new one, which search reads again: search does not find nothing for good. (Which damage the
+/// store finds, and when, is tested in Rust: `core/crates/lux-store/tests/damaged.rs`.)
+@MainActor
+@Suite(.ownPreferences, .ownFolder, .timeLimit(.minutes(1))) struct DamagedIndexTests {
+    @Test func anIndexFoundDamagedIsReadAgain() async throws {
+        let account = RustAccount.demo(rooms: 10, messagesPerRoom: 300)
+        // an index read whole, a large value kept after it: its pages last in the file.
+        let first = try await TemporaryFolder.store(named: "index")
+        let filling = try search(over: first, account)
+        try await read(by: filling)
+        await filling.stop()
+        try await first.keep("large", Data(count: 40 * 4096))
+        await first.close()
+        // a page of the large value damaged: the store opens, and finds it when it is read.
+        let file = try TemporaryFolder.storeFile(named: "index")
+        var bytes = try Data(contentsOf: file)
+        let page = bytes.count - 20 * 4096
+        for index in page + 100..<page + 200 { bytes[index] ^= 0xa5 }
+        try bytes.write(to: file)
+
+        let store = try await TemporaryFolder.store(named: "index")
+        let search = try search(over: store, account)
+        try await read(by: search)
+        #expect(try await !store.search("coff").isEmpty)
+        let changes = Changes()
+        var readAgain = false
+        let watching = search.progressChanges.observe {
+            if search.progress?.isIndexing == true { readAgain = true }
+            changes.send()
+        }
+        await #expect(throws: (any Error).self) { try await store.kept("large") }
+        try await changes.until { readAgain && search.progress?.isIndexing == false }
+        withExtendedLifetime(watching) {}
+        #expect(try await store.kept("large") == nil)
+        #expect(try await !store.search("coff").isEmpty)
+        await search.stop()
+    }
+
+    private func search(over store: LocalStore, _ account: RustAccount) throws -> MessageSearch {
+        MessageSearch(store: store, account: Task { account }, photos: try TemporaryFolder.ofTest.appending(path: "photos"),
+                      maxChats: 3, preferences: try Preferences.ofTest)
+    }
+
+    /// Waits for `search`'s index to have read every chat it reads.
+    private func read(by search: MessageSearch) async throws {
+        let changes = Changes()
+        let watching = search.progressChanges.observe { changes.send() }
+        try await changes.until { search.progress?.isIndexing == false }
+        withExtendedLifetime(watching) {}
+    }
+}
+
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct MergedChatSearchTests {

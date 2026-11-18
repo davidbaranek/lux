@@ -345,8 +345,8 @@ pub struct CoreStore {
 
 #[uniffi::export]
 impl CoreStore {
-    /// Opens the store at `path` with `key` (64 hex digits), or makes it; a file the key does not
-    /// open gives way to a new one (the store is a cache).
+    /// Opens the store at `path` with `key` (64 hex digits), or makes it; a file it cannot use
+    /// (another key, damaged) gives way to a new one (the store is a cache).
     #[uniffi::constructor]
     pub async fn open(path: String, key: String) -> Result<Arc<Self>, CoreStoreError> {
         let store = Store::open_or_replace(path, Key::from_hex(&key)?).await?;
@@ -358,6 +358,12 @@ impl CoreStore {
     /// connection to close when the last handle goes.
     pub async fn close(&self) {
         self.store.close().await;
+    }
+
+    /// Returns when the store has made a new, empty file in place of one a call found damaged:
+    /// what it held is to be read again. Fails once the store has closed.
+    pub async fn replaced(&self) -> Result<(), CoreStoreError> {
+        Ok(self.store.replaced().await?)
     }
 
     /// Adds messages, or changes them (an edit keeps its event id), in one transaction.
