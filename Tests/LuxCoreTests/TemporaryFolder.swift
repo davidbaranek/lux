@@ -22,12 +22,12 @@ final class TemporaryFolder: Sendable {
         get throws { try #require(current, "a file made outside .ownFolder").url }
     }
 
-    /// A store in the test's folder, new unless `name` names one opened before; it closes as the
-    /// test ends.
+    /// A store in the test's folder, as the app opens its own (a damaged file gives way), new
+    /// unless `name` names one opened before; it closes as the test ends.
     static func store(named name: String = UUID().uuidString,
                       key: String = String(repeating: "ef", count: 32)) async throws -> LocalStore {
         let folder = try #require(current, "a store opened outside .ownFolder")
-        let store = try await LocalStore.open(file: storeFile(named: name), key: key)
+        let store = try await LocalStore.openOrReplace(file: storeFile(named: name), key: key)
         folder.stores.withLock { $0.append(store) }
         return store
     }

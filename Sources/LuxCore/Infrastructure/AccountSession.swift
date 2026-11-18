@@ -124,7 +124,8 @@ final class AccountSession {
     private static func open(_ file: URL, key: @escaping @Sendable () async throws -> String) -> Task<LocalStore?, Never> {
         Task {
             do {
-                return try await LocalStore.open(file: file, key: try await key())
+                // the app owns the account's stores: it alone replaces one it cannot use.
+                return try await LocalStore.openOrReplace(file: file, key: try await key())
             } catch {
                 Log.app.error("local store: \(String(describing: error), privacy: .public)")
                 return nil

@@ -29,6 +29,9 @@ pub enum Error {
     /// says.
     #[error("the store's file is damaged")]
     Damaged,
+    /// A migration failed on the file's schema.
+    #[error("the store's migration failed: {0}")]
+    Migration(rusqlite::Error),
     /// The store's thread has ended (it could not start, or it panicked).
     #[error("the store is closed")]
     Closed,
@@ -38,6 +41,19 @@ pub enum Error {
     /// SQLite itself.
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
+}
+
+/// What an error says against the store's file.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Evidence {
+    /// Nothing: the disk, the system, the caller.
+    None,
+    /// The file cannot be used: another key, not a database, a newer app's, malformed.
+    Proof,
+    /// It may be damaged: SQLCipher reports a page that fails its check as SQLite's "out of
+    /// memory", as it does a failed encryption and SQLite a failed allocation; a migration's SQL
+    /// error may be another process's migration, done meanwhile.
+    Suspicion,
 }
 
 impl Error {
@@ -51,21 +67,35 @@ impl Error {
         }
     }
 
-    /// Whether the file is one the store cannot use (another key, not a database, a newer app's,
-    /// damaged), as opposed to a failure of the disk or the system around it.
-    pub(crate) fn is_unusable_file(&self) -> bool {
-        matches!(self, Self::Unreadable | Self::NewerSchema { .. } | Self::Damaged)
+    /// What this error says against the file.
+    pub(crate) fn evidence(&self) -> Evidence {
+        match self {
+            Self::Unreadable | Self::NewerSchema { .. } | Self::Damaged => Evidence::Proof,
+            Self::Migration(_) => Evidence::Suspicion,
+            Self::Sqlite(error) => match error.sqlite_error_code() {
+                Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase) => Evidence::Proof,
+                Some(ErrorCode::OutOfMemory) => Evidence::Suspicion,
+                _ => Evidence::None,
+            },
+            Self::InvalidKey | Self::NotEncrypted | Self::Closed | Self::Io(_) => Evidence::None,
+        }
     }
 
-    /// This error, `Damaged` if it says so of the file. SQLCipher reports a page that fails its
-    /// check (in the file or in its write-ahead log) as SQLite's "out of memory": SQLite's own
-    /// allocations do not fail on the apps' platforms (the system ends the app first), so the
-    /// store reads that error as a damaged page.
-    pub(crate) fn examined(self) -> Self {
-        let Self::Sqlite(error) = &self else { return self };
-        match error.sqlite_error_code() {
-            Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase | ErrorCode::OutOfMemory) => Self::Damaged,
-            _ => self,
+    /// SQLite's extended result code, if SQLite's error this is: what a log of the file's damage
+    /// names (`SQLITE_CORRUPT_VTAB` for an FTS index out of step with its table).
+    pub(crate) fn extended_code(&self) -> Option<i32> {
+        match self {
+            Self::Sqlite(error) | Self::Migration(error) => error.sqlite_error().map(|error| error.extended_code),
+            _ => None,
+        }
+    }
+
+    /// This error, for a file found damaged: SQLite's own is [`Error::Damaged`], the store's
+    /// stays as it says.
+    pub(crate) fn damage(self) -> Self {
+        match self {
+            Self::Sqlite(_) | Self::Migration(_) => Self::Damaged,
+            other => other,
         }
     }
 }

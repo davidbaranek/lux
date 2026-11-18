@@ -132,7 +132,9 @@ pub struct Store {
 }
 
 impl Store {
-    /// Opens the store at `path` with `key`, or makes it (and its folder).
+    /// Opens the store at `path` with `key`, or makes it (and its folder), never removing the
+    /// file: as a process that opens it beside the one that owns it (the share extension beside
+    /// the app), which alone may discard it.
     ///
     /// # Errors
     /// [`Error::Unreadable`] when `key` does not open the file, [`Error::NotEncrypted`] when the
@@ -141,14 +143,16 @@ impl Store {
     /// finds the file damaged later fails with [`Error::Damaged`].
     pub async fn open(path: impl Into<PathBuf>, key: Key) -> Result<Self> {
         let path = path.into();
-        let worker = Worker::start(move || connect(&path, &key), None).await?;
+        let worker = Worker::start(Box::new(move || connect(&path, &key)), None).await?;
         Ok(Self { worker })
     }
 
     /// Opens the store, or makes a new one in place of a file it cannot use (another key, a newer
     /// app's, not a database, damaged): the store is a cache, and what it held is read again. A
     /// call that finds the file damaged later fails with [`Error::Damaged`], and the next call
-    /// has a new, empty store ([`Store::replaced`] tells it).
+    /// has a new, empty store ([`Store::replaced`] tells it). Damage that comes back soon after
+    /// stays, its calls failing, for its cause to be found. Only the process that owns the file
+    /// opens it so: removing a file another process has open damages what that one writes.
     ///
     /// # Errors
     /// As [`Store::open`], but for a file it cannot use: the disk's and the system's (no space,
@@ -157,7 +161,7 @@ impl Store {
         let path = path.into();
         let discarded = path.clone();
         let worker = Worker::start(
-            move || connect(&path, &key),
+            Box::new(move || connect(&path, &key)),
             Some(Box::new(move || remove_database(&discarded))),
         )
         .await?;
@@ -942,7 +946,7 @@ fn connect(path: &Path, key: &Key) -> Result<Connection> {
             Some(rusqlite::ErrorCode::OutOfMemory) => Error::Unreadable,
             _ => Error::from_sqlite(error),
         })?;
-    prepare(&mut connection).map_err(Error::examined)?;
+    prepare(&mut connection)?;
     Ok(connection)
 }
 

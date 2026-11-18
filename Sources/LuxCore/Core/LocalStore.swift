@@ -13,10 +13,21 @@ public final class LocalStore: Sendable {
 
     private init(store: CoreStore) { self.store = store }
 
-    /// Opens (or makes) the store at `file` with `key`, 64 hex digits (32 bytes). A file the key
-    /// does not open gives way to a new one: what it held is read again.
+    /// Opens (or makes) the store at `file` with `key`, 64 hex digits (32 bytes), as the one
+    /// process that owns it (the app): a file the key does not open, or a damaged one, gives way
+    /// to a new one, and what it held is read again.
+    public static func openOrReplace(file: URL, key: String) async throws -> LocalStore {
+        protect(file, try await CoreStore.openOrReplace(path: file.path, key: key))
+    }
+
+    /// Opens (or makes) the store at `file` with `key` beside the process that owns it (the share
+    /// extension beside the app): a file it cannot use throws and stays, for the app to replace.
+    /// Removing a file another process has open would damage what that one writes.
     public static func open(file: URL, key: String) async throws -> LocalStore {
-        let store = try await CoreStore.open(path: file.path, key: key)
+        protect(file, try await CoreStore.open(path: file.path, key: key))
+    }
+
+    private static func protect(_ file: URL, _ store: CoreStore) -> LocalStore {
         #if os(iOS)
         // readable after the first unlock, so the index can grow in the background.
         bestEffort("local store: readable after the first unlock") {

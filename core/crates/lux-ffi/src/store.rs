@@ -345,11 +345,20 @@ pub struct CoreStore {
 
 #[uniffi::export]
 impl CoreStore {
-    /// Opens the store at `path` with `key` (64 hex digits), or makes it; a file it cannot use
-    /// (another key, damaged) gives way to a new one (the store is a cache).
+    /// Opens the store at `path` with `key` (64 hex digits), or makes it, as the process that
+    /// owns it (the app): a file it cannot use (another key, damaged) gives way to a new one (the
+    /// store is a cache).
+    #[uniffi::constructor]
+    pub async fn open_or_replace(path: String, key: String) -> Result<Arc<Self>, CoreStoreError> {
+        let store = Store::open_or_replace(path, Key::from_hex(&key)?).await?;
+        Ok(Arc::new(Self { store: Arc::new(store) }))
+    }
+
+    /// Opens the store at `path` with `key` (64 hex digits), or makes it, beside the process that
+    /// owns it (the share extension beside the app): a file it cannot use is an error, and stays.
     #[uniffi::constructor]
     pub async fn open(path: String, key: String) -> Result<Arc<Self>, CoreStoreError> {
-        let store = Store::open_or_replace(path, Key::from_hex(&key)?).await?;
+        let store = Store::open(path, Key::from_hex(&key)?).await?;
         Ok(Arc::new(Self { store: Arc::new(store) }))
     }
 
