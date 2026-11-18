@@ -23,13 +23,14 @@ on pushes to them, so a crash or a broken build shows there rather than in a Tes
   universal, as Xcode Cloud archives it, so code the Intel slice cannot compile fails here).
   Each build's log is checked for warnings in our sources as well (`scripts/check-build-warnings.sh`):
   a concurrency warning softened by `@preconcurrency` is not promoted to an error.
-- **smoke**: `Apps/UITests/SmokeTests.swift` on a simulator, the demo account (`-LuxDemo`): a
-  chat, search, Settings, the app sent to the background and back. It fails on a crash or a step
-  that does not answer within 10 s; a failed run keeps the result bundle and any crash report as
-  the run's artifact.
 - **check**: passes when all of them did; it is the one check branch protection requires.
 
-To run the smoke test locally: `xcodebuild test -scheme Lux-iOS -destination 'platform=iOS
+Before a TestFlight build, the smoke test runs by hand: **smoke** runs only when the workflow is
+started from the Actions tab (`workflow_dispatch`), and `check` does not wait for it. It walks
+through `Apps/UITests/SmokeTests.swift` on a simulator, the demo account (`-LuxDemo`): a chat,
+search, Settings, the app sent to the background and back. It fails on a crash or a step that does
+not answer within 10 s; a failed run keeps the result bundle and any crash report as the run's
+artifact. To run it locally: `xcodebuild test -scheme Lux-iOS -destination 'platform=iOS
 Simulator,name=iPhone 17' -only-testing:Lux-iOS-UITests/SmokeTests`.
 
 TestFlight's archives are built by Xcode Cloud.
