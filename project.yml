@@ -291,6 +291,33 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(LUX_BUNDLE_ID).uitests
         TEST_TARGET_NAME: Lux-iOS
+  # the view layer's tests, inside the app (its test host, `@testable import Lux`), each over a
+  # demo session of its own: a view controller's view loaded, what its list shows read
+  # (Apps/ViewTests).
+  Lux-iOS-Tests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Apps/ViewTests/iOS, Apps/ViewTests/Shared]
+    dependencies:
+      - target: Lux-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(LUX_BUNDLE_ID).tests
+        TARGETED_DEVICE_FAMILY: "1"
+        # the app's product is Lux, not its target's name (XcodeGen's default host).
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Lux.app/Lux
+  Lux-Mac-Tests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Apps/ViewTests/Mac, Apps/ViewTests/Shared]
+    dependencies:
+      - target: Lux-Mac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(LUX_BUNDLE_ID).tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Lux.app/Contents/MacOS/Lux
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
 schemes:
   Lux-iOS:
     build:
@@ -301,3 +328,19 @@ schemes:
   Lux-Mac:
     build:
       targets: { Lux-Mac: all }
+  # the view layer's tests, in Debug (the app built for `@testable import`). The app hosting them
+  # runs the demo (`-LuxDemo`): it never opens the account saved on this machine.
+  Lux-iOS-Tests:
+    build:
+      targets: { Lux-iOS-Tests: [test] }
+    test:
+      config: Debug
+      targets: [Lux-iOS-Tests]
+      commandLineArguments: { "-LuxDemo": true }
+  Lux-Mac-Tests:
+    build:
+      targets: { Lux-Mac-Tests: [test] }
+    test:
+      config: Debug
+      targets: [Lux-Mac-Tests]
+      commandLineArguments: { "-LuxDemo": true }
