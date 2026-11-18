@@ -42,7 +42,9 @@ public enum LaterTime: CaseIterable, Sendable {
         case .tomorrowMorning:
             calendar.date(bySettingHour: 9, minute: 0, second: 0, of: calendar.date(byAdding: .day, value: 1, to: now) ?? now) ?? now
         case .nextWeek:
-            calendar.nextDate(after: now, matching: DateComponents(hour: 9, minute: 0, weekday: calendar.firstWeekday == 1 ? 2 : calendar.firstWeekday),
+            // after today: on a Monday morning, next week is the Monday after, not that morning.
+            calendar.nextDate(after: calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now,
+                              matching: DateComponents(hour: 9, minute: 0, weekday: calendar.firstWeekday == 1 ? 2 : calendar.firstWeekday),
                               matchingPolicy: .nextTime) ?? now
         }
     }
