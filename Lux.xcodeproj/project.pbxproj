@@ -108,6 +108,7 @@
 		A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */; };
 		A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */; };
 		A5A6DC777A0A6BB0CC734E9E /* NetworkImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */; };
+		A6AE24F80CB7BDDB8824CC79 /* SidebarSearchViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71BF8A82CD754A3996C3EC93 /* SidebarSearchViewTests.swift */; };
 		A7D9CE53AB84878F77465CFB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 70CDAD96292E9567EEE87F30 /* Assets.xcassets */; };
 		AB9DD50F903CEDC7BD2C38FB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CF52CA6CC877D4E596211C /* AppDelegate.swift */; };
 		AC04B40A9B0BD096A2350FF7 /* MessageStyling.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */; };
@@ -328,6 +329,7 @@
 		6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		70CDAD96292E9567EEE87F30 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7175CD37D14C455234289062 /* Networks.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Networks.xcassets; sourceTree = "<group>"; };
+		71BF8A82CD754A3996C3EC93 /* SidebarSearchViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSearchViewTests.swift; sourceTree = "<group>"; };
 		72B8426E256052CBA67AB02D /* Lux-Mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Lux-Mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Menu.swift"; sourceTree = "<group>"; };
 		77CAAA103DF399F24DF658ED /* ChatStylePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStylePicker.swift; sourceTree = "<group>"; };
@@ -712,6 +714,7 @@
 			isa = PBXGroup;
 			children = (
 				627532AFF061D2577B9406CC /* ChatListViewTests.swift */,
+				71BF8A82CD754A3996C3EC93 /* SidebarSearchViewTests.swift */,
 				17C0C47671510E77AAD8CA4D /* ThreadViewTests.swift */,
 			);
 			path = Mac;
@@ -1479,6 +1482,7 @@
 				EE733D55155EE856BAED4BE0 /* Changes.swift in Sources */,
 				F97FC7EBA07CA8ACDE861927 /* ChatListViewTests.swift in Sources */,
 				7CF35D0CF0EC459EEA0C9F9B /* DemoAccount.swift in Sources */,
+				A6AE24F80CB7BDDB8824CC79 /* SidebarSearchViewTests.swift in Sources */,
 				8C2D3CF20AD6B004B201B4A9 /* ThreadViewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
