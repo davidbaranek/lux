@@ -1,13 +1,22 @@
 //! The process's exit and the stores' threads.
 //!
-//! SQLCipher frees its ciphers and their memory in an exit handler of its own (`atexit`), while
-//! other threads still run: a store's thread in a commit then encrypts pages with freed memory and
-//! crashes (`sqlite3Codec` in `walWriteOneFrame`). Any code may end the process (the app quitting,
-//! iOS ending an app that runs in the background, a test runner when its tests end), whatever store
-//! is open then. So the exit waits here: a handler that runs before SQLCipher's waits for the
-//! stores' SQLite calls under way, and holds every later one until the process is gone.
+//! The apps close their stores before the process exits: the Mac as it quits, the iPhone as the
+//! system ends it, the view tests' host as its tests end. This is the backstop for an exit that
+//! comes while a store is open all the same (the app's close ran out of time, an exit nobody
+//! announced). SQLCipher frees its ciphers and their memory in an exit handler of its own
+//! (`atexit`), while other threads still run: a store's thread in a commit then encrypts pages
+//! with freed memory and crashes (`sqlite3Codec` in `walWriteOneFrame`). So a handler that runs
+//! before SQLCipher's waits a moment for the stores' SQLite calls under way, then lets the exit
+//! go on. From then on no store's thread enters SQLite: one asked for a call ends instead, its
+//! connection left open (closing it is a call too), so a store dropped later in the exit (by
+//! another exit handler, a thread-local's destructor) ends its thread without waiting.
 
-use std::sync::{Condvar, Mutex, MutexGuard, Once, PoisonError};
+use std::sync::{Condvar, Mutex, MutexGuard, Once, PoisonError, WaitTimeoutResult};
+use std::time::Duration;
+
+/// How long the exit waits for the calls under way: a call waiting for another process's lock
+/// (`busy_timeout`) or a long statement does not hold the app's quitting for longer.
+const HOLD: Duration = Duration::from_secs(2);
 
 /// How many SQLite calls the stores' threads are in, and whether the process is exiting.
 struct Calls {
@@ -28,22 +37,18 @@ fn calls() -> MutexGuard<'static, Calls> {
     CALLS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn wait(calls: MutexGuard<'static, Calls>) -> MutexGuard<'static, Calls> {
-    ENDED.wait(calls).unwrap_or_else(PoisonError::into_inner)
-}
-
 /// A store's thread is in SQLite until it drops this.
 pub(crate) struct Call(());
 
 impl Call {
-    /// Waits for no exit: once the process is exiting, it waits until the process is gone.
-    pub(crate) fn begin() -> Self {
+    /// The call, or none once the process is exiting: the thread then calls SQLite no more.
+    pub(crate) fn begin() -> Option<Self> {
         let mut calls = calls();
-        while calls.exiting {
-            calls = wait(calls);
+        if calls.exiting {
+            return None;
         }
         calls.running += 1;
-        Self(())
+        Some(Self(()))
     }
 }
 
@@ -74,11 +79,13 @@ pub(crate) fn watch() {
     });
 }
 
-/// Waits for the calls under way, and lets no other begin.
+/// Lets no call begin, and waits for those under way, at most [`HOLD`].
 extern "C" fn hold_calls() {
     let mut calls = calls();
     calls.exiting = true;
-    while calls.running > 0 {
-        calls = wait(calls);
-    }
+    // the exit goes on whether the calls ended or the time ran out; the lock is let go here.
+    let (calls, _): (MutexGuard<'static, Calls>, WaitTimeoutResult) = ENDED
+        .wait_timeout_while(calls, HOLD, |calls| calls.running > 0)
+        .unwrap_or_else(PoisonError::into_inner);
+    drop(calls);
 }

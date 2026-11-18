@@ -50,6 +50,7 @@
 		3E9B8D495332F28E9D29D253 /* MessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3A3C976B72208FEFA37889 /* MessageCell.swift */; };
 		41F959329248BEFE43FF98F9 /* TextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9644BAAAE059CA06889DB30A /* TextView.swift */; };
 		43464F7811CCC69D928F220E /* ThreadController+Composer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */; };
+		4658BB2EDA0352CC93F1895A /* HostSessionCloser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D033E27621E55198942826B7 /* HostSessionCloser.swift */; };
 		47074059C06133CD5EDD5D79 /* ThreadViewController+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */; };
 		478267813ABE0BBC663B3827 /* RecoverySetupViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22D3FD7678E40CA2462EDF09 /* RecoverySetupViewController.swift */; };
 		4A7B4DEEA8CBD32189398BF5 /* ScrollBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88390BD714EFAF0311AD7B28 /* ScrollBenchmark.swift */; };
@@ -62,6 +63,7 @@
 		5470DEAD78BA1CDEAFDBA5CF /* NSImage+Symbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861B6215E0535216006F41DA /* NSImage+Symbol.swift */; };
 		5816376B6BAB3747BA0818C1 /* Lux-Mac-Assets.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 20A7CAA9E7FA199F4817C483 /* Lux-Mac-Assets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		58C2E873FD564CCAC91B8BF3 /* EditChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA5C750269A65579B132470 /* EditChatViewController.swift */; };
+		5D7B693FF59CFC1FE41FA04A /* HostSessionCloser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D033E27621E55198942826B7 /* HostSessionCloser.swift */; };
 		5F25ADA8CB7A06BAEC4A88A1 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */; };
 		6231CEC0F2433865099EF466 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859C0543BB92CCE30BA8DE81 /* SmokeTests.swift */; };
 		6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADB2FB3B024F61E7E732CF1 /* AppearanceViewController.swift */; };
@@ -391,6 +393,7 @@
 		C74036405B2152475BBCC458 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
 		CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D033E27621E55198942826B7 /* HostSessionCloser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSessionCloser.swift; sourceTree = "<group>"; };
 		D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploads.swift; sourceTree = "<group>"; };
 		D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Composer.swift"; sourceTree = "<group>"; };
 		DE4A4506DA1C1DD8E5FB5EE2 /* NetworksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworksViewController.swift; sourceTree = "<group>"; };
@@ -985,6 +988,7 @@
 			children = (
 				9883A2F4910A77B1AA2FCEAB /* Changes.swift */,
 				A5F5C76220B229D37EE781B7 /* DemoAccount.swift */,
+				D033E27621E55198942826B7 /* HostSessionCloser.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -1471,6 +1475,7 @@
 				82F0B584C07FF04EB39D9AD2 /* Changes.swift in Sources */,
 				8D4D382EC6BF342920A3B531 /* ChatListViewTests.swift in Sources */,
 				7047271D18BEEF8BB0E4F435 /* DemoAccount.swift in Sources */,
+				4658BB2EDA0352CC93F1895A /* HostSessionCloser.swift in Sources */,
 				9F87181A802E80C0EC926625 /* ThreadViewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1482,6 +1487,7 @@
 				EE733D55155EE856BAED4BE0 /* Changes.swift in Sources */,
 				F97FC7EBA07CA8ACDE861927 /* ChatListViewTests.swift in Sources */,
 				7CF35D0CF0EC459EEA0C9F9B /* DemoAccount.swift in Sources */,
+				5D7B693FF59CFC1FE41FA04A /* HostSessionCloser.swift in Sources */,
 				A6AE24F80CB7BDDB8824CC79 /* SidebarSearchViewTests.swift in Sources */,
 				8C2D3CF20AD6B004B201B4A9 /* ThreadViewTests.swift in Sources */,
 			);
@@ -1707,6 +1713,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_KEY_NSPrincipalClass = HostSessionCloser;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1923,6 +1930,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_KEY_NSPrincipalClass = HostSessionCloser;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1961,6 +1969,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_KEY_NSPrincipalClass = HostSessionCloser;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1998,6 +2007,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_KEY_NSPrincipalClass = HostSessionCloser;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

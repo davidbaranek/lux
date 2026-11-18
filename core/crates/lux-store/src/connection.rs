@@ -6,12 +6,14 @@
 //!
 //! [`Worker::close`] ends the thread and awaits it, blocking no thread meanwhile. A handle dropped
 //! without it stops the thread and waits for it there. A process that exits while the thread runs
-//! waits for its call in SQLite, and the thread makes no other ([`crate::exit`]).
+//! waits a moment for its call in SQLite, and the thread then ends at its next message, without
+//! calling SQLite again ([`crate::exit`]).
 //!
 //! A store that may discard its file ([`File::discard`]) makes a new one in place of a file it
 //! cannot use: on opening, and after a job that found it damaged, before the next job.
 
 use lux_core::gone::OtherEndGone;
+use std::mem;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
@@ -100,7 +102,12 @@ impl Worker {
         let (replaced, replacements) = watch::channel(0_u64);
         exit::watch();
         let thread = thread::Builder::new().name("lux-store".into()).spawn(move || {
-            let first = Call::begin();
+            let Some(first) = Call::begin() else {
+                opened
+                    .send(Err(Error::Closed))
+                    .other_end_may_be_gone("the store's opener");
+                return;
+            };
             let mut connection = match file.open() {
                 Ok((connection, _)) => {
                     opened.send(Ok(())).other_end_may_be_gone("the store's opener");
@@ -115,7 +122,12 @@ impl Worker {
             let replace = || replaced.send_modify(|count| *count += 1);
             for message in inbox {
                 // each message runs in SQLite: opening, a job, closing.
-                let _call = Call::begin();
+                let Some(_call) = Call::begin() else {
+                    // the process is exiting, SQLCipher's memory freed or about to be: the
+                    // connection is left open (closing it calls SQLite), the process takes it.
+                    mem::forget(connection);
+                    return;
+                };
                 match message {
                     Message::Run(job) => {
                         let found = match &mut connection {

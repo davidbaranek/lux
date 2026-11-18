@@ -9,7 +9,8 @@ app.run()
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `-LuxDemo`: made-up chats, no account (measurements, screenshots).
-    private let session = LaunchOptions.isDemo ? Session.demo(preferences: .shared) : Session(preferences: .shared)
+    /// The view tests' host closes it as their bundle ends (`HostSessionCloser`).
+    let session = LaunchOptions.isDemo ? Session.demo(preferences: .shared) : Session(preferences: .shared)
     private var window: NSWindow!
     private var settings: SettingsWindowController?
     private var notifications: MacNotifications?
@@ -40,11 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// The long work (index, photos, the model) ends before the app does: a store still writing
-    /// as the process exits crashes it.
+    /// The long work and the account's session end, its stores closed, before the app does:
+    /// AppKit exits the process once it is told to go on.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task {
-            await ForegroundWork.shared.leave()
+            await session.closeAsTheAppEnds(within: .seconds(5))
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
