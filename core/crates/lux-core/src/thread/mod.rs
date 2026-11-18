@@ -114,6 +114,7 @@ impl Upload {
         TimelineId {
             room: self.room.clone(),
             thread: self.thread.clone(),
+            at: None,
         }
     }
 }

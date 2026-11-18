@@ -381,6 +381,15 @@ pub struct IndexedImage {
     pub is_own: bool,
 }
 
+/// The message a timeline was opened around, as that timeline shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Focused {
+    /// Its id in that timeline.
+    pub message: MessageId,
+    /// The Matrix thread it is a reply in, by its root; `None`: the room's own timeline.
+    pub thread: Option<EventId>,
+}
+
 /// A chat's messages for the search index back to a date, newest first: its text messages (with
 /// their links and threads), its photos and its files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

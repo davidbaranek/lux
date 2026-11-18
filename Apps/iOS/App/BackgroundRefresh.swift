@@ -63,7 +63,7 @@ final class BackgroundRefresh {
         work?.cancel()
         let session = self.session
         Task { [weak self] in
-            if UIApplication.shared.applicationState != .active { await session.enterBackground() }
+            if UIApplication.shared.applicationState != .active { await session.enterBackground()?.value }
             self?.complete(ok: false)
         }
     }

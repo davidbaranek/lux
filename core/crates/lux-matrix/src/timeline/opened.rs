@@ -15,12 +15,15 @@ use super::room::RoomTimeline;
 /// A timeline, opened by the first call that needs it.
 pub(crate) type Slot = Arc<OnceCell<Arc<RoomTimeline>>>;
 
-/// Which timeline: a room's own, or the Matrix thread of one of its messages.
+/// Which timeline: a room's own, or the Matrix thread of one of its messages; live, or opened
+/// around one message.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct Key {
     pub(crate) room: OwnedRoomId,
     /// The thread's root; `None`: the room's own.
     pub(crate) thread: Option<OwnedEventId>,
+    /// The message it is opened around; `None`: the live one.
+    pub(crate) around: Option<OwnedEventId>,
 }
 
 /// How many timelines stay open besides those held: a chat opened again soon opens at once.
@@ -158,9 +161,18 @@ impl Rooms {
             *count -= 1;
             if *count == 0 {
                 self.holds.remove(room);
+                // a jump's timeline is not opened again soon: it closes with its last hold.
+                if room.around.is_some() {
+                    self.close(room);
+                }
                 self.close_unused();
             }
         }
+    }
+
+    fn close(&mut self, room: &Key) {
+        self.slots.remove(room);
+        self.recent.retain(|recent| recent != room);
     }
 
     /// Closes the timelines used longest ago until at most `kept` are open besides the held ones.
@@ -192,6 +204,7 @@ mod tests {
         Key {
             room: OwnedRoomId::try_from(format!("!{number}:example.org")).unwrap(),
             thread: None,
+            around: None,
         }
     }
 
@@ -235,6 +248,20 @@ mod tests {
         rooms.release(&room(1));
         assert!(open(&rooms).is_empty());
     }
+
+    #[test]
+    fn a_jumps_timeline_closes_with_its_last_hold_though_few_are_open() {
+        let jump = Key {
+            around: Some(matrix_sdk::ruma::OwnedEventId::try_from("$old").unwrap()),
+            ..room(1)
+        };
+        let mut rooms = Rooms::new(8);
+        rooms.hold(jump.clone());
+        rooms.use_room(jump.clone());
+        rooms.use_room(room(1));
+        rooms.release(&jump);
+        assert_eq!(open(&rooms), vec![room(1)]);
+    }
 }
 
 #[cfg(test)]
@@ -249,14 +276,17 @@ mod thread_tests {
         let own = Key {
             room: room.clone(),
             thread: None,
+            around: None,
         };
         let thread = Key {
             room: room.clone(),
             thread: Some(OwnedEventId::try_from("$root").unwrap()),
+            around: None,
         };
         let other = Key {
             room: OwnedRoomId::try_from("!2:example.org").unwrap(),
             thread: None,
+            around: None,
         };
         let mut rooms = Rooms::new(4);
         rooms.use_room(own);
