@@ -763,6 +763,9 @@ pub enum CoreDemoEncryption {
     NoRecovery,
 }
 
+/// How many of a demo chat's newest messages its live timeline holds, as a device holds the latest.
+const DEMO_LIVE_TAIL: usize = 200;
+
 /// The demo's made-up account with `rooms` rooms, `messages_per_room` messages in each chat; its
 /// encryption starting at `encryption`, and, with `verification_request_after`, another
 /// device asking to verify that long after the app listens.
@@ -782,6 +785,8 @@ pub fn open_demo(
             CoreDemoEncryption::NoRecovery => DemoEncryption::NoRecovery,
         },
         verification_request_after: verification_request_after.map(Duration::from),
+        // a device holds a long chat's latest: an older message, saved or found, is a jump away.
+        live_tail: DEMO_LIVE_TAIL,
         ..DemoConfig::new(usize::try_from(rooms).unwrap_or(usize::MAX))
     };
     Arc::new(CoreAccount {
