@@ -51,7 +51,7 @@ public final class PhotoSearch {
         self.store = store
         self.preferences = preferences
         let (reports, report) = AsyncStream<PhotoIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        indexer = PhotoIndexer(store: store, account: account, directory: directory, model: nil) { report.yield($0) }
+        indexer = PhotoIndexer(store: store, account: account, directory: directory, reader: PhotoReader(model: nil)) { report.yield($0) }
         Task { [weak self] in
             for await progress in reports { self?.reported = progress }
         }
@@ -107,7 +107,7 @@ public final class PhotoSearch {
         onModel?(nil)
         downloading = nil
         await indexer.stop()
-        await indexer.use(nil)
+        await indexer.use(PhotoReader(model: nil))
         await bestEffort("photo search: forget the looks") { try await store.forgetImageEmbeddings(reader: PhotoReader(model: nil).name) }
         await PhotoSearchAssets.remove()
         await indexer.announce()
@@ -272,7 +272,7 @@ public final class PhotoSearch {
             let model = try PhotoSearchModel(files: files)
             self.model = model
             onModel?(model)
-            await indexer.use(model)
+            await indexer.use(PhotoReader(model: model))
             await indexer.announce()
         } catch {
             Log.app.error("photo search: no model: \(String(describing: error), privacy: .public)")

@@ -5,7 +5,7 @@ import Vision
 
 /// Reads what a photo shows, for photo search, all on the device: the words in it (Vision's text
 /// recognition: a screenshot, a receipt, a sign) and, with the model, its embedding (how it looks).
-struct PhotoReader: Sendable {
+struct PhotoReader: PhotoReading {
     /// The photo search model; nil until it is on the device: the words are read meanwhile.
     let model: PhotoSearchModel?
 
@@ -26,6 +26,10 @@ struct PhotoReader: Sendable {
             let embedding = try await model?.embedding(of: image, lease: lease)
             return (lines.joined(separator: "\n"), embedding)
         }
+    }
+
+    func readingEnded() async {
+        await model?.releaseImageEncoder()
     }
 
     /// The lines of text in `image`, in reading order. Vision's request handler reads on the
