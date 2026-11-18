@@ -12,6 +12,7 @@
 mod connection;
 mod embedding;
 mod error;
+mod exit;
 mod key;
 mod schema;
 mod search;

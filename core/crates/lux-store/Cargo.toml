@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 lux-core.workspace = true
+# `atexit`: the process's exit waits for the stores' calls in SQLite (src/exit.rs).
+libc = "0.2.191"
 # SQLCipher, bundled: features unify, so the sdk's own stores (rusqlite with `bundled`) link the
 # same SQLCipher and open their unkeyed files as plain SQLite. On Apple platforms it encrypts with
 # CommonCrypto (no OpenSSL).
