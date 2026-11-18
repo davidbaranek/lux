@@ -25,6 +25,11 @@ enum PhotoSearchAssets {
     /// device; `progress` hears how far the download is (0…1). Each file's place is asked of the
     /// pack by its own path: a pack keeps its files where it chooses, so a folder found for one
     /// (`model.json`) need not hold the others (the encoders' `.mlmodelc` folders).
+    ///
+    /// Every place is asked for here, once, before the model loads: a folder's place (an
+    /// encoder's `.mlmodelc`) is one the system puts together from the packs as it answers
+    /// (`url(for:)` merges every pack's part of the folder), and the app crashed in an encoder's
+    /// load each time a second lookup of the folder came while Core ML read the first one's.
     static func modelFiles(progress: @escaping @Sendable (Double) -> Void) async throws -> PhotoSearchModel.Files {
         if let folder = LaunchOptions.photoModel { return { folder.appending(path: $0) } }
         let manager = AssetPackManager.shared
@@ -37,7 +42,14 @@ enum PhotoSearchAssets {
         defer { following.cancel() }
         // at once when the pack is on the device already.
         try await manager.ensureLocalAvailability(of: pack)
-        return { name in try AssetPackManager.shared.url(for: FilePath("\(folder)/\(name)")) }
+        var places: [String: URL] = [:]
+        for name in PhotoSearchModel.fileNames {
+            places[name] = try manager.url(for: FilePath("\(folder)/\(name)"))
+        }
+        return { [places] name in
+            guard let place = places[name] else { throw PhotoSearchError.unexpectedModel }
+            return place
+        }
     }
 
     /// Frees the pack's space: photo search was turned off.

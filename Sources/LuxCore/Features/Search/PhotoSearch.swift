@@ -103,12 +103,15 @@ public final class PhotoSearch {
         }
         loading?.cancel()
         loading = nil
+        let closing = model
         model = nil
         onModel?(nil)
         downloading = nil
         await indexer.stop()
         await indexer.use(PhotoReader(model: nil))
         await bestEffort("photo search: forget the looks") { try await store.forgetImageEmbeddings(reader: PhotoReader(model: nil).name) }
+        // the pack's files go only once no encoder loads from them.
+        await closing?.close()
         await PhotoSearchAssets.remove()
         await indexer.announce()
         update()
