@@ -20,7 +20,8 @@ cd .. && sh scripts/check-swift-errors.sh && swift test
 inner loop. CI runs the three `cargo` checks, `check-swift-errors.sh`, the Swift tests (also under
 Thread Sanitizer) and both apps' builds on every pull request. The simulator smoke test runs only
 by hand, before a TestFlight build: from the Actions tab (`workflow_dispatch`) or locally
-(docs/releasing.md).
+(docs/releasing.md). So do the photo search tests that need Vision or its model, which CI's
+virtual machines cannot run (docs/releasing.md says how).
 
 `xcodegen generate` writes `Lux.xcodeproj`, the Info.plists and the entitlements from
 `project.yml`. Edit `project.yml`, never the generated files, and commit the regenerated project
