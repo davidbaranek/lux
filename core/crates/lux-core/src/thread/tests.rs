@@ -578,3 +578,163 @@ async fn a_rooms_threads_list_the_latest_active_first_a_page_at_a_time() {
     assert!(page.threads.windows(2).all(|pair| latest(&pair[0]) >= latest(&pair[1])));
     assert_eq!(page.threads[0].root.as_str(), "!room1:demo/192");
 }
+
+// MARK: jumps to old messages
+
+/// The demo's `rooms` of `messages` messages each, whose live timelines hold only their newest
+/// `tail` (as a device holds a long chat's latest): an older message is a jump away.
+async fn open_long(rooms: Vec<ChatRoom>, messages: usize, tail: usize) -> Opened {
+    let threads = Arc::new(DemoAccount::new(DemoConfig {
+        messages_per_room: messages,
+        ..DemoConfig::new(30)
+    }));
+    threads
+        .timelines()
+        .live_tail
+        .store(tail, std::sync::atomic::Ordering::Relaxed);
+    open_on(threads, rooms, ReadReceipts::Automatic, None).await
+}
+
+fn here(jumped: Result<Jumped, JumpFailure>) -> MessageId {
+    match jumped {
+        Ok(Jumped::Here(row)) => row,
+        other => panic!("the jump did not land here: {other:?}"),
+    }
+}
+
+/// Frames until the state says the rows are live (or not), with the updates on the way.
+async fn until_live(thread: &mut Opened, live: bool) -> Vec<ThreadUpdate> {
+    let mut seen = Vec::new();
+    for _ in 0..20 {
+        tokio::time::sleep(FRAME * 3).await;
+        seen.extend(thread.updates());
+        if thread.state().is_live == live {
+            return seen;
+        }
+    }
+    panic!("the rows did not become live == {live}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_the_live_rows_hold_is_scrolled_to_and_they_stay_live() {
+    let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 200, 0).await;
+    let row = here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/120")).await);
+    assert_eq!(row.as_str(), "!r:demo/120");
+    thread.updates();
+    assert!(thread.ids().contains(&"!r:demo/120"));
+    assert!(thread.state().is_live);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_old_message_shows_among_its_neighbours_until_the_user_returns() {
+    let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
+    let row = here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/40")).await);
+    until_live(&mut thread, false).await;
+    assert!(thread.ids().contains(&row.as_str()));
+    assert!(
+        thread.ids().iter().all(|id| id.starts_with('@')),
+        "only the jump's rows"
+    );
+    assert!(thread.state().can_load_newer);
+
+    thread.model.return_to_live();
+    until_live(&mut thread, true).await;
+    assert_eq!(thread.ids().last(), Some(&"!r:demo/299"));
+    assert!(thread.ids().iter().all(|id| !id.starts_with('@')));
+    assert!(!thread.state().can_load_newer);
+}
+
+#[tokio::test(start_paused = true)]
+async fn paging_forward_to_the_newest_switches_to_the_live_rows_at_the_readers_message() {
+    let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
+    here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/200")).await);
+    until_live(&mut thread, false).await;
+    // the reader looks at a message the live rows do not hold yet (they start at the 240th).
+    let reading = thread
+        .rows
+        .iter()
+        .find(|row| row.message.event_id == Some(EventId::from("!r:demo/230")))
+        .map(|row| row.id().clone())
+        .expect("the jump's rows hold it");
+    thread.model.set_anchor(reading.clone());
+    thread.model.load_newer();
+
+    let updates = until_live(&mut thread, true).await;
+    let anchor = updates
+        .iter()
+        .find_map(|update| update.anchor.clone())
+        .expect("the switch keeps the reader's row");
+    assert_eq!(anchor.from, reading);
+    assert_eq!(anchor.to.as_str(), "!r:demo/230");
+    // the live rows from the reader's message to the newest: none twice, none missing.
+    let ids = thread.ids();
+    let from = ids
+        .iter()
+        .position(|id| *id == "!r:demo/230")
+        .expect("the live rows show it");
+    let expected: Vec<String> = (230..300).map(|index| format!("!r:demo/{index}")).collect();
+    let shown: Vec<String> = ids[from..]
+        .iter()
+        .flat_map(|id| {
+            let row = thread.rows.iter().find(|row| row.id().as_str() == *id).unwrap();
+            if row.album.is_empty() {
+                vec![row.id().to_string()]
+            } else {
+                row.album.iter().map(|message| message.message.id.to_string()).collect()
+            }
+        })
+        .collect();
+    assert_eq!(shown, expected);
+}
+
+#[tokio::test(start_paused = true)]
+async fn sending_from_a_jumps_rows_returns_to_the_live_ones_first() {
+    let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
+    here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/40")).await);
+    until_live(&mut thread, false).await;
+    thread.model.send_text("back to now".to_owned(), None);
+    until_live(&mut thread, true).await;
+    let last = thread.rows.last().expect("rows");
+    assert_eq!(last.message.message.body, "back to now");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_merged_chat_shows_a_jumps_room_alone_and_its_own_filter_again_after() {
+    let rooms = vec![chat_room("!a:demo", "whatsapp"), chat_room("!b:demo", "signal")];
+    let mut thread = open_long(rooms, 300, 60).await;
+    here(thread.model.jump("!b:demo".into(), EventId::from("!b:demo/40")).await);
+    until_live(&mut thread, false).await;
+    assert_eq!(thread.state().shown_room.as_ref().map(RoomId::as_str), Some("!b:demo"));
+    assert!(thread.rows.iter().all(|row| row.room.as_str() == "!b:demo"));
+    assert!(
+        thread.rows.iter().all(|row| row.network.is_some()),
+        "a merged chat's rows tell their network"
+    );
+
+    // all rooms again is the live rows.
+    thread.model.show_room(None);
+    until_live(&mut thread, true).await;
+    assert_eq!(thread.state().shown_room, None);
+    assert!(thread.rows.iter().any(|row| row.room.as_str() == "!a:demo"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_jump_the_server_cannot_show_leaves_the_rows_as_they_are() {
+    let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
+    let before = thread.ids().iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        thread.model.jump("!r:demo".into(), EventId::from("$gone")).await,
+        Err(JumpFailure::NotFound)
+    );
+    assert_eq!(
+        thread
+            .model
+            .jump("!elsewhere:demo".into(), EventId::from("!r:demo/40"))
+            .await,
+        Err(JumpFailure::NotFound)
+    );
+    tokio::time::sleep(FRAME * 3).await;
+    thread.updates();
+    assert!(thread.state().is_live);
+    assert_eq!(thread.ids(), before.iter().map(String::as_str).collect::<Vec<_>>());
+}

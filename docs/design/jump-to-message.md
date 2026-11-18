@@ -193,6 +193,9 @@ so that no row is duplicated or lost and the scroll position does not move.
   plus one page. The anchor's event is at most that many messages before the present. The event
   cache's back-pagination fills a limited-sync gap from its gap token, so a gap is paged like any
   other history. Meanwhile the rows stay the focused ones, and `is_live` stays false.
+- **The page's answer before its messages.** The live page's answer can reach the thread before
+  its messages do, so the switch is decided by the live batches alone. The page's end never makes
+  the view give up. Found in PR (2)'s tests.
 - **Live never showing it** (bound used up: the event is hidden in live, or the mapping drops it).
   The view stays detached at the end. The jump-to-bottom button carries live's unread count, since
   the focused timeline gets no new messages from sync. `ReturnToLive` then switches without an
@@ -233,6 +236,9 @@ Nothing public in 14a0ada drops a focused cache (see "Caching"), so Lux bounds t
   take the event-cache lock (`get_store_sizes`). The app then fetches all 10 of its jumps again, so
   the cost is real but only reachable through a call Lux does not make. The test fails if an
   extension ever starts taking the lock.
+- **Accepted (architect, 2026-11-17):** the memory cost stays for now. The upstream draft is
+  `side-session-notes/local_26d4bfe3-ac3b-42b6-a936-decd743ee058/jump-upstream-event-focused-eviction.md`
+  (not posted).
 - **What closes it.** Lux does not patch the SDK. The memory part (each distinct jump kept until
   the `Client` drops) remains. An upstream proposal to drop an event-focused cache once no timeline
   uses it is drafted in the shared notes. Posting it is the user's decision.

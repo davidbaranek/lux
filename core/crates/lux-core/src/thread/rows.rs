@@ -204,14 +204,15 @@ impl Unfolded {
 }
 
 /// The rows of the rooms' shown messages (`shown`: one room alone), as one conversation in time
-/// order: a stable sort, so one room's messages keep their order at equal times.
+/// order: a stable sort, so one room's messages keep their order at equal times. `merged`: the
+/// chat merges rooms, so each row tells its network.
 pub(crate) fn present(
     rooms: &mut [RoomMessages],
     shown: Option<usize>,
+    merged: bool,
     unfolded: &Unfolded,
     zone: &TimeZone,
 ) -> Vec<Arc<ThreadRow>> {
-    let merged = rooms.len() > 1;
     let mut tagged: Vec<(usize, Arc<TimelineMessage>)> = Vec::new();
     let mut sources = 0;
     for (index, room) in rooms.iter_mut().enumerate() {
@@ -345,12 +346,12 @@ pub(crate) mod tests {
             ),
             room("!b", vec![message("b1", "!b", 10, true), message("b2", "!b", 20, true)]),
         ];
-        let rows = present(&mut rooms, None, &Unfolded::default(), &TimeZone::UTC);
+        let rows = present(&mut rooms, None, true, &Unfolded::default(), &TimeZone::UTC);
         // equal times keep the rooms' order.
         assert_eq!(ids(&rows), ["a1", "b1", "a2", "b2"]);
         assert_eq!(rows[1].room.as_str(), "!b");
         assert_eq!(rows[1].network.as_ref().map(Network::as_str), Some("net!b"));
-        let alone = present(&mut rooms, Some(1), &Unfolded::default(), &TimeZone::UTC);
+        let alone = present(&mut rooms, Some(1), true, &Unfolded::default(), &TimeZone::UTC);
         assert_eq!(ids(&alone), ["b1", "b2"]);
     }
 
@@ -363,7 +364,7 @@ pub(crate) mod tests {
             room("!a", vec![message("0", "!a", 0, false)]),
             room("!b", vec![message("0", "!b", 10, false)]),
         ];
-        present(&mut rooms, None, &Unfolded::default(), &TimeZone::UTC);
+        present(&mut rooms, None, true, &Unfolded::default(), &TimeZone::UTC);
     }
 
     #[test]
@@ -376,7 +377,7 @@ pub(crate) mod tests {
             details: HashSet::from([MessageId::from("a2")]),
             ..Unfolded::default()
         };
-        let rows = present(&mut rooms, None, &unfolded, &TimeZone::UTC);
+        let rows = present(&mut rooms, None, false, &unfolded, &TimeZone::UTC);
         assert_eq!(rows[0].network, None);
         assert_eq!(
             rows.iter().map(|row| row.shows.detail).collect::<Vec<_>>(),
@@ -387,14 +388,17 @@ pub(crate) mod tests {
     #[test]
     fn rows_of_the_same_messages_are_equal_and_a_new_message_is_not() {
         let mut rooms = [room("!a", vec![message("a1", "!a", 0, false)])];
-        let before = present(&mut rooms, None, &Unfolded::default(), &TimeZone::UTC);
-        let again = present(&mut rooms, None, &Unfolded::default(), &TimeZone::UTC);
+        let before = present(&mut rooms, None, false, &Unfolded::default(), &TimeZone::UTC);
+        let again = present(&mut rooms, None, false, &Unfolded::default(), &TimeZone::UTC);
         assert_eq!(before, again);
         rooms[0].apply(vec![VectorDiff::Set {
             index: 0,
             value: message("a1", "!a", 0, false),
         }]);
-        assert_ne!(before, present(&mut rooms, None, &Unfolded::default(), &TimeZone::UTC));
+        assert_ne!(
+            before,
+            present(&mut rooms, None, false, &Unfolded::default(), &TimeZone::UTC)
+        );
     }
 
     #[test]

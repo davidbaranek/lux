@@ -18,6 +18,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+pub(super) mod jump;
+
 use super::decide::{self, ComposerMode, ReadReceipts, ReadState, ReplyTarget, TypingNotice};
 use super::rows::{self, OLDER, RoomMessages, ThreadRow};
 use super::{DraftIntent, Intent, MessageAction, ThreadListener, ThreadSpec, ThreadState, ThreadUpdate, Upload};
@@ -27,7 +29,7 @@ use crate::diff;
 use crate::ids::{EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::merge;
 use crate::ports::{BackendError, ChatSending, ChatTimelines, Diffs, ThreadBackend, TimelineHold};
-use crate::timeline::{Draft, Receipt, TimelineMessage, Typist};
+use crate::timeline::{Draft, Focused, Receipt, TimelineMessage, Typist};
 
 /// The longest the first rows wait for the rooms' first unread messages: finding one can page
 /// back on the server, and a bad connection must not hold back the messages already in. The
@@ -56,6 +58,12 @@ enum Event {
     CanSendLater(RoomId, bool),
     /// The kept draft.
     Draft(Option<Draft>, oneshot::Sender<String>),
+    /// A jump's timeline opened around its message in a room (or did not).
+    JumpOpened(u64, usize, TimelineId, Result<Focused, BackendError>, jump::Answer),
+    /// A jump's messages changed.
+    JumpDiffs(u64, Diffs<Arc<TimelineMessage>>),
+    /// A page of a jump's timeline is in, older or newer: whether it reached that end.
+    JumpPaged(u64, bool, Option<bool>),
 }
 
 /// Runs the thread until its view model goes.
@@ -165,6 +173,8 @@ struct Thread<B> {
     can_send_later: bool,
     /// The backend actions, in the order asked for on each target.
     actions: Actions<Target>,
+    /// The jumps to messages the live rows do not hold.
+    jumps: jump::Jumps,
 }
 
 /// What a thread's action changes: those on one target reach the server in the order asked.
@@ -234,6 +244,7 @@ impl<B: ThreadBackend> Thread<B> {
             unread_waiters: Vec::new(),
             can_send_later: false,
             actions: Actions::new(),
+            jumps: jump::Jumps::default(),
         }
     }
 
@@ -318,6 +329,8 @@ impl<B: ThreadBackend> Thread<B> {
                 }
                 self.reveal_waiting();
                 self.dirty.rows = true;
+                self.retry_waiting_jumps();
+                self.try_return();
             }
             Event::Unreadable(index) => {
                 if let Some(room) = self.rooms.get_mut(index) {
@@ -357,6 +370,7 @@ impl<B: ThreadBackend> Thread<B> {
                 self.dirty.rows = true;
                 self.paging = self.paging.saturating_sub(1);
                 self.dirty.state = true;
+                self.try_return();
             }
             Event::Found(found, answer) => {
                 self.jumping = self.jumping.saturating_sub(1);
@@ -393,6 +407,11 @@ impl<B: ThreadBackend> Thread<B> {
                 }
                 answer.send(draft.text).other_end_may_be_gone("the caller");
             }
+            Event::JumpOpened(generation, index, id, focused, answer) => {
+                self.jump_opened(generation, index, id, focused, answer);
+            }
+            Event::JumpDiffs(generation, diffs) => self.jump_diffs(generation, diffs),
+            Event::JumpPaged(generation, older, reached) => self.jump_paged(generation, older, reached),
         }
     }
 
@@ -406,10 +425,22 @@ impl<B: ThreadBackend> Thread<B> {
         let mut update = ThreadUpdate::default();
         if self.dirty.rows || first {
             self.dirty.rows = false;
-            for room in &mut self.rooms {
-                room.reveal_older();
-            }
-            let rows = rows::present(&mut self.rooms, self.shown, &self.unfolded, &self.zone);
+            let merged = self.rooms.len() > 1;
+            let rows = if let Some(detached) = self.jumps.detached.as_mut() {
+                detached.messages.reveal_older();
+                rows::present(
+                    std::slice::from_mut(&mut detached.messages),
+                    None,
+                    merged,
+                    &self.unfolded,
+                    &self.zone,
+                )
+            } else {
+                for room in &mut self.rooms {
+                    room.reveal_older();
+                }
+                rows::present(&mut self.rooms, self.shown, merged, &self.unfolded, &self.zone)
+            };
             update.rows = if first {
                 vec![VectorDiff::Reset {
                     values: rows.iter().cloned().collect::<Vector<_>>(),
@@ -419,15 +450,17 @@ impl<B: ThreadBackend> Thread<B> {
             };
             self.rows = rows;
             self.answer_jumps();
+            self.answer_landed();
             self.after_rows();
         }
+        update.anchor = self.jumps.switched.take();
         self.dirty.state = false;
         let state = self.state();
         if self.sent.as_ref() != Some(&state) {
             update.state = Some(state.clone());
             self.sent = Some(state);
         }
-        if first || !update.rows.is_empty() || update.state.is_some() {
+        if first || !update.rows.is_empty() || update.state.is_some() || update.anchor.is_some() {
             self.listener.on_update(update);
         }
     }
@@ -446,8 +479,11 @@ impl<B: ThreadBackend> Thread<B> {
             self.send_room = send_room;
             self.refresh_can_send_later();
         }
-        self.read
-            .update(self.rows.last().map(|row| (row.id(), row.message.is_own)));
+        // a jump's rows are not the newest: what they show says nothing of what was read.
+        if !self.is_detached() {
+            self.read
+                .update(self.rows.last().map(|row| (row.id(), row.message.is_own)));
+        }
     }
 
     /// Decides the first unread message from the rows once the lookup ended. The first rows
@@ -486,6 +522,9 @@ impl<B: ThreadBackend> Thread<B> {
 
     /// The chat's first message shows: every room shown shows its first.
     fn shows_start(&mut self) -> bool {
+        if let Some(detached) = self.jumps.detached.as_mut() {
+            return detached.messages.shows_start();
+        }
         let shown = self.shown;
         self.rooms
             .iter_mut()
@@ -514,6 +553,8 @@ impl<B: ThreadBackend> Thread<B> {
             mode: self.mode.clone(),
             pending_files: self.pending_files.clone(),
             can_send_later: self.can_send_later,
+            is_live: !self.is_detached(),
+            can_load_newer: self.jumps.detached.as_ref().is_some_and(jump::Detached::can_load_newer),
         }
     }
 
@@ -522,6 +563,10 @@ impl<B: ThreadBackend> Thread<B> {
     fn intent(&mut self, intent: Intent) {
         match intent {
             Intent::LoadOlder => self.load_older(),
+            Intent::Jump(room, event, answer) => self.jump_to(room, event, answer),
+            Intent::LoadNewer => self.load_newer(),
+            Intent::ReturnToLive => self.leave_detached(),
+            Intent::SetAnchor(message) => self.jumps.anchor = Some(message),
             Intent::JumpToReplied(message, answer) => self.jump_to_replied(&message, answer),
             Intent::JumpToEvent(event, answer) => {
                 let shown = self.shown_rooms().collect();
@@ -551,7 +596,11 @@ impl<B: ThreadBackend> Thread<B> {
                 rows::Unfolded::toggle(&mut self.unfolded.posts, message);
                 self.dirty.rows = true;
             }
-            Intent::ShowRoom(room) => self.show_room(room.as_ref()),
+            Intent::ShowRoom(room) => {
+                // another room filter is the live rows'.
+                self.leave_detached();
+                self.show_room(room.as_ref());
+            }
             Intent::Reply(message) => {
                 if let Some(target) = self.message(&message).map(|message| ReplyTarget::of(message)) {
                     self.set_mode(ComposerMode::Reply(target));
@@ -564,7 +613,11 @@ impl<B: ThreadBackend> Thread<B> {
                 }
             }
             Intent::CancelMode => self.set_mode(ComposerMode::Message),
-            Intent::Send { text, via } => self.send(text.trim(), via),
+            Intent::Send { text, via } => {
+                // what is sent shows among the live rows.
+                self.leave_detached();
+                self.send(text.trim(), via);
+            }
             Intent::SendLater(text, at, answer) => self.send_later(text.trim(), at, answer),
             Intent::Attach(files) => {
                 for file in files {
@@ -579,6 +632,8 @@ impl<B: ThreadBackend> Thread<B> {
                 self.dirty.state = true;
             }
             Intent::Message(action) => self.message_action(action),
+            // a jump's rows are not the newest: nothing is read from them.
+            Intent::DidReadLatest | Intent::SendReadReceipt if self.is_detached() => {}
             Intent::DidReadLatest => {
                 if self.receipts == ReadReceipts::Automatic {
                     self.send_read_receipt();
@@ -678,6 +733,9 @@ impl<B: ThreadBackend> Thread<B> {
     /// Shows more of the shown rooms' older messages: those their timelines hold at once, the
     /// rest as the server's pages come in.
     fn load_older(&mut self) {
+        if self.load_older_detached() {
+            return;
+        }
         if self.older_due() || self.paging > 0 || self.shows_start() {
             return;
         }
@@ -720,7 +778,10 @@ impl<B: ThreadBackend> Thread<B> {
 
     /// Older messages are still going in, a few a frame.
     fn older_due(&self) -> bool {
-        self.rooms.iter().any(|room| room.older_due > 0)
+        match &self.jumps.detached {
+            Some(detached) => detached.messages.older_due > 0,
+            None => self.rooms.iter().any(|room| room.older_due > 0),
+        }
     }
 
     /// Brings the message `message` answers into the thread.
@@ -987,7 +1048,10 @@ impl<B: ThreadBackend> Thread<B> {
 
     /// The message `id`, in any room.
     fn message(&self, id: &MessageId) -> Option<&Arc<TimelineMessage>> {
-        self.rooms.iter().find_map(|room| room.message(id))
+        self.rooms
+            .iter()
+            .chain(self.jumps.detached.as_ref().map(|detached| &detached.messages))
+            .find_map(|room| room.message(id))
     }
 
     /// The room a message is in; the send room when none has it.
@@ -1003,6 +1067,7 @@ impl<B: ThreadBackend> Thread<B> {
     fn room_where(&self, holds: impl Fn(&RoomMessages) -> bool) -> RoomId {
         self.rooms
             .iter()
+            .chain(self.jumps.detached.as_ref().map(|detached| &detached.messages))
             .find(|room| holds(room))
             .map_or_else(|| self.send_room.clone(), |room| room.room.id.clone())
     }
@@ -1019,13 +1084,17 @@ impl<B: ThreadBackend> Thread<B> {
     /// photo in it (the apps scroll to rows).
     fn answer_jumps(&mut self) {
         for (id, answer) in mem::take(&mut self.jumped) {
-            let row = self
-                .rows
-                .iter()
-                .find(|row| row.id() == &id || row.album.iter().any(|message| message.message.id == id))
-                .map(|row| row.id().clone());
+            let row = self.row_of(&id);
             answer.send(row.or(Some(id))).other_end_may_be_gone("the caller");
         }
+    }
+
+    /// The row that shows the message `id`: its own, or its album's.
+    fn row_of(&self, id: &MessageId) -> Option<MessageId> {
+        self.rows
+            .iter()
+            .find(|row| row.id() == id || row.album.iter().any(|message| &message.message.id == id))
+            .map(|row| row.id().clone())
     }
 
     /// Shows the messages waiting to show whose room now has them, and answers who waits.
