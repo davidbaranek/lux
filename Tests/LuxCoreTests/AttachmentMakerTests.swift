@@ -5,12 +5,15 @@ import Testing
 import UniformTypeIdentifiers
 @testable import LuxCore
 
-struct AttachmentMakerTests {
-    private let folder = FileManager.default.temporaryDirectory.appendingPathComponent("attachment-tests-\(UUID().uuidString)")
+@Suite(.ownFolder) struct AttachmentMakerTests {
+    private let folder: URL
+
+    init() throws {
+        folder = try TemporaryFolder.ofTest
+    }
 
     /// A plain picture of `width` × `height` pixels, stored with an EXIF orientation.
     private func picture(width: Int, height: Int, orientation: Int, type: UTType, name: String) throws -> URL {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(CGColor(srgbRed: 0.2, green: 0.5, blue: 0.8, alpha: 1))

@@ -5,7 +5,7 @@ import Testing
 /// The uploads over their port alone: a file goes to its chat's queue, its upload followed as
 /// the core streams it; what cannot go reaches the chat that sent it; the account's end ends them.
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.ownFolder, .timeLimit(.minutes(1)))
 struct UploadsTests {
     /// The account's send queues: each file sent gets a stream the test drives.
     private actor Server: UploadsPort {
@@ -45,11 +45,14 @@ struct UploadsTests {
 
     private struct Refused: Error, Equatable {}
 
-    private let folder = FileManager.default.temporaryDirectory.appendingPathComponent("uploads-tests-\(UUID().uuidString)")
+    private let folder: URL
+
+    init() throws {
+        folder = try TemporaryFolder.ofTest
+    }
 
     /// A text file of `bytes` bytes, picked to send.
     private func file(_ name: String, bytes: Int) throws -> URL {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(name)
         try Data(repeating: 0x61, count: bytes).write(to: url)
         return url
@@ -181,9 +184,7 @@ struct DemoUploadsTests {
     @Test func aFileGoesThroughTheCoresStream() async throws {
         let session = try DemoSessions.open(rooms: 2, messagesPerRoom: 2)
         let uploads = try #require(session.uploads)
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("demo-uploads-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appendingPathComponent("notes.txt")
+        let file = try TemporaryFolder.ofTest.appending(path: "notes.txt")
         try Data("hello".utf8).write(to: file)
         let (finishes, finishing) = AsyncStream.makeStream(of: Bool.self)
         uploads.onFinish = { finishing.yield($0) }

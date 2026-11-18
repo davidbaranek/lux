@@ -18,7 +18,8 @@ cd .. && sh scripts/check-swift-errors.sh && swift test
 
 `lux-core` does not depend on the SDK, so `cargo test -p lux-core` takes seconds. Use it as the
 inner loop. CI runs the three `cargo` checks, `check-swift-errors.sh`, the Swift tests (also under
-Thread Sanitizer), both apps' builds and a simulator smoke test on every pull request
+Thread Sanitizer) and both apps' builds on every pull request. The simulator smoke test runs only
+by hand, before a TestFlight build: from the Actions tab (`workflow_dispatch`) or locally
 (docs/releasing.md).
 
 `xcodegen generate` writes `Lux.xcodeproj`, the Info.plists and the entitlements from
@@ -57,8 +58,11 @@ with it (Xcode Cloud builds from the committed project).
   `matrix-sdk-test`'s mock server. Unit tests beside the code only for pure rules such as diffs and
   parsing.
 - Swift: Swift Testing (`@Test`, `#expect`) for new tests. The main flows are tested through the
-  view models over the demo account. `Apps/UITests` holds only performance tests (XCUITest, on the
-  demo with `-LuxDemo`): they measure the launch and scrolling the chat list and a chat.
+  view models over the demo account. `Apps/UITests` holds the XCUITests, on the demo with
+  `-LuxDemo`: the smoke test (`SmokeTests`, a walk through the app that fails on a crash or a hang)
+  and the performance tests (`PerformanceTests`: the launch, and scrolling the chat list and a
+  chat). Both run by hand: the smoke test before a TestFlight build, from the Actions tab or
+  locally.
 - Name a test after the behaviour it checks, for example "a muted chat sends no notification".
   Await the observable change with a timeout, never a sleep.
 - Test with a test account on a test server, never a personal one. Bridges pass read receipts,

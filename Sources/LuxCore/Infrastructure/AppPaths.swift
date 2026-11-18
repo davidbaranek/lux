@@ -36,11 +36,9 @@ public struct AppPaths: Sendable {
                         scratch: fileManager.temporaryDirectory)
     }
 
-    /// All in a new temporary folder of its own (the demo, tests): no two share a file.
-    static func temporary() -> AppPaths {
-        let root = FileManager.default.temporaryDirectory
-            .appending(path: "lux-\(UUID().uuidString)", directoryHint: .isDirectory)
-        return AppPaths(shared: nil, own: root.appending(path: "matrix", directoryHint: .isDirectory),
+    /// All in `root`, a folder of the demo's own: no two demo sessions share a file.
+    static func inside(_ root: URL) -> AppPaths {
+        AppPaths(shared: nil, own: root.appending(path: "matrix", directoryHint: .isDirectory),
                         media: root.appending(path: "media", directoryHint: .isDirectory),
                         scratch: root.appending(path: "tmp", directoryHint: .isDirectory))
     }

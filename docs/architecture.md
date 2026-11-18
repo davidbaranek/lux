@@ -59,7 +59,7 @@ lux-native/
 │   ├── Mac/                 Mac app: the same features, plus Rail and Sidebar
 │   ├── NotificationService/ iPhone push extension: fills a notification's text and pictures
 │   ├── Shared/              compiled into both apps: assets, message styling, network logos
-│   └── UITests/             performance runs on the demo account
+│   └── UITests/             the smoke test and performance runs on the demo account, by hand
 ├── Sources/LuxCore/         Swift glue, a package both apps use
 │   ├── Core/                the only Swift that calls the generated bindings (Rust*.swift)
 │   ├── Features/            per-screen models (ChatListModel, ThreadModel, …)
