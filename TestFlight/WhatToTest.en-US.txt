@@ -1,0 +1,19 @@
+New
+- Jump to an old message: tapping a search result, a reply, a pinned or a saved message opens the chat around that message, however old it is. The button at the bottom returns to the newest messages.
+
+Fixed
+- After tapping a notification, the chat shows every message that arrived while you were away, not only the last one.
+- The app's badge counts the Inbox's unread chats also while Lux is not running, and is right again each time Lux comes to the front.
+- An upload that fails says so in the chat and can be retried or discarded; upload progress follows the real upload.
+- Scrolling back through history no longer pauses for a second on pages without messages.
+- A Discord server inside the bridge's space shows its categories.
+- Special characters in formatted messages (&, <, quotes, emoji entities) show as characters.
+- Photo search: Stop and Read now respond at once.
+- Leaving the app closes its stores at once, so iOS no longer ends Lux in the background for holding them.
+- Signing out no longer waits on the main thread while the stores close.
+
+Faster
+- Chat list and chat updates on iPhone and Mac redraw only the rows that changed.
+- Reading photos for search and scaling attachments no longer slow the rest of the app down.
+
+Please try: search for an old message and open it, open a chat from a notification after several messages arrived, send a photo with a poor connection.
