@@ -5,7 +5,11 @@ import Testing
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct MergedChatTests {
-    private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 40)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 30, messagesPerRoom: 40)
+    }
 
     private func merged() async throws -> ChatRow {
         let rows = try await session.account.value.chats()

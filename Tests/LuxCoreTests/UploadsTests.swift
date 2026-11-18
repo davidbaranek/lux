@@ -179,7 +179,7 @@ private extension AsyncStream<UploadState>.Continuation {
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoUploadsTests {
     @Test func aFileGoesThroughTheCoresStream() async throws {
-        let session = DemoSessions.open(rooms: 2, messagesPerRoom: 2)
+        let session = try DemoSessions.open(rooms: 2, messagesPerRoom: 2)
         let uploads = try #require(session.uploads)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("demo-uploads-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -193,8 +193,8 @@ struct DemoUploadsTests {
         #expect(uploads.progress.fractionCompleted == 1)
     }
 
-    @Test func closingTheAccountTellsItsUploadsFollowersOfTheChange() async {
-        let session = DemoSessions.open(rooms: 2, messagesPerRoom: 2)
+    @Test func closingTheAccountTellsItsUploadsFollowersOfTheChange() async throws {
+        let session = try DemoSessions.open(rooms: 2, messagesPerRoom: 2)
         var changes = 0
         let watching = session.uploadsChanges.observe { changes += 1 }
         #expect(session.uploads != nil)

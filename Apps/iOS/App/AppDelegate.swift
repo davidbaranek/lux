@@ -7,7 +7,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     /// The one account of the app, shared by its scene and by what the app does without one
     /// (a notification's action, when the system launched the app in the background for it).
     /// `-LuxDemo` (UI tests, screenshots): made-up chats, no account.
-    static let session = LaunchOptions.isDemo ? Session.demo() : Session()
+    static let session = LaunchOptions.isDemo ? Session.demo(preferences: .shared) : Session(preferences: .shared)
     /// Set before launching ends, so a notification that launched the app reaches it.
     static let notifications = Notifications(session: session)
     /// Registered before launching ends, as the system requires; none for the demo (no server).

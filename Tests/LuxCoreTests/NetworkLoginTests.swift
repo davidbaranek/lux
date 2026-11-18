@@ -7,7 +7,11 @@ import Testing
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct NetworksModelTests {
-    private let session = DemoSessions.open(rooms: 10, messagesPerRoom: 2)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 10, messagesPerRoom: 2)
+    }
 
     @Test func theDemoServerOffersItsNetworksWithMessengerConnected() async throws {
         let networks = try #require(session.networks)

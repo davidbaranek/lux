@@ -86,7 +86,7 @@ public final class ThreadPresenter {
         model.onSwitch = { [weak self] from, to in self?.switching(from: from, to: to) }
         model.onFirstUnread = { [weak self] _ in self?.showLateFirstUnread() }
         // bubbles or plain rows, as the chat or Settings has it: every row is measured again.
-        styleObservation = Preferences.shared.chatStyleChanges.observe { [weak self] in self?.remeasure() }
+        styleObservation = session.preferences.chatStyleChanges.observe { [weak self] in self?.remeasure() }
     }
 
     // MARK: Opening

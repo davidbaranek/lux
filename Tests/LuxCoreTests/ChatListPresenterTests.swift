@@ -26,7 +26,11 @@ private final class RecordingListScreen: ChatListScreen {
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ChatListPresenterTests {
-    private let session = DemoSessions.open(rooms: 40, messagesPerRoom: 5)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 40, messagesPerRoom: 5)
+    }
 
     private func started() -> (ChatListPresenter, RecordingListScreen) {
         let presenter = ChatListPresenter(session: session, model: ChatListModel(session: session))

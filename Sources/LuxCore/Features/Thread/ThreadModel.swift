@@ -53,6 +53,8 @@ public final class ThreadModel {
 
     private let account: Task<any ThreadPort, any Error>
     private weak var session: Session?
+    /// The settings it reads and keeps: its session's.
+    private let preferences: Preferences
     /// The core's thread, once it opened; the intents before wait for it, in order.
     private var core: (any ThreadView)?
     private var waiting: [(any ThreadView) -> Void] = []
@@ -75,8 +77,9 @@ public final class ThreadModel {
         defaultRoom = thread?.roomId ?? row.defaultRoom ?? row.chatRooms[0].id
         sendRoom = defaultRoom
         self.session = session
+        preferences = session.preferences
         account = Task { [account = session.account] in try await account.value }
-        let receipts = Preferences.shared.readReceipts(in: row.id)
+        let receipts = preferences.readReceipts(in: row.id)
         opening = Task { [weak self, account] in
             do {
                 let core = try await account.value.openThread(row: row, thread: thread, readReceipts: receipts)
@@ -285,7 +288,7 @@ public final class ThreadModel {
     /// Puts the composer's text on the server to go at `date`, answering what the composer answers.
     public func sendLater(_ text: String, at date: Date) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        Preferences.shared.setHasDraft(false, in: chatId)
+        preferences.setHasDraft(false, in: chatId)
         Task {
             do {
                 try await openedCore()?.sendLater(text, at: date)
@@ -364,7 +367,7 @@ public final class ThreadModel {
     /// Send), else to `sendRoom`.
     public func send(_ text: String, via room: String? = nil) {
         // sending clears the chat's kept draft (a Matrix thread's is its own).
-        if canSend(text), thread == nil { Preferences.shared.setHasDraft(false, in: chatId) }
+        if canSend(text), thread == nil { preferences.setHasDraft(false, in: chatId) }
         withCore { $0.send(text, via: room) }
     }
 
@@ -380,7 +383,7 @@ public final class ThreadModel {
         if case .reply = mode { hasReply = true }
         // the chat list says "Draft" of the chat's own composer, not a thread's.
         if thread == nil {
-            Preferences.shared.setHasDraft(!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasReply, in: chatId)
+            preferences.setHasDraft(!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasReply, in: chatId)
         }
         withCore { $0.saveDraft(text) }
     }
@@ -434,18 +437,18 @@ public final class ThreadModel {
     public var onReadState: ((Bool) -> Void)?
 
     /// How this chat draws its messages, and whether that is its own choice (nil follows the app's).
-    public var chatStyle: ChatStyle { Preferences.shared.chatStyle(in: chatId) }
+    public var chatStyle: ChatStyle { preferences.chatStyle(in: chatId) }
     public var chatStyleOverride: ChatStyle? {
-        get { Preferences.shared.chatStyleOverride(in: chatId) }
-        set { Preferences.shared.setChatStyle(newValue, in: chatId) }
+        get { preferences.chatStyleOverride(in: chatId) }
+        set { preferences.setChatStyle(newValue, in: chatId) }
     }
 
     /// How this chat sends read receipts, and whether that is its own choice (nil follows the app's).
-    public var readReceipts: ReadReceipts { Preferences.shared.readReceipts(in: chatId) }
+    public var readReceipts: ReadReceipts { preferences.readReceipts(in: chatId) }
     public var readReceiptsOverride: ReadReceipts? {
-        get { Preferences.shared.readReceiptsOverride(in: chatId) }
+        get { preferences.readReceiptsOverride(in: chatId) }
         set {
-            Preferences.shared.setReadReceipts(newValue, in: chatId)
+            preferences.setReadReceipts(newValue, in: chatId)
             let receipts = readReceipts
             withCore { $0.set(readReceipts: receipts) }
         }

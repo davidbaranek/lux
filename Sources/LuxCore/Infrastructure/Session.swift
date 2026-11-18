@@ -49,6 +49,8 @@ public final class Session {
     }
 
     public let configuration: Configuration
+    /// The app's settings on this device.
+    public let preferences: Preferences
     /// Where the app keeps its files.
     private let paths: AppPaths
     /// The signed-in account and all that is its own; nil when signed out.
@@ -104,14 +106,15 @@ public final class Session {
     /// The browser sheet of a sign-in in progress.
     private var authentication: WebAuthentication?
 
-    public convenience init(configuration: Configuration = .main) {
-        self.init(configuration: configuration, paths: .main)
+    public convenience init(configuration: Configuration = .main, preferences: Preferences) {
+        self.init(configuration: configuration, paths: .main, preferences: preferences)
     }
 
-    init(configuration: Configuration, paths: AppPaths) {
+    init(configuration: Configuration, paths: AppPaths, preferences: Preferences) {
         // the core's runtime, before the first call into it.
         CoreRuntime.start()
         self.configuration = configuration
+        self.preferences = preferences
         self.paths = paths
         keychain = AccountKeychain(service: configuration.keychainService)
     }
@@ -133,7 +136,8 @@ public final class Session {
     /// A chat's details screen, of a chat in `list`: it tells which place keeps the chat out of
     /// the inbox.
     public func details(of row: ChatRow, in list: ChatListModel? = nil) -> ChatDetailsModel {
-        ChatDetailsModel(account: Task { [account] in try await account.value }, row: row, list: list, originals: originalsDirectory) { [weak self] in self?.search?.photos }
+        ChatDetailsModel(account: Task { [account] in try await account.value }, row: row, list: list, originals: originalsDirectory,
+                         preferences: preferences) { [weak self] in self?.search?.photos }
     }
 
     /// The chat that shows a room (its own, or the merged chat it is in); nil when the list has
@@ -156,10 +160,11 @@ public final class Session {
     /// made-up account with `rooms` chats of `messagesPerRoom` messages, its encryption starting at
     /// `encryption`; with `verificationRequestAfter`, another of its devices asks to verify that
     /// many seconds after the app listens. Its files are its own, in a temporary folder: demo
-    /// sessions side by side (the tests) never share one.
+    /// sessions side by side (the tests) never share one. Its settings are `preferences`.
     public static func demo(rooms: Int = 2_000, messagesPerRoom: Int = 3_000, encryption: DemoEncryption = .launched,
-                            verificationRequestAfter: Int? = LaunchOptions.demoVerificationRequest ? 4 : nil) -> Session {
-        let session = Session(configuration: .main, paths: .temporary())
+                            verificationRequestAfter: Int? = LaunchOptions.demoVerificationRequest ? 4 : nil,
+                            preferences: Preferences) -> Session {
+        let session = Session(configuration: .main, paths: .temporary(), preferences: preferences)
         let account = RustAccount.demo(rooms: rooms, messagesPerRoom: messagesPerRoom, encryption: encryption,
                                        verificationRequestAfter: verificationRequestAfter)
         let files = session.paths.account("demo")
@@ -234,8 +239,8 @@ public final class Session {
 
     /// The server to sign in to: the last one chosen, else Lux's own.
     public var homeserver: String {
-        get { Preferences.shared.homeserver ?? configuration.homeserver }
-        set { Preferences.shared.homeserver = newValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+        get { preferences.homeserver ?? configuration.homeserver }
+        set { preferences.homeserver = newValue.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
     /// How `homeserver` lets the app sign in. Throws when no Matrix server answers there.
@@ -388,8 +393,8 @@ public final class Session {
         bestEffort("the kept account stays in the keychain") { try keychain.delete() }
         bestEffort("the media cache stays") { try FileManager.default.removeItemIfPresent(at: paths.media) }
         self.current = nil
-        Preferences.shared.networksWelcomed = false
-        Preferences.shared.recoverySetupOffered = false
+        preferences.networksWelcomed = false
+        preferences.recoverySetupOffered = false
     }
 
     /// The account and all that is its own, made whole.
@@ -397,7 +402,7 @@ public final class Session {
                       stores: (kept: Task<LocalStore?, Never>, index: Task<LocalStore?, Never>), maxChats: Int? = nil) {
         current = AccountSession(
             account: account, chatListSource: chatListSource, server: homeserver, files: files, paths: paths,
-            stores: stores, maxChats: maxChats,
+            stores: stores, maxChats: maxChats, preferences: preferences,
             searchChanged: { [weak self] in self?.searchChanges.send() },
             ended: { [weak self] in
                 await self?.signOut()

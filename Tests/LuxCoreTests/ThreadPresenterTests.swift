@@ -168,7 +168,11 @@ private struct GridMeasure: TextMeasuring {
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ThreadPresenterTests {
-    private let session = DemoSessions.open(rooms: 10, messagesPerRoom: 60)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 10, messagesPerRoom: 60)
+    }
 
     private func opened(at focus: ((ChatRow) -> MessageLink)? = nil) async throws -> (ThreadPresenter, StackedScreen) {
         let rows = try await session.account.value.chats()
@@ -290,7 +294,7 @@ struct ThreadPresenterTests {
 
     @Test func aMessageFarBackShowsAmongItsNeighboursUntilJumpToBottom() async throws {
         // 400 messages a chat: the device's live timeline holds the newest 200.
-        let long = DemoSessions.open(rooms: 3, messagesPerRoom: 400)
+        let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 400)
         let rows = try await long.account.value.chats()
         let row = try #require(rows.first { !$0.isMerged })
         let presenter = ThreadPresenter(session: long, row: row, focus: MessageLink(roomId: row.id, eventId: "\(row.id)/10"),

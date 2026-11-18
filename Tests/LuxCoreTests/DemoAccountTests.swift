@@ -7,7 +7,7 @@ import LuxBindings
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoThreadTests {
     @Test func reactionsToggle() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 10)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 10)
         let row = try #require(await session.account.value.chats().first)
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
@@ -21,7 +21,7 @@ struct DemoThreadTests {
     }
 
     @Test func aSentMessageShowsAndAnAnswerGoesToItsMessage() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 10)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 10)
         let row = try #require(await session.account.value.chats().first)
         let model = ThreadModel(session: session, row: row)
         let changes = model.changes()
@@ -41,7 +41,11 @@ struct DemoThreadTests {
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoMatrixThreadTests {
-    private let session = DemoSessions.open(rooms: 6, messagesPerRoom: 30)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 6, messagesPerRoom: 30)
+    }
 
     private func opened(_ thread: MatrixThread? = nil, in chat: ChatRow? = nil) async throws -> (ThreadModel, Changes) {
         let first = try await session.account.value.chats().first
@@ -98,7 +102,11 @@ struct DemoMatrixThreadTests {
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct DemoChatsTests {
-    private let session = DemoSessions.open(rooms: 30, messagesPerRoom: 5)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 30, messagesPerRoom: 5)
+    }
 
     @Test func aChatIsFoundByTheWordsOfItsNameWithoutCaseOrAccents() async throws {
         let account = try await session.account.value

@@ -32,13 +32,14 @@ public final class PhotoSearch {
     var onModel: ((PhotoSearchModel?) -> Void)?
 
     /// Search finds photos by how they look (the model); the words in them are found always.
-    public var searchesByLook: Bool { Preferences.shared.searchesPhotosByLook }
+    public var searchesByLook: Bool { preferences.searchesPhotosByLook }
 
     /// How far the model's download is, while it downloads, in whole percent: the download reports
     /// far more often than anyone reads it, and each change lays Settings out again.
     private var downloading: Double? { didSet { if downloading != oldValue { changes.send() } } }
 
     private let store: LocalStore
+    private let preferences: Preferences
     private let indexer: PhotoIndexer
     private var model: PhotoSearchModel?
     private var loading: Task<Void, Never>?
@@ -46,8 +47,9 @@ public final class PhotoSearch {
     /// The system's memory pressure: the text encoder goes when memory runs short.
     private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
 
-    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL) {
+    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, preferences: Preferences) {
         self.store = store
+        self.preferences = preferences
         let (reports, report) = AsyncStream<PhotoIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
         indexer = PhotoIndexer(store: store, account: account, directory: directory, model: nil) { report.yield($0) }
         Task { [weak self] in
@@ -94,7 +96,7 @@ public final class PhotoSearch {
     /// with it) or off (the model and the photos' embeddings go; their words stay).
     public func setSearchesByLook(_ on: Bool) async {
         guard on != searchesByLook else { return }
-        Preferences.shared.searchesPhotosByLook = on
+        preferences.searchesPhotosByLook = on
         if on {
             loadModel()
             return

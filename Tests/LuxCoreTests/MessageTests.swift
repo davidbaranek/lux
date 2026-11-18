@@ -188,11 +188,11 @@ struct MessageLayoutTests {
 }
 
 @MainActor
+@Suite(.ownPreferences)
 struct ChatStylePreferenceTests {
-    @Test func aChatsOwnStyleWinsOverTheAppsUntilItIsCleared() {
-        let preferences = Preferences.shared
+    @Test func aChatsOwnStyleWinsOverTheAppsUntilItIsCleared() throws {
+        let preferences = try Preferences.ofTest
         let app = preferences.chatStyle
-        defer { preferences.setChatStyle(nil, in: "!test:style") }
         preferences.setChatStyle(app == .plain ? .bubbles : .plain, in: "!test:style")
         #expect(preferences.chatStyle(in: "!test:style") != app)
         #expect(preferences.chatStyle(in: "!other:style") == app)

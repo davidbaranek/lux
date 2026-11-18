@@ -3,7 +3,8 @@ import Testing
 
 /// The demo sessions a test opens close as it ends (their search's work ended, their stores
 /// closed): none is left to close as the test process exits. A suite that opens them takes
-/// `.closesDemoSessions` and opens them with `DemoSessions.open`.
+/// `.closesDemoSessions` and opens them with `DemoSessions.open`. Their settings are the test's
+/// own (`.ownPreferences`).
 @MainActor
 final class DemoSessions {
     @TaskLocal static var opened: DemoSessions?
@@ -11,13 +12,10 @@ final class DemoSessions {
 
     /// A demo session that closes as the test ends.
     static func open(rooms: Int, messagesPerRoom: Int, encryption: Session.DemoEncryption = .ready,
-                     verificationRequestAfter: Int? = nil) -> Session {
+                     verificationRequestAfter: Int? = nil) throws -> Session {
+        let opened = try #require(opened, "a demo session opened outside .closesDemoSessions")
         let session = Session.demo(rooms: rooms, messagesPerRoom: messagesPerRoom, encryption: encryption,
-                                   verificationRequestAfter: verificationRequestAfter)
-        guard let opened else {
-            Issue.record("a demo session opened outside .closesDemoSessions")
-            return session
-        }
+                                   verificationRequestAfter: verificationRequestAfter, preferences: try Preferences.ofTest)
         opened.sessions.append(session)
         return session
     }
@@ -34,15 +32,18 @@ struct ClosesDemoSessions: SuiteTrait, TestTrait, TestScoping {
     func provideScope(for test: Test, testCase: Test.Case?,
                       performing function: @Sendable () async throws -> Void) async throws {
         guard testCase != nil else { return try await function() }
-        let opened = DemoSessions()
-        // a test stopped by a failed wait closes its sessions too.
-        do {
-            try await DemoSessions.$opened.withValue(opened) { try await function() }
-        } catch {
+        // the sessions close before the test's settings go.
+        try await OwnPreferences().provideScope(for: test, testCase: testCase) {
+            let opened = DemoSessions()
+            // a test stopped by a failed wait closes its sessions too.
+            do {
+                try await DemoSessions.$opened.withValue(opened) { try await function() }
+            } catch {
+                await opened.close()
+                throw error
+            }
             await opened.close()
-            throw error
         }
-        await opened.close()
     }
 }
 

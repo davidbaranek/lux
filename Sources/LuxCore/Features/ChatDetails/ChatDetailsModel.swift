@@ -15,6 +15,7 @@ public final class ChatDetailsModel {
 
     private let account: Task<any ChatDetailsPort, any Error>
     private let originals: URL
+    private let preferences: Preferences
     /// The list the chat was opened from: it knows the places' inbox rules.
     private weak var list: ChatListModel?
     /// Photo search, once the account's index has opened: what the chat shared is found by the
@@ -22,11 +23,12 @@ public final class ChatDetailsModel {
     private let photos: @MainActor () -> PhotoSearch?
 
     init(account: Task<any ChatDetailsPort, any Error>, row: ChatRow, list: ChatListModel?, originals: URL,
-         photos: @escaping @MainActor () -> PhotoSearch? = { nil }) {
+         preferences: Preferences, photos: @escaping @MainActor () -> PhotoSearch? = { nil }) {
         self.account = account
         self.row = row
         self.list = list
         self.originals = originals
+        self.preferences = preferences
         self.photos = photos
     }
 
@@ -70,9 +72,9 @@ public final class ChatDetailsModel {
     /// How this chat draws its messages, when it differs from the app's; nil follows Settings. An
     /// open chat redraws at once (`Preferences.chatStyleChanges`).
     public var chatStyleOverride: ChatStyle? {
-        get { Preferences.shared.chatStyleOverride(in: row.id) }
+        get { preferences.chatStyleOverride(in: row.id) }
         set {
-            Preferences.shared.setChatStyle(newValue, in: row.id)
+            preferences.setChatStyle(newValue, in: row.id)
             changes.send()
         }
     }
@@ -81,7 +83,7 @@ public final class ChatDetailsModel {
     /// ("As in Settings (Bubbles)").
     public var chatStyleChoices: [(title: String, style: ChatStyle?)] {
         ChatStyle.allCases.map { ($0.title, $0) }
-            + [(String(localized: "As in Settings (\(Preferences.shared.chatStyle.title))"), nil)]
+            + [(String(localized: "As in Settings (\(preferences.chatStyle.title))"), nil)]
     }
 
     /// Of low priority by its own choice (`m.lowPriority`): out of the inbox, in its places still.

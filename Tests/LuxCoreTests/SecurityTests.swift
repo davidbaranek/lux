@@ -10,7 +10,7 @@ struct SecurityTests {
     private let demoRecoveryKey = "EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd"
 
     @Test func aNewDeviceIsAskedToVerifyAndAnotherDeviceVerifiesIt() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2, encryption: .unverified)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 2, encryption: .unverified)
         let security = try #require(session.security)
         #expect(await security.knownSetup() == .verifyThisDevice(withRecoveryKey: true))
         let (announced, observation) = security.announcements()
@@ -26,7 +26,7 @@ struct SecurityTests {
     }
 
     @Test func theRecoveryKeyVerifiesThisDevice() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2, encryption: .unverified)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 2, encryption: .unverified)
         let settings = SettingsModel(session: session)
         #expect(await failure { try await settings.recover(key: "EsTx not it") } == .wrongRecoveryKey)
         try await settings.recover(key: demoRecoveryKey)
@@ -35,7 +35,7 @@ struct SecurityTests {
     }
 
     @Test func anotherDeviceSignsOutWithThePassword() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 2)
         let security = try #require(session.security)
         try await security.loadDevices()
         let web = try #require(security.devices.first { $0.id == "WEBLAPTOP2" })
@@ -50,7 +50,7 @@ struct SecurityTests {
     }
 
     @Test func anotherDevicesRequestIsShownAndAnswered() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2, verificationRequestAfter: 1)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 2, verificationRequestAfter: 1)
         let security = try #require(session.security)
         let arrived = Changes()
         var request: VerificationModel?
@@ -70,7 +70,7 @@ struct SecurityTests {
     }
 
     @Test func aDeclinedRequestIsCancelled() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2, verificationRequestAfter: 1)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 2, verificationRequestAfter: 1)
         let security = try #require(session.security)
         let arrived = Changes()
         var request: VerificationModel?
@@ -85,7 +85,7 @@ struct SecurityTests {
     }
 
     @Test func anAccountWithoutRecoverySetsItUpOnce() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2, encryption: .noRecovery)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 2, encryption: .noRecovery)
         let security = try #require(session.security)
         #expect(await security.knownSetup() == .setUpRecovery)
         let (announced, observation) = security.announcements()
@@ -97,7 +97,7 @@ struct SecurityTests {
     }
 
     @Test func aDeviceOfTheAccountIsVerifiedFromThisOne() async throws {
-        let session = DemoSessions.open(rooms: 3, messagesPerRoom: 2)
+        let session = try DemoSessions.open(rooms: 3, messagesPerRoom: 2)
         let security = try #require(session.security)
         try await security.loadDevices()
         #expect(security.devices.first?.isThisDevice == true)

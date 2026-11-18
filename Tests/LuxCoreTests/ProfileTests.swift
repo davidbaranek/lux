@@ -10,7 +10,11 @@ import UniformTypeIdentifiers
 @MainActor
 @Suite(.closesDemoSessions, .timeLimit(.minutes(1)))
 struct ProfileTests {
-    private let session = DemoSessions.open(rooms: 4, messagesPerRoom: 2)
+    private let session: Session
+
+    init() throws {
+        session = try DemoSessions.open(rooms: 4, messagesPerRoom: 2)
+    }
 
     @Test func renamingTrimsTheNameAndAnEmptyOneShowsTheUserId() async throws {
         let profile = try #require(session.profile)
