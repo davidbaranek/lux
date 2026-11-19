@@ -112,6 +112,16 @@ impl MatrixNotifications {
         Ok(PushedEvent::Shown(notification(room, event, &item, &chat, merge)))
     }
 
+    /// Closes the SDK's stores (in the App Group, shared with the app), after the calls under
+    /// way: the extension is suspended once it hands its work back, and iOS ends a process that
+    /// holds a lock on a shared file then (`0xdead10cc`). Calls after it fail; the handle is let
+    /// go after it.
+    pub async fn close(&self) {
+        if let Err(error) = self.client.pause().await {
+            tracing::warn!(%error, "the extension's stores stay open");
+        }
+    }
+
     /// The picture `notification` names: from the media cache, else fetched; none when it cannot
     /// be had in [`PICTURE_TIME`].
     pub async fn pictures(&self, notification: &Notification) -> NotificationPictures {

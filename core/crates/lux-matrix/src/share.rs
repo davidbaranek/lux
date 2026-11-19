@@ -46,6 +46,16 @@ impl MatrixShare {
             .map(|client| Self { client }))
     }
 
+    /// Closes the SDK's stores (in the App Group, shared with the app), after the calls under
+    /// way: the extension is suspended once it hands its work back, and iOS ends a process that
+    /// holds a lock on a shared file then (`0xdead10cc`). Calls after it fail; the handle is let
+    /// go after it.
+    pub async fn close(&self) {
+        if let Err(error) = self.client.pause().await {
+            tracing::warn!(%error, "the extension's stores stay open");
+        }
+    }
+
     /// Sends `attachments` and `text` to `room`, and returns once the server has them all. One
     /// attachment carries the text as its caption; with several, or none, the text goes first
     /// as a message of its own.

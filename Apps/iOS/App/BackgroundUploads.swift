@@ -5,7 +5,9 @@ import UIKit
 /// Keeps photos and files going out when the user leaves the app: an upload the user started
 /// becomes a continued processing task (iOS 26), which the system lets run in the background and
 /// shows as a Live Activity with its progress, where the user can also stop it. Swiping the app
-/// away in the switcher ends it, as it ends any task.
+/// away in the switcher ends it, as it ends any task. While it runs the sync stays as the app
+/// leaves; as it ends in the background, the sync stops and the stores in the App Group close
+/// before the system may suspend the app (0xdead10cc).
 @MainActor
 final class BackgroundUploads {
     static let identifier = "\(AppIdentity.bundleId).uploads"
@@ -15,6 +17,9 @@ final class BackgroundUploads {
     private var uploads: Uploads?
     private var task: BGContinuedProcessingTask?
     private var accountChanges: AnyObject?
+
+    /// The system lets the app run for the uploads: their sync stays as the app leaves.
+    var keepsAppRunning: Bool { task != nil }
 
     /// Registers the task once, for the app's life; the account it follows is the session's of
     /// the moment.
@@ -61,7 +66,7 @@ final class BackgroundUploads {
         // the user stopped it in the Live Activity, or the system had to: the files stay queued
         // in their chats and go when the app is back.
         task.expirationHandler = { [weak self] in
-            Task { @MainActor in self?.task = nil }
+            Task { @MainActor in self?.finish(false) }
         }
         // the bar is the uploads' bytes.
         task.progress.totalUnitCount = 1
@@ -79,8 +84,15 @@ final class BackgroundUploads {
                          subtitle: String(localized: "\(min(uploads.finished + 1, uploads.files)) of \(uploads.files) · \(sent) of \(total)"))
     }
 
+    /// Tells the system the uploads are over, once; in the background, after the sync has
+    /// stopped and the stores have closed, since the app may be suspended as soon as it is told.
     private func finish(_ ok: Bool) {
-        task?.setTaskCompleted(success: ok)
-        task = nil
+        guard let task else { return }
+        self.task = nil
+        let session = self.session
+        Task {
+            if UIApplication.shared.applicationState != .active { await session.enterBackground()?.value }
+            task.setTaskCompleted(success: ok)
+        }
     }
 }

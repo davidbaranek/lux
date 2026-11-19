@@ -232,7 +232,8 @@ async fn damage_that_keeps_coming_back_stops_being_replaced() {
         store.add(messages(300)).await.unwrap();
         store.keep("photo".into(), vec![7; 40 * PAGE]).await.unwrap();
         // closed (its log written into the file), damaged, and opened again by the next call.
-        store.release().await.unwrap();
+        store.pause().await.unwrap();
+        store.resume();
         let mut bytes = fs::read(&path).unwrap();
         damage_kept_value(&mut bytes);
         fs::write(&path, &bytes).unwrap();
@@ -242,7 +243,7 @@ async fn damage_that_keeps_coming_back_stops_being_replaced() {
             replaced.await.unwrap();
             works_as_new(&store).await;
         } else {
-            store.release().await.unwrap();
+            store.pause().await.unwrap();
             assert_eq!(fs::read(&path).unwrap(), bytes);
         }
     }
@@ -270,19 +271,20 @@ async fn an_error_of_the_disk_leaves_the_file_be() {
     assert_eq!(found(&store, "výletu").await.unwrap(), 300);
 }
 
-/// The file cannot be opened again after the store let it go (in the background): data
-/// protection refuses a protected file while the device is locked, as the disk refuses one
-/// without permission here. The error surfaces, nothing is replaced, and once the file can be
-/// read again the store goes on with all it held.
+/// The file cannot be opened again after the store paused and resumed (the app back from the
+/// background, the device still locked): data protection refuses a protected file then, as the
+/// disk refuses one without permission here. The error surfaces, nothing is replaced, and once
+/// the file can be read again the store goes on with all it held.
 #[tokio::test]
-async fn a_file_refused_after_a_release_is_not_damage() {
+async fn a_file_refused_after_a_pause_is_not_damage() {
     use std::os::unix::fs::PermissionsExt;
 
     let folder = TempDir::new().unwrap();
     let path = file(&folder);
     written(&path).await;
     let store = Store::open_or_replace(&path, key()).await.unwrap();
-    store.release().await.unwrap();
+    store.pause().await.unwrap();
+    store.resume();
     let bytes = fs::read(&path).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
     let refused = found(&store, "výletu").await;

@@ -163,13 +163,20 @@ async fn a_deleted_message_is_forgotten() {
 }
 
 #[tokio::test]
-async fn a_released_store_opens_again_on_the_next_call() {
+async fn a_paused_store_opens_again_on_the_first_call_after_it_resumes() {
     let folder = TempDir::new().unwrap();
     let store = Store::open(file(&folder), key()).await.unwrap();
     store.add(vec![message("$1", "kept", "!a", 0)]).await.unwrap();
-    store.release().await.unwrap();
+    store.pause().await.unwrap();
     // the connection is gone with its journal: nothing holds the file.
     assert!(!folder.path().join("lux-search/index.sqlite-wal").exists());
+    // a call meanwhile (the kept list's, in the background) does not open it again.
+    assert!(matches!(
+        store.keep("chat-list".into(), vec![1]).await,
+        Err(Error::Paused)
+    ));
+    assert!(!folder.path().join("lux-search/index.sqlite-wal").exists());
+    store.resume();
     assert_eq!(found(&store, "kept").await, ["$1"]);
 }
 

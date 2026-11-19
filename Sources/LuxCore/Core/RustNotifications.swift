@@ -86,6 +86,13 @@ public final class PushedEvents: Sendable {
         case .filteredOut, .gone: nil
         }
     }
+
+    /// Closes the account's stores in the App Group, after the reads under way: the extension
+    /// is suspended once it hands its notification back, and a lock held on a shared file then
+    /// ends it (0xdead10cc). Reads after it fail; the next push opens the account again.
+    public func close() async {
+        await reader.close()
+    }
 }
 
 extension PushedMessage {

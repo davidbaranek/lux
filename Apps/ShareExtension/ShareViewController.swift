@@ -163,6 +163,9 @@ final class ShareViewController: UIViewController {
         navigationItem.rightBarButtonItem?.customView = spinner
         let text = message.text ?? ""
         Task {
+            // the send writes the account's stores in the App Group: under a process activity.
+            let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Sending what was shared")
+            defer { ProcessInfo.processInfo.endActivity(activity) }
             do {
                 var attachments: [OutgoingAttachment] = []
                 for file in items.files {
@@ -190,12 +193,29 @@ final class ShareViewController: UIViewController {
 
     private func finish() {
         bestEffort("share: the copied files stay") { try FileManager.default.removeItemIfPresent(at: folder) }
-        extensionContext?.completeRequest(returningItems: nil)
+        Task {
+            await closeAccount()
+            extensionContext?.completeRequest(returningItems: nil)
+        }
     }
 
     private func cancel() {
         bestEffort("share: the copied files stay") { try FileManager.default.removeItemIfPresent(at: folder) }
-        extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+        Task {
+            await closeAccount()
+            extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+        }
+    }
+
+    /// The account's stores in the App Group close before the request goes back: the extension is
+    /// suspended then, and iOS ends a process that holds a lock on a shared file (0xdead10cc).
+    /// Under a process activity, as Apple asks of an extension that writes such files.
+    private func closeAccount() async {
+        guard let sender else { return }
+        self.sender = nil
+        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Closing the shared account")
+        await sender.close()
+        ProcessInfo.processInfo.endActivity(activity)
     }
 }
 

@@ -84,8 +84,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // work's files are the app's own; loading the model cannot be cut short, and the stores
         // do not wait for it.
         endingWork = UIApplication.shared.beginBackgroundTask(withName: "leaving") { [weak self] in self?.endedWork() }
-        // an upload in a continued processing task keeps the app running: its sync stays.
-        let paused = session.uploads?.isActive == true ? nil : session.enterBackground()
+        // an upload in a continued processing task keeps the app running: its sync stays, and
+        // stops as the task ends. Uploads the system does not run (yet) wait for the app's return.
+        let paused = AppDelegate.uploads.keepsAppRunning ? nil : session.enterBackground()
         Task {
             await LongWork.shared.leave()
             await paused?.value

@@ -1,8 +1,12 @@
 //! The thread that owns the connection: callers send it jobs and await their answers, so SQLite's
 //! blocking calls never run on an async runtime and the connection needs no lock.
 //!
-//! The connection can be let go ([`Worker::release`]) while the app is in the background, where
-//! iOS ends an app that holds a lock on a file in a shared container; the next job opens it again.
+//! The store pauses ([`Worker::pause`]) while the app is in the background, where iOS ends an app
+//! that holds a lock on a file in a shared container (`0xdead10cc`): the statement under way is
+//! interrupted (SQLite rolls its transaction back), the connection closes, and every job until
+//! [`Worker::resume`] fails with [`Error::Paused`] without touching the file. A job is refused
+//! rather than run on a connection opened again, which would hold the file's locks as iOS
+//! suspends the app; the next job after the resume opens it again.
 //!
 //! [`Worker::close`] ends the thread and awaits it, blocking no thread meanwhile. A handle dropped
 //! without it stops the thread and waits for it there. A process that exits while the thread runs
@@ -19,12 +23,13 @@
 //! its table), not a file to throw away again and again.
 
 use std::mem;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use lux_core::gone::OtherEndGone;
-use rusqlite::Connection;
+use rusqlite::{Connection, InterruptHandle};
 use tokio::sync::{oneshot, watch};
 use tracing::{error, info, warn};
 
@@ -49,7 +54,7 @@ const RECENTLY: Duration = Duration::from_hours(1);
 enum Message {
     Run(Job),
     /// Closes the connection, then answers.
-    Release(oneshot::Sender<()>),
+    Pause(oneshot::Sender<()>),
     /// Closes the connection and ends the thread, then answers (when asked to).
     Stop(Option<oneshot::Sender<()>>),
 }
@@ -65,6 +70,43 @@ enum Outcome {
     Replaced(Error),
 }
 
+/// Whether the store is paused, shared by its handle and its thread.
+#[derive(Default)]
+struct Pause {
+    paused: AtomicBool,
+    /// Interrupts the job under way; none between jobs, where an interrupt would stop the
+    /// checkpoint that closing the connection makes.
+    interrupt: Mutex<Option<InterruptHandle>>,
+}
+
+impl std::fmt::Debug for Pause {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Pause")
+            .field("paused", &self.paused)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Pause {
+    fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    fn set_interrupt(&self, handle: Option<InterruptHandle>) {
+        // nothing panics while holding it.
+        *self.interrupt.lock().unwrap_or_else(PoisonError::into_inner) = handle;
+    }
+
+    /// Interrupts the job under way, if any: SQLite rolls its transaction back and the job
+    /// fails.
+    fn interrupt(&self) {
+        if let Some(handle) = &*self.interrupt.lock().unwrap_or_else(PoisonError::into_inner) {
+            handle.interrupt();
+        }
+    }
+}
+
 /// The store's file, as the thread holds it.
 struct File {
     open: Open,
@@ -76,6 +118,7 @@ struct File {
     replacements: Vec<Instant>,
     /// Counts them for [`Worker::replaced`].
     replaced: watch::Sender<u64>,
+    pause: Arc<Pause>,
 }
 
 impl File {
@@ -103,11 +146,24 @@ impl File {
         }
     }
 
-    /// Runs `job` on the connection; its error, if it speaks against the file, is weighed.
+    /// Runs `job` on the connection; its error, if it speaks against the file, is weighed. A
+    /// paused store refuses it, and a job the pause interrupted fails as refused.
     fn run<T>(&mut self, job: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
-        let result = job(self.connection()?);
-        result.map_err(|error| match self.weigh(error) {
-            Outcome::Kept(error) | Outcome::Damaged(error) | Outcome::Replaced(error) => error,
+        if self.pause.is_paused() {
+            return Err(Error::Paused);
+        }
+        let pause = Arc::clone(&self.pause);
+        let connection = self.connection()?;
+        pause.set_interrupt(Some(connection.get_interrupt_handle()));
+        let result = job(connection);
+        pause.set_interrupt(None);
+        result.map_err(|error| {
+            if self.pause.is_paused() && error.interrupted() {
+                return Error::Paused;
+            }
+            match self.weigh(error) {
+                Outcome::Kept(error) | Outcome::Damaged(error) | Outcome::Replaced(error) => error,
+            }
         })
     }
 
@@ -191,22 +247,25 @@ pub(crate) struct Worker {
     messages: mpsc::Sender<Message>,
     /// How many times the thread made a new file in place of a damaged one.
     replacements: watch::Receiver<u64>,
+    pause: Arc<Pause>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Worker {
     /// Starts the thread and opens the connection on it with `open`, which opens it again after a
-    /// release. With `discard`, a damaged file gives way to a new one.
+    /// pause. With `discard`, a damaged file gives way to a new one.
     pub(crate) async fn start(open: Open, discard: Option<Discard>) -> Result<Self> {
         let (messages, inbox) = mpsc::channel::<Message>();
         let (opened, opening) = oneshot::channel();
         let (replaced, replacements) = watch::channel(0_u64);
+        let pause = Arc::new(Pause::default());
         let mut file = File {
             open,
             discard,
             connection: None,
             replacements: Vec::new(),
             replaced,
+            pause: Arc::clone(&pause),
         };
         exit::watch();
         let thread = thread::Builder::new().name("lux-store".into()).spawn(move || {
@@ -233,7 +292,7 @@ impl Worker {
                 };
                 match message {
                     Message::Run(job) => job(&mut file),
-                    Message::Release(done) => {
+                    Message::Pause(done) => {
                         file.connection = None;
                         done.send(()).other_end_may_be_gone("the caller");
                     }
@@ -251,6 +310,7 @@ impl Worker {
         Ok(Self {
             messages,
             replacements,
+            pause,
             thread: Some(thread),
         })
     }
@@ -289,11 +349,20 @@ impl Worker {
         }
     }
 
-    /// Closes the connection after the jobs sent before; the next job opens it again.
-    pub(crate) async fn release(&self) -> Result<()> {
-        let (done, released) = oneshot::channel();
-        self.messages.send(Message::Release(done)).map_err(|_| Error::Closed)?;
-        released.await.map_err(|_| Error::Closed)
+    /// Pauses the store: the statement under way is interrupted, the jobs not yet begun fail
+    /// with [`Error::Paused`], and so does every job until [`Worker::resume`]; the connection
+    /// closes, and this returns once it has. Nothing holds the file meanwhile.
+    pub(crate) async fn pause(&self) -> Result<()> {
+        self.pause.paused.store(true, Ordering::SeqCst);
+        self.pause.interrupt();
+        let (done, paused) = oneshot::channel();
+        self.messages.send(Message::Pause(done)).map_err(|_| Error::Closed)?;
+        paused.await.map_err(|_| Error::Closed)
+    }
+
+    /// Ends a pause: the next job opens the connection again.
+    pub(crate) fn resume(&self) {
+        self.pause.paused.store(false, Ordering::SeqCst);
     }
 }
 
@@ -307,5 +376,94 @@ impl Drop for Worker {
             // a panic in a job has already been reported on its thread.
             thread.join().other_end_may_be_gone("the store's thread");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::mpsc;
+
+    use rusqlite::Connection;
+    use rusqlite::functions::FunctionFlags;
+    use tempfile::TempDir;
+
+    use super::Worker;
+    use crate::Error;
+
+    /// A plain file in WAL, as the store's, with a table to write in.
+    fn opener(path: PathBuf) -> super::Open {
+        Box::new(move || {
+            let connection = Connection::open(&path)?;
+            connection.execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE IF NOT EXISTS t(x);")?;
+            Ok(connection)
+        })
+    }
+
+    /// Whether no connection holds the file: leaving WAL needs every other one closed.
+    fn held_by_none(path: &Path) -> bool {
+        let other = Connection::open(path).unwrap();
+        other
+            .query_row("PRAGMA journal_mode = DELETE", [], |row| row.get::<_, String>(0))
+            .is_ok_and(|mode| mode == "delete")
+    }
+
+    /// A write in flight as the app leaves is cut short, its transaction rolled back, and the
+    /// file closed: nothing holds it as iOS suspends the app.
+    #[tokio::test]
+    async fn a_pause_interrupts_the_write_under_way_and_closes_the_file() {
+        let folder = TempDir::new().unwrap();
+        let path = folder.path().join("store.sqlite");
+        let worker = Worker::start(opener(path.clone()), None).await.unwrap();
+        let (began, beginning) = mpsc::channel();
+        let writing = worker.run(move |connection| {
+            // tells the test from inside the statement: the pause finds it running.
+            connection.create_scalar_function("began", 0, FunctionFlags::SQLITE_UTF8, move |_| {
+                began.send(()).ok();
+                Ok(true)
+            })?;
+            // an endless write, in one transaction: only an interrupt ends it.
+            connection.execute_batch(
+                "BEGIN; WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE began()) \
+                 INSERT INTO t SELECT x FROM n; COMMIT;",
+            )?;
+            Ok(())
+        });
+        let pausing = async {
+            tokio::task::spawn_blocking(move || beginning.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            worker.pause().await.unwrap();
+        };
+        let (written, ()) = tokio::join!(writing, pausing);
+        assert!(matches!(written, Err(Error::Paused)), "{written:?}");
+        assert!(held_by_none(&path), "the connection is closed");
+        worker.resume();
+        let rows = worker
+            .run(|connection| Ok(connection.query_row("SELECT count(*) FROM t", [], |row| row.get::<_, i64>(0))?))
+            .await
+            .unwrap();
+        assert_eq!(rows, 0, "the interrupted transaction was rolled back");
+    }
+
+    /// A call while paused fails without opening the file again; after the resume it runs.
+    #[tokio::test]
+    async fn a_paused_store_refuses_calls_until_it_resumes() {
+        let folder = TempDir::new().unwrap();
+        let path = folder.path().join("store.sqlite");
+        let worker = Worker::start(opener(path.clone()), None).await.unwrap();
+        worker.pause().await.unwrap();
+        let refused = worker
+            .run(|connection| Ok(connection.execute("INSERT INTO t VALUES (1)", [])?))
+            .await;
+        assert!(matches!(refused, Err(Error::Paused)));
+        assert!(held_by_none(&path), "the refused call did not open the file");
+        worker.resume();
+        let inserted = worker
+            .run(|connection| Ok(connection.execute("INSERT INTO t VALUES (1)", [])?))
+            .await
+            .unwrap();
+        assert_eq!(inserted, 1);
     }
 }

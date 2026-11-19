@@ -75,11 +75,12 @@ private final class Delivery: @unchecked Sendable {
     /// Reads the pushed event and shows it; anything that fails shows the neutral text.
     func fill(from payload: PushPayload) async {
         do {
-            guard let events = try await Self.events.open() else {
+            // the account's stores in the App Group are closed again before the notification goes.
+            guard case .read(let pushed) = try await Self.events.read(payload) else {
                 deliverNeutral()
                 return
             }
-            guard let message = try await events.read(payload) else {
+            guard let message = pushed else {
                 // not to be shown: dropped where the system allows it; the badge stays as it is.
                 deliver(Self.filters ? UNNotificationContent() : neutral, chat: nil)
                 return
@@ -167,13 +168,55 @@ private final class Delivery: @unchecked Sendable {
     }
 }
 
-/// The account, opened on the first notification and kept for the next ones. Two pushes close
-/// together share one opening: the actor is re-entered while the first one awaits, and a second
-/// account over the same store would double the extension's memory.
+/// The account, open while pushes are read. Two pushes close together share one opening (the
+/// actor is re-entered while the first one awaits; a second account over the same store would
+/// double the extension's memory), and the last of them closes it before its notification goes:
+/// the extension is suspended once it hands a notification back, and iOS ends a process that
+/// holds a lock on a file in the App Group then (0xdead10cc). The next push opens it again. The
+/// work runs under a process activity, as Apple asks of an extension that writes such files.
 private actor EventsHolder {
-    private var opening: Task<PushedEvents?, any Error>?
+    /// What a push's read gave.
+    enum Read {
+        /// No account is kept.
+        case noAccount
+        /// The message, or nil when it is not to be shown.
+        case read(PushedMessage?)
+    }
 
-    func open() async throws -> PushedEvents? {
+    private var opening: Task<PushedEvents?, any Error>?
+    /// The reads under way, over `opening`.
+    private var readers = 0
+    /// The last reader's close of the account: the next push opens it after.
+    private var closing: Task<Void, Never>?
+
+    func read(_ payload: PushPayload) async throws -> Read {
+        await closing?.value
+        let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Reading a pushed message")
+        readers += 1
+        let read: Result<Read, any Error>
+        do {
+            if let events = try await open() {
+                read = .success(.read(try await events.read(payload)))
+            } else {
+                read = .success(.noAccount)
+            }
+        } catch {
+            read = .failure(error)
+        }
+        readers -= 1
+        if readers == 0, let opened = opening {
+            opening = nil
+            let close = Task {
+                if case .success(let events?) = await opened.result { await events.close() }
+            }
+            closing = close
+            await close.value
+        }
+        ProcessInfo.processInfo.endActivity(activity)
+        return try read.get()
+    }
+
+    private func open() async throws -> PushedEvents? {
         let opening = self.opening ?? Task { try await PushedEvents.open() }
         self.opening = opening
         do {

@@ -640,13 +640,21 @@ impl Store {
             .await
     }
 
-    /// Closes the file until the next call: the app goes to the background, where iOS ends an
-    /// app that holds a lock on a file in a shared container.
+    /// Pauses the store until [`Store::resume`]: the app goes to the background, where iOS ends
+    /// an app that holds a lock on a file in a shared container as it suspends it (`0xdead10cc`).
+    /// The call under way is interrupted (its transaction rolled back), the file closes, and
+    /// every call meanwhile fails with [`Error::Paused`] without opening it again. Returns once
+    /// the file is closed.
     ///
     /// # Errors
     /// [`Error::Closed`].
-    pub async fn release(&self) -> Result<()> {
-        self.worker.release().await
+    pub async fn pause(&self) -> Result<()> {
+        self.worker.pause().await
+    }
+
+    /// Ends a pause: the next call opens the file again.
+    pub fn resume(&self) {
+        self.worker.resume();
     }
 
     /// Closes the store for good, after the calls made before: later calls fail with

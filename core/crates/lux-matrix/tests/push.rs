@@ -35,6 +35,23 @@ const SYNC: &str = "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
 
 /// Every sliding sync, the app's and the extension's, answers with one direct chat and its
 /// newest message; the syncs that reach `server`.
+/// The write-ahead logs in `folder`: a store's lives while a connection holds it open.
+fn logs(folder: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let mut folders = vec![folder.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if path.to_string_lossy().ends_with("-wal") {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
 async fn mount_sync(server: &MatrixMockServer) -> Requests {
     mount_sync_with(server, 1_700_000_000_000, &[]).await
 }
@@ -206,7 +223,7 @@ async fn the_extension_reads_a_pushed_message_from_the_kept_store() {
     account.pause_sync().await;
     drop(account);
 
-    let notifications = MatrixNotifications::open(&StoreFolder::new(folder.path()), secrets)
+    let notifications = MatrixNotifications::open(&StoreFolder::new(folder.path()), secrets.clone())
         .await
         .unwrap()
         .expect("the kept session");
@@ -225,6 +242,33 @@ async fn the_extension_reads_a_pushed_message_from_the_kept_store() {
     assert_eq!(notification.sender_name, "anna");
     assert!(!notification.is_group);
     assert_eq!(notification.kind, PreviewKind::Text("hello there".to_owned()));
+
+    // handed back, the extension closes the stores in the shared folder before it is suspended:
+    // a read after fails rather than open them again, and the next push opens the account anew.
+    assert!(!logs(folder.path()).is_empty(), "the stores are open while it reads");
+    notifications.close().await;
+    // every store's connection closes (its log checkpointed and gone); the SDK lets a write that
+    // already held the crypto store's connection end first.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !logs(folder.path()).is_empty() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the stores closed");
+    drop(notifications);
+    let next = MatrixNotifications::open(&StoreFolder::new(folder.path()), secrets)
+        .await
+        .unwrap()
+        .expect("the kept session");
+    let pushed = tokio::time::timeout(
+        Duration::from_secs(20),
+        next.read(&"!anna:matrix.org".into(), &"$hello".into()),
+    )
+    .await
+    .expect("the event in time")
+    .unwrap();
+    assert!(matches!(pushed, PushedEvent::Shown(_)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
