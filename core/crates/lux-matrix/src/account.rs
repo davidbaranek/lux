@@ -52,9 +52,10 @@ pub struct MatrixAccount {
 }
 
 impl MatrixAccount {
-    /// Opens the lists over a client with a session, and starts the sync; the chat list is kept
-    /// in `store`, the account's encrypted store, for the next launch.
-    pub(crate) async fn open(client: Client, store: Option<Arc<Store>>) -> Result<Self, BackendError> {
+    /// Opens the lists over a client with a session, and starts the sync if the app is
+    /// `in_front` (in the background it starts when the app comes to the front); the chat list is
+    /// kept in `store`, the account's encrypted store, for the next launch.
+    pub(crate) async fn open(client: Client, store: Option<Arc<Store>>, in_front: bool) -> Result<Self, BackendError> {
         let (Some(user), Some(device)) = (client.user_id(), client.device_id()) else {
             return Err(BackendError::SignedOut);
         };
@@ -74,19 +75,23 @@ impl MatrixAccount {
         };
         let kept = store.as_ref().map(|store| KeptList::new(Arc::clone(store)));
         let chats = ChatList::start(client.clone(), Arc::clone(&service), own.clone(), kept, organizing).await;
-        let requests = RequestList::start(service);
+        let requests = RequestList::start(Arc::clone(&service));
         let spaces = SpaceList::start(client.clone());
-        let timelines = MatrixTimelines::new(client.clone()).cutting_history(organizer.subscribe());
+        let timelines = MatrixTimelines::new(client.clone(), Some(service)).cutting_history(organizer.subscribe());
         let live = LiveFeed::start(&client, own, organizer.subscribe()).await;
         let sending = QueueKeeper::start(client.clone(), sync.state());
         let session_end = SessionEnd::follow(&client);
         let bridges = BridgeLink::start(&client);
         let verification_requests = IncomingVerifications::start(&client);
-        sync.start().await;
+        // in the background the sync waits: a sync started and stopped at once may miss the stop
+        // (the SDK's), and nothing there needs it.
+        if in_front {
+            sync.start().await;
+        }
         // the requests a failure, or the last launch, left unsent go out now.
         client.send_queue().set_enabled(true).await;
         let room_list = sync.room_list_service();
-        let lifecycle = Lifecycle::start(client.clone(), sync, store, chats.flush());
+        let lifecycle = Lifecycle::start(client.clone(), sync, store, chats.flush(), in_front);
         Ok(Self {
             client,
             user_id,
@@ -117,6 +122,12 @@ impl MatrixAccount {
     /// photo search), if they are closed. The app pauses the account again when the work is done.
     pub async fn begin_background_work(&self) {
         self.lifecycle.begin_background_work().await;
+    }
+
+    /// Ends work in the background: the sync stops and the stores close, unless the app came to
+    /// the front meanwhile (then they stay as the front has them).
+    pub async fn end_background_work(&self) {
+        self.lifecycle.end_background_work().await;
     }
 
     /// The chats' timelines: their messages, sending to them, their media.

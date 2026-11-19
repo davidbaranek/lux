@@ -203,9 +203,12 @@ public final class Session {
         let keychain = self.keychain, store = stored.store, stores = paths.accounts
         let files = paths.account(store)
         let opened = Self.stores(files, store: store)
+        // opened while the app is away (the system launched it for a background task), the
+        // account's sync waits for the front: a sync started and stopped at once may miss the stop.
+        let inFront = LongWork.shared.isInFront
         let opening = Task {
             guard let account = try await RustAccount.restore(stores: stores, keychain: keychain, store: store,
-                                                              local: await opened.kept.value)
+                                                              local: await opened.kept.value, inFront: inFront)
             else { throw SessionLost() }
             Log.metrics.notice("launch: account open at \(Signposts.sinceProcessStart(), format: .fixed(precision: 3), privacy: .public) s")
             return account
@@ -364,6 +367,23 @@ public final class Session {
         return await account.refresh(within: within)
     }
 
+    // MARK: Reading in the background
+
+    /// Opens what reading in the background needs (the iPhone's processing task): the kept
+    /// account if the app was not running, its stores without the sync, and its search. Nil when
+    /// there is nothing to read for: signed out, the search's index not open, or the Keychain not
+    /// readable yet (the iPhone not unlocked since it started), which leaves everything as it was.
+    public func beginBackgroundWork() async -> MessageSearch? {
+        guard await restore(), let current else { return nil }
+        await current.beginBackgroundWork().value
+        return await current.openedSearch()
+    }
+
+    /// Reading in the background ended: the stores close again, unless the app came to the front.
+    public func endBackgroundWork() async {
+        await current?.endBackgroundWork().value
+    }
+
     /// Ends the account's work, stops its sync (the chat list kept for the next launch) and closes
     /// its stores, the account kept: as the app ends, and a test's demo session as the test
     /// ends. No store is left open for the process's exit, where SQLCipher frees its ciphers'
@@ -381,7 +401,7 @@ public final class Session {
     /// (`lux-store`'s exit hold), as an exit nobody announced does.
     public func closeAsTheAppEnds(within limit: Duration) async {
         let closing = Task {
-            await ForegroundWork.shared.leave()
+            await LongWork.shared.end()
             await close()
         }
         await withTaskGroup(of: Void.self) { group in

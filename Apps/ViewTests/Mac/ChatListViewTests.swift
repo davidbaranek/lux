@@ -59,6 +59,46 @@ struct ChatListViewTests {
             }
         }
     }
+
+    /// The activity bubble sits over the top of the list. Gone, it takes no click: AppKit
+    /// hit-tests a view whatever its alpha, so one only faded out took the top row's clicks.
+    @Test func aClickWhereTheGoneActivityBubbleWasReachesTheChatUnderIt() async throws {
+        try await DemoAccount.with { session in
+            let list = try ShownChatList(session)
+            // in a window that is never shown, which lays the list out as the bubble's room changes.
+            let window = NSWindow(contentRect: list.controller.view.frame, styleMask: [.titled], backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            window.contentView?.addSubview(list.controller.view)
+            let first = try await list.firstListedChat()
+
+            // the account loaded: the bubble gone (as it went, or as it began), the list slid back
+            // up under its place.
+            let bubble = try #require(list.controller.view.subviews.lazy.compactMap { $0 as? LoadingBubble }.first)
+            let scroll = try #require(list.table.enclosingScrollView)
+            let moved = list.changes
+            let observations = [bubble.observe(\.isHidden) { _, _ in MainActor.assumeIsolated { moved.send() } },
+                                scroll.observe(\.frame) { _, _ in MainActor.assumeIsolated { moved.send() } }]
+            defer { observations.forEach { $0.invalidate() } }
+            try await moved.until {
+                list.model.loadState == .done && bubble.isHidden && scroll.frame.maxY == list.controller.view.bounds.maxY
+            }
+
+            // the first chat at the list's top, under the bubble's place.
+            let row = try #require(list.dataSource.row(forItemIdentifier: first))
+            let clip = scroll.contentView
+            clip.scroll(to: NSPoint(x: 0, y: list.table.rect(ofRow: row).minY - clip.contentInsets.top))
+            list.controller.view.layoutSubtreeIfNeeded()
+            let point = NSPoint(x: bubble.frame.midX, y: bubble.frame.midY)
+            try #require(list.table.row(at: list.table.convert(point, from: list.controller.view)) == row,
+                         "the first chat is not under the bubble's place")
+
+            // where the window sends the click: a view of the first chat's row, which passes the
+            // press on to the table.
+            let hit = try #require(list.controller.view.hitTest(point))
+            #expect(hit.isDescendant(of: list.table), "\(hit) takes the click over the first chat")
+            #expect(list.table.row(for: hit) == row)
+        }
+    }
 }
 
 /// A chat list's controller, its view loaded and laid out at a sidebar's size, with what the

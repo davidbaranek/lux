@@ -25,6 +25,9 @@ pub struct MatrixSignIn {
     folder: StoreFolder,
     secrets: Arc<dyn SecretStore>,
     store: Option<Arc<Store>>,
+    /// The app is in front as the account opens: its sync starts. Opened in the background (the
+    /// system launched the app for a background task), it waits for the front.
+    in_front: bool,
 }
 
 impl MatrixSignIn {
@@ -35,6 +38,7 @@ impl MatrixSignIn {
             folder,
             secrets,
             store: None,
+            in_front: true,
         }
     }
 
@@ -46,10 +50,18 @@ impl MatrixSignIn {
         self
     }
 
+    /// The app is in the background as the account opens (the system launched it for a
+    /// background task): the stores open, the sync waits until the app comes to the front.
+    #[must_use]
+    pub fn in_background(mut self) -> Self {
+        self.in_front = false;
+        self
+    }
+
     /// The account over `client`, signed in or restored in the folder; the other folders beside
     /// it go, now that the live one is certain.
     async fn opened(&self, client: Client) -> Result<MatrixAccount, BackendError> {
-        let account = MatrixAccount::open(client, self.store.clone()).await?;
+        let account = MatrixAccount::open(client, self.store.clone(), self.in_front).await?;
         store::remove_others(&self.folder).await;
         Ok(account)
     }

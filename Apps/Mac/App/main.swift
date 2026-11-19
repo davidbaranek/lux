@@ -39,6 +39,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// A chat continued from another of the account's devices (Handoff): the same chat opens here,
+    /// once the chats show if they do not yet.
+    func application(_ application: NSApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        guard let chat = ChatActivity(userActivity) else { return false }
+        if let split = window?.contentViewController as? MainSplitViewController { open(chat, in: split) } else { chatToOpen = chat }
+        return true
+    }
+
+    /// A chat continued before the chats showed.
+    private var chatToOpen: ChatActivity?
+
+    private func open(_ chat: ChatActivity, in split: MainSplitViewController) {
+        window.makeKeyAndOrderFront(nil)
+        split.openChat(roomId: chat.roomId, thread: chat.threadRoot)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     /// The long work and the account's session end, its stores closed, before the app does:
@@ -66,6 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.toolbarStyle = .unified
             // the toolbar shows the open chat's picture and name itself (`ChatTitleView`).
             window.titleVisibility = .hidden
+            if let chat = chatToOpen {
+                chatToOpen = nil
+                open(chat, in: split)
+            }
             notifications?.openChat = { [weak self, weak split] room, thread in
                 self?.window.makeKeyAndOrderFront(nil)
                 split?.openChat(roomId: room, thread: thread)

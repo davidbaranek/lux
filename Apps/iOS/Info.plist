@@ -12,6 +12,7 @@
 	<array>
 		<string>$(LUX_BUNDLE_ID).uploads</string>
 		<string>$(LUX_BUNDLE_ID).refresh</string>
+		<string>$(LUX_BUNDLE_ID).reading</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
@@ -42,6 +43,7 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>
+		<string>$(LUX_BUNDLE_ID).chat</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

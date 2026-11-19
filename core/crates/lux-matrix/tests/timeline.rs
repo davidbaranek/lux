@@ -119,7 +119,7 @@ async fn a_room_reads_with_its_formatting_replies_reactions_and_readers() {
                 ),
         )
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     let page = page_until(&timelines, |page| {
         page.len() == 3 && page[2].reply.as_ref().is_some_and(|quote| quote.kind.is_some())
@@ -176,7 +176,7 @@ async fn paging_back_shows_older_messages_and_reaches_the_start() {
         ]))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     // the opening fills its first screen from the server, back to the start.
     timelines.prefetch(&room().into()).await.unwrap();
@@ -216,7 +216,7 @@ async fn a_sent_text_shows_at_once_then_as_sent() {
         .mock_once()
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let page = page_until(&timelines, body_is("question")).await;
     let question = MessageRef::Local(page[0].message.id.clone());
 
@@ -253,7 +253,7 @@ async fn a_send_that_failed_for_a_moment_goes_on_retry_with_those_queued_after_i
     // the server fails for a moment (the queue's own three tries), then takes everything.
     server.mock_room_send().error500().up_to_n_times(3).mount().await;
     server.mock_room_send().ok(event_id!("$sent")).mount().await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     snapshot(&timelines).await;
 
     timelines.send_text(&room().into(), "first", None).await.unwrap();
@@ -293,7 +293,7 @@ async fn an_own_message_is_edited_and_reacted_to() {
         )
         .await;
     server.mock_room_send().ok(event_id!("$change")).mount().await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let page = page_until(&timelines, body_is("tpyo")).await;
     let mine = page[0].message.id.clone();
     assert!(page[0].is_editable);
@@ -323,7 +323,7 @@ async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
         .mount()
         .await;
     server.mock_room_send().ok(event_id!("$photo")).mount().await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     timelines.prefetch(&room().into()).await.unwrap();
 
     let folder = tempfile::tempdir().unwrap();
@@ -370,7 +370,7 @@ async fn an_upload_the_server_refuses_ends_failed() {
     server.mock_authenticated_media_config().ok_default().mount().await;
     server.sync_joined_room(&client, room_id!("!chat:example.org")).await;
     server.mock_upload().error_too_large().mount().await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     timelines.prefetch(&room().into()).await.unwrap();
 
     let folder = tempfile::tempdir().unwrap();
@@ -423,7 +423,7 @@ async fn reading_sends_a_private_receipt_unless_asked_for_a_public_one() {
         .named("public receipt")
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     page_until(&timelines, body_is("unread")).await;
     timelines.mark_read(&room().into(), Receipt::Private).await.unwrap();
     server.server().verify().await;
@@ -470,7 +470,7 @@ async fn the_first_unread_message_is_paged_back_to() {
             .end_token("older"))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
         .await
         .unwrap();
@@ -536,7 +536,7 @@ async fn a_newer_receipt_on_an_event_no_row_shows_reads_what_came_before_it() {
                 .into_event(),
         );
     server.sync_room(&client, joined).await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
         .await
         .unwrap();
@@ -595,7 +595,7 @@ async fn the_index_history_holds_each_messages_newest_text_and_the_deleted_ones(
         ]))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     let history = timelines
         .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, None, 3)
@@ -667,7 +667,7 @@ async fn the_index_history_holds_photos_with_their_captions_and_one_loads_by_its
         .mount()
         .await;
     server.mock_authed_media_download().ok_image().mount().await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     let history = timelines
         .index_history(&room(), std::time::SystemTime::UNIX_EPOCH, None, 3)
@@ -708,7 +708,7 @@ async fn a_photo_loads_once_into_one_file_even_when_asked_twice_at_once() {
         .await;
     server.mock_media_download().ok_image().mount().await;
     server.mock_authed_media_download().ok_image().mount().await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let page = page_until(&timelines, |page| !page.is_empty()).await;
     let photo = page[0].message.id.clone();
     let folder = tempfile::tempdir().unwrap();
@@ -778,7 +778,7 @@ async fn pictures_load_once_per_url_and_size_and_without_a_thumbnail_as_they_are
         .expect(1)
         .mount(server.server())
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let page = page_until(&timelines, |page| !page.is_empty()).await;
     let folder = tempfile::tempdir().unwrap();
     let photo = ImageSource::Photo {
@@ -850,7 +850,7 @@ async fn messages_of_different_rooms_never_share_an_id() {
             )
             .await;
     }
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     let first = messages_of(&timelines, &room(), 2).await;
     let second = messages_of(&timelines, &RoomId::from(other.as_str()), 2).await;
@@ -894,7 +894,7 @@ async fn the_index_history_reads_on_from_where_its_pages_ran_out() {
             .end_token("older"))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     // one page: the newest, and where to read on.
     let first = timelines
@@ -978,7 +978,7 @@ async fn chat_with_quiet_pages(server: &MatrixMockServer, quiet: usize) -> Matri
         ]))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     timelines.prefetch(&room().into()).await.unwrap();
     tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
         .await
@@ -1041,7 +1041,7 @@ async fn chat_with_a_gap(server: &MatrixMockServer, client: &Client, open_before
         ]))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client.clone());
+    let timelines = MatrixTimelines::new(client.clone(), None);
     if open_before {
         timelines.prefetch(&room().into()).await.unwrap();
         tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))

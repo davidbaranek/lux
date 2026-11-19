@@ -22,7 +22,7 @@ public final class MessageSearch {
     /// What follows the index's progress: it ends with the search.
     private var listening: Task<Void, Never>?
     /// The index's, the photos' and the meaning's reading: it ends with the search.
-    private let work = ForegroundJobs()
+    private let work = WorkJobs()
 
     /// Search over `store`, filled from `account` as far back as `preferences` say; photos are
     /// downloaded to `photos` to be read.
@@ -70,8 +70,9 @@ public final class MessageSearch {
                 throttle.schedule { await MainActor.run { Self.update(indexer, in: work) } }
             }
         }
-        // back in front: what came meanwhile is read, and the photos and messages after it.
-        returning = ForegroundWork.shared.onReturn { Self.update(indexer, in: work) }
+        // back in front (or in a background task's window): what came meanwhile is read, and the
+        // photos and messages after it.
+        returning = LongWork.shared.onReturn { Self.update(indexer, in: work) }
         // the index found damaged (a crash in a write) gave way to a new, empty one: every chat
         // is read again, rather than search finding nothing in it.
         replacing = Task {
@@ -101,8 +102,8 @@ public final class MessageSearch {
 
     private var returning: AnyObject?
 
-    /// Brings the index up to date, as foreground work.
-    private static func update(_ indexer: SearchIndexer, in work: ForegroundJobs) {
+    /// Brings the index up to date, as long work.
+    private static func update(_ indexer: SearchIndexer, in work: WorkJobs) {
         work.start("index") { lease in await indexer.update(lease: lease) }
     }
 
@@ -114,6 +115,34 @@ public final class MessageSearch {
         await work.end()
         await photos.stop()
         await meaning.stop()
+    }
+
+    /// Reads what is left, as the app does in front, and returns when it is done (the iPhone's
+    /// processing task, `BackgroundReading`): the index brought up to date and read on back where
+    /// it stopped, then the photos waiting, then what messages mean. Each step joins the reading
+    /// of it under way, if any, so nothing is read twice. True when nothing is left; it ends with
+    /// the search, with the caller, or when the app's long work does (`LongWork`).
+    public func readWhatIsLeft() async -> Bool {
+        guard Saving.shared.reason == nil else { return false }
+        let indexer = indexer, photos = photos, meaning = meaning
+        let read = await work.run("reading what is left") { lease in
+            await indexer.update(lease: lease)
+            guard !Task.isCancelled else { return false }
+            _ = await photos.readWaiting(lease: lease)
+            guard !Task.isCancelled else { return false }
+            _ = await meaning.read(limit: nil, lease: lease)
+            return !Task.isCancelled
+        }
+        guard read == true else { return false }
+        return await !hasWorkLeft()
+    }
+
+    /// Something is left to read: a chat's history as far back as Settings asks, a photo, or,
+    /// with the model, a message's meaning.
+    public func hasWorkLeft() async -> Bool {
+        if await indexer.hasHistoryLeft() { return true }
+        if await photos.hasWaiting() { return true }
+        return await meaning.hasUnread()
     }
 
     /// How many messages mean something, and how many were read, for Settings.

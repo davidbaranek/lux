@@ -143,10 +143,17 @@ public final class ThreadPresenter {
         }
     }
 
-    /// On screen: no notifications for the chat (or its thread), and what it notified is seen.
+    /// The chat (its thread) offered to the account's other devices while it is on screen.
+    private var handoff: NSUserActivity?
+
+    /// On screen: no notifications for the chat (or its thread), and what it notified is seen;
+    /// the account's other devices offer to continue it (Handoff).
     /// A thread and its chat can both be on screen (side by side on the Mac).
     public func appeared() {
         model.watchTyping()
+        let handoff = handoff ?? ChatActivity(roomId: model.thread?.roomId ?? model.sendRoom, threadRoot: model.thread?.rootEventId).activity()
+        self.handoff = handoff
+        handoff.becomeCurrent()
         guard let session else { return }
         if let thread = model.thread {
             session.threadsOnScreen.insert(thread.rootEventId)
@@ -156,8 +163,9 @@ public final class ThreadPresenter {
         }
     }
 
-    /// Off screen: notifications come again, and the draft is kept.
+    /// Off screen: notifications come again, the draft is kept, and Handoff no longer offers it.
     public func disappeared(draft: String) {
+        handoff?.resignCurrent()
         if let thread = model.thread {
             session?.threadsOnScreen.remove(thread.rootEventId)
         } else if session?.roomsOnScreen == rooms {

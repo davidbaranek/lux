@@ -51,7 +51,7 @@ actor MessageMeaning {
     /// Reads the messages not read yet, the newest first: at most `limit` (nil: all of them).
     /// True when none is left.
     @discardableResult
-    func read(limit: Int?, lease: ForegroundLease) async -> Bool {
+    func read(limit: Int?, lease: WorkLease) async -> Bool {
         if let running { return await running.value }
         // the text encoder holds its thread for each message: on its own executor, not the pool.
         let run = Task(executorPreference: ImageWork.executor) { await self.readUnread(limit: limit, lease: lease) }
@@ -66,6 +66,14 @@ actor MessageMeaning {
         running?.cancel()
     }
 
+    /// Some message waits to be read with the model; none while there is no model.
+    func hasUnread() async -> Bool {
+        guard model != nil else { return false }
+        return await bestEffort("message meaning: messages to read") {
+            try await !store.messagesToEmbed(minChars: Self.minChars, limit: 1).isEmpty
+        } ?? false
+    }
+
     /// How many messages mean something, and how many were read.
     func progress() async -> (total: Int, read: Int) {
         await bestEffort("message meaning: counts") { try await store.embeddingCounts(minChars: Self.minChars) } ?? (0, 0)
@@ -78,7 +86,7 @@ actor MessageMeaning {
         return Self.centred(embedding, less: mean)
     }
 
-    private func readUnread(limit: Int?, lease: ForegroundLease) async -> Bool {
+    private func readUnread(limit: Int?, lease: WorkLease) async -> Bool {
         guard let model else { return false }
         var left = limit ?? .max
         while left > 0, !Task.isCancelled {

@@ -46,6 +46,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         glass.cornerRadius = 13
         return glass
     }()
+    /// The typing line's views, which show and go together.
+    var typingViews: [NSView] { [typingGlass, typing, typingAvatar] }
     /// Sends a read receipt; shown while nothing is written and the chat has unread messages.
     /// Its menu (right click, or holding it) chooses how this chat sends them.
     lazy var eye: NSButton = {
@@ -239,10 +241,12 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         }
         typing.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         typing.textColor = .secondaryLabelColor
-        typing.alphaValue = 0
-        typingAvatar.alphaValue = 0
         // a glass capsule behind "Anna is typing…": legible over the messages it floats on.
-        typingGlass.alphaValue = 0
+        // Hidden while no one types: a clear view still takes the clicks over the messages.
+        for view in typingViews {
+            view.alphaValue = 0
+            view.isHidden = true
+        }
         for view in [scroll, attach, glass, eye, jumpToBottom, jumpToUnread, typingGlass, typing, typingAvatar, newPinBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
@@ -701,23 +705,6 @@ extension ThreadController: ThreadScreen {
         for changed in [previous, id].compactMap(\.self) {
             guard let row = dataSource.row(forItemIdentifier: changed) else { continue }
             (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? MessageCellView)?.isJumpTarget = changed == id
-        }
-    }
-}
-
-private extension NSView {
-    /// Fades in, or out and then hides, so a faded-out button takes no clicks (AppKit hit-tests
-    /// a view whatever its alpha).
-    func fade(in shows: Bool) {
-        guard shows == isHidden else { return }
-        if shows {
-            alphaValue = 0
-            isHidden = false
-            NSAnimationContext.runAnimationGroup { _ in animator().alphaValue = 1 }
-        } else {
-            NSAnimationContext.runAnimationGroup({ _ in animator().alphaValue = 0 }, completionHandler: { [weak self] in
-                MainActor.assumeIsolated { if self?.alphaValue == 0 { self?.isHidden = true } }
-            })
         }
     }
 }

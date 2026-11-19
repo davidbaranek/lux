@@ -59,6 +59,8 @@ What is done, and what comes next in order. How things work lives in
 - [x] Background refresh on iPhone
 - [x] Settings: account, encryption, search index
 - [x] The account's own name and picture, changed in Settings (iPhone and Mac)
+- [x] Handoff: the open chat (and its open thread) continues on the account's other iPhone or Mac;
+      its room and thread only, never a message's content, and nothing for Spotlight or Siri
 
 ## Next
 
@@ -110,6 +112,8 @@ What is done, and what comes next in order. How things work lives in
       reveals the device's address to the site, so it is a setting
 - [ ] GIFs and stickers (KLIPY), animated GIFs
 - [ ] Voice messages: record and play
+- [ ] Voice messages transcribed on the device (SpeechAnalyzer), once voice messages exist: the
+      text under the message, searchable; no permission needed for a file
 - [ ] Speech to text on the device (SpeechAnalyzer, or whisper.cpp in the core for every
       platform): transcripts of voice messages and videos, kept and searchable; dictation in the
       composer
@@ -117,7 +121,7 @@ What is done, and what comes next in order. How things work lives in
 
 ### 7. Platform
 
-- [ ] Mac: keyboard navigation, several windows, menus, Handoff
+- [ ] Mac: keyboard navigation, several windows, menus
 - [ ] Share extension on the Mac
 
 ### 8. Every Matrix message
