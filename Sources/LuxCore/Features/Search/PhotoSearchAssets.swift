@@ -3,6 +3,25 @@ import CryptoKit
 import Foundation
 import System
 
+/// Where photo search gets its model: the asset pack in the app, a fake in tests.
+protocol PhotoModelSource: Sendable {
+    /// The pack is on the device: getting the model downloads nothing.
+    func isOnDevice() async -> Bool
+    /// Where each of the model's files is, downloading the pack first when it is not on the
+    /// device; `step` hears how far it is.
+    func modelFiles(step: @escaping @Sendable (PhotoModelStep) -> Void) async throws -> PhotoSearchModel.Files
+    /// Frees the model's space: photo search was turned off.
+    func remove() async
+}
+
+/// How far getting the model is.
+enum PhotoModelStep: Sendable {
+    /// The pack downloads (0…1).
+    case downloading(Double)
+    /// The pack is on the device: the app copies the model.
+    case preparing
+}
+
 /// Photo search's model on the device: an Apple-hosted asset pack (Background Assets), asked for
 /// only when the user turns photo search on, and removed when they turn it off. The system keeps
 /// it up to date with the app.
@@ -13,7 +32,7 @@ import System
 /// and Core ML keeps what it compiled for this device only while the model it compiled stays
 /// where it was, unchanged. From the app's copy the model is compiled once per model, not on
 /// every launch.
-enum PhotoSearchAssets {
+struct PhotoSearchAssets: PhotoModelSource {
     /// The pack's id, as its manifest names it (`scripts/image-search/Manifest.json`).
     static let packID = "PhotoSearch"
     /// The model's folder in the pack.
@@ -21,39 +40,66 @@ enum PhotoSearchAssets {
     /// The model's copies, each in a folder named after its `model.json`'s digest.
     private static var copies: URL { AppPaths.main.photoModels }
 
-    /// The pack is on the device.
-    static func isOnDevice() async -> Bool {
+    func isOnDevice() async -> Bool {
         if LaunchOptions.photoModel != nil { return true }
         if #available(iOS 26.4, macOS 26.4, *) {
-            return AssetPackManager.shared.assetPackIsAvailableLocally(withID: packID)
+            return AssetPackManager.shared.assetPackIsAvailableLocally(withID: Self.packID)
         }
-        let status = await bestEffort("photo search: the model's status") { try await AssetPackManager.shared.status(ofAssetPackWithID: packID) }
+        let status = await bestEffort("photo search: the model's status") {
+            try await AssetPackManager.shared.status(ofAssetPackWithID: Self.packID)
+        }
         return status?.contains(.downloaded) ?? false
     }
 
-    /// Where each of the model's files is, downloading the pack first when it is not on the
-    /// device; `progress` hears how far the download is (0…1).
-    static func modelFiles(progress: @escaping @Sendable (Double) -> Void) async throws -> PhotoSearchModel.Files {
+    func modelFiles(step: @escaping @Sendable (PhotoModelStep) -> Void) async throws -> PhotoSearchModel.Files {
         if let folder = LaunchOptions.photoModel { return { folder.appending(path: $0) } }
         let manager = AssetPackManager.shared
-        let pack = try await manager.assetPack(withID: packID)
+        let pack = try await manager.assetPack(withID: Self.packID)
         let following = Task {
-            for await update in manager.statusUpdates(forAssetPackWithID: packID) {
-                if case .downloading(_, let download) = update { progress(download.fractionCompleted) }
+            for await update in manager.statusUpdates(forAssetPackWithID: Self.packID) {
+                if case .downloading(_, let download) = update { step(.downloading(download.fractionCompleted)) }
             }
         }
         defer { following.cancel() }
         // at once when the pack is on the device already.
         try await manager.ensureLocalAvailability(of: pack)
+        // the photo search that asked went (its session closed) while the pack came.
+        try Task.checkCancellation()
+        step(.preparing)
         // the model on the device, as its own `model.json` says (package.sh stamps the digest of
         // the pack's other files in it): read as a file, not through the merged folder.
-        let description = try manager.contents(at: FilePath("\(folder)/model.json"), searchingInAssetPackWithID: packID)
-        // copying holds its thread (for seconds where the volume cannot clone the files).
-        let copy = try await withTaskExecutorPreference(ImageWork.executor) {
-            // the pack's folder, asked for once: the system puts it together as it answers.
-            try copied(of: description, in: copies) { try manager.url(for: FilePath(folder)) }
-        }
+        let description = try manager.contents(at: FilePath("\(Self.folder)/model.json"), searchingInAssetPackWithID: Self.packID)
+        // the pack's folder, asked for once: the system puts it together as it answers.
+        let copy = try await Self.copiedInTurn(of: description, in: Self.copies) { try manager.url(for: FilePath(Self.folder)) }
         return { copy.appending(path: $0) }
+    }
+
+    func remove() async {
+        guard LaunchOptions.photoModel == nil else { return }
+        bestEffort("photo search: the model's copy stays") { try FileManager.default.removeItemIfPresent(at: Self.copies) }
+        do { try await AssetPackManager.shared.remove(assetPackWithID: Self.packID) } catch {
+            Log.app.notice("photo search: the model stays: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// The copy being made, which the next one waits for: two photo searches may ask for the
+    /// model at once (one session closing as the next opens), and a copy made beside another
+    /// removes the other's half-made folder, or finds its own place taken.
+    @MainActor private static var copying: Task<URL, any Error>?
+
+    /// `copied(of:in:from:)`, one copy at a time in this process: a second finds the first's copy
+    /// in place, and copies nothing.
+    @MainActor
+    static func copiedInTurn(of description: Data, in root: URL,
+                             from source: @escaping @Sendable () throws -> URL) async throws -> URL {
+        let previous = copying
+        // copying holds its thread (for seconds where the volume cannot clone the files).
+        let copy = Task(executorPreference: ImageWork.executor) {
+            _ = await previous?.result
+            return try copied(of: description, in: root, from: source)
+        }
+        copying = copy
+        return try await copy.value
     }
 
     /// The copy in `root` of the model whose `model.json` is `description`, made from `source`
@@ -78,8 +124,9 @@ enum PhotoSearchAssets {
             try fileManager.copyItem(at: source, to: partial)
             do {
                 try fileManager.moveItem(at: partial, to: copy)
-            } catch CocoaError.fileWriteFileExists {
-                // another copy of this model came first: it stays as it is.
+            } catch where fileManager.fileExists(atPath: copy.path) {
+                // another copy of this model came first (a folder moved onto one fails as
+                // ENOTEMPTY, not as an existing file): it stays as it is.
                 try fileManager.removeItem(at: partial)
             }
         }
@@ -88,14 +135,5 @@ enum PhotoSearchAssets {
             try fileManager.removeItemIfPresent(at: other)
         }
         return copy
-    }
-
-    /// Frees the pack's space, and its copy's: photo search was turned off.
-    static func remove() async {
-        guard LaunchOptions.photoModel == nil else { return }
-        bestEffort("photo search: the model's copy stays") { try FileManager.default.removeItemIfPresent(at: copies) }
-        do { try await AssetPackManager.shared.remove(assetPackWithID: packID) } catch {
-            Log.app.notice("photo search: the model stays: \(String(describing: error), privacy: .public)")
-        }
     }
 }

@@ -34,17 +34,57 @@ public final class SettingsModel {
         session.search?.photos.searchesByLook ?? session.preferences.searchesPhotosByLook
     }
 
+    /// Where semantic search's model is, under its switch; nil while it is off (or before the
+    /// index opens).
+    public var photoModel: PhotoSearch.Looks? {
+        guard let looks = session.search?.photos.looks, looks != .off else { return nil }
+        return looks
+    }
+
+    /// The model's state in one line: "Downloading the model · 34 %", "Preparing the model…",
+    /// "Ready", or why it could not be had.
+    public var photoModelStatus: String? {
+        switch photoModel {
+        case nil, .off?:
+            nil
+        case .downloading(let fraction)?:
+            String(localized: "Downloading the model · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
+        case .preparing?:
+            String(localized: "Preparing the model…")
+        case .ready?:
+            String(localized: "The model is ready")
+        case .failed(let reason)?:
+            String(localized: "The model could not be downloaded. \(reason)")
+        }
+    }
+
+    /// The model downloads or is made ready: Settings shows it as under way.
+    public var isPhotoModelUnderWay: Bool {
+        switch photoModel {
+        case .downloading?, .preparing?: true
+        default: false
+        }
+    }
+
+    /// The model could not be had: Settings offers to try again.
+    public var canRetryPhotoModel: Bool {
+        if case .failed? = photoModel { true } else { false }
+    }
+
+    /// Gets the model again (Try Again).
+    public func retryPhotoModel() {
+        session.search?.photos.retryModel()
+    }
+
     /// Where the photos stand now, in one line: what is happening, never what a button would do.
-    /// "Downloading the model · 34 %", "Reading · 120 of 224", "96 photos waiting", "All 224
-    /// photos read"; nil before the index opens.
+    /// "Reading · 120 of 224", "96 photos waiting", "All 224 photos read"; nil before the index
+    /// opens.
     public var photoStatus: String? {
         guard let photos = session.search?.photos else { return nil }
         let progress = photos.progress
-        let byWordsOnly = if case .on(hasModel: false) = photos.looks { true } else { false }
+        let byWordsOnly = canRetryPhotoModel
         let status: String
-        if case .downloading(let fraction) = photos.looks {
-            status = String(localized: "Downloading the model · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
-        } else if progress.isReading {
+        if progress.isReading {
             status = String(localized: "Reading · \(progress.read.formatted(.number)) of \(progress.total.formatted(.number))")
         } else if photos.hasUnread {
             let left = max(progress.total - progress.read, 0).formatted(.number)
@@ -61,11 +101,9 @@ public final class SettingsModel {
         return byWordsOnly ? status + " · " + String(localized: "by their words only") : status
     }
 
-    /// Photos are being read or the model downloads: Settings shows it as under way.
+    /// Photos are being read: Settings shows it as under way.
     public var isPhotoWorkUnderWay: Bool {
-        guard let photos = session.search?.photos else { return false }
-        if case .downloading = photos.looks { return true }
-        return photos.progress.isReading
+        session.search?.photos.progress.isReading ?? false
     }
 
     /// What Settings offers for the photos now: to stop the reading, to read the waiting photos
