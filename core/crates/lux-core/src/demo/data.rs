@@ -343,6 +343,9 @@ pub(crate) fn spaces(rooms: usize) -> Vec<Space> {
     ]
 }
 
+/// The invitation whose answer the server refuses.
+pub(crate) const REFUSED_REQUEST: &str = "!invite-releases:demo";
+
 /// The invitations, until answered.
 pub(crate) fn requests() -> Vec<Request> {
     vec![
@@ -352,6 +355,7 @@ pub(crate) fn requests() -> Vec<Request> {
             avatar: None,
             inviter_name: "Lucie Veselá".to_owned(),
             is_direct: true,
+            answer: None,
         },
         Request {
             id: RoomId::from("!invite-2:demo"),
@@ -359,6 +363,17 @@ pub(crate) fn requests() -> Vec<Request> {
             avatar: None,
             inviter_name: "Petr Svoboda".to_owned(),
             is_direct: false,
+            answer: None,
+        },
+        // a community bot's new room in a space, on a server that limits how fast an account
+        // joins: an answer to it fails, and the invitation stays.
+        Request {
+            id: RoomId::from(REFUSED_REQUEST),
+            name: "releases".to_owned(),
+            avatar: None,
+            inviter_name: "Lux Bot".to_owned(),
+            is_direct: false,
+            answer: None,
         },
     ]
 }

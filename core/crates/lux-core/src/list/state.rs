@@ -8,9 +8,9 @@ use std::time::SystemTime;
 use eyeball_im::VectorDiff;
 
 use super::{DueReminder, ListRow, ListUpdate, LoadState, Loading, SectionHeader, SectionRows};
-use crate::chat::{Chat, Label, Request, ScheduledMessage, Snapshot, Space};
+use crate::chat::{Answer, Chat, Label, Request, ScheduledMessage, Snapshot, Space};
 use crate::diff;
-use crate::ids::ChatId;
+use crate::ids::{ChatId, RoomId};
 use crate::organizer::Organized;
 use crate::places::{self, Arrangement, Badge, ChatFilter, ChatOrder, ListedPlace, PlaceId, SectionId, Theme};
 
@@ -43,6 +43,8 @@ pub(crate) struct ListState {
     filter: Option<ChatFilter>,
     order: ChatOrder,
     drafts: HashSet<ChatId>,
+    /// The user's answers to the invitations still listed, by room.
+    answers: HashMap<RoomId, Answer>,
     shown: Shown,
 }
 
@@ -68,6 +70,7 @@ impl ListState {
             filter,
             order,
             drafts,
+            answers: HashMap::new(),
             shown: Shown::default(),
         }
     }
@@ -113,6 +116,41 @@ impl ListState {
     pub(crate) fn apply_requests(&mut self, diffs: Vec<VectorDiff<Request>>) {
         for diff in diffs {
             diff::apply(&mut self.snapshot.requests, diff.map(Arc::new));
+        }
+        // an invitation that went was answered: its answer goes with it.
+        let listed: HashSet<&RoomId> = self.snapshot.requests.iter().map(|request| &request.id).collect();
+        self.answers.retain(|room, _| listed.contains(room));
+        self.show_answers();
+    }
+
+    /// The user answers the invitation to `room`; false while an answer to it is on its way
+    /// (this one would only repeat it).
+    pub(crate) fn answer(&mut self, room: &RoomId, accept: bool) -> bool {
+        if matches!(self.answers.get(room), Some(Answer::Sending { .. })) {
+            return false;
+        }
+        self.answers.insert(room.clone(), Answer::Sending { accept });
+        self.show_answers();
+        true
+    }
+
+    /// The answer to `room` reached the server, or failed. One that reached it shows as on its
+    /// way until the invitation goes (the account's next sync); a failed one, until answered again.
+    pub(crate) fn answered(&mut self, room: &RoomId, accept: bool, taken: bool) {
+        if taken || !self.answers.contains_key(room) {
+            return;
+        }
+        self.answers.insert(room.clone(), Answer::Failed { accept });
+        self.show_answers();
+    }
+
+    /// Each invitation's row with the user's answer to it.
+    fn show_answers(&mut self) {
+        for request in &mut self.snapshot.requests {
+            let answer = self.answers.get(&request.id).copied();
+            if request.answer != answer {
+                Arc::make_mut(request).answer = answer;
+            }
         }
     }
 

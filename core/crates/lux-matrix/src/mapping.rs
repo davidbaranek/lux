@@ -101,6 +101,7 @@ impl Mapper {
             avatar: room.avatar_url().map(|url| MediaId::from(url.as_str())),
             inviter_name,
             is_direct: room.is_direct().await.unwrap_or(false),
+            answer: None,
         }
     }
 

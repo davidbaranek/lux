@@ -95,6 +95,12 @@ enum Intent {
     Act(Action),
     /// The waiting messages, read.
     Scheduled(Vec<ScheduledMessage>),
+    /// An answer to the invitation to `room` reached the server (`taken`), or failed.
+    Answered {
+        room: RoomId,
+        accept: bool,
+        taken: bool,
+    },
     /// An arrangement's write ended.
     Arranged,
 }
@@ -411,7 +417,17 @@ async fn perform<B: ChatListBackend>(
     match action {
         Action::Change(chat, change) => account.change(&chat, change).await,
         Action::Notify(chat, mode) => account.set_notifications(&chat, mode).await,
-        Action::Answer(room, accept) => account.answer_request(&room, accept).await,
+        Action::Answer(room, accept) => {
+            let answered = account.answer_request(&room, accept).await;
+            outbox
+                .send(Intent::Answered {
+                    room,
+                    accept,
+                    taken: answered.is_ok(),
+                })
+                .other_end_may_be_gone("the list's task");
+            answered
+        }
         Action::MakeLabel { name, with } => {
             let label = account.make_label(&name).await?;
             match with {
@@ -512,10 +528,18 @@ fn handle<B: ChatListBackend>(intent: Intent, state: &mut ListState, actor: &mut
             }
             return false;
         }
+        Intent::Act(Action::Answer(room, accept)) => {
+            // the row says so at once; a second answer while one is on its way would repeat it.
+            if !state.answer(&room, accept) {
+                return false;
+            }
+            actor.act(Action::Answer(room, accept));
+        }
         Intent::Act(action) => {
             actor.act(action);
             return false;
         }
+        Intent::Answered { room, accept, taken } => state.answered(&room, accept, taken),
         Intent::Scheduled(scheduled) => state.set_scheduled(scheduled),
         Intent::Arranged => state.arranged(),
     }
@@ -654,14 +678,18 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{ChatListViewModel, ListListener, ListSetup};
-    use crate::chat::{Chat, Folder};
+    use crate::chat::{Answer, Chat, Folder, Request};
+    use crate::demo::data::REFUSED_REQUEST;
     use crate::demo::{DemoAccount, DemoConfig};
     use crate::gone::OtherEndGone;
-    use crate::ids::ChatId;
+    use crate::ids::{ChatId, RoomId};
+    use crate::list::state::ListState;
     use crate::list::{ListRow, ListUpdate, LoadState};
     use crate::network::Network;
+    use crate::places::ChatOrder;
     use crate::places::{InboxRule, PlaceId, SectionId, Theme};
     use crate::ports::{BackendError, ChatChange, NotificationMode};
+    use std::collections::HashSet;
 
     struct Relay(mpsc::UnboundedSender<ListUpdate>);
 
@@ -1050,5 +1078,143 @@ mod tests {
         list.select_place(archive.clone());
         keep.send(Vec::new()).unwrap();
         assert_eq!(next(&mut batches).await.place, archive);
+    }
+
+    /// Passes the batches on, and the failures, which a test expects.
+    struct Reporting(mpsc::UnboundedSender<ListUpdate>, mpsc::UnboundedSender<BackendError>);
+
+    impl ListListener for Reporting {
+        fn on_update(&self, update: ListUpdate) {
+            self.0.send(update).other_end_may_be_gone("the test");
+        }
+
+        fn on_error(&self, error: BackendError) {
+            self.1.send(error).other_end_may_be_gone("the test");
+        }
+    }
+
+    /// The requests' rows, waited for until `done` holds of them.
+    async fn requests_until(
+        batches: &mut mpsc::UnboundedReceiver<ListUpdate>,
+        shown: &mut Shown,
+        mut done: impl FnMut(&[Arc<Request>]) -> bool,
+    ) -> Vec<Arc<Request>> {
+        loop {
+            let requests: Vec<Arc<Request>> = shown
+                .0
+                .get(&SectionId::All)
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|row| match row {
+                            ListRow::Request(request) => Some(Arc::clone(request)),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if done(&requests) {
+                return requests;
+            }
+            shown.apply(&next(batches).await);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_answer_shows_on_its_request_which_stays_to_answer_again() {
+        let demo = demo();
+        let (sender, mut batches) = mpsc::unbounded_channel();
+        let (errors, mut failures) = mpsc::unbounded_channel();
+        let list = ChatListViewModel::start(
+            &Handle::current(),
+            async { Vec::new() },
+            async move { Some(demo) },
+            ListSetup {
+                place: PlaceId::Requests,
+                ..ListSetup::default()
+            },
+            Arc::new(Reporting(sender, errors)),
+        );
+        let mut shown = Shown::default();
+        let refused = RoomId::from(REFUSED_REQUEST);
+        requests_until(&mut batches, &mut shown, |requests| {
+            requests.iter().any(|request| request.id == refused)
+        })
+        .await;
+        list.answer_request(refused.clone(), true);
+        let requests = requests_until(&mut batches, &mut shown, |requests| {
+            requests
+                .iter()
+                .any(|request| request.answer == Some(Answer::Failed { accept: true }))
+        })
+        .await;
+        assert!(matches!(
+            timeout(Duration::from_secs(5), failures.recv()).await.unwrap(),
+            Some(BackendError::Server { status: Some(429), .. })
+        ));
+        // the others are as they were.
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.id == refused || request.answer.is_none())
+        );
+        // answered again: on its way, then refused again.
+        list.answer_request(refused.clone(), false);
+        requests_until(&mut batches, &mut shown, |requests| {
+            requests
+                .iter()
+                .any(|request| request.answer == Some(Answer::Failed { accept: false }))
+        })
+        .await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_accepted_request_goes_and_its_answer_with_it() {
+        let demo = demo();
+        let (list, mut batches) = list(&demo);
+        list.select_place(PlaceId::Requests);
+        let mut shown = Shown::default();
+        let accepted = RoomId::from("!invite-2:demo");
+        requests_until(&mut batches, &mut shown, |requests| {
+            requests.iter().any(|request| request.id == accepted)
+        })
+        .await;
+        list.answer_request(accepted.clone(), true);
+        let requests = requests_until(&mut batches, &mut shown, |requests| {
+            requests.iter().all(|request| request.id != accepted)
+        })
+        .await;
+        assert!(requests.iter().all(|request| request.answer.is_none()));
+    }
+
+    #[test]
+    fn an_answer_on_its_way_is_not_sent_again_and_a_failed_one_is() {
+        let mut state = ListState::new(
+            PlaceId::Requests,
+            None,
+            ChatOrder::default(),
+            HashSet::new(),
+            Vec::new(),
+        );
+        let room = RoomId::from(REFUSED_REQUEST);
+        state.apply_requests(vec![VectorDiff::Reset {
+            values: crate::demo::data::requests().into(),
+        }]);
+        assert!(state.answer(&room, true));
+        assert!(
+            !state.answer(&room, true),
+            "a second answer while the first is on its way"
+        );
+        state.answered(&room, true, false);
+        let answer = |state: &ListState| {
+            state
+                .snapshot()
+                .requests
+                .iter()
+                .find(|request| request.id == room)
+                .and_then(|request| request.answer)
+        };
+        assert_eq!(answer(&state), Some(Answer::Failed { accept: true }));
+        assert!(state.answer(&room, true), "a failed answer can be given again");
+        assert_eq!(answer(&state), Some(Answer::Sending { accept: true }));
     }
 }

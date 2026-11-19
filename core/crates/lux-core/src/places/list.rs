@@ -893,6 +893,7 @@ pub(super) mod tests {
             avatar: None,
             inviter_name: String::new(),
             is_direct: true,
+            answer: None,
         })];
         snapshot.labels = vec![Label {
             id: "work".into(),
