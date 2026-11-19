@@ -254,24 +254,41 @@ struct ThreadViewTests {
         model.onPendingFiles = { shown?($0); changes.send() }
     }
 
-    @Test func spaceShowsTheSelectedMessagesMediaInQuickLookTheArrowsStepThroughTheChatsMediaAndSpaceClosesIt() async throws {
+    /// What Lux asks of Quick Look, not the system's panel on screen (a test host without a key
+    /// window, as on CI, may never show it): Space hands the selected message's files to the
+    /// panel, the chat takes control of it, and the arrow keys the panel leaves step on to the
+    /// chat's next message with media.
+    @Test func spaceHandsTheSelectedMessagesMediaToQuickLookAndTheArrowsStepThroughTheChatsMedia() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             let chat = try open(try await readChat(in: session), in: session)
-            let model = chat.controller.model
+            let controller = chat.controller, model = controller.model
             try await chat.changes.until { chat.isShown(chat.newest) && !model.isLoading }
-            let media = model.messages.filter(\.hasMedia).compactMap { chat.row(of: $0.id) }
+            let media = model.messages.filter(\.hasMedia)
             try #require(media.count >= 2)
+            let first = try await model.mediaFiles(of: media[0]), second = try await model.mediaFiles(of: media[1])
             let panel = try #require(QLPreviewPanel.shared())
-            let visible = panel.observe(\.isVisible) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
-            defer { visible.invalidate() }
-            chat.table.selectRowIndexes([media[0]], byExtendingSelection: false)
+            // the chat sets the item the panel opens at, shown on screen or not.
+            let asked = panel.observe(\.currentPreviewItemIndex) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
+            defer {
+                asked.invalidate()
+                panel.orderOut(nil)
+            }
+            // the files the chat gives the panel, in order.
+            @MainActor func handed() -> [URL] {
+                (0..<controller.numberOfPreviewItems(in: panel)).compactMap { controller.previewPanel(panel, previewItemAt: $0) as? URL }
+            }
+            chat.table.selectRowIndexes([try #require(chat.row(of: media[0].id))], byExtendingSelection: false)
             chat.table.keyDown(with: try key(" "))
-            try await chat.changes.until { panel.isVisible && chat.controller.preview != nil }
-            // down: the chat's next message with media, selected and shown.
-            #expect(chat.controller.previewPanel(panel, handle: try key(String(utf16CodeUnits: [unichar(NSDownArrowFunctionKey)], count: 1))))
-            #expect(chat.table.selectedRow == media[1])
-            chat.table.keyDown(with: try key(" "))
-            try await chat.changes.until { !panel.isVisible }
+            try await chat.changes.until { controller.acceptsPreviewPanelControl(panel) && handed() == first }
+            // the panel's keys come to the chat once it controls it.
+            controller.beginPreviewPanelControl(panel)
+            #expect(panel.dataSource === controller)
+            // down, which the panel leaves: the chat's next message with media, selected and handed over.
+            #expect(controller.previewPanel(panel, handle: try key(String(utf16CodeUnits: [unichar(NSDownArrowFunctionKey)], count: 1))))
+            #expect(chat.table.selectedRow == chat.row(of: media[1].id))
+            try await chat.changes.until { handed() == second }
+            controller.endPreviewPanelControl(panel)
+            #expect(panel.dataSource == nil)
         }
     }
 
