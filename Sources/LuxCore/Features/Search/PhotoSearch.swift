@@ -4,8 +4,8 @@ import Foundation
 /// messages sent near it. When the user turns semantic search on: how photos look too, by the
 /// search model (downloaded then, about 650 MB), so "dog on the beach" finds one with no
 /// words at all; the same model reads what messages mean (`MessageMeaning`).
-/// Nothing leaves the device. Photos are read while the app is open, quietly (the iPhone gives an
-/// app's reading in the background too little time to be worth it).
+/// Nothing leaves the device. Photos are read while the app is open, quietly, and on the iPhone
+/// what is left while it charges (`BackgroundReading`, a processing task).
 @MainActor
 public final class PhotoSearch {
     /// Where the search by how photos look is, for Settings and the search's note.
@@ -79,8 +79,8 @@ public final class PhotoSearch {
         }
         // on since an earlier launch: the model is got now, as when the user turns it on.
         if searchesByLook { loadModel() }
-        leaving = ForegroundWork.shared.onLeave { [weak self] in self?.releaseMemory() }
-        returning = ForegroundWork.shared.onReturn { [weak self] in self?.retryModel() }
+        leaving = LongWork.shared.onLeave { [weak self] in self?.releaseMemory() }
+        returning = LongWork.shared.onReturn { [weak self] in self?.retryModel() }
         reconnecting = Saving.shared.reconnected.observe { [weak self] in self?.retryModel() }
         pressure.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.releaseMemory() }
@@ -110,7 +110,7 @@ public final class PhotoSearch {
     }
 
     /// The photos' reading and the model's loading: they end with the photo search.
-    private let work = ForegroundJobs()
+    private let work = WorkJobs()
 
     /// Turns the search by how photos look on (the model downloads, every photo is read again
     /// with it) or off (the model and the photos' embeddings go; their words stay).
@@ -163,17 +163,31 @@ public final class PhotoSearch {
         readingsNow += 1
     }
 
-    private func readNow(lease: ForegroundLease) async {
+    private func readNow(lease: WorkLease) async {
         _ = await readAll(lease: lease)
         readingsNow -= 1
     }
 
     /// Reads every photo not read yet; true when none is left.
-    func readAll(lease: ForegroundLease) async -> Bool {
+    func readAll(lease: WorkLease) async -> Bool {
         await loading?.value
         // stopped while the model loaded: the stop holds.
         guard !isPaused else { return false }
         return await indexer.read(limit: nil, lease: lease)
+    }
+
+    /// Reads the photos waiting, as `update` does, and returns when it ends: true when none is
+    /// left. While the model is being got they wait (they are read once, with it), and stopped by
+    /// the user they wait for Read Now; neither waits here, for a background task's time.
+    func readWaiting(lease: WorkLease) async -> Bool {
+        guard loading == nil, !isPaused else { return false }
+        return await indexer.read(limit: nil, lease: lease)
+    }
+
+    /// Some photos wait and would be read: none while the user stopped the reading.
+    func hasWaiting() async -> Bool {
+        guard !isPaused else { return false }
+        return await indexer.hasUnread()
     }
 
     /// Stops the reading (the system ending a background task, or the account closing); what was
@@ -266,7 +280,7 @@ public final class PhotoSearch {
         // the text encoder went (unused a while, the app away, memory short): it loads again,
         // under way before this returns so the search waits for it (`waitForLook`), and the
         // photos are found by their words meanwhile.
-        await ForegroundWork.shared.run("text encoder", priority: .userInitiated) { lease in
+        await LongWork.shared.run("text encoder", priority: .userInitiated) { lease in
             await model.prepareTextEncoder(lease: lease)
         }
         return nil

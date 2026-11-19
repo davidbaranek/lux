@@ -24,8 +24,13 @@ final class RustAccount: Sendable {
     /// another store.
     /// `local` is the account's encrypted store, where the core keeps its chat list for the next
     /// launch.
-    static func restore(stores: URL, keychain: AccountKeychain, store: String, local: LocalStore?) async throws -> RustAccount? {
-        try await worded { try await opener(stores: stores, keychain: keychain, store: store, local: local).restore() }.map { RustAccount($0) }
+    /// Not `inFront` (the system launched the app for a background task), its sync waits until
+    /// the app comes to the front (`resumeSync`).
+    static func restore(stores: URL, keychain: AccountKeychain, store: String, local: LocalStore?,
+                        inFront: Bool) async throws -> RustAccount? {
+        try await worded {
+            try await opener(stores: stores, keychain: keychain, store: store, local: local, inFront: inFront).restore()
+        }.map { RustAccount($0) }
     }
 
     static func signIn(homeserver: String, user: String, password: String, deviceName: String,
@@ -69,9 +74,11 @@ final class RustAccount: Sendable {
         return LoginMethods(password: found.password, browser: found.oauth)
     }
 
-    private static func opener(stores: URL, keychain: AccountKeychain, store: String, local: LocalStore?) -> CoreAccountOpener {
+    /// A sign-in is always in front; a restore says where the app is.
+    private static func opener(stores: URL, keychain: AccountKeychain, store: String, local: LocalStore?,
+                               inFront: Bool = true) -> CoreAccountOpener {
         CoreAccountOpener(stores: stores.path, folderName: store, keeper: KeychainKeeper(keychain: keychain, store: store),
-                      store: local?.store)
+                          store: local?.store, inFront: inFront)
     }
 
     // MARK: Its chats
@@ -116,9 +123,12 @@ final class RustAccount: Sendable {
 
     func pauseSync() async { await account.pauseSync() }
     func resumeSync() async { await account.resumeSync() }
-    /// Opens the stores for work in the background without the sync (reading photos);
-    /// `pauseSync` closes them when it is done.
+    /// Opens the stores for work in the background without the sync (a processing task's
+    /// reading); `endBackgroundWork` closes them when it is done.
     func beginBackgroundWork() async { await account.beginBackgroundWork() }
+    /// Closes the stores again after work in the background, unless the app came to the front
+    /// meanwhile (the core knows, in the order the moves were told).
+    func endBackgroundWork() async { await account.endBackgroundWork() }
     /// Signs out, removing this device's pusher first.
     func signOut() async throws { try await worded { try await account.signOut() } }
 

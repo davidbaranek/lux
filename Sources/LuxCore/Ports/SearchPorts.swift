@@ -24,7 +24,7 @@ protocol PhotoReading: Sendable {
     /// better (a newer version) reads every photo again.
     var name: String { get }
     /// What `file` shows: its words, one line each in reading order, and its embedding.
-    func read(_ file: URL, lease: ForegroundLease) async throws -> (words: String, embedding: [Float]?)
+    func read(_ file: URL, lease: WorkLease) async throws -> (words: String, embedding: [Float]?)
     /// The reading ended, and none follows it: what the reader keeps for the next photo (the
     /// model's image encoder) goes until photos come to be read again.
     func rest() async

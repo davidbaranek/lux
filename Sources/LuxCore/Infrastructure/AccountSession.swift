@@ -102,6 +102,25 @@ final class AccountSession {
         move("resume") { await $0.resumeSync() }
     }
 
+    /// Work in the background begins (a processing task's reading): the stores open, if they
+    /// are closed, without the sync; queued with the moves.
+    @discardableResult
+    func beginBackgroundWork() -> Task<Void, Never> {
+        move("begin background work") { await $0.beginBackgroundWork() }
+    }
+
+    /// Work in the background ends: the stores close again, unless the app came to the front.
+    @discardableResult
+    func endBackgroundWork() -> Task<Void, Never> {
+        move("end background work") { await $0.endBackgroundWork() }
+    }
+
+    /// The search, once its index has opened; nil if it did not.
+    func openedSearch() async -> MessageSearch? {
+        await opening?.value
+        return search
+    }
+
     /// The app's moves between front and back, carried out one after another in the order the
     /// system told them (each is queued as it is told, before any await), so the app back in
     /// front quickly keeps its sync.

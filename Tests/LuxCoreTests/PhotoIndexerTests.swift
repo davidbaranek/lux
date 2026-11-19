@@ -52,7 +52,7 @@ struct PhotoIndexerReadingTests {
             rested.withLock { $0 += 1 }
         }
 
-        func read(_ file: URL, lease: ForegroundLease) async throws -> (words: String, embedding: [Float]?) {
+        func read(_ file: URL, lease: WorkLease) async throws -> (words: String, embedding: [Float]?) {
             let words = try String(contentsOf: file, encoding: .utf8)
             state.withLock { $0.append(words) }
             if unreadable.contains(words) { throw PhotoSearchError.notAPicture }

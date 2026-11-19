@@ -67,15 +67,35 @@ public actor SearchIndexer {
     }
 
     /// Brings the index up to date, in the caller's task (cancelling it ends the reading): now,
-    /// or, while a run is under way, once more when it ends.
-    public func update(lease _: ForegroundLease) async {
-        if isRunning { again = true; return }
+    /// or, while a run is under way, once more when it ends, and this returns then.
+    public func update(lease _: WorkLease) async {
+        if isRunning {
+            again = true
+            await withCheckedContinuation { waiting.append($0) }
+            return
+        }
         isRunning = true
-        defer { isRunning = false }
         repeat {
             again = false
             await pass()
         } while again && !Task.isCancelled && !stopped
+        isRunning = false
+        let waiters = waiting
+        waiting = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// The updates asked for while a run was under way: they return as it ends.
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    /// Some chat is not read back as far as Settings asks yet: a deep pass has more to read.
+    public func hasHistoryLeft() async -> Bool {
+        if !loaded {
+            chats = await bestEffort("search index: the indexed chats") { try await store.chats() } ?? [:]
+            loaded = true
+        }
+        let horizon = await MainActor.run { [preferences] in preferences.searchHistory.since(.now) }
+        return chats.values.contains { !$0.complete && ($0.oldest ?? .distantFuture) > horizon.addingTimeInterval(Self.slack) }
     }
 
     /// The account closes: no run goes on.

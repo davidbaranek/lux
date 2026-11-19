@@ -108,7 +108,7 @@ actor PhotoSearchModel {
 
     /// A photo's unit embedding: the photo squashed to the encoder's square, as it learned. The
     /// first loads the image encoder (compiled for this device the first time: long).
-    func embedding(of image: CGImage, lease _: ForegroundLease) async throws -> [Float] {
+    func embedding(of image: CGImage, lease _: WorkLease) async throws -> [Float] {
         // predicts on the model's actor, which holds the encoder (an `MLModel` is not `Sendable`).
         let encoder = try await loadedImageEncoder()
         return try floats(encoder.prediction(from: encoder.input(image)))
@@ -133,7 +133,7 @@ actor PhotoSearchModel {
     /// Loads the text encoder and the tokenizer off the model's actor: the first load on a device
     /// compiles the encoder for it, which takes a while (some 20 s on a Mac), and searches go on
     /// by words meanwhile.
-    func prepareTextEncoder(lease _: ForegroundLease) {
+    func prepareTextEncoder(lease _: WorkLease) {
         guard textEncoder == nil, preparing == nil, !isClosed else { return }
         let file = file, description = description
         // reading the tokenizer holds its thread: on its own executor, not the pool.
@@ -150,7 +150,7 @@ actor PhotoSearchModel {
     }
 
     /// Waits until the text encoder is loaded (or failed to), loading it if it is not.
-    func textEncoderLoaded(lease: ForegroundLease) async {
+    func textEncoderLoaded(lease: WorkLease) async {
         prepareTextEncoder(lease: lease)
         await preparing?.value
     }

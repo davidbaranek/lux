@@ -4,7 +4,7 @@ import Foundation
 /// photo downloads (decrypted) into a folder of its own, its words and look are read on the
 /// device, and the file goes. One photo at a time, off the main thread.
 public actor PhotoIndexer {
-    /// How far the reading is, for Settings and the reading's Live Activity.
+    /// How far the reading is, for Settings.
     public struct Progress: Sendable, Equatable {
         public var total = 0
         /// Read by the current reader; the others wait for it.
@@ -50,7 +50,7 @@ public actor PhotoIndexer {
     /// for, and this one starts after it. The caller's cancel (the app leaving the front, which
     /// ends all photo reading) ends it and the readings it waits for.
     @discardableResult
-    func read(limit: Int?, lease: ForegroundLease) async -> Bool {
+    func read(limit: Int?, lease: WorkLease) async -> Bool {
         let previous = running
         let wasStopped = previous?.isCancelled ?? false
         // decoding, Vision and Core ML hold their thread: on their own executor, not the pool.
@@ -95,6 +95,12 @@ public actor PhotoIndexer {
         report(await progress())
     }
 
+    /// Some photo waits for the current reader (one it gave up on does not).
+    func hasUnread() async -> Bool {
+        let reader = reader.name
+        return await bestEffort("photo search: photos to read") { try await !store.imagesToRead(by: reader, limit: 1).isEmpty } ?? false
+    }
+
     /// How many photos the index has, and how many the current reader read.
     func progress() async -> Progress {
         guard let counts = await bestEffort("photo search: counts", { try await store.imageCounts(reader: reader.name) }) else {
@@ -104,7 +110,7 @@ public actor PhotoIndexer {
                         isReading: isReading)
     }
 
-    private func readUnread(limit: Int?, lease: ForegroundLease) async -> Bool {
+    private func readUnread(limit: Int?, lease: WorkLease) async -> Bool {
         guard let account = await bestEffort("photo search: the account", { try await account.value }) else { return false }
         let reader = self.reader
         var left = limit ?? .max
@@ -155,7 +161,7 @@ public actor PhotoIndexer {
 
     /// One photo read: downloaded into its own folder, read, and deleted.
     private func read(_ photo: (eventId: String, roomId: String), by reader: any PhotoReading,
-                      from account: any MediaSourcePort, lease: ForegroundLease) async -> Outcome {
+                      from account: any MediaSourcePort, lease: WorkLease) async -> Outcome {
         let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { bestEffort("photo search: the photo's folder stays") { try FileManager.default.removeItemIfPresent(at: folder) } }
         do {

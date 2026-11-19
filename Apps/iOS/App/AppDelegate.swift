@@ -15,11 +15,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     /// Uploads go on in the background, whichever account sends them; registered before
     /// launching ends.
     static let uploads = BackgroundUploads(session: session)
+    /// Search reads what it has left while the iPhone charges; registered before launching ends.
+    static let reading = ReadingWhileCharging(session: session)
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         _ = Self.notifications
         _ = Self.refresh
         _ = Self.uploads
+        _ = Self.reading
         return true
     }
 
@@ -72,13 +75,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // an upload in a continued processing task keeps the app running: its sync stays.
         let paused = session.uploads?.isActive == true ? nil : session.enterBackground()
         Task {
-            await ForegroundWork.shared.leave()
+            await LongWork.shared.leave()
             await paused?.value
             endedWork()
         }
         // signed in: the chats refresh now and then while the app is away.
         if session.isSignedIn {
             AppDelegate.refresh?.schedule()
+            // and what search has left is read while the iPhone charges.
+            AppDelegate.reading.schedule()
         }
     }
 
@@ -93,7 +98,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneWillEnterForeground(_ scene: UIScene) {
         session.enterForeground()
-        ForegroundWork.shared.enter()
+        // the long work starts (the first time too), or goes on from a background task's reading.
+        LongWork.shared.enter()
         notifications.showBadge()
     }
 

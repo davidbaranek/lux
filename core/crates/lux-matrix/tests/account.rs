@@ -837,6 +837,43 @@ async fn a_pause_during_a_refresh_leaves_the_sync_stopped() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_account_opened_in_the_background_syncs_only_once_the_app_is_in_front() {
+    let server = server().await;
+    let syncs = sync_anna(&server).await;
+    let folder = tempfile::tempdir().unwrap();
+    let secrets = Arc::new(MemorySecrets::default());
+    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), secrets.clone());
+    let account = sign_in
+        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
+        .await
+        .unwrap();
+    let mut chats = account.chats();
+    let mut rows = eyeball_im::Vector::new();
+    until(&mut chats, &mut rows, |rows| {
+        rows.iter().any(|chat| says(chat, "hello there"))
+    })
+    .await;
+    drop(chats);
+    account.pause_sync().await;
+    drop(account);
+
+    // the system launched the app for a background task: the account opens, its sync waits.
+    let account = sign_in.in_background().restore().await.unwrap().unwrap();
+    account.begin_background_work().await;
+    assert!(stopped(&syncs).await, "syncing while opened in the background");
+    // the work ends in the background: the sync stays stopped, the stores close.
+    account.end_background_work().await;
+    assert!(stopped(&syncs).await);
+
+    // the app comes to the front: the sync runs, and a later end of work leaves it running.
+    account.resume_sync().await;
+    syncs.another().await;
+    account.end_background_work().await;
+    syncs.another().await;
+    account.pause_sync().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_refresh_dropped_while_it_waits_leaves_the_sync_stopped() {
     let server = server().await;
     let syncs = sync_anna(&server).await;
