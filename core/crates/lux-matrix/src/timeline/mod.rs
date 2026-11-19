@@ -29,6 +29,7 @@ use lux_core::ports::{BackendError, ChatTimelines, DiffStream, PinsStream, RoomC
 use lux_core::timeline::{Focused, IndexHistory, TimelineMessage};
 use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
 use matrix_sdk::{Client, Room};
+use matrix_sdk_ui::RoomListService;
 use tokio::sync::{broadcast, watch};
 
 use self::opened::{Key, Opened};
@@ -52,11 +53,12 @@ pub struct MatrixTimelines {
 
 impl MatrixTimelines {
     /// The timelines of `client`'s rooms; none is open yet. Starts the task that keeps the open
-    /// ones, on the current Tokio runtime. The account makes its own; this is public for the
+    /// ones, on the current Tokio runtime, and subscribes the sync of `room_list` to the rooms of
+    /// those held (none without it). The account makes its own; this is public for the
     /// integration tests, which drive the timelines over a bare client.
     #[doc(hidden)]
     #[must_use]
-    pub fn new(client: Client) -> Self {
+    pub fn new(client: Client, room_list: Option<Arc<RoomListService>>) -> Self {
         // an upload's progress shows on its message.
         client.send_queue().enable_upload_progress(true);
         Self {
@@ -64,7 +66,7 @@ impl MatrixTimelines {
             client,
             // none deleted, for timelines without an organizer.
             cuts: watch::channel(Arc::new(Organized::default())).1,
-            opened: Opened::new(opened::KEPT),
+            opened: Opened::new(opened::KEPT, room_list),
             changes: broadcast::channel(CHANGES_BUFFER).0,
         }
     }

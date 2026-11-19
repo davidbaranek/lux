@@ -132,8 +132,11 @@ public final class ChatListModel {
     private var scheduledObserver: AnyObject?
     /// The place is set from a batch (the shown place went away): not asked of the core again.
     private var followingPlace = false
+    /// What measures how long `chat(ofRoom:within:)` waits: the system's clock, or a test's.
+    private let clock: any Clock<Duration>
 
-    public init(session: Session) {
+    public init(session: Session, clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
         account = Task { [account = session.account] in try await account.value }
         preferences = session.preferences
         order = preferences.chatOrder
@@ -166,12 +169,18 @@ public final class ChatListModel {
     /// The chat a room is part of (a merged chat's, else the room's own). Right after launch the
     /// account may not list it yet: it asks again at each of the list's next batches, up to `limit`.
     public func chat(ofRoom roomId: String, within limit: Duration = .seconds(5)) async -> ChatRow? {
-        let deadline = ContinuousClock.now + limit
+        // a local the call opens as its own clock type (a stored existential is not opened).
+        let clock = clock
+        return await waitForChat(ofRoom: roomId, within: limit, on: clock)
+    }
+
+    private func waitForChat(ofRoom roomId: String, within limit: Duration, on clock: some Clock<Duration>) async -> ChatRow? {
+        let deadline = clock.now.advanced(by: limit)
         while true {
             let found = await bestEffort("the chat of a room") { try await account.value.chats(ofRooms: [roomId])[roomId] }
             if let row = found ?? nil { return row }
-            guard ContinuousClock.now < deadline, !Task.isCancelled else { return nil }
-            await nextBatch(before: deadline)
+            guard clock.now < deadline, !Task.isCancelled else { return nil }
+            await nextBatch(before: deadline, on: clock)
         }
     }
 
@@ -179,10 +188,15 @@ public final class ChatListModel {
     private var batchWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     /// Returns at the list's next batch, at `deadline`, or once cancelled, whichever comes first.
-    private func nextBatch(before deadline: ContinuousClock.Instant) async {
+    private func nextBatch<C: Clock<Duration>>(before deadline: C.Instant, on clock: C) async {
         let id = UUID()
         let timeout = Task { [weak self] in
-            try? await Task.sleep(until: deadline)
+            do {
+                try await clock.sleep(until: deadline, tolerance: nil)
+            } catch {
+                // the batch came first, or the wait was cancelled: the waiter has already gone.
+                return
+            }
             self?.resumeWaiter(id)
         }
         await withTaskCancellationHandler {

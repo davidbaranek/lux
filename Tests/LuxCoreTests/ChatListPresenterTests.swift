@@ -92,20 +92,23 @@ struct ChatListPresenterTests {
         #expect(row?.rooms.map(\.id) == ["!room4:demo", "!room18:demo"])
     }
 
-    @Test func anUnknownRoomGivesUpAtTheLimit() async {
-        let model = ChatListModel(session: session)
-        let start = ContinuousClock.now
-        let row = await model.chat(ofRoom: "!nowhere:demo", within: .milliseconds(300))
-        #expect(row == nil)
-        #expect(ContinuousClock.now - start < .seconds(3))
+    @Test func anUnknownRoomGivesUpAtTheLimit() async throws {
+        let clock = TestClock()
+        let model = ChatListModel(session: session, clock: clock)
+        let waiting = Task { await model.chat(ofRoom: "!nowhere:demo", within: .seconds(5)) }
+        // it waits for the list's next batch up to the limit, and gives up once the limit passes.
+        _ = try await clock.sleeps.first { $0 == clock.now.advanced(by: .seconds(5)) }
+        clock.advance(by: .seconds(5))
+        #expect(await waiting.value == nil)
     }
 
-    @Test func aCancelledWaitEndsAtOnce() async {
-        let model = ChatListModel(session: session)
+    @Test func aCancelledWaitEndsAtOnce() async throws {
+        // the clock never moves: the wait ends only because it is cancelled.
+        let clock = TestClock()
+        let model = ChatListModel(session: session, clock: clock)
         let waiting = Task { await model.chat(ofRoom: "!nowhere:demo", within: .seconds(60)) }
+        _ = try await clock.sleeps.first()
         waiting.cancel()
-        let start = ContinuousClock.now
         #expect(await waiting.value == nil)
-        #expect(ContinuousClock.now - start < .seconds(3))
     }
 }

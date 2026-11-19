@@ -54,8 +54,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private let session = AppDelegate.session
     private let notifications = AppDelegate.notifications
 
-    func scene(_ scene: UIScene, willConnectTo _: UISceneSession, options _: UIScene.ConnectionOptions) {
+    func scene(_ scene: UIScene, willConnectTo _: UISceneSession, options: UIScene.ConnectionOptions) {
         guard let scene = scene as? UIWindowScene else { return }
+        // launched to continue a chat from another device: it opens once the list shows.
+        chatToOpen = options.userActivities.lazy.compactMap(ChatActivity.init).first
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIViewController()
         window.makeKeyAndVisible()
@@ -64,6 +66,16 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         session.onAccountLost = { [weak self] in self?.show(signedIn: false) }
         Task { await show(signedIn: session.restore()) }
     }
+
+    /// A chat continued from another of the account's devices (Handoff): the same chat opens here.
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        guard let chat = ChatActivity(userActivity) else { return }
+        if let list { list.openChat(roomId: chat.roomId, thread: chat.threadRoot) } else { chatToOpen = chat }
+    }
+
+    /// The chat list, once signed in; and a chat continued before it was there to open it.
+    private weak var list: ChatListViewController?
+    private var chatToOpen: ChatActivity?
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         // the sync and the long work (index, photos, the model) end before iOS suspends the app,
@@ -111,6 +123,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
                 Task { await self?.session.signOut(); self?.show(signedIn: false) }
             }
             window.rootViewController = UINavigationController(rootViewController: list)
+            self.list = list
+            if let chat = chatToOpen {
+                chatToOpen = nil
+                list.openChat(roomId: chat.roomId, thread: chat.threadRoot)
+            }
             notifications.openChat = { [weak list] room, thread in list?.openChat(roomId: room, thread: thread) }
             // another of the account's devices asks to verify: over whatever shows.
             session.security?.onRequest = { [weak window] verification in
