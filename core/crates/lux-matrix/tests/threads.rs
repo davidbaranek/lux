@@ -133,7 +133,7 @@ async fn the_rooms_own_timeline_hides_the_replies_and_sums_them_up_on_the_root()
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
     synced(&server, &client).await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     let page = until(&timelines, &room(), |page| {
         page.len() == 2 && page[0].thread.as_ref().is_some_and(|thread| thread.latest.is_some())
@@ -189,7 +189,7 @@ async fn a_thread_shows_its_root_and_replies_and_sends_its_replies() {
         .mock_once()
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let _hold = timelines.hold(&thread());
 
     let page = until(&timelines, &thread(), |page| page.len() == 3).await;
@@ -235,7 +235,7 @@ async fn a_thread_paged_back_to_its_root_is_at_its_start() {
         .ok(RoomRelationsResponseTemplate::default())
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let _hold = timelines.hold(&thread());
 
     // the SDK marks no start item on a thread's timeline: its page back says it.
@@ -275,7 +275,7 @@ async fn reacting_join_thread_to_the_bridges_notice_joins_and_its_replies_come_i
         .mock_once()
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client.clone());
+    let timelines = MatrixTimelines::new(client.clone(), None);
     let _hold = timelines.hold(&thread());
     let page = until(&timelines, &thread(), |page| page.len() == 3).await;
     let notice = &page[1];
@@ -350,7 +350,7 @@ async fn the_rooms_threads_list_a_page_at_a_time() {
         .mock_once()
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let page = timelines.threads(&RoomId::from(ROOM), None).await.unwrap();
     assert_eq!(page.next.as_deref(), Some("older"));
     let [listed] = page.threads.as_slice() else {
