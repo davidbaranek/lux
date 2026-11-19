@@ -16,6 +16,14 @@ cargo xtask apple --dev --only macos    # after a change the Swift side sees
 cd .. && sh scripts/check-swift-errors.sh && swift test
 ```
 
+On your Mac (not on CI), `scripts/setup-sdk.sh` keeps each core it builds in
+`~/Library/Caches/lux-native/vendor`, keyed by `core/`'s committed tree, its arguments, the Rust
+toolchain and Xcode's build. Another run with the same key, in any checkout or worktree, clones
+it into `Vendor/` (APFS clones take no extra space) in a second instead of building. A `core/`
+with uncommitted changes is always built and never cached, and keys unused for 14 days are
+removed. Clear it with `rm -rf ~/Library/Caches/lux-native/vendor`. `cargo xtask apple` itself
+never uses it.
+
 `lux-core` does not depend on the SDK, so `cargo test -p lux-core` takes seconds. Use it as the
 inner loop. CI runs the three `cargo` checks, `check-swift-errors.sh`, the Swift tests (also under
 Thread Sanitizer), both apps' builds and the Mac app's view tests on every pull request. What needs a simulator (the
