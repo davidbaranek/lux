@@ -31,7 +31,9 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     let emojiPicker = EmojiPicker()
     /// "Anna is typing…" with her picture, above the composer.
     private let typing = TypingView()
-    private let pinnedBar = PinnedBar()
+    private let newPinBar = NewPinBar()
+    /// The chat's details, while they show: they list its pinned messages.
+    private weak var shownDetails: ChatDetailsViewController?
     private var swipeToReply: SwipeToReply?
     /// Where the presenter's glide ends, while it goes.
     private var glideEnd: CGFloat?
@@ -219,10 +221,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         jumpToUnread.alpha = 0
         jumpToUnread.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(jumpToUnread)
-        // the chat's pinned messages, over its top.
-        pinnedBar.translatesAutoresizingMaskIntoConstraints = false
-        pinnedBar.onJump = { [weak self] pin in self?.presenter.jump(toMessage: pin.link) }
-        view.addSubview(pinnedBar)
+        // a message pinned since the user last saw the chat's pins, over its top.
+        newPinBar.translatesAutoresizingMaskIntoConstraints = false
+        newPinBar.onJump = { [weak self] pin in self?.presenter.jump(toMessage: pin.link) }
+        newPinBar.onSeen = { [weak self] in self?.model.pinsSeen() }
+        view.addSubview(newPinBar)
         view.addSubview(emojiPicker)
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         let pullDown = composer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
@@ -249,9 +252,9 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             jumpToUnread.bottomAnchor.constraint(equalTo: jumpToBottom.topAnchor, constant: -10),
             jumpToUnread.widthAnchor.constraint(equalToConstant: 44),
             jumpToUnread.heightAnchor.constraint(equalToConstant: 44),
-            pinnedBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            pinnedBar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            pinnedBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
+            newPinBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            newPinBar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            newPinBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
         ])
 
         // a new text size measures every message again.
@@ -269,8 +272,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         showSendNetwork(model.sendNetwork)
         model.onReadState = { [weak self] needed in self?.composer.setNeedsReadReceipt(needed) }
         model.onTyping = { [weak self] names in self?.showTyping(names) }
-        model.onPinned = { [weak self] pinned in self?.pinnedBar.show(pinned) }
-        pinnedBar.show(model.pinned)
+        model.onPinned = { [weak self] pinned in
+            guard let self else { return }
+            newPinBar.show(model.newPin)
+            shownDetails?.show(pinned: pinned)
+        }
+        newPinBar.show(model.newPin)
         model.onError = { [weak self] error in self?.report(error, of: "chat") }
         presenter.start()
     }
@@ -518,6 +525,13 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             if self?.model.thread != nil { self?.chatTitle.subtitle = String(localized: "Thread") }
         }
         details.onOpenThread = { [weak self] thread in self?.openThread(thread) }
+        details.pins = model
+        details.onJump = { [weak self] pin in
+            guard let self else { return }
+            navigationController?.popToViewController(self, animated: true)
+            presenter.jump(toMessage: pin.link)
+        }
+        shownDetails = details
         navigationController?.pushViewController(details, animated: true)
     }
 

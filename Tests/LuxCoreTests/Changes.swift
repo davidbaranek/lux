@@ -80,6 +80,8 @@ extension ThreadModel {
         onError = { error?($0); changes.send() }
         let live = onLive
         onLive = { live?($0); changes.send() }
+        let pinned = onPinned
+        onPinned = { pinned?($0); changes.send() }
         return changes
     }
 }

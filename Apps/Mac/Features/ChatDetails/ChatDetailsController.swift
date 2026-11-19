@@ -5,8 +5,8 @@ import SwiftUI
 /// A chat's details, in the window's inspector beside the chat (its title in the toolbar, or the
 /// info button, opens and closes it), as Messages shows a conversation's: its picture, name and
 /// topic, a row of quick actions (mute, mark read, edit), then tabs: Info (its settings as a
-/// grouped form, as System Settings draws one), its members, its Matrix threads and what it
-/// shared, one at a time.
+/// grouped form, as System Settings draws one), its pinned messages, its members, its Matrix
+/// threads and what it shared, one at a time.
 final class ChatDetailsController: NSViewController {
     private let session: Session
     private let model: ChatDetailsModel
@@ -17,6 +17,13 @@ final class ChatDetailsController: NSViewController {
     var onLeave: (() -> Void)?
     /// A thread was picked from the chat's threads: it opens beside the chat.
     var onOpenThread: ((MatrixThread) -> Void)?
+    /// The open chat's model, which follows its pinned messages: a tab lists them.
+    weak var pins: ThreadModel? {
+        didSet { show(pinned: pins?.pinned ?? []) }
+    }
+    /// A pinned message was picked: the chat goes to it.
+    var onJump: ((PinnedMessage) -> Void)?
+    private var hasPins = false
 
     private let avatar = AvatarView(side: 72)
     private let name = NSTextField(labelWithString: "")
@@ -38,6 +45,7 @@ final class ChatDetailsController: NSViewController {
 
     private enum Tab: Equatable {
         case info
+        case pinned
         /// A group room's, by its id and network.
         case members(String, network: String)
         case threads
@@ -179,7 +187,7 @@ final class ChatDetailsController: NSViewController {
     /// Info, then members (a group's, each room's for a merged one), threads and what it shared.
     private func updateTabs() {
         let groups = model.info?.rooms.filter { !$0.isDirect } ?? []
-        let kinds = [Tab.info] + groups.map { Tab.members($0.id, network: $0.network) } + [.threads]
+        let kinds = [Tab.info] + (hasPins ? [.pinned] : []) + groups.map { Tab.members($0.id, network: $0.network) } + [.threads]
             + SharedKind.allCases.map(Tab.shared)
         guard kinds != tabKinds else { return }
         let selected = tabKinds[safe: tabs.selected]
@@ -187,6 +195,7 @@ final class ChatDetailsController: NSViewController {
         tabs.titles = kinds.map { kind in
             switch kind {
             case .info: String(localized: "Info")
+            case .pinned: String(localized: "Pinned")
             case .members(_, let network): groups.count > 1 ? Networks.name(network) : String(localized: "Members")
             case .threads: String(localized: "Threads")
             case .shared(let kind): kind.title
@@ -206,6 +215,11 @@ final class ChatDetailsController: NSViewController {
         case .members(let id, _):
             guard let room = model.info?.rooms.first(where: { $0.id == id }) else { return }
             controller = MembersPane(model: model.members(of: room), images: session.images)
+        case .pinned:
+            guard let pins else { return }
+            let pane = PinnedPane(pins: pins, images: session.images)
+            pane.onJump = { [weak self] pin in self?.onJump?(pin) }
+            controller = pane
         case .threads:
             let threads = ThreadsPane(model: model.threads(), images: session.images)
             threads.onOpen = { [weak self] thread in self?.onOpenThread?(thread) }
@@ -223,6 +237,14 @@ final class ChatDetailsController: NSViewController {
         controller.view.autoresizingMask = [.width, .height]
         pane.addSubview(controller.view)
         shown = controller
+    }
+
+    /// The chat's pinned messages changed: their tab comes or goes, and lists them.
+    func show(pinned: [PinnedMessage]) {
+        (shown as? PinnedPane)?.show(pinned: pinned)
+        guard hasPins != !pinned.isEmpty else { return }
+        hasPins = !pinned.isEmpty
+        if isViewLoaded { updateTabs() }
     }
 
     // MARK: Changes
