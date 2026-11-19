@@ -96,6 +96,61 @@ const MIGRATIONS: &[&str] = &[
     END;
     DELETE FROM chats;
     ",
+    // 5: a message's meaning is read with the messages before it (`store::CONTEXT_MESSAGES`,
+    // four, here as each `LIMIT 4`): its thread's (the root and the replies before it) when it
+    // is in one, else its chat's. A message added (an older page read after newer ones), changed
+    // or deleted changes what the next four in its thread or chat were read with, and a thread's
+    // root its first four replies': they are read again, in the change's own transaction. A
+    // thread's replies are found by their thread and time, as the chat's are by their chat and
+    // time, so neither looks through the other's.
+    "
+    DROP INDEX messages_by_thread;
+    CREATE INDEX messages_by_thread ON messages(thread, ts) WHERE thread IS NOT NULL;
+    CREATE TRIGGER messages_added_context AFTER INSERT ON messages BEGIN
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE new.thread IS NULL AND room_id = new.room_id AND thread IS NULL
+            AND (ts, id) > (new.ts, new.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE thread = new.thread AND (ts, id) > (new.ts, new.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE new.thread IS NULL AND thread = new.event_id
+            ORDER BY ts, id LIMIT 4);
+    END;
+    CREATE TRIGGER messages_removed_context AFTER DELETE ON messages BEGIN
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE old.thread IS NULL AND room_id = old.room_id AND thread IS NULL
+            AND (ts, id) > (old.ts, old.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE thread = old.thread AND (ts, id) > (old.ts, old.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE old.thread IS NULL AND thread = old.event_id
+            ORDER BY ts, id LIMIT 4);
+    END;
+    CREATE TRIGGER messages_changed_context AFTER UPDATE OF body, sender, thread ON messages
+    WHEN old.body IS NOT new.body OR old.sender IS NOT new.sender OR old.thread IS NOT new.thread BEGIN
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE old.thread IS NULL AND room_id = old.room_id AND thread IS NULL
+            AND (ts, id) > (old.ts, old.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE thread = old.thread AND (ts, id) > (old.ts, old.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE new.thread IS NULL AND room_id = new.room_id AND thread IS NULL
+            AND (ts, id) > (new.ts, new.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE thread = new.thread AND (ts, id) > (new.ts, new.id)
+            ORDER BY ts, id LIMIT 4);
+        UPDATE messages SET embedding = NULL, embedder = NULL WHERE embedder IS NOT NULL AND id IN (
+            SELECT id FROM messages WHERE new.thread IS NULL AND thread = new.event_id
+            ORDER BY ts, id LIMIT 4);
+    END;
+    ",
 ];
 
 /// Brings the file's schema up to this version's, each migration in its own transaction. Two

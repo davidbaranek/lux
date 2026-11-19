@@ -50,6 +50,9 @@ from huggingface_hub import hf_hub_download
 from PIL import Image
 from sentence_transformers import SentenceTransformer
 
+import conversations
+from conversations import threshold
+
 MODEL = "google/embeddinggemma-2"
 # the revision the app's model is built from, so a rebuild gives the same model.
 REVISION = "f9972ac22e696a105c482202646979e33e4b5a1e"
@@ -236,47 +239,6 @@ def cosines(a, b):
     return (a * b).sum(-1)
 
 
-def threshold(positive, negative):
-    """The least similarity to be found: above all but 5 % of the unrelated pairs, as long as that
-    keeps most related ones (else the point between them). The model's cosines lie close (a photo
-    of what the words say some 0.64 to 0.7, others 0.57 to 0.64): the order finds, this only
-    keeps the unrelated tail out."""
-    strict = float(np.percentile(negative, 95))
-    return strict if (np.asarray(positive) >= strict).mean() >= 0.5 else float((np.median(positive) + strict) / 2)
-
-
-CHAT = [
-    ("Jedem v sobotu na Sněžku? Vezmi pohorky", "výlet na hory"),
-    ("Kup cestou mlíko, chleba a nějaký sýr", "nákupní seznam"),
-    ("Zítra mám v 8 zubaře, nestihnu ráno", "návštěva lékaře"),
-    ("Posílám fakturu za září, splatnost do 15.", "platba za služby"),
-    ("Ten film včera v kině byl fakt hroznej", "recenze filmu"),
-    ("Malej má horečku 38,5, zůstanu s ním doma", "nemocné dítě"),
-    ("Letenky do Lisabonu jsou teď za 1900 tam i zpět", "levné lety na dovolenou"),
-    ("Pronajímatel chce zvednout nájem o tři tisíce", "bydlení a peníze"),
-    ("Kdo jde v pátek na pivo k Ferdovi?", "posezení v hospodě"),
-    ("Auto neprošlo STK, prý brzdy", "oprava vozu"),
-    ("Mám nový foťák, Sony A7 IV, je to bomba", "fotografická technika"),
-    ("Babička slaví v neděli osmdesátiny, přijdeš?", "rodinná oslava narozenin"),
-    ("Na chalupě praskla trubka, všude voda", "havárie vody"),
-    ("Spadla mi appka při přihlašování, hází chybu 500", "problém s aplikací"),
-    ("Pejsek se zaběhl v lese u Hostivaře", "ztracený pes"),
-    ("Zkouška z matiky byla za jedna!", "výsledek testu ve škole"),
-    ("Na Vánoce jedem k našim do Brna", "svátky u rodičů"),
-    ("Upekla jsem štrúdl podle babiččina receptu", "pečení moučníku"),
-    ("Byla jsem si zaběhat 10 km pod 50 minut", "sportovní výkon"),
-    ("Prosím pošli mi heslo k wifi na chatě", "připojení k internetu"),
-    ("Volala pojišťovna, kryjou jen polovinu škody", "pojistná událost"),
-    ("Kocour zase rozškrábal gauč", "domácí mazlíček dělá neplechu"),
-    ("Hraje Sparta zítra doma?", "fotbalový zápas"),
-    ("Nestíhám deadline, šéf bude zuřit", "stres v práci"),
-    ("Jaký je kód na zvonek u vás?", "jak se dostat do domu"),
-    ("Objednal jsem pizzu, bude tu za půl hodiny", "jídlo s sebou"),
-    ("Mám dva lístky na Coldplay, chceš jeden?", "koncert"),
-    ("Banka mi zablokovala kartu kvůli podezřelé platbě", "problém s bankou"),
-    ("Na horách napadlo 30 cm prašanu", "lyžování"),
-    ("Potřebuju půjčit vrtačku na víkend", "nářadí"),
-]
 
 
 def main(out: Path):
@@ -369,13 +331,11 @@ def main(out: Path):
     positive = np.diag(scores)
     negative = scores[~np.eye(len(scores), dtype=bool)]
     photo_threshold = threshold(positive, negative)
-    # and a message to the words about it, both less the messages' mean (as the app keeps them).
-    messages = eg.encode([DOCUMENT + m for m, _ in CHAT], normalize_embeddings=True)
-    queries = eg.encode([QUERY + q for _, q in CHAT], normalize_embeddings=True)
-    mean = messages.mean(0, keepdims=True)
-    centred = lambda e: (e - mean) / np.linalg.norm(e - mean, axis=-1, keepdims=True)
-    scores = centred(queries) @ centred(messages).T
-    message_threshold = threshold(np.diag(scores), scores[~np.eye(len(scores), dtype=bool)])
+    # and a message to the words about it, both less the messages' mean (as the app keeps them),
+    # each message read as the app reads it: with the messages before it (conversations.py).
+    message_threshold = conversations.message_threshold(
+        lambda texts: eg.encode(texts, normalize_embeddings=True),
+        lambda text: len(tokenizer(text)["input_ids"]) <= TEXT_LENGTH, QUERY)
     print(f"thresholds: photos {photo_threshold:.3f}, messages {message_threshold:.3f}")
 
     # one model with two functions, "image" and "text": the text model's weights, which both

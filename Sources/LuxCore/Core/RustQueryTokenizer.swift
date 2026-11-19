@@ -16,4 +16,9 @@ final class QueryTokenizer: Sendable {
     func ids(_ text: String) throws -> [Int32] {
         try tokenizer.ids(text: text)
     }
+
+    /// Whether the words fit the encoder whole: longer ones are cut at their end.
+    func fits(_ text: String) throws -> Bool {
+        try tokenizer.fits(text: text)
+    }
 }

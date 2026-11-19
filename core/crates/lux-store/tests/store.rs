@@ -421,7 +421,10 @@ async fn finds_messages_by_their_meaning_and_reads_each_once() {
     // the short one has too little to mean.
     let to_read = store.messages_to_embed(6, 10).await.unwrap();
     assert_eq!(
-        to_read.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+        to_read
+            .iter()
+            .map(|message| message.event_id.as_str())
+            .collect::<Vec<_>>(),
         ["$pizza", "$hory"]
     );
     let read = |id: &str, embedding| MessageEmbedding {
@@ -457,14 +460,271 @@ async fn finds_messages_by_their_meaning_and_reads_each_once() {
     let hits = store.search(meaning("pizzu", unit(0, 3, 0.3))).await.unwrap();
     assert_eq!(hits[0].event_id.as_str(), "$pizza");
 
-    // an edit is read again; another model reads them all again.
+    // an edit is read again, and so is the message read with it; another model reads them all
+    // again.
     store
         .add(vec![message("$hory", "Zítra jedeme na hory, vezmi boty", "!a", 1)])
         .await
         .unwrap();
-    assert_eq!(store.messages_to_embed(6, 10).await.unwrap().len(), 1);
+    let unread = async || {
+        let messages = store.messages_to_embed(6, 10).await.unwrap();
+        messages
+            .into_iter()
+            .map(|message| message.event_id.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(unread().await, ["$pizza", "$hory"]);
+    store
+        .set_message_embeddings(vec![read("$hory", None), read("$pizza", None)])
+        .await
+        .unwrap();
     store.forget_message_embeddings(Some("model@2".into())).await.unwrap();
-    assert_eq!(store.messages_to_embed(6, 10).await.unwrap().len(), 2);
+    assert_eq!(unread().await, ["$pizza", "$hory"]);
+}
+
+/// The messages whose meaning is not read, at least one character long, by their event ids.
+async fn unread(store: &Store) -> Vec<String> {
+    let mut ids: Vec<String> = store
+        .messages_to_embed(1, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|message| message.event_id.to_string())
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Reads every message's meaning, as `embedder`.
+async fn read_all(store: &Store, embedder: &str) {
+    let messages = store.messages_to_embed(1, 100).await.unwrap();
+    store
+        .set_message_embeddings(
+            messages
+                .into_iter()
+                .map(|message| MessageEmbedding {
+                    event_id: message.event_id,
+                    embedder: embedder.into(),
+                    embedding: Some(unit(0, 1, 0.0)),
+                })
+                .collect(),
+        )
+        .await
+        .unwrap();
+    assert!(unread(store).await.is_empty());
+}
+
+fn said(id: &str, sender: &str, body: &str, room: &str, seconds: u64, thread: Option<&str>) -> IndexedMessage {
+    IndexedMessage {
+        sender_name: sender.into(),
+        thread: thread.map(Into::into),
+        ..message(id, body, room, seconds)
+    }
+}
+
+/// Each message's context as "sender: text" lines, the oldest first.
+async fn contexts(store: &Store) -> Vec<(String, Vec<String>)> {
+    let mut messages: Vec<(String, Vec<String>)> = store
+        .messages_to_embed(1, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|message| {
+            let lines = message
+                .context
+                .iter()
+                .map(|line| format!("{}: {}", line.sender_name, line.body))
+                .collect();
+            (message.event_id.to_string(), lines)
+        })
+        .collect();
+    messages.sort();
+    messages
+}
+
+#[tokio::test]
+async fn a_message_is_read_with_the_four_before_it_in_its_thread_or_else_its_chat() {
+    let folder = TempDir::new().unwrap();
+    let store = Store::open(file(&folder), key()).await.unwrap();
+    let long = "a".repeat(300);
+    store
+        .add(vec![
+            said("$0", "Me", "Hi!", "!a", 1, None),
+            said("$1", "Anna", "Are you free for dinner on Friday?", "!a", 2, None),
+            said("$2", "Me", "Which time?", "!a", 3, None),
+            said("$root", "Anna", "Who brings what?", "!a", 4, None),
+            said("$r1", "Tom", "wine", "!a", 5, Some("$root")),
+            said("$4", "Anna", &long, "!a", 6, None),
+            said("$r2", "Me", "dessert", "!a", 7, Some("$root")),
+            said("$5", "Anna", "yes, Friday at 5 at ours", "!a", 8, None),
+            said("$r3", "Anna", "bread", "!a", 9, Some("$root")),
+            said("$r4", "Tom", "cheese", "!a", 10, Some("$root")),
+            said("$r5", "Me", "salad", "!a", 11, Some("$root")),
+            said("$other", "Bob", "in another chat", "!b", 5, None),
+        ])
+        .await
+        .unwrap();
+    let lines = |lines: &[&str]| lines.iter().map(ToString::to_string).collect::<Vec<_>>();
+    let cut = format!("Anna: {}", "a".repeat(100));
+    let mut expected = vec![
+        ("$0".to_string(), lines(&[])),
+        ("$1".into(), lines(&["Me: Hi!"])),
+        (
+            "$2".into(),
+            lines(&["Me: Hi!", "Anna: Are you free for dinner on Friday?"]),
+        ),
+        (
+            "$root".into(),
+            lines(&["Me: Hi!", "Anna: Are you free for dinner on Friday?", "Me: Which time?"]),
+        ),
+        (
+            "$4".into(),
+            lines(&[
+                "Me: Hi!",
+                "Anna: Are you free for dinner on Friday?",
+                "Me: Which time?",
+                "Anna: Who brings what?",
+            ]),
+        ),
+        // the chat's four before it, not the thread's replies; a long one cut.
+        (
+            "$5".into(),
+            lines(&[
+                "Anna: Are you free for dinner on Friday?",
+                "Me: Which time?",
+                "Anna: Who brings what?",
+                &cut,
+            ]),
+        ),
+        ("$other".into(), lines(&[])),
+        // a reply's thread: its root and the replies before it.
+        ("$r1".into(), lines(&["Anna: Who brings what?"])),
+        ("$r2".into(), lines(&["Anna: Who brings what?", "Tom: wine"])),
+        (
+            "$r3".into(),
+            lines(&["Anna: Who brings what?", "Tom: wine", "Me: dessert"]),
+        ),
+        (
+            "$r4".into(),
+            lines(&["Anna: Who brings what?", "Tom: wine", "Me: dessert", "Anna: bread"]),
+        ),
+        // four back: past its root.
+        (
+            "$r5".into(),
+            lines(&["Tom: wine", "Me: dessert", "Anna: bread", "Tom: cheese"]),
+        ),
+    ];
+    expected.sort();
+    assert_eq!(contexts(&store).await, expected);
+}
+
+#[tokio::test]
+async fn what_a_change_reads_again_is_the_changed_message_and_the_four_read_with_it() {
+    let folder = TempDir::new().unwrap();
+    let store = Store::open(file(&folder), key()).await.unwrap();
+    let chat: Vec<IndexedMessage> = (1..=7)
+        .map(|n| said(&format!("$m{n}"), "Anna", &format!("message {n}"), "!a", n * 10, None))
+        .chain([said("$other", "Bob", "elsewhere", "!b", 15, None)])
+        .collect();
+    store.add(chat.clone()).await.unwrap();
+    read_all(&store, "m").await;
+
+    // the same messages again (a chat read again) change nothing.
+    store.add(chat).await.unwrap();
+    assert!(unread(&store).await.is_empty());
+
+    // a newer message has none after it.
+    store
+        .add(vec![said("$m8", "Anna", "message 8", "!a", 80, None)])
+        .await
+        .unwrap();
+    assert_eq!(unread(&store).await, ["$m8"]);
+    read_all(&store, "m").await;
+
+    // an older page, read after the newer one: the first four after it in its chat.
+    store
+        .add(vec![said("$m0", "Anna", "message 0", "!a", 5, None)])
+        .await
+        .unwrap();
+    assert_eq!(unread(&store).await, ["$m0", "$m1", "$m2", "$m3", "$m4"]);
+    read_all(&store, "m").await;
+
+    // an edit: the message and the four after it.
+    store
+        .add(vec![said("$m3", "Anna", "message 3, edited", "!a", 30, None)])
+        .await
+        .unwrap();
+    assert_eq!(unread(&store).await, ["$m3", "$m4", "$m5", "$m6", "$m7"]);
+    read_all(&store, "m").await;
+
+    // the sender's new name is read with them too.
+    store
+        .add(vec![said("$m2", "Anna B.", "message 2", "!a", 20, None)])
+        .await
+        .unwrap();
+    assert_eq!(unread(&store).await, ["$m2", "$m3", "$m4", "$m5", "$m6"]);
+    read_all(&store, "m").await;
+
+    // a deletion: the four after it, whose context it left.
+    store.remove(vec!["$m1".into()]).await.unwrap();
+    assert_eq!(unread(&store).await, ["$m2", "$m3", "$m4", "$m5"]);
+}
+
+#[tokio::test]
+async fn a_change_in_a_thread_reads_its_replies_again_and_its_root_the_chat_too() {
+    let folder = TempDir::new().unwrap();
+    let store = Store::open(file(&folder), key()).await.unwrap();
+    let reply = |n: u64| {
+        said(
+            &format!("$r{n}"),
+            "Tom",
+            &format!("reply {n}"),
+            "!a",
+            20 + n,
+            Some("$root"),
+        )
+    };
+    store
+        .add(
+            [
+                said("$before", "Anna", "before", "!a", 10, None),
+                said("$root", "Anna", "Who brings what?", "!a", 20, None),
+                said("$after", "Anna", "after", "!a", 30, None),
+            ]
+            .into_iter()
+            .chain((1..=6).map(reply))
+            .collect(),
+        )
+        .await
+        .unwrap();
+    read_all(&store, "m").await;
+
+    // a reply: the four replies after it, not the chat.
+    store.remove(vec!["$r1".into()]).await.unwrap();
+    assert_eq!(unread(&store).await, ["$r2", "$r3", "$r4", "$r5"]);
+    read_all(&store, "m").await;
+
+    // the root: its first four replies, and the chat's messages after it.
+    store
+        .add(vec![said(
+            "$root",
+            "Anna",
+            "Who brings what on Friday?",
+            "!a",
+            20,
+            None,
+        )])
+        .await
+        .unwrap();
+    assert_eq!(unread(&store).await, ["$after", "$r2", "$r3", "$r4", "$r5", "$root"]);
+    read_all(&store, "m").await;
+
+    // a reply moved out of its thread (as the server may say later): both lose it.
+    store
+        .add(vec![said("$r2", "Tom", "reply 2", "!a", 22, None)])
+        .await
+        .unwrap();
+    assert_eq!(unread(&store).await, ["$after", "$r2", "$r3", "$r4", "$r5", "$r6"]);
 }
 
 #[tokio::test]

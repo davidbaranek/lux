@@ -154,12 +154,25 @@ pub struct CoreThreadHit {
     pub latest: SystemTime,
 }
 
-/// A message whose meaning is to be read.
+/// A message whose meaning is to be read, with the messages before it that it is read with.
 #[derive(uniffi::Record)]
 pub struct CoreMessageToEmbed {
     /// Its event id.
     pub event_id: String,
+    /// Who sent it.
+    pub sender_name: String,
     /// Its text.
+    pub body: String,
+    /// The messages before it in its thread, or else its chat, the oldest first.
+    pub context: Vec<CoreContextMessage>,
+}
+
+/// A message another is read with.
+#[derive(uniffi::Record)]
+pub struct CoreContextMessage {
+    /// Who sent it.
+    pub sender_name: String,
+    /// Its text, perhaps cut.
     pub body: String,
 }
 
@@ -462,7 +475,8 @@ impl CoreStore {
         Ok(hits.into_iter().map(CoreStoreHit::from).collect())
     }
 
-    /// Messages whose meaning is not read yet, the newest first, at least `min_chars` long.
+    /// Messages whose meaning is not read yet, the newest first, at least `min_chars` long, each
+    /// with the messages before it.
     pub async fn messages_to_embed(
         &self,
         min_chars: u32,
@@ -473,9 +487,18 @@ impl CoreStore {
             .messages_to_embed(min_chars, limit)
             .await?
             .into_iter()
-            .map(|(event_id, body)| CoreMessageToEmbed {
-                event_id: event_id.to_string(),
-                body,
+            .map(|message| CoreMessageToEmbed {
+                event_id: message.event_id.to_string(),
+                sender_name: message.sender_name,
+                body: message.body,
+                context: message
+                    .context
+                    .into_iter()
+                    .map(|line| CoreContextMessage {
+                        sender_name: line.sender_name,
+                        body: line.body,
+                    })
+                    .collect(),
             })
             .collect())
     }

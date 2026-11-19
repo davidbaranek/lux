@@ -254,6 +254,31 @@ pub struct TextSearch {
     pub limit: u32,
 }
 
+/// A message whose meaning is to be read, with what it is read with: a short reply ("yes, Friday
+/// at 5") means something only with the messages before it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageToEmbed {
+    /// Its event.
+    pub event_id: EventId,
+    /// Who sent it.
+    pub sender_name: String,
+    /// Its text.
+    pub body: String,
+    /// The messages before it, the oldest first: its thread's (the root and the replies before
+    /// it) when it is in one, else its chat's; at most `store::CONTEXT_MESSAGES`, each cut to
+    /// `store::CONTEXT_CHARS`.
+    pub context: Vec<ContextMessage>,
+}
+
+/// A message another is read with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContextMessage {
+    /// Who sent it.
+    pub sender_name: String,
+    /// Its text, perhaps cut.
+    pub body: String,
+}
+
 /// What a model read of a message's meaning, for search by meaning.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageEmbedding {

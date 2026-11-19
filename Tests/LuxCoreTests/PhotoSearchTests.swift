@@ -108,7 +108,10 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
         let messages = ["Jedem v sobotu na Sněžku? Vezmi pohorky", "Posílám fakturu za září, splatnost do 15.",
                         "Kocour zase rozškrábal gauč", "Objednal jsem pizzu, bude tu za půl hodiny"]
         var meant: [[Float]] = []
-        for message in messages { meant.append(try #require(try await model.embedding(ofMessage: message))) }
+        for message in messages {
+            let alone = MessageToEmbed(eventId: "", senderName: "Anna", body: message, context: [])
+            meant.append(try #require(try await model.embedding(ofMessage: alone)))
+        }
         func best(_ words: String) async throws -> String {
             let query = try #require(try await model.embedding(ofQuery: words))
             let scores = meant.map { zip($0, query).map(*).reduce(0, +) }
@@ -118,6 +121,37 @@ private let visionReadsText = Task(executorPreference: ImageWork.executor) {
         #expect(try await best("platba za služby") == messages[1])
         #expect(try await best("domácí mazlíček") == messages[2])
         #expect(try await best("jídlo s sebou") == messages[3])
+    }
+
+    /// A short reply is found by what it answers: read with the messages before it, which alone
+    /// it does not say (scripts/image-search/evaluate-messages.py measures more of them).
+    @Test(.enabled(if: modelFolder != nil, "needs the model: LUX_PHOTO_MODEL"))
+    func findsAShortReplyByTheMessagesBeforeIt() async throws {
+        let model = try PhotoSearchModel(folder: try #require(modelFolder))
+        try await leased { lease in await model.textEncoderLoaded(lease: lease) }
+        func reply(_ sender: String, _ body: String, after context: [(String, String)]) -> MessageToEmbed {
+            MessageToEmbed(eventId: "", senderName: sender, body: body,
+                           context: context.map { MessageToEmbed.Line(senderName: $0.0, body: $0.1) })
+        }
+        let replies = [
+            reply("Já", "řízek, děti kapra nejí", after: [("Máma", "Kdy přijedete na Vánoce?"), ("Já", "23. odpoledne"),
+                                                        ("Máma", "Co chcete k večeři, kapra nebo řízek?")]),
+            reply("Ondra", "přijde ve středu ráno", after: [("Lucie", "Pračka zase teče, volala jsem opraváře")]),
+            reply("Tom", "done, valid until next March", after: [("Tom", "The release build failed again, the signing certificate expired"),
+                                                                 ("Me", "Can you renew it?")]),
+            reply("Anna", "just wine", after: [("Anna", "yes, Friday at 5 at ours"), ("Me", "Should we bring anything?")]),
+        ]
+        var meant: [[Float]] = []
+        for message in replies { meant.append(try #require(try await model.embedding(ofMessage: message))) }
+        func best(_ words: String) async throws -> String {
+            let query = try #require(try await model.embedding(ofQuery: words))
+            let scores = meant.map { zip($0, query).map(*).reduce(0, +) }
+            return replies[scores.indices.max { scores[$0] < scores[$1] }!].body
+        }
+        #expect(try await best("co bude k vánoční večeři") == replies[0].body)
+        #expect(try await best("kdy přijde opravář pračky") == replies[1].body)
+        #expect(try await best("how long is the signing certificate valid") == replies[2].body)
+        #expect(try await best("what should we bring to dinner") == replies[3].body)
     }
 }
 

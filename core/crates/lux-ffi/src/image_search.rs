@@ -66,18 +66,32 @@ impl CoreQueryTokenizer {
     /// # Errors
     /// When the tokenizer cannot read the words.
     pub fn ids(&self, text: String) -> Result<Vec<i32>, CoreTokenizerError> {
-        let text = if self.lowercase { text.to_lowercase() } else { text };
-        let encoding = self
-            .tokenizer
-            .encode(text, true)
-            .map_err(|error| CoreTokenizerError::Failed(error.to_string()))?;
-        let mut ids: Vec<i32> = encoding
+        let mut ids: Vec<i32> = self
+            .encoding(text)?
             .get_ids()
             .iter()
             .map(|&id| i32::try_from(id).unwrap_or(self.pad_id))
             .collect();
         ids.resize(self.length, self.pad_id);
         Ok(ids)
+    }
+
+    /// Whether the words fit the encoder whole, with the model's special ones: more than
+    /// `length` tokens are cut.
+    ///
+    /// # Errors
+    /// When the tokenizer cannot read the words.
+    pub fn fits(&self, text: String) -> Result<bool, CoreTokenizerError> {
+        Ok(self.encoding(text)?.len() <= self.length)
+    }
+}
+
+impl CoreQueryTokenizer {
+    fn encoding(&self, text: String) -> Result<tokenizers::Encoding, CoreTokenizerError> {
+        let text = if self.lowercase { text.to_lowercase() } else { text };
+        self.tokenizer
+            .encode(text, true)
+            .map_err(|error| CoreTokenizerError::Failed(error.to_string()))
     }
 }
 
@@ -109,5 +123,8 @@ mod tests {
         );
         assert_eq!(ids.len(), 64);
         assert_eq!(tokenizer.ids("slovo ".repeat(100)).unwrap().len(), 64);
+        // the start and end ids count: the prompt and a word fit, a hundred words do not.
+        assert!(tokenizer.fits("title: none | text: výlet".into()).unwrap());
+        assert!(!tokenizer.fits("slovo ".repeat(100)).unwrap());
     }
 }
