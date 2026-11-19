@@ -374,7 +374,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             UIView.animate(withDuration: 0.15) { self.collectionView.alpha = 1 }
             if LaunchOptions.isBenchmark {
                 tasks.run { [weak self] in
-                    try await Task.sleep(for: .seconds(2))
+                    try await ThreadBenchmark().open { [weak self] in self?.scrollGeometry.fromBottom ?? 0 }
                     guard let self else { return }
                     ScrollBenchmark(collectionView, name: "chat", direction: -1).run { [weak self] in self?.runThreadBenchmark() }
                 }

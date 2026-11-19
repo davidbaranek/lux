@@ -78,6 +78,9 @@ public final class ThreadPresenter {
     public private(set) var shownFirst = false
     /// Messages are on screen: the next update keeps the reader's place, it does not open the chat.
     private var shownRows = false
+    /// The oldest and the newest message the screen shows: an update ending in a newer one, with
+    /// none coming in above, brings new messages.
+    private var shownEnds: (oldest: String, newest: String)?
     /// The user moved the chat: a first unread message found late no longer moves it.
     public private(set) var userScrolled = false
     /// The first unread message came late: the next update moves the chat to it.
@@ -211,7 +214,7 @@ public final class ThreadPresenter {
     /// the middle with nothing loading has arrived.
     private func present(_ new: [MessageItem], layouts: [String: MessageLayout], changed: [String]) {
         guard let screen else { return }
-        let intent = intent(for: layouts)
+        let intent = intent(for: new, layouts: layouts)
         // the update centres the jump's message: a glide under way ends there.
         if case .centre = intent { gliding = false }
         isShowing = true
@@ -222,6 +225,7 @@ public final class ThreadPresenter {
         followsBottom = intent.isAnimated && screen.scrollGeometry.fromBottom > 0.5
         let opened = !shownRows && !new.isEmpty
         if !new.isEmpty { shownRows = true }
+        shownEnds = new.first.flatMap { oldest in new.last.map { (oldest.id, $0.id) } }
         // the opening fill is a screen or two: the page before it comes at once, while the reader
         // looks, not as they scroll (a page going in under a fling hitches).
         if opened, model.isLive, model.canLoadOlder { model.loadOlder() }
@@ -262,7 +266,7 @@ public final class ThreadPresenter {
     /// jump's message in the middle; a chat opening at its first unread message; the rows
     /// switched, at the newest or the reader's row; a first unread message found late; else where
     /// the reader is.
-    private func intent(for shown: [String: MessageLayout]) -> ScrollIntent {
+    private func intent(for new: [MessageItem], layouts shown: [String: MessageLayout]) -> ScrollIntent {
         if shownRows, model.isLive, let echo = model.sentNow, echo != followedEcho, shown[echo] != nil {
             followedEcho = echo
             target = nil
@@ -292,7 +296,17 @@ public final class ThreadPresenter {
             if let unread = model.firstUnreadId { return .firstUnread(unread) }
         }
         // new messages at the newest slide in, as Messages has them; pages coming in do not.
-        return standingIntent(animated: model.isLive && !model.isLoading)
+        return standingIntent(animated: model.isLive && !model.isLoading && bringsNewMessages(new))
+    }
+
+    /// Whether `new` ends in messages after the newest the screen shows, with nothing coming in
+    /// above it. The opening's own rows (the fill growing the rows the device kept, the page before
+    /// it asked for at once and given from what the device holds, with nothing loading) only come
+    /// in above, or replace the rows: they go in where the chat opened, unanimated. Only a
+    /// message that arrives once the chat is shown is followed.
+    private func bringsNewMessages(_ new: [MessageItem]) -> Bool {
+        guard let ends = shownEnds, new.first?.id == ends.oldest, let newest = new.last?.id, newest != ends.newest else { return false }
+        return new.contains { $0.id == ends.newest }
     }
 
     /// Where the list stays through a change that is not the reader's (an update, a new inset):

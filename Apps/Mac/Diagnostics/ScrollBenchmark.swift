@@ -70,6 +70,19 @@ final class ThreadBenchmark: NSObject {
         self.view = view
     }
 
+    /// Where the list is while the chat opens: how far its newest row is below the screen.
+    private var place: (() -> CGFloat)?
+
+    /// The chat's first two seconds from its first rows (`chat open`): its late frames, and the
+    /// frames its list moved in by itself (none: a chat opens in place, at the newest message).
+    func open(place: @escaping () -> CGFloat) async throws {
+        self.place = place
+        start()
+        try await Task.sleep(for: .seconds(2))
+        stop("chat open")
+        self.place = nil
+    }
+
     /// `jump`: to a message far back; `back`: to the live rows; `send`: a new message.
     func run(jump: () -> Void, back: () -> Void, send: (String) -> Void) async throws {
         start()
@@ -101,6 +114,6 @@ final class ThreadBenchmark: NSObject {
     }
 
     @objc private func frame(_ link: CADisplayLink) {
-        meter.frame(at: link.timestamp, duration: link.targetTimestamp - link.timestamp)
+        meter.frame(at: link.timestamp, duration: link.targetTimestamp - link.timestamp, place: place?())
     }
 }

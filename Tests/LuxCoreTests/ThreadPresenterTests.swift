@@ -111,6 +111,8 @@ struct TaskBagTests {
 @MainActor
 private final class StackedScreen: ThreadScreen {
     var shown: [[MessageItem]] = []
+    /// Where each update put the list.
+    var intents: [ScrollIntent] = []
     var order: [String] = []
     var heights: [String: CGFloat] = [:]
     var draft: String?
@@ -126,6 +128,7 @@ private final class StackedScreen: ThreadScreen {
 
     func show(_ messages: [MessageItem], layouts: [String: MessageLayout], changed: [String], scroll: ScrollIntent) {
         shown.append(messages)
+        intents.append(scroll)
         order = messages.map(\.id)
         heights = layouts.mapValues(\.height)
         place(scroll)
@@ -375,6 +378,30 @@ struct ThreadPresenterTests {
         presenter.didEndScrolling()
         #expect(screen.flashed == [message.id])
         #expect(screen.centres(message.id))
+    }
+
+    @Test func aChatOpensInPlaceWithTheRowsOfItsOpeningGoingInUnanimated() async throws {
+        // 1 000 messages a chat: the device's timeline holds more than the opening fill, and the page
+        // before it, asked for at once, goes in from what it holds, with nothing loading.
+        let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 1_000)
+        let rows = try await long.account.value.chats()
+        let row = try #require(rows.first { !$0.isMerged && !$0.isUnread })
+        let presenter = ThreadPresenter(session: long, row: row, removeDelivered: { _ in })
+        let screen = StackedScreen()
+        presenter.screen = screen
+        screen.presenter = presenter
+        presenter.onLoading = { _ in screen.changes.send() }
+        presenter.measure(with: GridMeasure())
+        presenter.resize(to: 390)
+        presenter.start()
+        try await screen.changes.until { !(screen.shown.first ?? []).isEmpty }
+        let opening = try #require(screen.shown.first).count
+        presenter.didShowFirst()
+        // the page before the opening fill is in, and nothing loads.
+        try await screen.changes.until { (screen.shown.last ?? []).count > opening && !presenter.model.isLoading && presenter.model.canLoadOlder }
+        #expect(screen.intents.allSatisfy { !$0.isAnimated })
+        #expect(screen.glides.isEmpty)
+        #expect(screen.scrollGeometry.isAtBottom)
     }
 
     @Test func aMessageTheUserSendsTakesTheChatToItsNewest() async throws {

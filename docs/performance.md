@@ -21,7 +21,9 @@ chat list, the thread, launch, images) says in its pull request what these numbe
   `BUNDLE_ID`, `DERIVED_DATA` and `CONFIG` override the defaults). The steps in between
   (`launch: restore starts`, `keychain read`, `account open`) are logged beside it.
 - **Scrolling.** `-LuxBenchmark` scrolls the chat list down and back, then a chat, one step per
-  display frame, and logs the late frames (`FrameMeter`). In the chat it then jumps to a message
+  display frame, and logs the late frames (`FrameMeter`). Before the chat's scroll it measures the
+  chat's first two seconds from its first rows (`chat open`), and the frames in which its list
+  moved by itself: none, as a chat opens in place while its opening rows go in. In the chat it then jumps to a message
   far back while its pages load (`chat jump`, 3 s) and sends twelve messages at the newest
   (`chat new messages`), each span measured the same way.
 - **XCTest.** The `Lux-iOS` scheme's tests (`Lux-iOS-UITests`, `PerformanceTests`) measure launch,
