@@ -19,7 +19,7 @@ use futures_core::Stream;
 use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::message::SendState;
 use crate::timeline::{
-    Draft, Focused, ImageSource, IndexHistory, OutgoingAttachment, Receipt, TimelineMessage, Typist,
+    Draft, Focused, ImageSource, IndexHistory, OutgoingAttachment, Pins, Receipt, TimelineMessage, Typist,
 };
 
 use super::{BackendError, DiffStream};
@@ -34,6 +34,9 @@ pub type UploadStream = Pin<Box<dyn Stream<Item = SendState> + Send>>;
 
 /// Who else is typing in a chat, each time it changes; empty when nobody is.
 pub type TypingStream = Pin<Box<dyn Stream<Item = Vec<Typist>> + Send>>;
+
+/// A room's pinned messages, now and as they change.
+pub type PinsStream = Pin<Box<dyn Stream<Item = Pins> + Send>>;
 
 /// Keeps a chat's timeline open while it lives: the backend closes the timelines nobody holds
 /// once more than a few are open, and a closed one opens afresh (its paging back lost).
@@ -138,6 +141,20 @@ pub trait ChatTimelines: Send + Sync {
     /// # Errors
     /// When the room is not the account's.
     fn typing(&self, room: &RoomId) -> Result<TypingStream, BackendError>;
+
+    /// The room's pinned messages, and whether the user may pin, now and as they change.
+    ///
+    /// # Errors
+    /// When the room is not the account's.
+    fn pins(&self, room: &RoomId) -> Result<PinsStream, BackendError>;
+
+    /// Pins the message `event` in the room, or unpins it.
+    fn set_pinned(
+        &self,
+        room: &RoomId,
+        event: &EventId,
+        pinned: bool,
+    ) -> impl Future<Output = Result<(), BackendError>> + Send;
 }
 
 /// Sending to a chat. Messages go through the room's send queue: the chat shows each at once,

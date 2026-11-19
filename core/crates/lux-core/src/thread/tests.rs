@@ -738,3 +738,26 @@ async fn a_jump_the_server_cannot_show_leaves_the_rows_as_they_are() {
     assert!(thread.state().is_live);
     assert_eq!(thread.ids(), before.iter().map(String::as_str).collect::<Vec<_>>());
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_pinned_message_shows_in_the_chats_pins_until_unpinned() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 100, ReadReceipts::Automatic).await;
+    assert!(thread.state().pinned.is_empty());
+    assert_eq!(thread.state().may_pin_in, [RoomId::from("!r:demo")]);
+
+    thread.model.pin("!r:demo/95".into(), true);
+    thread.frame().await;
+    let pinned: Vec<&str> = thread.state().pinned.iter().map(|pin| pin.event.as_str()).collect();
+    assert_eq!(pinned, ["!r:demo/95"]);
+    assert_eq!(thread.state().pinned[0].room, RoomId::from("!r:demo"));
+
+    thread.model.pin("!r:demo/90".into(), true);
+    thread.frame().await;
+    let pinned: Vec<&str> = thread.state().pinned.iter().map(|pin| pin.event.as_str()).collect();
+    assert_eq!(pinned, ["!r:demo/95", "!r:demo/90"], "in the order they were pinned");
+
+    thread.model.pin("!r:demo/95".into(), false);
+    thread.frame().await;
+    let pinned: Vec<&str> = thread.state().pinned.iter().map(|pin| pin.event.as_str()).collect();
+    assert_eq!(pinned, ["!r:demo/90"]);
+}

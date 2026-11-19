@@ -30,7 +30,7 @@ pub use rows::{RowShows, ThreadRow};
 use crate::chat::ChatRoom;
 use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::ports::{BackendError, ThreadBackend};
-use crate::timeline::Typist;
+use crate::timeline::{PinnedMessage, Typist};
 
 /// The chat a thread shows.
 #[derive(Clone, Debug)]
@@ -85,6 +85,11 @@ pub struct ThreadState {
     pub is_live: bool,
     /// Newer messages can be asked for: a jump's rows, not at the newest yet, none loading.
     pub can_load_newer: bool,
+    /// The messages pinned in the rooms shown, room by room, each room's in the order they were
+    /// pinned; none in a Matrix thread's own view.
+    pub pinned: Vec<PinnedMessage>,
+    /// The rooms shown where the user may pin and unpin.
+    pub may_pin_in: Vec<RoomId>,
 }
 
 /// Where a jump landed.
@@ -221,6 +226,8 @@ enum MessageAction {
     Forward(MessageId, ChatId),
     Save(MessageId),
     Unsave(MessageId),
+    /// Pins the message in its room (`true`) or unpins it.
+    Pin(MessageId, bool),
 }
 
 /// The composer's kept draft.
@@ -396,6 +403,11 @@ impl ThreadViewModel {
     /// Takes a message out of the saved ones.
     pub fn unsave(&self, message: MessageId) {
         self.send(Intent::Message(MessageAction::Unsave(message)));
+    }
+
+    /// Pins a message in its room for everyone in it, or unpins it.
+    pub fn pin(&self, message: MessageId, pinned: bool) {
+        self.send(Intent::Message(MessageAction::Pin(message, pinned)));
     }
 
     /// The reader is at the newest message: a receipt goes, if the chat sends them by itself.

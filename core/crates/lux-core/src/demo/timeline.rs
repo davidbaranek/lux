@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime};
 
 use eyeball_im::{ObservableVector, Vector};
 use futures_util::{StreamExt, stream};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use super::SentMessages;
 use super::data::stable;
@@ -25,14 +25,14 @@ use super::seeded::{self, text};
 use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, TimelineId, UserId};
 use crate::message::{self, Attachment, Message, SendState};
 use crate::ports::{
-    BackendError, ChatSending, ChatTimelines, DiffStream, RoomChanges, SharedContent, SharedItem, SharedPage,
-    TimelineHold, TypingStream, UploadStream,
+    BackendError, ChatSending, ChatTimelines, DiffStream, PinsStream, RoomChanges, SharedContent, SharedItem,
+    SharedPage, TimelineHold, TypingStream, UploadStream,
 };
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
     Draft, FileKind, Focused, IndexHistory, IndexedFile, IndexedImage, IndexedMessage, Media, MessageKind,
-    OutgoingAttachment, OutgoingKind, Participant, Picture, Quote, Reaction, Reader, Receipt, SharedPost, ThreadReply,
-    ThreadSummary, TimelineMessage, Typist, html,
+    OutgoingAttachment, OutgoingKind, Participant, Picture, PinnedMessage, Pins, Quote, Reaction, Reader, Receipt,
+    SharedPost, ThreadReply, ThreadSummary, TimelineMessage, Typist, html,
 };
 
 /// The demo account's user.
@@ -87,6 +87,8 @@ struct State {
     /// The rooms' whole histories, kept apart from live timelines holding only their newest.
     histories: HashMap<TimelineId, Vec<Arc<TimelineMessage>>>,
     drafts: HashMap<TimelineId, Draft>,
+    /// Each room's pinned messages, by their events, once the room's pins were asked for.
+    pins: HashMap<RoomId, (Vec<EventId>, watch::Sender<Pins>)>,
 }
 
 impl std::fmt::Debug for DemoTimelines {
@@ -293,6 +295,32 @@ impl DemoTimelines {
             readers: Vec::new(),
             shared: None,
             thread: None,
+        }
+    }
+
+    /// The room's pinned messages, `events` in the order they were pinned.
+    fn pinned(&self, state: &mut State, room: &RoomId, events: &[EventId]) -> Pins {
+        let messages = self.timeline(state, &TimelineId::from(room));
+        Pins {
+            messages: events
+                .iter()
+                .filter_map(|event| messages.iter().find(|found| found.event_id.as_ref() == Some(event)))
+                .map(|found| PinnedMessage {
+                    room: room.clone(),
+                    event: found
+                        .event_id
+                        .clone()
+                        .unwrap_or_else(|| EventId::from(found.message.id.as_str())),
+                    sender: Participant {
+                        user: found.message.sender.clone(),
+                        name: found.sender_name.clone(),
+                        avatar: found.sender_avatar.clone(),
+                    },
+                    kind: PreviewKind::from(Kind::Text(&found.message.body)),
+                    date: found.message.date,
+                })
+                .collect(),
+            may_pin: true,
         }
     }
 
@@ -632,6 +660,67 @@ impl ChatTimelines for DemoTimelines {
         history.reached_start = newest.count() <= most;
         history.reached_since = history.reached_start && shown.iter().any(|message| message.message.date < since);
         Ok(history)
+    }
+
+    /// A room's pins: at first a message a while back, in every third room, so the bar shows.
+    fn pins(&self, room: &RoomId) -> Result<PinsStream, BackendError> {
+        let mut state = self.state();
+        if !state.pins.contains_key(room) {
+            let first = super::data::room_index(room.as_str()).is_some_and(|index| index % 3 == 0);
+            let events: Vec<EventId> = if first {
+                let messages = self.timeline(&mut state, &TimelineId::from(room));
+                messages
+                    .len()
+                    .checked_sub(15)
+                    .and_then(|index| messages.get(index))
+                    .and_then(|message| message.event_id.clone())
+                    .into_iter()
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let pins = self.pinned(&mut state, room, &events);
+            state.pins.insert(room.clone(), (events, watch::Sender::new(pins)));
+        }
+        let receiver = state
+            .pins
+            .get(room)
+            .map(|(_, sender)| sender.subscribe())
+            .ok_or_else(|| BackendError::UnknownChat(ChatId::Room(room.clone())))?;
+        Ok(Box::pin(stream::unfold(
+            (receiver, true),
+            |(mut receiver, first)| async move {
+                if !first {
+                    receiver.changed().await.ok()?;
+                }
+                let pins = receiver.borrow_and_update().clone();
+                Some((pins, (receiver, false)))
+            },
+        )))
+    }
+
+    async fn set_pinned(&self, room: &RoomId, event: &EventId, pinned: bool) -> Result<(), BackendError> {
+        let mut state = self.state();
+        let mut events = state
+            .pins
+            .get(room)
+            .map(|(events, _)| events.clone())
+            .unwrap_or_default();
+        events.retain(|known| known != event);
+        if pinned {
+            events.push(event.clone());
+        }
+        let pins = self.pinned(&mut state, room, &events);
+        match state.pins.get_mut(room) {
+            Some((known, sender)) => {
+                *known = events;
+                sender.send_replace(pins);
+            }
+            None => {
+                state.pins.insert(room.clone(), (events, watch::Sender::new(pins)));
+            }
+        }
+        Ok(())
     }
 
     /// Someone types for a few seconds now and then, so the indicator shows.

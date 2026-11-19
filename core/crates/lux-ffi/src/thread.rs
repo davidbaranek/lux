@@ -20,7 +20,8 @@ use crate::account::{CoreAccount, CoreAccountError, with_account};
 use crate::chat::{CorePreviewKind, path_text};
 use crate::message::{CoreFooter, CoreLink, CoreSeparator, zone};
 use crate::runtime;
-use crate::timeline::{CoreMessage, CoreTypist};
+use crate::timeline::{CoreMessage, CoreParticipant, CoreTypist};
+use lux_core::timeline::PinnedMessage;
 
 // MARK: records
 
@@ -241,6 +242,37 @@ pub struct CoreThreadState {
     pub is_live: bool,
     /// Newer messages of a jump's rows can be asked for.
     pub can_load_newer: bool,
+    /// The messages pinned in the rooms shown, room by room, in the order they were pinned.
+    pub pinned: Vec<CorePinnedMessage>,
+    /// The rooms shown where the user may pin and unpin.
+    pub may_pin_in: Vec<String>,
+}
+
+/// A message pinned in a room.
+#[derive(uniffi::Record)]
+pub struct CorePinnedMessage {
+    /// Its room.
+    pub room_id: String,
+    /// Its event: a jump goes there.
+    pub event_id: String,
+    /// Who wrote it.
+    pub sender: CoreParticipant,
+    /// What it is.
+    pub kind: CorePreviewKind,
+    /// When it was sent.
+    pub date: SystemTime,
+}
+
+impl From<PinnedMessage> for CorePinnedMessage {
+    fn from(pin: PinnedMessage) -> Self {
+        Self {
+            room_id: pin.room.to_string(),
+            event_id: pin.event.to_string(),
+            sender: pin.sender.into(),
+            kind: pin.kind.into(),
+            date: pin.date,
+        }
+    }
 }
 
 impl From<ThreadState> for CoreThreadState {
@@ -259,6 +291,8 @@ impl From<ThreadState> for CoreThreadState {
             can_send_later: state.can_send_later,
             is_live: state.is_live,
             can_load_newer: state.can_load_newer,
+            pinned: state.pinned.into_iter().map(CorePinnedMessage::from).collect(),
+            may_pin_in: state.may_pin_in.iter().map(ToString::to_string).collect(),
         }
     }
 }
@@ -552,6 +586,11 @@ impl CoreThread {
     /// Takes a message out of the saved ones.
     pub fn unsave(&self, message_id: String) {
         self.model.unsave(message_id.into());
+    }
+
+    /// Pins a message in its room for everyone there, or unpins it.
+    pub fn pin(&self, message_id: String, pinned: bool) {
+        self.model.pin(message_id.into(), pinned);
     }
 
     /// The reader is at the newest message.

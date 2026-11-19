@@ -85,7 +85,7 @@ async fn reply(room: &Room, event: &AnySyncTimelineEvent) -> ThreadReply {
 }
 
 /// A member, by their name and picture in the room.
-async fn participant(room: &Room, user: &SdkUserId) -> Participant {
+pub(super) async fn participant(room: &Room, user: &SdkUserId) -> Participant {
     let avatar = match room.get_member_no_sync(user).await {
         Ok(Some(member)) => member.avatar_url().map(|url| MediaId::from(url.as_str())),
         _ => None,

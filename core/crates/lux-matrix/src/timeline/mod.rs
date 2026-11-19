@@ -11,6 +11,7 @@ mod history;
 mod items;
 pub(crate) mod media;
 mod opened;
+mod pins;
 mod previews;
 mod room;
 pub(crate) mod send;
@@ -24,7 +25,7 @@ use std::time::SystemTime;
 use futures_util::stream;
 use lux_core::ids::{EventId, MessageId, RoomId, TimelineId};
 use lux_core::organizer::Organized;
-use lux_core::ports::{BackendError, ChatTimelines, DiffStream, RoomChanges, TimelineHold, TypingStream};
+use lux_core::ports::{BackendError, ChatTimelines, DiffStream, PinsStream, RoomChanges, TimelineHold, TypingStream};
 use lux_core::timeline::{Focused, IndexHistory, TimelineMessage};
 use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
 use matrix_sdk::{Client, Room};
@@ -216,5 +217,20 @@ impl ChatTimelines for MatrixTimelines {
 
     fn typing(&self, room: &RoomId) -> Result<TypingStream, BackendError> {
         Ok(history::typing(self.room(room)?))
+    }
+
+    fn pins(&self, room: &RoomId) -> Result<PinsStream, BackendError> {
+        Ok(pins::pins(self.room(room)?))
+    }
+
+    async fn set_pinned(&self, room: &RoomId, event: &EventId, pinned: bool) -> Result<(), BackendError> {
+        let room = self.room(room)?;
+        let event = OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;
+        if pinned {
+            room.pin_event(&event).await.map_err(crate::errors::from_sdk)?;
+        } else {
+            room.unpin_event(&event).await.map_err(crate::errors::from_sdk)?;
+        }
+        Ok(())
     }
 }

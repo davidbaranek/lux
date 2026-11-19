@@ -31,7 +31,7 @@ use crate::diff;
 use crate::ids::{EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::merge;
 use crate::ports::{BackendError, ChatSending, ChatTimelines, Diffs, ThreadBackend, TimelineHold};
-use crate::timeline::{Draft, Focused, Receipt, TimelineMessage, Typist};
+use crate::timeline::{Draft, Focused, Pins, Receipt, TimelineMessage, Typist};
 
 /// The longest the first rows wait for the rooms' first unread messages: finding one can page
 /// back on the server, and a bad connection must not hold back the messages already in. The
@@ -54,6 +54,8 @@ enum Event {
     Paged(usize, Option<bool>),
     /// Who is typing in a room.
     Typing(usize, Vec<Typist>),
+    /// A room's pinned messages.
+    Pins(usize, Pins),
     /// Whether the room can have messages sent later.
     CanSendLater(RoomId, bool),
     /// The kept draft.
@@ -141,6 +143,8 @@ struct Thread<B> {
     typing_notice: TypingNotice,
     typing_by_room: HashMap<RoomId, Vec<Typist>>,
     typists: Vec<Typist>,
+    /// Each room's pinned messages, as last heard.
+    pins_by_room: HashMap<RoomId, Pins>,
     /// The followers of who types, while the chat is on screen.
     watching: Option<JoinSet<()>>,
     /// The rooms' followers, the opening's work and the one-off lookups (a draft, a page, a
@@ -222,6 +226,7 @@ impl<B: ThreadBackend> Thread<B> {
             typing_notice: TypingNotice::default(),
             typing_by_room: HashMap::new(),
             typists: Vec::new(),
+            pins_by_room: HashMap::new(),
             watching: None,
             followers: JoinSet::new(),
             holds: Vec::new(),
@@ -250,6 +255,7 @@ impl<B: ThreadBackend> Thread<B> {
     /// Holds the rooms' timelines, follows their messages, and asks for their first unread
     /// messages and their opening fill.
     fn open(&mut self) {
+        self.follow_pins();
         let ids: Vec<TimelineId> = self.rooms.iter().map(|room| self.timeline(&room.room.id)).collect();
         for (index, id) in ids.iter().enumerate() {
             self.holds.push(self.backend.timelines().hold(id));
@@ -368,6 +374,14 @@ impl<B: ThreadBackend> Thread<B> {
                 self.paging = self.paging.saturating_sub(1);
                 self.dirty.state = true;
                 self.try_return();
+            }
+            Event::Pins(index, pins) => {
+                if let Some(room) = self.rooms.get(index)
+                    && self.pins_by_room.get(&room.room.id) != Some(&pins)
+                {
+                    self.pins_by_room.insert(room.room.id.clone(), pins);
+                    self.dirty.state = true;
+                }
             }
             Event::Typing(index, typists) => {
                 if let Some(room) = self.rooms.get(index) {
@@ -536,7 +550,24 @@ impl<B: ThreadBackend> Thread<B> {
             can_send_later: self.can_send_later,
             is_live: !self.is_detached(),
             can_load_newer: self.jumps.detached.as_ref().is_some_and(jump::Detached::can_load_newer),
+            pinned: self
+                .shown_pins()
+                .flat_map(|pins| pins.messages.iter().cloned())
+                .collect(),
+            may_pin_in: self
+                .shown_rooms()
+                .filter_map(|index| self.rooms.get(index))
+                .filter(|room| self.pins_by_room.get(&room.room.id).is_some_and(|pins| pins.may_pin))
+                .map(|room| room.room.id.clone())
+                .collect(),
         }
+    }
+
+    /// The shown rooms' pins, in the rooms' order.
+    fn shown_pins(&self) -> impl Iterator<Item = &Pins> {
+        self.shown_rooms()
+            .filter_map(|index| self.rooms.get(index))
+            .filter_map(|room| self.pins_by_room.get(&room.room.id))
     }
 
     // MARK: intents
@@ -704,6 +735,41 @@ impl<B: ThreadBackend> Thread<B> {
             }
             MessageAction::Save(message) => self.saved(&message, true),
             MessageAction::Unsave(message) => self.saved(&message, false),
+            MessageAction::Pin(message, pinned) => self.pinned(&message, pinned),
+        }
+    }
+
+    fn pinned(&mut self, message: &MessageId, pinned: bool) {
+        let room = self.room_of(message);
+        let Some(event) = self.message(message).and_then(|found| found.event_id.clone()) else {
+            // only a message the server has can be pinned.
+            self.listener.on_error(BackendError::NotAllowed);
+            return;
+        };
+        self.act(Target::Message(message.clone()), move |backend| async move {
+            backend.timelines().set_pinned(&room, &event, pinned).await
+        });
+    }
+
+    /// Follows each room's pinned messages, for the chat's own view (a Matrix thread's shows none).
+    fn follow_pins(&mut self) {
+        if self.root.is_some() {
+            return;
+        }
+        for (index, room) in self.rooms.iter().enumerate() {
+            match self.backend.timelines().pins(&room.room.id) {
+                Ok(mut pins) => {
+                    let events = self.events.clone();
+                    self.followers.spawn(async move {
+                        while let Some(next) = pins.next().await {
+                            if events.send(Event::Pins(index, next)).is_err() {
+                                break;
+                            }
+                        }
+                    });
+                }
+                Err(error) => self.listener.on_error(error),
+            }
         }
     }
 
