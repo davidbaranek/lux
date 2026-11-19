@@ -246,6 +246,8 @@ pub struct CoreThreadState {
     pub pinned: Vec<CorePinnedMessage>,
     /// The rooms shown where the user may pin and unpin.
     pub may_pin_in: Vec<String>,
+    /// The newest pin the user has not seen, in the rooms shown: the chat tells of it once.
+    pub new_pin: Option<CorePinnedMessage>,
 }
 
 /// A message pinned in a room.
@@ -293,6 +295,7 @@ impl From<ThreadState> for CoreThreadState {
             can_load_newer: state.can_load_newer,
             pinned: state.pinned.into_iter().map(CorePinnedMessage::from).collect(),
             may_pin_in: state.may_pin_in.iter().map(ToString::to_string).collect(),
+            new_pin: state.new_pin.map(CorePinnedMessage::from),
         }
     }
 }
@@ -586,6 +589,16 @@ impl CoreThread {
     /// Takes a message out of the saved ones.
     pub fn unsave(&self, message_id: String) {
         self.model.unsave(message_id.into());
+    }
+
+    /// The user saw the chat's pins: none is new until another is pinned.
+    pub fn pins_seen(&self) {
+        self.model.pins_seen();
+    }
+
+    /// Unpins the pinned event `event_id` of `room_id`, whether or not its row is loaded.
+    pub fn unpin(&self, room_id: String, event_id: String) {
+        self.model.unpin(room_id.into(), event_id.into());
     }
 
     /// Pins a message in its room for everyone there, or unpins it.

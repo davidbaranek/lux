@@ -223,6 +223,10 @@ impl ChatTimelines for MatrixTimelines {
         Ok(pins::pins(self.room(room)?))
     }
 
+    async fn mark_pins_seen(&self, room: &RoomId, events: &[EventId]) -> Result<(), BackendError> {
+        pins::mark_seen(&self.room(room)?, events).await
+    }
+
     async fn set_pinned(&self, room: &RoomId, event: &EventId, pinned: bool) -> Result<(), BackendError> {
         let room = self.room(room)?;
         let event = OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?;

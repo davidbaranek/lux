@@ -84,7 +84,7 @@ async fn signed_in(server: &MatrixMockServer) -> (MatrixAccount, tempfile::TempD
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rooms_pinned_message_is_read_and_another_is_pinned() {
+async fn a_rooms_pinned_message_is_read_seen_and_another_is_pinned() {
     let server = server().await;
     let (account, _folder) = signed_in(&server).await;
     Mock::given(method("GET"))
@@ -107,6 +107,7 @@ async fn a_rooms_pinned_message_is_read_and_another_is_pinned() {
     assert!(first.may_pin, "the account's power level lets it pin");
     let pinned: Vec<&str> = first.messages.iter().map(|pin| pin.event.as_str()).collect();
     assert_eq!(pinned, ["$pinned"]);
+    assert!(first.seen.is_empty(), "the user has seen no pin yet");
     assert_eq!(
         first.messages[0].kind,
         PreviewKind::Text("Meet at the wall at six".to_owned())
@@ -124,6 +125,21 @@ async fn a_rooms_pinned_message_is_read_and_another_is_pinned() {
     account
         .timelines()
         .set_pinned(&crew(), &lux_core::ids::EventId::from("$new"), true)
+        .await
+        .unwrap();
+
+    Mock::given(method("PUT"))
+        .and(path_regex(
+            r"^/_matrix/client/v3/user/[^/]+/rooms/!crew:matrix.org/account_data/im.vector.room.read_pins/?$",
+        ))
+        .and(body_partial_json(json!({ "event_ids": ["$pinned"] })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(server.server())
+        .await;
+    account
+        .timelines()
+        .mark_pins_seen(&crew(), &[lux_core::ids::EventId::from("$pinned")])
         .await
         .unwrap();
 }

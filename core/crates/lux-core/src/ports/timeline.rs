@@ -148,6 +148,13 @@ pub trait ChatTimelines: Send + Sync {
     /// When the room is not the account's.
     fn pins(&self, room: &RoomId) -> Result<PinsStream, BackendError>;
 
+    /// The user has seen the room's pinned messages `events`: none of them is new any more.
+    fn mark_pins_seen(
+        &self,
+        room: &RoomId,
+        events: &[EventId],
+    ) -> impl Future<Output = Result<(), BackendError>> + Send;
+
     /// Pins the message `event` in the room, or unpins it.
     fn set_pinned(
         &self,

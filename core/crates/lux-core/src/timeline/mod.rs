@@ -476,4 +476,15 @@ pub struct Pins {
     pub messages: Vec<PinnedMessage>,
     /// The user may pin and unpin.
     pub may_pin: bool,
+    /// The pinned events the user has seen (Element's `im.vector.room.read_pins` room account
+    /// data, so every client of the account agrees): a pinned one not among them is new.
+    pub seen: Vec<EventId>,
+}
+
+impl Pins {
+    /// The newest pinned message the user has not seen yet.
+    #[must_use]
+    pub fn newest_unseen(&self) -> Option<&PinnedMessage> {
+        self.messages.iter().rev().find(|pin| !self.seen.contains(&pin.event))
+    }
 }

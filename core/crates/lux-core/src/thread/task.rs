@@ -560,6 +560,30 @@ impl<B: ThreadBackend> Thread<B> {
                 .filter(|room| self.pins_by_room.get(&room.room.id).is_some_and(|pins| pins.may_pin))
                 .map(|room| room.room.id.clone())
                 .collect(),
+            new_pin: self
+                .shown_pins()
+                .filter_map(Pins::newest_unseen)
+                .max_by_key(|pin| pin.date)
+                .cloned(),
+        }
+    }
+
+    /// The pins of the rooms shown are seen: each room's pinned events, as its pins have them.
+    fn pins_seen(&mut self) {
+        let rooms: Vec<(RoomId, Vec<EventId>)> = self
+            .shown_rooms()
+            .filter_map(|index| self.rooms.get(index))
+            .filter_map(|room| {
+                let pins = self.pins_by_room.get(&room.room.id)?;
+                pins.newest_unseen()?;
+                Some((
+                    room.room.id.clone(),
+                    pins.messages.iter().map(|pin| pin.event.clone()).collect(),
+                ))
+            })
+            .collect();
+        for (room, events) in rooms {
+            self.act_now(move |backend| async move { backend.timelines().mark_pins_seen(&room, &events).await });
         }
     }
 
@@ -649,6 +673,10 @@ impl<B: ThreadBackend> Thread<B> {
             }
             Intent::SendReadReceipt => self.send_read_receipt(),
             Intent::SetReadReceipts(receipts) => self.receipts = receipts,
+            Intent::PinsSeen => self.pins_seen(),
+            Intent::Unpin(room, event) => {
+                self.act_now(move |backend| async move { backend.timelines().set_pinned(&room, &event, false).await });
+            }
             Intent::WatchTyping => {
                 if self.watching.is_none() {
                     self.watch_typing();

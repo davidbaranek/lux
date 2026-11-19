@@ -89,6 +89,8 @@ struct State {
     drafts: HashMap<TimelineId, Draft>,
     /// Each room's pinned messages, by their events, once the room's pins were asked for.
     pins: HashMap<RoomId, (Vec<EventId>, watch::Sender<Pins>)>,
+    /// Each room's pinned events the user has seen.
+    seen_pins: HashMap<RoomId, Vec<EventId>>,
 }
 
 impl std::fmt::Debug for DemoTimelines {
@@ -321,6 +323,7 @@ impl DemoTimelines {
                 })
                 .collect(),
             may_pin: true,
+            seen: state.seen_pins.get(room).cloned().unwrap_or_default(),
         }
     }
 
@@ -697,6 +700,21 @@ impl ChatTimelines for DemoTimelines {
                 Some((pins, (receiver, false)))
             },
         )))
+    }
+
+    async fn mark_pins_seen(&self, room: &RoomId, events: &[EventId]) -> Result<(), BackendError> {
+        let mut state = self.state();
+        state.seen_pins.insert(room.clone(), events.to_vec());
+        let pinned = state
+            .pins
+            .get(room)
+            .map(|(events, _)| events.clone())
+            .unwrap_or_default();
+        let pins = self.pinned(&mut state, room, &pinned);
+        if let Some((_, sender)) = state.pins.get(room) {
+            sender.send_replace(pins);
+        }
+        Ok(())
     }
 
     async fn set_pinned(&self, room: &RoomId, event: &EventId, pinned: bool) -> Result<(), BackendError> {

@@ -22,13 +22,15 @@ struct Ear(mpsc::UnboundedSender<Heard>);
 
 #[derive(Debug)]
 enum Heard {
-    Update(ThreadUpdate),
+    Update(Box<ThreadUpdate>),
     Upload(Upload),
 }
 
 impl ThreadListener for Ear {
     fn on_update(&self, update: ThreadUpdate) {
-        self.0.send(Heard::Update(update)).other_end_may_be_gone("the test");
+        self.0
+            .send(Heard::Update(Box::new(update)))
+            .other_end_may_be_gone("the test");
     }
 
     fn on_upload(&self, upload: Upload) {
@@ -120,7 +122,7 @@ impl Opened {
                 if let Some(state) = &update.state {
                     self.state = Some(state.clone());
                 }
-                updates.push(update);
+                updates.push(*update);
             }
         }
         updates
@@ -314,7 +316,7 @@ fn open_slow(unread: Duration, listed_unread: bool) -> (ThreadViewModel, mpsc::U
 fn next_update(heard: &mut mpsc::UnboundedReceiver<Heard>) -> Option<ThreadUpdate> {
     while let Ok(heard) = heard.try_recv() {
         if let Heard::Update(update) = heard {
-            return Some(update);
+            return Some(*update);
         }
     }
     None
@@ -760,4 +762,30 @@ async fn a_pinned_message_shows_in_the_chats_pins_until_unpinned() {
     thread.frame().await;
     let pinned: Vec<&str> = thread.state().pinned.iter().map(|pin| pin.event.as_str()).collect();
     assert_eq!(pinned, ["!r:demo/90"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_pin_is_told_until_the_user_sees_it_and_again_for_the_next() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 100, ReadReceipts::Automatic).await;
+    assert_eq!(thread.state().new_pin, None);
+
+    thread.model.pin("!r:demo/95".into(), true);
+    thread.frame().await;
+    let new = thread.state().new_pin.clone().map(|pin| pin.event.to_string());
+    assert_eq!(new.as_deref(), Some("!r:demo/95"));
+
+    thread.model.pins_seen();
+    thread.frame().await;
+    assert_eq!(thread.state().new_pin, None, "seen: no longer new");
+    assert_eq!(thread.state().pinned.len(), 1, "still pinned");
+
+    thread.model.pin("!r:demo/90".into(), true);
+    thread.frame().await;
+    let new = thread.state().new_pin.clone().map(|pin| pin.event.to_string());
+    assert_eq!(new.as_deref(), Some("!r:demo/90"), "another pin is new again");
+
+    thread.model.unpin("!r:demo".into(), "!r:demo/95".into());
+    thread.frame().await;
+    let left: Vec<String> = thread.state().pinned.iter().map(|pin| pin.event.to_string()).collect();
+    assert_eq!(left, ["!r:demo/90"], "unpinned by its event, from the details");
 }

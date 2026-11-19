@@ -90,6 +90,9 @@ pub struct ThreadState {
     pub pinned: Vec<PinnedMessage>,
     /// The rooms shown where the user may pin and unpin.
     pub may_pin_in: Vec<RoomId>,
+    /// The newest message pinned in the rooms shown since the user last saw their pins: the
+    /// chat tells of it until the user closes it, goes to it or sees the pins in the details.
+    pub new_pin: Option<PinnedMessage>,
 }
 
 /// Where a jump landed.
@@ -188,6 +191,8 @@ pub struct ThreadViewModel {
 /// What the user does, to the task.
 #[derive(Debug)]
 enum Intent {
+    PinsSeen,
+    Unpin(RoomId, EventId),
     LoadOlder,
     JumpToReplied(MessageId, oneshot::Sender<Result<Jumped, JumpFailure>>),
     Jump(RoomId, EventId, oneshot::Sender<Result<Jumped, JumpFailure>>),
@@ -403,6 +408,17 @@ impl ThreadViewModel {
     /// Takes a message out of the saved ones.
     pub fn unsave(&self, message: MessageId) {
         self.send(Intent::Message(MessageAction::Unsave(message)));
+    }
+
+    /// The user saw the pins of the rooms shown (closed the new pin's note, or went to it):
+    /// they are not new any more.
+    pub fn pins_seen(&self) {
+        self.send(Intent::PinsSeen);
+    }
+
+    /// Unpins a pinned message, whether or not its row is loaded (the chat's details list them).
+    pub fn unpin(&self, room: RoomId, event: EventId) {
+        self.send(Intent::Unpin(room, event));
     }
 
     /// Pins a message in its room for everyone in it, or unpins it.
