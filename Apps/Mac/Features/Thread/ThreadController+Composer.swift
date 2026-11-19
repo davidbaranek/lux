@@ -48,19 +48,24 @@ extension ThreadController {
         }
         if let first = typists.first { typingAvatar.show(first.avatar, name: first.name, images: session.images) }
         // it rises from the composer as it fades in, and sinks back as it goes.
-        if !typists.isEmpty, typing.alphaValue == 0 {
+        if !typists.isEmpty, typing.isHidden {
             typingBottom.constant = Self.typingAway
             view.layoutSubtreeIfNeeded()
+            for view in typingViews { view.isHidden = false }
         }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1.1)
             context.allowsImplicitAnimation = true
-            typing.animator().alphaValue = typists.isEmpty ? 0 : 1
-            typingAvatar.animator().alphaValue = typists.isEmpty ? 0 : 1
-            typingGlass.animator().alphaValue = typists.isEmpty ? 0 : 1
+            for view in typingViews { view.animator().alphaValue = typists.isEmpty ? 0 : 1 }
             typingBottom.animator().constant = typists.isEmpty ? Self.typingAway : Self.typingRest
             view.layoutSubtreeIfNeeded()
+        } completionHandler: { [weak self] in
+            // gone, unless someone typed again as it went: a clear line still takes clicks.
+            MainActor.assumeIsolated {
+                guard let self, !self.typingShown else { return }
+                for view in self.typingViews { view.isHidden = true }
+            }
         }
     }
 
