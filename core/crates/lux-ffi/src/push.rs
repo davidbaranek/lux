@@ -269,4 +269,10 @@ impl CoreNotificationReader {
             PushedEvent::Gone => CorePushedEvent::Gone,
         })
     }
+
+    /// Closes the account's stores before the extension hands its notification back (it is
+    /// suspended then): later reads fail, and the next push opens the account again.
+    pub async fn close(&self) {
+        self.notifications.close().await;
+    }
 }

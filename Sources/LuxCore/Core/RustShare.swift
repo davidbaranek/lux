@@ -58,6 +58,13 @@ public final class ShareSender: Sendable {
         try await sender.send(roomId: chat.roomId, text: text, attachments: attachments.map(CoreOutgoingAttachment.init))
     }
 
+    /// Closes the account's stores in the App Group, after the calls under way, before the
+    /// extension hands its request back: it is suspended then, and a lock held on a shared file
+    /// ends it (0xdead10cc). Calls after it fail.
+    public func close() async {
+        await sender.close()
+    }
+
     /// A chat's or a person's picture, as image data; nil when it cannot be had soon.
     public func picture(_ ref: ImageRef) async -> Data? {
         guard case .person(let url) = ref else { return nil }

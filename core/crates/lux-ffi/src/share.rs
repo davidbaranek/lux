@@ -118,6 +118,12 @@ impl CoreShareSender {
     pub async fn picture(&self, media: String) -> Option<Vec<u8>> {
         self.share.picture(&MediaId::from(media)).await
     }
+
+    /// Closes the account's stores before the extension hands its work back (it is suspended
+    /// then): later calls fail.
+    pub async fn close(&self) {
+        self.share.close().await;
+    }
 }
 
 #[cfg(test)]
