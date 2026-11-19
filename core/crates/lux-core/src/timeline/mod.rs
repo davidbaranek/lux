@@ -452,3 +452,39 @@ pub enum Receipt {
     /// Only the account's own devices.
     Private,
 }
+
+/// A message pinned in a room (`m.room.pinned_events`), as the chat's pinned bar shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PinnedMessage {
+    /// Its room.
+    pub room: RoomId,
+    /// Its event: a jump goes there.
+    pub event: EventId,
+    /// Who wrote it.
+    pub sender: Participant,
+    /// What it is (its text in one line, a photo), for the apps to word.
+    pub kind: PreviewKind,
+    /// When it was sent.
+    pub date: SystemTime,
+}
+
+/// A room's pinned messages, in the order they were pinned (the newest last), and whether the
+/// user may pin and unpin there (`m.room.pinned_events` by the room's power levels).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Pins {
+    /// The messages, those the account cannot read left out.
+    pub messages: Vec<PinnedMessage>,
+    /// The user may pin and unpin.
+    pub may_pin: bool,
+    /// The pinned events the user has seen (Element's `im.vector.room.read_pins` room account
+    /// data, so every client of the account agrees): a pinned one not among them is new.
+    pub seen: Vec<EventId>,
+}
+
+impl Pins {
+    /// The newest pinned message the user has not seen yet.
+    #[must_use]
+    pub fn newest_unseen(&self) -> Option<&PinnedMessage> {
+        self.messages.iter().rev().find(|pin| !self.seen.contains(&pin.event))
+    }
+}

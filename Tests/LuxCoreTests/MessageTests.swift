@@ -220,6 +220,15 @@ struct MessageActionTests {
         #expect(!MessageAction.available(for: sent, inThread: true).contains(.replyInThread))
     }
 
+    @Test func aMessageIsPinnedOrUnpinnedOnlyWhereTheUserMayPin() {
+        var sent = message(own: false)
+        sent.eventId = "$e"
+        #expect(MessageAction.available(for: sent, pinned: false).contains(.pin))
+        #expect(MessageAction.available(for: sent, pinned: true).contains(.unpin))
+        let neither = MessageAction.available(for: sent)
+        #expect(!neither.contains(.pin) && !neither.contains(.unpin))
+    }
+
     @Test func failedMessagesOfferRetryAndDiscard() {
         #expect(MessageAction.available(for: message(own: true, state: .failed)) == [.retry, .discard, .copy])
         #expect(!MessageAction.canReact(to: message(own: true, state: .failed)))

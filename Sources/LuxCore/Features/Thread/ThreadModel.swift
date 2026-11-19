@@ -206,6 +206,12 @@ public final class ThreadModel {
         sendRoom = state.sendRoom
         canSendLater = state.canSendLater
         typists = state.typists
+        if state.pinned != pinned || state.mayPinIn != mayPinIn || state.newPin != newPin {
+            pinned = state.pinned
+            mayPinIn = state.mayPinIn
+            newPin = state.newPin
+            onPinned?(pinned)
+        }
         mode = state.mode
         pendingFiles = state.pendingFiles
         needsReadReceipt = state.needsReadReceipt
@@ -296,6 +302,47 @@ public final class ThreadModel {
 
     public func unsave(_ message: MessageItem) {
         withCore { $0.unsave(message.id) }
+    }
+
+    // MARK: Pinned
+
+    /// The messages pinned in the rooms shown, in the order they were pinned (the newest last).
+    public private(set) var pinned: [PinnedMessage] = []
+    /// The rooms shown where the user may pin and unpin.
+    private var mayPinIn: Set<String> = []
+    /// The newest pin the user has not seen (on this or another of their devices): the chat tells
+    /// of it until they close the note or go to it.
+    public private(set) var newPin: PinnedMessage?
+    /// The pinned messages changed, who may unpin them, or which is new.
+    public var onPinned: (([PinnedMessage]) -> Void)?
+
+    /// Whether the user may unpin `pin` (the room's power levels).
+    public func mayUnpin(_ pin: PinnedMessage) -> Bool {
+        mayPinIn.contains(pin.roomId)
+    }
+
+    /// Unpins `pin` in its room for everyone there.
+    public func unpin(_ pin: PinnedMessage) {
+        withCore { $0.unpin(roomId: pin.roomId, eventId: pin.eventId) }
+    }
+
+    /// The user saw the chat's pins (closed the new pin's note, went to it, or saw the details'
+    /// list): none is new until another is pinned.
+    public func pinsSeen() {
+        guard newPin != nil else { return }
+        withCore { $0.pinsSeen() }
+    }
+
+    /// Whether `message` is pinned: nil when the user may not pin or unpin it (the room's power
+    /// levels, or a message the server does not have yet).
+    public func pinning(of message: MessageItem) -> Bool? {
+        guard !message.eventId.isEmpty, mayPinIn.contains(message.roomId) else { return nil }
+        return pinned.contains { $0.roomId == message.roomId && $0.eventId == message.eventId }
+    }
+
+    /// Pins `message` in its room for everyone there, or unpins it.
+    public func pin(_ message: MessageItem, _ pinned: Bool) {
+        withCore { $0.pin(message.id, pinned) }
     }
 
     /// The chat can have messages sent later (it is not end-to-end encrypted).

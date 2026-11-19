@@ -46,4 +46,6 @@ pub use security::{
 };
 pub use sign_in::{LoginMethods, OAuthClient, OAuthSignIn, SignIn};
 pub use thread::ThreadBackend;
-pub use timeline::{ChatMedia, ChatSending, ChatTimelines, RoomChanges, TimelineHold, TypingStream, UploadStream};
+pub use timeline::{
+    ChatMedia, ChatSending, ChatTimelines, PinsStream, RoomChanges, TimelineHold, TypingStream, UploadStream,
+};

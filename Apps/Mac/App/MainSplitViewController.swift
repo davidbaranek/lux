@@ -94,7 +94,10 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             thread.onShownRoom = { [weak self] in self?.updateNetworks() }
             // its Matrix threads open in the inspector beside it.
             thread.onOpenThread = { [weak self] matrixThread, message in self?.showThread(matrixThread, at: message) }
+            // the chat's details beside it list its pinned messages.
+            thread.onPinned = { [weak self] pinned in (self?.inspector.shown as? ChatDetailsController)?.show(pinned: pinned) }
             openThread = thread
+            (inspector.shown as? ChatDetailsController)?.pins = thread.model
             detail.show(thread)
             view.window?.title = row.name
             chatTitle.show(row, images: session.images)
@@ -133,6 +136,12 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         }
         controller.onLeave = { [weak self] in self?.open(nil) }
         controller.onOpenThread = { [weak self] thread in self?.showThread(thread) }
+        controller.pins = openThread?.model
+        controller.onJump = { [weak self] pin in
+            guard let chat = self?.openThread else { return }
+            chat.presenter.jump(toMessage: pin.link)
+            self?.view.window?.makeFirstResponder(chat.field)
+        }
         return controller
     }
 

@@ -45,6 +45,12 @@ protocol ThreadView: Sendable {
     func forward(_ messageId: String, to chatId: String)
     func save(_ messageId: String)
     func unsave(_ messageId: String)
+    /// Pins a message in its room for everyone there, or unpins it.
+    func pin(_ messageId: String, _ pinned: Bool)
+    /// Unpins a pinned message by its event, whether or not its row is loaded.
+    func unpin(roomId: String, eventId: String)
+    /// The user saw the chat's pins: none is new until another is pinned.
+    func pinsSeen()
     func didReadLatest()
     func sendReadReceipt()
     func set(readReceipts: ReadReceipts)
@@ -101,4 +107,10 @@ struct ThreadState: Sendable, Equatable {
     /// The rows are the live ones, not a jump's.
     var isLive: Bool
     var canLoadNewer: Bool
+    /// The messages pinned in the rooms shown, in the order they were pinned.
+    var pinned: [PinnedMessage]
+    /// The rooms shown where the user may pin and unpin.
+    var mayPinIn: Set<String>
+    /// The newest pin the user has not seen: the chat tells of it until they close it or go to it.
+    var newPin: PinnedMessage?
 }

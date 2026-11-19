@@ -4,15 +4,17 @@ import UIKit
 /// A chat's details, opened from its title, as Messages' and Contacts' cards are laid out: the
 /// picture, name and topic over an inset-grouped list of its networks (a merged chat's rooms),
 /// its notifications, low priority, its encryption, its members, its Matrix threads and what it
-/// shared, and marking it read or leaving it. Edit (for who may) changes its name, topic and picture.
+/// shared, its pinned messages (to go to, or to unpin), and marking it read or leaving it. Edit (for who may) changes its name, topic and picture.
 final class ChatDetailsViewController: UIViewController, UICollectionViewDelegate {
-    private enum Section: Hashable { case header, networks, settings, people, shared, actions }
+    private enum Section: Hashable { case header, networks, settings, pinned, people, shared, actions }
 
     private enum Item: Hashable {
         case header
         case room(String)
         case notifications, lowPriority, messages, encryption, address
         case members(String)
+        /// A pinned message, by its room and event.
+        case pinned(room: String, event: String)
         case threads
         case shared(SharedKind)
         case separate
@@ -29,6 +31,13 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
     var onChange: ((ChatRow) -> Void)?
     /// A thread was picked from the chat's threads: it opens over the chat.
     var onOpenThread: ((MatrixThread) -> Void)?
+    /// The open chat's model, which follows its pinned messages: the details list them.
+    weak var pins: ThreadModel? {
+        didSet { show(pinned: pins?.pinned ?? []) }
+    }
+    /// A pinned message was picked: the chat goes to it.
+    var onJump: ((PinnedMessage) -> Void)?
+    private var pinned: [PinnedMessage] = []
 
     init(session: Session, row: ChatRow, list: ChatListModel?) {
         self.session = session
@@ -45,6 +54,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         var layout = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
         layout.headerMode = .supplementary
         layout.footerMode = .supplementary
+        layout.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in self?.swipeActions(at: indexPath) }
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: layout))
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.delegate = self
@@ -73,6 +83,36 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         Task {
             do { try await model.load() } catch { report(error, of: "chat details") }
         }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // the list shows every pin: none is new any more.
+        if !pinned.isEmpty { pins?.pinsSeen() }
+    }
+
+    /// The chat's pinned messages changed (or who may unpin them): the newest pinned first.
+    func show(pinned: [PinnedMessage]) {
+        self.pinned = pinned.reversed()
+        guard isViewLoaded else { return }
+        update()
+        if view.window != nil, !pinned.isEmpty { pins?.pinsSeen() }
+    }
+
+    private func pin(room: String, event: String) -> PinnedMessage? {
+        pinned.first { $0.roomId == room && $0.eventId == event }
+    }
+
+    /// Unpin, where the user may.
+    private func swipeActions(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard case .pinned(let room, let event) = dataSource.itemIdentifier(for: indexPath),
+              let pin = pin(room: room, event: event), pins?.mayUnpin(pin) == true else { return nil }
+        let unpin = UIContextualAction(style: .destructive, title: String(localized: "Unpin")) { [weak self] _, _, done in
+            self?.pins?.unpin(pin)
+            done(true)
+        }
+        unpin.image = UIImage(systemName: "pin.slash")
+        return UISwipeActionsConfiguration(actions: [unpin])
     }
 
     /// A section's header or footer, as `kind` says.
@@ -109,6 +149,10 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             snapshot.appendSections([.networks, .settings])
             snapshot.appendItems(info.rooms.map { .room($0.id) } + (model.canSeparate ? [.separate] : []), toSection: .networks)
             snapshot.appendItems([.notifications, .lowPriority, .messages, .encryption] + (model.mainRoom?.address == nil ? [] : [.address]), toSection: .settings)
+            if !pinned.isEmpty {
+                snapshot.appendSections([.pinned])
+                snapshot.appendItems(pinned.map { .pinned(room: $0.roomId, event: $0.eventId) }, toSection: .pinned)
+            }
             let groups = info.rooms.filter { !$0.isDirect }
             if !groups.isEmpty {
                 snapshot.appendSections([.people])
@@ -133,6 +177,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         // a merged chat's groups by network; one group's row says it itself.
         case .people: (model.info?.rooms.filter { !$0.isDirect }.count ?? 0) > 1 ? String(localized: "Members") : nil
         case .shared: String(localized: "Shared")
+        case .pinned: String(localized: "Pinned Messages")
         case .header, .settings, .actions: nil
         }
     }
@@ -150,6 +195,8 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         var content = UIListContentConfiguration.valueCell()
         cell.accessories = []
         cell.backgroundConfiguration = nil
+        cell.accessibilityHint = nil
+        cell.accessibilityCustomActions = nil
         switch item {
         case .header:
             cell.backgroundConfiguration = .clear()
@@ -206,6 +253,23 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
             content.text = model.row.isMerged ? Networks.name(room.network) : String(localized: "Members")
             content.secondaryText = room.joinedMembers.formatted()
             cell.accessories = [.disclosureIndicator()]
+        case .pinned(let room, let event):
+            guard let pin = pin(room: room, event: event) else { return }
+            content = .subtitleCell()
+            content.image = UIImage(systemName: "pin.fill")
+            content.text = pin.text.isEmpty ? pin.senderName : pin.text
+            content.textProperties.numberOfLines = 2
+            content.secondaryText = "\(pin.senderName) · \(pin.date.formatted(date: .abbreviated, time: .shortened))"
+            content.secondaryTextProperties.color = .secondaryLabel
+            cell.accessibilityHint = pins?.mayUnpin(pin) == true
+                ? String(localized: "Goes to the message. Swipe left to unpin it.")
+                : String(localized: "Goes to the message.")
+            if pins?.mayUnpin(pin) == true {
+                cell.accessibilityCustomActions = [UIAccessibilityCustomAction(name: String(localized: "Unpin")) { [weak self] _ in
+                    self?.pins?.unpin(pin)
+                    return true
+                }]
+            }
         case .threads:
             content.image = SettingIcon.image("bubble.left.and.text.bubble.right.fill", .systemIndigo)
             content.text = String(localized: "Threads")
@@ -261,7 +325,7 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         switch dataSource.itemIdentifier(for: indexPath) {
-        case .members, .threads, .shared, .separate, .leave, .address: true
+        case .members, .pinned, .threads, .shared, .separate, .leave, .address: true
         default: false
         }
     }
@@ -272,6 +336,9 @@ final class ChatDetailsViewController: UIViewController, UICollectionViewDelegat
         case .members(let id):
             guard let room = room(id) else { return }
             navigationController?.pushViewController(MembersViewController(model: model.members(of: room), images: session.images), animated: true)
+        case .pinned(let room, let event):
+            guard let pin = pin(room: room, event: event) else { return }
+            onJump?(pin)
         case .threads:
             let threads = ThreadsViewController(model: model.threads(), images: session.images)
             threads.onOpen = { [weak self] thread in self?.onOpenThread?(thread) }
