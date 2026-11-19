@@ -276,8 +276,116 @@ extension PhotoSearch {
     }
 }
 
+/// The model as the asset pack gives it, in a test: each getting of it fails as the next of
+/// `failures` says, and once none is left, gives a model of a `model.json` only (its encoders
+/// load only when a photo is read or a search made).
+private actor FakeModelSource: PhotoModelSource {
+    private var failures: [any Error]
+    private(set) var gets = 0
+    private let folder: URL
+
+    init(failing failures: [any Error] = []) throws {
+        self.failures = failures
+        folder = try TemporaryFolder.ofTest.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let description = #"{"model": "fake", "side": 224, "textLength": 64, "dimension": 8, "lowercase": true, "padId": 0}"#
+        try Data(description.utf8).write(to: folder.appending(path: "model.json"))
+    }
+
+    func isOnDevice() async -> Bool { false }
+
+    func modelFiles(step: @escaping @Sendable (PhotoModelStep) -> Void) async throws -> PhotoSearchModel.Files {
+        gets += 1
+        step(.downloading(0.5))
+        if !failures.isEmpty { throw failures.removeFirst() }
+        step(.preparing)
+        return { [folder] in folder.appending(path: $0) }
+    }
+
+    func remove() async {}
+}
+
+@Suite(.ownPreferences, .ownFolder, .timeLimit(.minutes(1))) struct PhotoModelStateTests {
+    @MainActor private func photoSearch(_ assets: FakeModelSource, on: Bool) async throws -> PhotoSearch {
+        let preferences = try Preferences.ofTest
+        preferences.searchesPhotosByLook = on
+        return PhotoSearch(store: try await photoStore(photos: 0), account: Task { HeldPhotos() }, directory: try folder(),
+                           preferences: preferences, assets: assets)
+    }
+
+    @MainActor @Test func semanticSearchOnSinceTheLastLaunchGetsTheModelAtLaunch() async throws {
+        let assets = try FakeModelSource()
+        let photos = try await photoSearch(assets, on: true)
+        let (changes, observing) = photos.announcements()
+        try await changes.until { photos.looks == .ready }
+        #expect(await assets.gets == 1)
+        #expect(photos.searchNote() == nil)
+        withExtendedLifetime(observing) {}
+        await photos.stop()
+    }
+
+    @MainActor @Test func semanticSearchOffGetsNoModel() async throws {
+        let assets = try FakeModelSource()
+        let photos = try await photoSearch(assets, on: false)
+        #expect(photos.looks == .off)
+        photos.retryModel()
+        #expect(photos.looks == .off)
+        #expect(await assets.gets == 0)
+        await photos.stop()
+    }
+
+    @MainActor @Test func aModelThatCouldNotBeHadShowsWhyAndIsReadyAfterTryAgain() async throws {
+        let assets = try FakeModelSource(failing: [URLError(.notConnectedToInternet)])
+        let photos = try await photoSearch(assets, on: true)
+        let (changes, observing) = photos.announcements()
+        try await changes.until { if case .failed = photos.looks { true } else { false } }
+        #expect(photos.looks == .failed(URLError(.notConnectedToInternet).localizedDescription))
+        // the search says why its photos are found by their words only, and where to try again.
+        #expect(photos.searchNote()?.contains("Settings") == true)
+
+        photos.retryModel()
+        #expect(photos.looks != .failed(URLError(.notConnectedToInternet).localizedDescription))
+        try await changes.until { photos.looks == .ready }
+        #expect(await assets.gets == 2)
+        // ready, it is not got again.
+        photos.retryModel()
+        #expect(photos.looks == .ready)
+        #expect(await assets.gets == 2)
+        withExtendedLifetime(observing) {}
+        await photos.stop()
+    }
+
+    @MainActor @Test func turningSemanticSearchOnGetsTheModelAndOffLetsItGo() async throws {
+        let assets = try FakeModelSource()
+        let photos = try await photoSearch(assets, on: false)
+        let (changes, observing) = photos.announcements()
+        await photos.setSearchesByLook(true)
+        try await changes.until { photos.looks == .ready }
+        await photos.setSearchesByLook(false)
+        #expect(photos.looks == .off)
+        #expect(photos.searchNote() == nil)
+        withExtendedLifetime(observing) {}
+        await photos.stop()
+    }
+}
+
 /// The model's copy, which Core ML loads from in place of the asset pack's folder.
 @Suite(.ownFolder) struct PhotoModelCopyTests {
+    /// Two photo searches that ask for the model at once (a session closing as the next opens)
+    /// both get the one copy: neither removes the other's, nor fails finding it in place.
+    @Test func twoCopiesAskedForAtOnceBothGetTheOneCopy() async throws {
+        let root = try folder()
+        let source = try pack("one")
+        let copies = try await withThrowingTaskGroup(of: URL.self) { group in
+            for _ in 0..<4 {
+                group.addTask { try await PhotoSearchAssets.copiedInTurn(of: Data("one".utf8), in: root) { source } }
+            }
+            return try await group.reduce(into: []) { $0.append($1) }
+        }
+        #expect(Set(copies).count == 1)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == [try #require(copies.first).lastPathComponent])
+    }
+
     /// A model's folder as a pack holds it: `model.json` saying `name`, and an encoder's folder.
     private func pack(_ name: String) throws -> URL {
         let pack = try folder()

@@ -8,19 +8,24 @@ import Foundation
 /// app's reading in the background too little time to be worth it).
 @MainActor
 public final class PhotoSearch {
-    /// Where the search by how photos look is, for Settings.
+    /// Where the search by how photos look is, for Settings and the search's note.
     public enum Looks: Equatable, Sendable {
         case off
-        /// The model is downloading (0…1).
+        /// The model is downloading (0…1, in whole percent: the download reports far more often
+        /// than anyone reads it, and each change lays Settings out again).
         case downloading(Double)
-        /// On; `hasModel` is false when the model could not be had (only the words are read).
-        case on(hasModel: Bool)
+        /// The model is on the device, and the app makes it ready (copies and opens it).
+        case preparing
+        /// Photos are found by how they look.
+        case ready
+        /// The model could not be had, for the reason given: photos are found by their words
+        /// only until it is tried again (`retryModel`, the network back, the app back in front).
+        case failed(String)
     }
 
-    public var looks: Looks {
-        guard searchesByLook else { return .off }
-        if let downloading { return .downloading(downloading) }
-        return .on(hasModel: model != nil)
+    /// Where the model is; `.off` while the search by look is.
+    public private(set) var looks = Looks.off {
+        didSet { if looks != oldValue { changes.send() } }
     }
     /// The photos read by the current reader, of all, and whether the reading is under way.
     public private(set) var progress = PhotoIndexer.Progress() {
@@ -34,24 +39,29 @@ public final class PhotoSearch {
     /// Search finds photos by how they look (the model); the words in them are found always.
     public var searchesByLook: Bool { preferences.searchesPhotosByLook }
 
-    /// How far the model's download is, while it downloads, in whole percent: the download reports
-    /// far more often than anyone reads it, and each change lays Settings out again.
-    private var downloading: Double? { didSet { if downloading != oldValue { changes.send() } } }
-
     private let store: LocalStore
     private let preferences: Preferences
     private let indexer: PhotoIndexer
+    private let assets: any PhotoModelSource
     private var model: PhotoSearchModel?
     private var loading: Task<Void, Never>?
+    /// Which getting of the model `loading` is: one replaced ends without clearing the next.
+    private var loadings = 0
     private var saving: AnyObject?
     /// The app left the front: the model's encoders go until it is back.
     private var leaving: AnyObject?
+    /// The app came back to the front, or the device to a network: a model that could not be
+    /// had is tried again.
+    private var returning: AnyObject?
+    private var reconnecting: AnyObject?
     /// The system's memory pressure: the model's encoders go when memory runs short.
     private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
 
-    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, preferences: Preferences) {
+    init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, preferences: Preferences,
+         assets: any PhotoModelSource = PhotoSearchAssets()) {
         self.store = store
         self.preferences = preferences
+        self.assets = assets
         let (reports, report) = AsyncStream<PhotoIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
         indexer = PhotoIndexer(store: store, account: account, directory: directory, reader: PhotoReader(model: nil)) { report.yield($0) }
         Task { [weak self] in
@@ -63,8 +73,11 @@ public final class PhotoSearch {
             self?.changes.send()
             self?.update()
         }
+        // on since an earlier launch: the model is got now, as when the user turns it on.
         if searchesByLook { loadModel() }
         leaving = ForegroundWork.shared.onLeave { [weak self] in self?.releaseMemory() }
+        returning = ForegroundWork.shared.onReturn { [weak self] in self?.retryModel() }
+        reconnecting = Saving.shared.reconnected.observe { [weak self] in self?.retryModel() }
         pressure.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.releaseMemory() }
         }
@@ -109,13 +122,13 @@ public final class PhotoSearch {
         let closing = model
         model = nil
         onModel?(nil)
-        downloading = nil
+        looks = .off
         await indexer.stop()
         await indexer.use(PhotoReader(model: nil))
         await bestEffort("photo search: forget the looks") { try await store.forgetImageEmbeddings(reader: PhotoReader(model: nil).name) }
         // the model's files go once none of its encoders loads from them.
         await closing?.close()
-        await PhotoSearchAssets.remove()
+        await assets.remove()
         await indexer.announce()
         update()
     }
@@ -162,6 +175,10 @@ public final class PhotoSearch {
     /// Stops the reading (the system ending a background task, or the account closing); what was
     /// read stays, and the rest is read the next time new photos come or the app opens.
     public func stop() async {
+        // the model is not got for a search that ended (its session closed): the next session's
+        // gets it.
+        loading?.cancel()
+        loading = nil
         await indexer.stop()
         await work.end()
     }
@@ -200,9 +217,11 @@ public final class PhotoSearch {
             return nil
         case .downloading(let fraction):
             return String(localized: "Photos by what they show: the model is downloading · \(fraction.formatted(.percent.precision(.fractionLength(0))))")
-        case .on(hasModel: false):
-            return String(localized: "Photos are found by their words only: the model is not available.")
-        case .on(hasModel: true):
+        case .preparing:
+            return String(localized: "Photos by what they show: the model is being prepared.")
+        case .failed:
+            return String(localized: "Photos are found by their words only: the model could not be downloaded. Try again in Settings › Search.")
+        case .ready:
             guard hasUnread else { return nil }
             let left = max(progress.total - progress.read, 0)
             return String(localized: "\(left.formatted(.number)) photos not read yet: some may be missing.")
@@ -259,30 +278,58 @@ public final class PhotoSearch {
     /// cannot be had, only their words.
     private func loadModel() {
         loading?.cancel()
+        loadings += 1
+        let id = loadings
+        // until the system says whether it downloads.
+        looks = .preparing
         loading = Task { [weak self] in
             await self?.getModel()
-            self?.loading = nil
-            self?.update()
+            guard let self, loadings == id else { return }
+            loading = nil
+            update()
         }
     }
 
+    /// Gets the model again, if it could not be had: the user asked (Settings' Try Again), or
+    /// what it failed for may have passed (the network is back, the app back in front).
+    public func retryModel() {
+        guard searchesByLook, loading == nil, case .failed = looks else { return }
+        loadModel()
+    }
+
     private func getModel() async {
-        if await !PhotoSearchAssets.isOnDevice() { downloading = 0 }
-        defer { downloading = nil }
+        let isOnDevice = await assets.isOnDevice()
+        guard !Task.isCancelled else { return }
+        looks = isOnDevice ? .preparing : .downloading(0)
         do {
-            let files = try await PhotoSearchAssets.modelFiles { [weak self] fraction in
-                Task { @MainActor in
-                    if self?.downloading != nil { self?.downloading = (fraction * 100).rounded(.down) / 100 }
-                }
+            let files = try await assets.modelFiles { [weak self] step in
+                Task { @MainActor in self?.show(step) }
             }
             guard !Task.isCancelled, searchesByLook else { return }
             let model = try PhotoSearchModel(files: files)
             self.model = model
+            looks = .ready
             onModel?(model)
             await indexer.use(PhotoReader(model: model))
             await indexer.announce()
+        } catch where Task.isCancelled {
+            // turned off, or the search ended: whoever cancelled it says where the model is.
         } catch {
             Log.app.error("photo search: no model: \(String(describing: error), privacy: .public)")
+            looks = .failed(error.localizedDescription)
+        }
+    }
+
+    /// How far getting the model is, while it is under way: a step heard after it ended (it
+    /// came on a task of its own) changes nothing.
+    private func show(_ step: PhotoModelStep) {
+        switch (step, looks) {
+        case (.downloading(let fraction), .downloading):
+            looks = .downloading((fraction * 100).rounded(.down) / 100)
+        case (.preparing, .downloading):
+            looks = .preparing
+        default:
+            break
         }
     }
 }

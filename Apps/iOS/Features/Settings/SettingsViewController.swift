@@ -5,7 +5,7 @@ import UIKit
 /// key backup), privacy, search, and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
-    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, searchHistory, photoLooks, photoStatus, photoAction, signOut }
+    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, searchHistory, photoLooks, photoModel, downloadModel, photoStatus, photoAction, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -26,6 +26,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private lazy var readReceiptsSwitch = makeSwitch { [weak self] on in self?.model.sendsReadReceipts = on }
     /// The photos' work under way, made once as the switches are.
     private let photoWork = UIActivityIndicatorView(style: .medium)
+    /// The model's download or preparation under way.
+    private let modelWork = UIActivityIndicatorView(style: .medium)
     private lazy var photoLooksSwitch = makeSwitch { [weak self] on in Task { await self?.model.setSearchesPhotosByLook(on) } }
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
@@ -114,6 +116,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             navigationController?.pushViewController(RecoverySetupViewController(security: security), animated: true)
         case .recovery?:
             navigationController?.pushViewController(RecoveryKeyViewController(model: model), animated: true)
+        case .downloadModel?:
+            model.retryPhotoModel()
         case .photoAction?:
             switch model.photoAction {
             case .stop?: Task { await model.stopReadingPhotos() }
@@ -178,9 +182,14 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         present(sheet, animated: true)
     }
 
-    /// The Search section's rows: the action only while there is one.
+    /// The Search section's rows: the model's state under its switch while it is on, Try Again
+    /// once it could not be had, and the photos' action only while there is one.
     private var searchItems: [Item] {
-        [.searchIndex, .searchHistory, .photoLooks, .photoStatus] + (model.photoAction == nil ? [] : [.photoAction])
+        [.searchIndex, .searchHistory, .photoLooks]
+            + (model.photoModelStatus == nil ? [] : [.photoModel])
+            + (model.canRetryPhotoModel ? [.downloadModel] : [])
+            + [.photoStatus]
+            + (model.photoAction == nil ? [] : [.photoAction])
     }
 
     private func makeSwitch(_ changed: @escaping (Bool) -> Void) -> UISwitch {
@@ -198,7 +207,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         let listed = snapshot.itemIdentifiers(inSection: .search)
         if listed != search {
             snapshot.deleteItems(listed.filter { !search.contains($0) })
-            snapshot.appendItems(search.filter { !listed.contains($0) }, toSection: .search)
+            // each new row in its place, after the one before it (the first, the index, is always
+            // there): the rows that stay keep their cells.
+            for (place, item) in search.enumerated().dropFirst() where !listed.contains(item) {
+                snapshot.insertItems([item], afterItem: search[place - 1])
+            }
             dataSource.apply(snapshot, animatingDifferences: false)
         }
         // what they show: each visible cell whose row changed updates itself; the others do as
@@ -213,7 +226,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private struct Row: Hashable {
         enum Style: Hashable { case value, subtitle, plain, profile }
         enum Tone: Hashable { case normal, action, destructive }
-        enum Accessory: Hashable { case none, disclosure, readReceipts(isOn: Bool), photoLooks(isOn: Bool), historyMenu(SearchHistory), spinner }
+        enum Accessory: Hashable { case none, disclosure, readReceipts(isOn: Bool), photoLooks(isOn: Bool), historyMenu(SearchHistory), spinner, modelSpinner }
         var style = Style.value
         var text: String?
         var detail: String?
@@ -265,6 +278,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
                     iPhone.
                     """),
                 accessory: .photoLooks(isOn: model.searchesPhotosByLook))
+        case .photoModel:
+            Row(style: .subtitle, text: String(localized: "Model"), detail: model.photoModelStatus, symbol: "cpu",
+                accessory: model.isPhotoModelUnderWay ? .modelSpinner : .none)
+        case .downloadModel:
+            Row(style: .plain, text: String(localized: "Try Again"), tone: .action)
         case .photoAction:
             Row(style: .plain,
                 text: model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now"),
@@ -325,6 +343,9 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             // the same spinner each time: one made anew would start its turn over at each update.
             photoWork.startAnimating()
             return [.customView(configuration: .init(customView: photoWork, placement: .trailing()))]
+        case .modelSpinner:
+            modelWork.startAnimating()
+            return [.customView(configuration: .init(customView: modelWork, placement: .trailing()))]
         }
     }
 
