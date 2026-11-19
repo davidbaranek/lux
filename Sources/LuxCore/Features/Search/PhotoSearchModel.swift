@@ -153,10 +153,11 @@ actor PhotoSearchModel {
         try embedding(of: (description.queryPrompt ?? "") + text)
     }
 
-    /// A message's unit embedding, as search by meaning keeps it; nil until the text encoder is
-    /// ready.
-    func embedding(ofMessage text: String) throws -> [Float]? {
-        try embedding(of: (description.documentPrompt ?? "") + text)
+    /// A message's unit embedding, read with the messages before it as far as the encoder reads
+    /// (`MessageToEmbed.text`), as search by meaning keeps it; nil until the text encoder is ready.
+    func embedding(ofMessage message: MessageToEmbed) throws -> [Float]? {
+        guard let tokenizer else { return nil }
+        return try embedding(of: message.text(prompt: description.documentPrompt ?? "", fits: tokenizer.fits))
     }
 
     private func embedding(of text: String) throws -> [Float]? {

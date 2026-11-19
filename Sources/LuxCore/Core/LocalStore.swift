@@ -159,10 +159,13 @@ public final class LocalStore: Sendable {
 
     // MARK: Meaning
 
-    /// Messages whose meaning is not read yet, the newest first, at least `minChars` long.
-    func messagesToEmbed(minChars: Int, limit: Int) async throws -> [(eventId: String, body: String)] {
-        try await store.messagesToEmbed(minChars: UInt32(clamping: minChars), limit: UInt32(clamping: limit))
-            .map { ($0.eventId, $0.body) }
+    /// Messages whose meaning is not read yet, the newest first, at least `minChars` long, each
+    /// with the messages before it in its thread or chat.
+    func messagesToEmbed(minChars: Int, limit: Int) async throws -> [MessageToEmbed] {
+        try await store.messagesToEmbed(minChars: UInt32(clamping: minChars), limit: UInt32(clamping: limit)).map {
+            MessageToEmbed(eventId: $0.eventId, senderName: $0.senderName, body: $0.body,
+                           context: $0.context.map { MessageToEmbed.Line(senderName: $0.senderName, body: $0.body) })
+        }
     }
 
     /// Keeps what `embedder` read of messages' meaning: an embedding each, or nil for one with too
