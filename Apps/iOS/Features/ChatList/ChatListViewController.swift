@@ -101,8 +101,10 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
                 return configuration
             }
             // swipe right: read / unread, as Mail and Messages do.
+            // a request is no chat of the account's yet: it is answered, not marked or moved.
             list.leadingSwipeActionsConfigurationProvider = { [weak self] indexPath in
-                guard let self, let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] else { return nil }
+                guard let self, model.place != .requests, let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id]
+                else { return nil }
                 let action = UIContextualAction(style: .normal, title: nil) { [weak self] _, _, done in
                     self?.model.setUnread(row.id, !row.isUnread)
                     done(true)
@@ -113,7 +115,8 @@ final class ChatListViewController: UIViewController, UICollectionViewDelegate, 
             }
             // swipe left: Low Priority (or back to the inbox), as Mail moves a message.
             list.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
-                guard let self, let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] else { return nil }
+                guard let self, model.place != .requests, let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id]
+                else { return nil }
                 let low = row.folder == .lowPriority
                 let action = UIContextualAction(style: .normal, title: low ? String(localized: "Inbox") : String(localized: "Low Priority")) {
                     [weak self] _, _, done in

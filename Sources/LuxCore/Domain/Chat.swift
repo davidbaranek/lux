@@ -8,17 +8,38 @@ public struct ChatRequest: Sendable, Hashable, Identifiable {
     /// Who invited the account; "" when the invite does not say.
     public var inviterName: String
     public var isDirect: Bool
-    public init(id: String, name: String, avatar: ImageRef?, inviterName: String, isDirect: Bool) {
+    /// How the user's answer goes; nil until they answer.
+    public var answer: RequestAnswer?
+    public init(id: String, name: String, avatar: ImageRef?, inviterName: String, isDirect: Bool, answer: RequestAnswer? = nil) {
         self.id = id; self.name = name; self.avatar = avatar; self.inviterName = inviterName; self.isDirect = isDirect
+        self.answer = answer
     }
 }
 
+/// The user's answer to a request, from when they give it until the request goes.
+public enum RequestAnswer: Sendable, Hashable {
+    /// On its way to the server: accepting (joining), or declining.
+    case sending(accept: Bool)
+    /// The server did not take it: the request stays, to answer again.
+    case failed(accept: Bool)
+}
+
 extension ChatRequest {
-    /// The request as a chat-list row: who invited, in place of a message.
+    /// The request as a chat-list row: who invited, in place of a message; once answered, how
+    /// the answer goes.
     public var row: ChatRow {
-        ChatRow(id: id, name: name, preview: inviterName.isEmpty ? String(localized: "Invited you")
-                    : isDirect ? String(localized: "Wants to chat") : String(localized: "\(inviterName) invited you"),
-                date: nil, isMarkedUnread: true, avatar: avatar, isGroup: !isDirect)
+        ChatRow(id: id, name: name, preview: preview, date: nil, isMarkedUnread: true, avatar: avatar, isGroup: !isDirect)
+    }
+
+    private var preview: String {
+        switch answer {
+        case .sending(accept: true): String(localized: "Joining…")
+        case .sending(accept: false): String(localized: "Declining…")
+        case .failed(accept: true): String(localized: "Could not join. Try again.")
+        case .failed(accept: false): String(localized: "Could not decline. Try again.")
+        case nil: inviterName.isEmpty ? String(localized: "Invited you")
+            : isDirect ? String(localized: "Wants to chat") : String(localized: "\(inviterName) invited you")
+        }
     }
 }
 

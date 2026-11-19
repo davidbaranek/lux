@@ -37,8 +37,47 @@ struct ChatListModelTests {
         model.filter = .unread
         try await changes.until { !model.rows.isEmpty && model.rows.allSatisfy(\.isUnread) }
         model.place = .requests
-        try await changes.until { model.rows.map(\.id) == ["!invite-1:demo", "!invite-2:demo"] }
+        try await changes.until { model.rows.map(\.id) == ["!invite-1:demo", "!invite-2:demo", "!invite-releases:demo"] }
         if case .request = model.destination(of: model.rows[0]) {} else { Issue.record("a request leads to its answer") }
+    }
+
+    @Test func anAcceptedRequestLeavesTheRequestsAndTheOthersStay() async throws {
+        let model = ChatListModel(session: session)
+        let changes = model.changes()
+        model.place = .requests
+        try await changes.until { model.rows.contains { $0.id == "!invite-2:demo" } }
+        model.answer(request: "!invite-2:demo", accept: true)
+        try await changes.until { !model.rows.contains { $0.id == "!invite-2:demo" } }
+        #expect(model.rows.map(\.id) == ["!invite-1:demo", "!invite-releases:demo"])
+    }
+
+    @Test func aRequestTheServerRefusesSaysSoAndStaysToAnswerAgain() async throws {
+        let model = ChatListModel(session: session)
+        let changes = model.changes()
+        var failures: [any Error] = []
+        let shown = model.onError
+        model.onError = { failures.append($0); shown?($0) }
+        model.place = .requests
+        let refused = "!invite-releases:demo"
+        try await changes.until { model.rows.contains { $0.id == refused } }
+        model.answer(request: refused, accept: true)
+        try await changes.until { model.rows.first { $0.id == refused }?.preview == String(localized: "Could not join. Try again.") }
+        #expect(failures.first as? AccountFailure == .rateLimited)
+        // a request leads to its answer, the preview says what became of it.
+        let row = try #require(model.rows.first { $0.id == refused })
+        if case .request = model.destination(of: row) {} else { Issue.record("a refused request leads to its answer again") }
+    }
+
+    @Test func anAnswerOnItsWaySaysSo() {
+        let request = ChatRequest(id: "!r", name: "releases", avatar: nil, inviterName: "Lux Bot", isDirect: false)
+        #expect(request.row.preview == String(localized: "Lux Bot invited you"))
+        var joining = request
+        joining.answer = .sending(accept: true)
+        #expect(joining.row.preview == String(localized: "Joining…"))
+        joining.answer = .sending(accept: false)
+        #expect(joining.row.preview == String(localized: "Declining…"))
+        joining.answer = .failed(accept: false)
+        #expect(joining.row.preview == String(localized: "Could not decline. Try again."))
     }
 
     @Test func aPlaceChosenBeforeTheListOpensIsTheFirstShown() async throws {

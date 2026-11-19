@@ -10,7 +10,7 @@
 #![allow(clippy::unused_async_trait_impl)]
 
 mod bridges;
-mod data;
+pub(crate) mod data;
 mod profile;
 mod security;
 mod seeded;
@@ -471,6 +471,13 @@ impl ChatActions for DemoAccount {
     }
 
     async fn answer_request(&self, room: &RoomId, _accept: bool) -> Result<(), BackendError> {
+        if room.as_str() == data::REFUSED_REQUEST {
+            return Err(BackendError::Server {
+                status: Some(429),
+                errcode: Some("M_LIMIT_EXCEEDED".to_owned()),
+                source: "the server limits how fast the account joins".into(),
+            });
+        }
         let mut inner = self.lock();
         inner.answered.insert(room.clone());
         inner.publish_requests();
@@ -830,7 +837,7 @@ mod tests {
         assert_eq!(snapshot.chats.len(), 29);
         let merged = snapshot.chats.iter().find(|chat| chat.is_merged()).unwrap();
         assert_eq!(merged.id, ChatId::from("merge:demo-jana"));
-        assert_eq!(snapshot.requests.len(), 2);
+        assert_eq!(snapshot.requests.len(), 3);
         let mut chats = demo.chats();
         let first = chats.next().await.unwrap();
         assert_eq!(first.len(), 1);

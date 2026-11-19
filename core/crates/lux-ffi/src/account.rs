@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 
 use eyeball_im::Vector;
 use futures_util::{FutureExt, StreamExt};
-use lux_core::chat::{Chat, Request};
+use lux_core::chat::{Answer, Chat, Request};
 use lux_core::demo::{DemoAccount, DemoConfig, DemoEncryption};
 use lux_core::ids::RoomId;
 use lux_core::organizer::LabelError;
@@ -458,6 +458,32 @@ pub struct CoreRequest {
     pub inviter_name: String,
     /// A conversation of two.
     pub is_direct: bool,
+    /// How the user's answer to it goes; `None` until they answer.
+    pub answer: Option<CoreAnswer>,
+}
+
+/// The user's answer to an invitation (`lux_core::chat::Answer`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum CoreAnswer {
+    /// On its way to the server.
+    Sending {
+        /// Accepting (joining), not declining.
+        accept: bool,
+    },
+    /// The server did not take it: the invitation stays, to answer again.
+    Failed {
+        /// Accepting (joining), not declining.
+        accept: bool,
+    },
+}
+
+impl From<Answer> for CoreAnswer {
+    fn from(answer: Answer) -> Self {
+        match answer {
+            Answer::Sending { accept } => Self::Sending { accept },
+            Answer::Failed { accept } => Self::Failed { accept },
+        }
+    }
 }
 
 impl From<&Request> for CoreRequest {
@@ -468,6 +494,7 @@ impl From<&Request> for CoreRequest {
             avatar: request.avatar.as_ref().map(ToString::to_string),
             inviter_name: request.inviter_name.clone(),
             is_direct: request.is_direct,
+            answer: request.answer.map(CoreAnswer::from),
         }
     }
 }

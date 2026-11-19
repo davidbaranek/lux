@@ -128,6 +128,24 @@ pub struct Request {
     pub inviter_name: String,
     /// A conversation of two, not a group.
     pub is_direct: bool,
+    /// How the user's answer to it goes; `None` until they answer. The account always sends
+    /// `None`: the list keeps the answers.
+    pub answer: Option<Answer>,
+}
+
+/// The user's answer to an invitation, from when they give it until the invitation goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// On its way to the server.
+    Sending {
+        /// Accepting (joining), not declining.
+        accept: bool,
+    },
+    /// The server did not take it: the invitation stays, to answer again.
+    Failed {
+        /// Accepting (joining), not declining.
+        accept: bool,
+    },
 }
 
 /// One of the user's labels, and the chats in it.

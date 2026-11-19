@@ -359,7 +359,16 @@ extension SavedMessage {
 extension ChatRequest {
     init(_ request: CoreRequest) {
         self.init(id: request.id, name: request.name, avatar: request.avatar.map { .room(id: request.id, version: $0) },
-                  inviterName: request.inviterName, isDirect: request.isDirect)
+                  inviterName: request.inviterName, isDirect: request.isDirect, answer: request.answer.map(RequestAnswer.init))
+    }
+}
+
+private extension RequestAnswer {
+    init(_ answer: CoreAnswer) {
+        switch answer {
+        case .sending(let accept): self = .sending(accept: accept)
+        case .failed(let accept): self = .failed(accept: accept)
+        }
     }
 }
 

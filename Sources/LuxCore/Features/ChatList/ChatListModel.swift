@@ -262,7 +262,9 @@ public final class ChatListModel {
     /// Starts opening a chat the user is about to open (the pointer is over it, a finger is down).
     /// Each chat once; one at a time, behind what the user does.
     public func prefetch(_ roomId: String) {
-        guard prefetched.insert(roomId).inserted else { return }
+        // a request's room is not the account's yet: it has no chat to open, and the server
+        // refuses its messages.
+        guard place != .requests, prefetched.insert(roomId).inserted else { return }
         let previous = prefetching, account = account
         prefetching = Task(priority: .utility) {
             await previous?.value
