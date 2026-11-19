@@ -50,7 +50,8 @@ final class LoadingBubble: NSView {
             width,
         ])
         wantsLayer = true
-        alphaValue = 0
+        // hidden, not only clear: it sits over the top of a list, whose rows take the clicks.
+        isHidden = true
         setAccessibilityElement(true)
         setAccessibilityRole(.progressIndicator)
         setAccessibilityLabel(text)
@@ -86,23 +87,13 @@ final class LoadingBubble: NSView {
         }
     }
 
-    @objc private func clicked() {
-        guard alphaValue > 0 else { return }
-        onClick?()
-    }
+    @objc private func clicked() { onClick?() }
 
     /// Shows (after a moment, so a quick step shows nothing) or hides the bubble; the newest call wins.
     func set(visible: Bool) {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(fadeIn), object: nil)
-        if visible { perform(#selector(fadeIn), with: nil, afterDelay: 0.25) } else { fade(to: 0) }
+        if visible { perform(#selector(fadeIn), with: nil, afterDelay: 0.25) } else { fade(in: false, duration: 0.2) }
     }
 
-    @objc private func fadeIn() { fade(to: 1) }
-
-    private func fade(to alpha: CGFloat) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            animator().alphaValue = alpha
-        }
-    }
+    @objc private func fadeIn() { fade(in: true, duration: 0.2) }
 }

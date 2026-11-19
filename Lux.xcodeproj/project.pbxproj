@@ -49,6 +49,7 @@
 		39E0ADF22084E1A99A293F55 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */; };
 		3A45E99BEAFBE536670D9162 /* AlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF01EEA04AB3C27BFD91EAED /* AlbumView.swift */; };
 		3E9B8D495332F28E9D29D253 /* MessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3A3C976B72208FEFA37889 /* MessageCell.swift */; };
+		40FBE1C2EBC3314E710A80D6 /* NSView+Fade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9E2E49FC8323200152C22D /* NSView+Fade.swift */; };
 		41F959329248BEFE43FF98F9 /* TextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9644BAAAE059CA06889DB30A /* TextView.swift */; };
 		43464F7811CCC69D928F220E /* ThreadController+Composer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */; };
 		4658BB2EDA0352CC93F1895A /* HostSessionCloser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D033E27621E55198942826B7 /* HostSessionCloser.swift */; };
@@ -304,6 +305,7 @@
 		378931B4C04A8B241BE933C4 /* DownloaderExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloaderExtension.swift; sourceTree = "<group>"; };
 		38EB133AC22139BB66D39275 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		3B961D04556E722EAAE4854F /* AssetDownloader-Mac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "AssetDownloader-Mac.entitlements"; sourceTree = "<group>"; };
+		3B9E2E49FC8323200152C22D /* NSView+Fade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+Fade.swift"; sourceTree = "<group>"; };
 		4131CD8140B7AEF0964D274B /* MembersPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembersPane.swift; sourceTree = "<group>"; };
 		4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
 		45E4FC640AD4BBC4E431346A /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
@@ -360,7 +362,6 @@
 		97D38CDE5B816C247508144E /* DevicesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesViewController.swift; sourceTree = "<group>"; };
 		983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadSummaryView.swift; sourceTree = "<group>"; };
 		9883A2F4910A77B1AA2FCEAB /* Changes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Changes.swift; sourceTree = "<group>"; };
-		6035B78A9E0E9DE9B085F258 /* lux-native-details */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-details"; path = .; sourceTree = SOURCE_ROOT; };
 		9AA1C19BCC5C987F9DB15E5D /* ThemeMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeMenu.swift; sourceTree = "<group>"; };
 		9AA6FB47F4FED7224573798C /* UIViewController+Failure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIViewController+Failure.swift"; sourceTree = "<group>"; };
 		9AC9E7CDBFC3557241A8B83D /* VerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViewController.swift; sourceTree = "<group>"; };
@@ -395,6 +396,7 @@
 		C2FF76B87AC1426AF30D3441 /* Info-iOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-iOS.plist"; sourceTree = "<group>"; };
 		C3486FEA9B7E75C0C0CF63B7 /* ThemeBand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeBand.swift; sourceTree = "<group>"; };
 		C74036405B2152475BBCC458 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
+		6035B78A9E0E9DE9B085F258 /* lux-native-details */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-details"; path = .; sourceTree = SOURCE_ROOT; };
 		CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D033E27621E55198942826B7 /* HostSessionCloser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSessionCloser.swift; sourceTree = "<group>"; };
@@ -878,6 +880,7 @@
 				55ECACEB4D6B6207F111193F /* LoadingBubble.swift */,
 				DEC2C68FC0EDAFF2781D12DF /* NotificationMenu.swift */,
 				861B6215E0535216006F41DA /* NSImage+Symbol.swift */,
+				3B9E2E49FC8323200152C22D /* NSView+Fade.swift */,
 				977E45B2786136014F3666DB /* NSViewController+Failure.swift */,
 				49761B942919CA84E69B8699 /* SectionHeader.swift */,
 				9644BAAAE059CA06889DB30A /* TextView.swift */,
@@ -1348,6 +1351,7 @@
 				6D6DE0711C0CCA3EBF31A88B /* MessageTableView.swift in Sources */,
 				B1FA151DF3B7DE373AE4F34F /* MessageText.swift in Sources */,
 				5470DEAD78BA1CDEAFDBA5CF /* NSImage+Symbol.swift in Sources */,
+				40FBE1C2EBC3314E710A80D6 /* NSView+Fade.swift in Sources */,
 				EE44DA391BE58726EB47AAAC /* NSViewController+Failure.swift in Sources */,
 				ADF0DBB8BC40F9B8A814EFF8 /* NetworkImage.swift in Sources */,
 				4B98A1DAB702EF15229B325A /* NetworkSignInController.swift in Sources */,
