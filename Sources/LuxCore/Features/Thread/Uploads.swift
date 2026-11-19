@@ -43,8 +43,9 @@ public final class Uploads {
     /// message each, in order; a reply answers with the first, and `caption` goes with the first
     /// as its text. A file that cannot go (unreadable, over the server's limit, refused by the
     /// queue) goes to `failure`, in the user's words: the chat that sent it shows it.
+    /// A video made smaller before it goes comes in `smaller`: its copy, awaited, goes in its place.
     public func send(_ urls: [URL], to roomId: String, threadRoot: String? = nil, caption: String? = nil, replyTo: String?,
-                     failure: @escaping @MainActor (any Error) -> Void) {
+                     smaller: [URL: Task<URL, any Error>] = [:], failure: @escaping @MainActor (any Error) -> Void) {
         guard !urls.isEmpty else { return }
         if !isActive {
             files = 0
@@ -64,7 +65,12 @@ public final class Uploads {
                 var caption = caption
                 for url in urls {
                     do {
-                        let attachment = try await AttachmentMaker.prepare(url, in: directory)
+                        let source = if let copy = smaller[url] {
+                            try await withTaskCancellationHandler { try await copy.value } onCancel: { copy.cancel() }
+                        } else {
+                            url
+                        }
+                        let attachment = try await AttachmentMaker.prepare(source, in: directory)
                         if let limit, attachment.size > limit { throw AttachmentMaker.Failure.tooLarge(name: attachment.name, limit: limit) }
                         let size = Int64(attachment.size)
                         self?.progress.totalUnitCount += size
@@ -83,6 +89,11 @@ public final class Uploads {
                 }
             }
         }
+    }
+
+    /// The largest file the server takes, nil if it does not say.
+    public func limit() async -> Int? {
+        await bestEffort("the server's upload limit") { try await account.value.maxUploadSize() } ?? nil
     }
 
     /// The account closed: its uploads are no longer followed, and what was on its way ends, not

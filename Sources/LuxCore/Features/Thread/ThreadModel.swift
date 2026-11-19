@@ -78,6 +78,9 @@ public final class ThreadModel {
         sendRoom = defaultRoom
         self.session = session
         preferences = session.preferences
+        pendingVideos = PendingVideos(directory: FileManager.default.temporaryDirectory.appending(path: "smaller", directoryHint: .isDirectory)) {
+            [weak session] in await session?.uploads?.limit()
+        }
         account = Task { [account = session.account] in try await account.value }
         let receipts = preferences.readReceipts(in: row.id)
         opening = Task { [weak self, account] in
@@ -125,7 +128,9 @@ public final class ThreadModel {
         case .update(let batch): apply(batch)
         case .upload(let files, let roomId, let threadRoot, let caption, let replyTo):
             // what cannot go shows here, in the chat that sent it.
-            session?.uploads?.send(files, to: roomId, threadRoot: threadRoot, caption: caption, replyTo: replyTo) { [weak self] error in
+            let smaller = pendingVideos.take(files)
+            session?.uploads?.send(files, to: roomId, threadRoot: threadRoot, caption: caption, replyTo: replyTo,
+                                   smaller: smaller) { [weak self] error in
                 self?.onError?(error)
             }
         case .failed(let failure): onError?(failure)
@@ -438,8 +443,14 @@ public final class ThreadModel {
 
     /// Files waiting in the composer to go with the next message (picked, dropped, pasted).
     public private(set) var pendingFiles: [URL] = [] {
-        didSet { if pendingFiles != oldValue { onPendingFiles?(pendingFiles) } }
+        didSet {
+            guard pendingFiles != oldValue else { return }
+            pendingVideos.follow(pendingFiles)
+            onPendingFiles?(pendingFiles)
+        }
     }
+    /// The videos among them that go smaller unless the user chooses Original.
+    public let pendingVideos: PendingVideos
     public var onPendingFiles: (([URL]) -> Void)?
 
     /// Puts files in the composer; they go with the next message.
@@ -448,6 +459,7 @@ public final class ThreadModel {
     }
 
     public func removePending(_ file: URL) {
+        pendingVideos.remove(file)
         withCore { $0.removePending(file) }
     }
 
