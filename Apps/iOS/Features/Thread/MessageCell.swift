@@ -156,6 +156,15 @@ final class MessageCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         setSwipe(0, progress: 0)
+        isJumpTarget = false
+        bubble.layer.removeAnimation(forKey: "flash")
+        band.layer.removeAnimation(forKey: "flash")
+    }
+
+    /// The message a jump brought into view: it flashes once as it becomes so, not again when the
+    /// cell is configured anew meanwhile.
+    var isJumpTarget = false {
+        didSet { if isJumpTarget, !oldValue { flash() } }
     }
 
     /// Moves the message `offset` points to the right and uncovers the reply arrow, which stays at
@@ -200,7 +209,7 @@ final class MessageCell: UICollectionViewCell {
 
     /// Draws the eye to the bubble after a jump to it: the bubble takes the accent colour, then
     /// fades back to its own.
-    func flash() {
+    private func flash() {
         guard let (message, layout) = shown else { return }
         if layout.band != nil { return flashBand() }
         guard let base = bubble.backgroundColor?.resolvedColor(with: traitCollection) else { return }

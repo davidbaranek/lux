@@ -124,10 +124,11 @@ private final class StackedScreen: ThreadScreen {
     weak var presenter: ThreadPresenter?
     let changes = Changes()
 
-    func show(_ messages: [MessageItem], layouts: [String: MessageLayout], changed: [String]) {
+    func show(_ messages: [MessageItem], layouts: [String: MessageLayout], changed: [String], scroll: ScrollIntent) {
         shown.append(messages)
         order = messages.map(\.id)
         heights = layouts.mapValues(\.height)
+        place(scroll)
         changes.send()
     }
 
@@ -135,6 +136,12 @@ private final class StackedScreen: ThreadScreen {
     func arrive() {
         if let end = glides.last { offset = end }
         presenter?.didEndScrolling()
+    }
+
+    /// A glide, if one was asked for, arrives; then the message flashes once nothing loads.
+    func arrives() async throws {
+        if !glides.isEmpty { arrive() }
+        try await changes.until { !flashed.isEmpty }
     }
 
     /// Whether the message's row sits in the middle of the list, where a glide to it ends.
@@ -170,7 +177,10 @@ private final class StackedScreen: ThreadScreen {
         if animated { glides.append(offset) } else { self.offset = offset }
     }
 
-    func flash(_ id: String) { flashed.append(id) }
+    func highlight(_ id: String?) {
+        if let id { flashed.append(id) }
+        changes.send()
+    }
 }
 
 /// Every character 8 x 16 points.
@@ -198,6 +208,7 @@ struct ThreadPresenterTests {
         let screen = StackedScreen()
         presenter.screen = screen
         screen.presenter = presenter
+        presenter.onLoading = { _ in screen.changes.send() }
         presenter.measure(with: GridMeasure())
         presenter.resize(to: 390)
         presenter.start()
@@ -255,7 +266,9 @@ struct ThreadPresenterTests {
 
     @Test func theWayUpGlidesToTheFirstUnreadMessageAndFlashesIt() async throws {
         let (presenter, screen) = try await opened()
-        try await screen.changes.until { presenter.model.firstUnreadId != nil && (screen.shown.last ?? []).count > 10 }
+        try await screen.changes.until {
+            presenter.model.firstUnreadId != nil && (screen.shown.last ?? []).count > 10 && !presenter.model.isLoading
+        }
         presenter.didShowFirst()
         let unread = try #require(presenter.model.firstUnreadId)
         screen.offset = 0
@@ -282,17 +295,18 @@ struct ThreadPresenterTests {
         #expect(screen.shown.last?.map(\.id) == all.map(\.id))
     }
 
-    @Test func aChatOpenedAtAMessageGlidesToItAndFlashesIt() async throws {
+    @Test func aChatOpenedAtAMessageBringsItToTheMiddleAndFlashesIt() async throws {
         // the demo's events are its messages' ids: the chat's sixth message.
         let (presenter, screen) = try await opened { row in MessageLink(roomId: row.id, eventId: "\(row.id)/5") }
-        try await screen.changes.until { presenter.isJumping }
-        screen.arrive()
+        try await screen.changes.until { presenter.isJumping || !screen.flashed.isEmpty }
+        try await screen.arrives()
         let target = try #require(screen.flashed.first)
         #expect(presenter.model.messages.first { $0.id == target }?.eventId.hasSuffix("/5") == true)
+        #expect(screen.centres(target))
         #expect(presenter.model.isLive)
     }
 
-    @Test func aJumpLandingBeforeTheFirstRowsAreShownGlidesToItsMessageOnceTheyAre() async throws {
+    @Test func aJumpLandingBeforeTheFirstRowsAreShownCentresItsMessageOnceTheyAre() async throws {
         let rows = try await session.account.value.chats()
         let row = try #require(rows.first { !$0.isMerged })
         // the demo's events are its messages' ids: the chat's sixth message.
@@ -302,66 +316,116 @@ struct ThreadPresenterTests {
         let screen = StackedScreen()
         presenter.screen = screen
         screen.presenter = presenter
+        presenter.onLoading = { _ in screen.changes.send() }
         presenter.measure(with: GridMeasure())
         presenter.start()
         // the jump landed and asked for its row: nothing is shown before the width is known.
         try await screen.changes.until { screen.asked.contains(target) }
         #expect(screen.shown.isEmpty)
         presenter.resize(to: 390)
-        try await screen.changes.until { presenter.isJumping }
-        screen.arrive()
+        try await screen.arrives()
         #expect(screen.flashed == [target])
         #expect(!presenter.isJumping)
         #expect(screen.centres(target))
     }
 
-    @Test func aJumpLandingAfterTheFirstRowsAreShownGlidesToItsMessageFarBack() async throws {
-        // 400 messages a chat: the device's live timeline holds the newest 200, the message is among a jump's rows.
-        let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 400)
+    @Test func aJumpFarBackEndsWithItsMessageInTheMiddleFlashedOnceItsPagesStop() async throws {
+        // 1 000 messages a chat: the device's live timeline holds the newest 200 (and a page more as it opens), the message is among a jump's rows.
+        let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 1_000)
         let rows = try await long.account.value.chats()
         let row = try #require(rows.first { !$0.isMerged })
         let presenter = ThreadPresenter(session: long, row: row, removeDelivered: { _ in })
         let screen = StackedScreen()
         presenter.screen = screen
         screen.presenter = presenter
+        presenter.onLoading = { _ in screen.changes.send() }
         presenter.measure(with: GridMeasure())
         presenter.resize(to: 390)
         presenter.start()
         try await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
         presenter.didShowFirst()
         presenter.jump(toMessage: MessageLink(roomId: row.id, eventId: "\(row.id)/10"))
-        try await screen.changes.until { presenter.isJumping }
-        screen.arrive()
+        // while the jump's rows come it is put in place; a glide only when it landed on rows already in.
+        try await screen.changes.until { presenter.isJumping || !screen.flashed.isEmpty }
+        try await screen.arrives()
         let target = try #require(screen.flashed.first)
         #expect(presenter.model.messages.first { $0.id == target }?.eventId == "\(row.id)/10")
+        #expect(!presenter.model.isLoading)
         #expect(!presenter.isJumping)
         #expect(screen.centres(target))
     }
 
-    @Test func anUpdateDuringTheGlideStillEndsOnTheMessageAndFlashesIt() async throws {
+    @Test func anUpdateDuringTheGlidePutsTheMessageInTheMiddleAtOnceAndFlashesIt() async throws {
         let (presenter, screen) = try await opened()
-        try await screen.changes.until { (screen.shown.last ?? []).count > 20 }
+        try await screen.changes.until { (screen.shown.last ?? []).count > 20 && !presenter.model.isLoading }
         presenter.didShowFirst()
         let all = presenter.model.messages
         let message = all[15]
         screen.offset = screen.scrollGeometry.bottomOffset
         presenter.jump(toMessage: MessageLink(roomId: message.roomId, eventId: message.eventId))
-        try await screen.changes.until { presenter.isJumping }
-        let glides = screen.glides.count
-        // rows above the message go while the chat glides: its row moves up.
-        let shown = screen.shown.count
+        try await screen.changes.until { !screen.glides.isEmpty }
+        // rows above the message go while the chat glides: its row moves up, and the update puts it
+        // in the middle; the glide's end, late, changes nothing.
         presenter.show(Array(all.dropFirst(5)))
-        try await screen.changes.until { screen.shown.count > shown }
-        #expect(screen.glides.count > glides)
-        screen.arrive()
+        try await screen.changes.until { !screen.flashed.isEmpty }
+        #expect(screen.glides.count == 1)
         #expect(screen.flashed == [message.id])
         #expect(!presenter.isJumping)
         #expect(screen.centres(message.id))
+        presenter.didEndScrolling()
+        #expect(screen.flashed == [message.id])
+        #expect(screen.centres(message.id))
+    }
+
+    @Test func aMessageTheUserSendsTakesTheChatToItsNewest() async throws {
+        let (presenter, screen) = try await opened()
+        try await screen.changes.until { (screen.shown.last ?? []).count > 20 && !presenter.model.isLoading }
+        presenter.didShowFirst()
+        screen.offset = 0
+        presenter.model.send("on my way")
+        try await screen.changes.until { screen.shown.last?.last?.body == "on my way" }
+        // it slides there, as Messages has it.
+        #expect(screen.glides.last == screen.scrollGeometry.range.upperBound)
+        screen.arrive()
+        #expect(screen.scrollGeometry.isAtBottom)
+    }
+
+    @Test func aMessageArrivingWhileTheReaderIsAboveKeepsTheirRowAndAtTheNewestFollowsIt() async throws {
+        let (presenter, screen) = try await opened()
+        try await screen.changes.until { (screen.shown.last ?? []).count > 20 && !presenter.model.isLoading }
+        presenter.didShowFirst()
+        // another chat sends a copy of one of its messages here: not one the user sent from this chat.
+        let rows = try await session.account.value.chats()
+        let other = ThreadModel(session: session, row: try #require(rows.first { !$0.isMerged && $0.id != presenter.model.chatId }))
+        let otherChanges = other.changes()
+        await other.start()
+        try await otherChanges.until { !other.messages.isEmpty }
+        let copied = try #require(other.messages.last)
+        screen.offset = 300
+        let reading = try #require(screen.readingRow)
+        let top = try #require(screen.rowSpan(of: reading)).minY - screen.offset
+        let count = presenter.model.messages.count
+        other.forward(copied.id, to: presenter.model.chatId)
+        try await screen.changes.until { (screen.shown.last ?? []).count > count }
+        #expect(try #require(screen.rowSpan(of: reading)).minY - screen.offset == top)
+        // at the newest, the next one is followed: the list slides to it.
+        screen.offset = screen.scrollGeometry.bottomOffset
+        other.forward(copied.id, to: presenter.model.chatId)
+        try await screen.changes.until { (screen.shown.last ?? []).count > count + 1 }
+        #expect(screen.glides.last == screen.scrollGeometry.range.upperBound)
+        // one more while it slides: the list still counts as at the newest, and follows it too.
+        let glides = screen.glides.count
+        other.forward(copied.id, to: presenter.model.chatId)
+        try await screen.changes.until { (screen.shown.last ?? []).count > count + 2 }
+        #expect(screen.glides.count == glides + 1)
+        #expect(screen.glides.last == screen.scrollGeometry.range.upperBound)
+        screen.arrive()
+        #expect(screen.scrollGeometry.isAtBottom)
     }
 
     @Test func theReaderScrollingDuringAGlideEndsItWithoutAFlash() async throws {
         let (presenter, screen) = try await opened()
-        try await screen.changes.until { (screen.shown.last ?? []).count > 20 }
+        try await screen.changes.until { (screen.shown.last ?? []).count > 20 && !presenter.model.isLoading }
         presenter.didShowFirst()
         let message = presenter.model.messages[15]
         screen.offset = screen.scrollGeometry.bottomOffset

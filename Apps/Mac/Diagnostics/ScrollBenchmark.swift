@@ -57,3 +57,50 @@ final class ScrollBenchmark: NSObject {
         }
     }
 }
+
+/// After a chat's scroll: a jump far back while its pages load, then new messages at the newest,
+/// each span's late frames reported (`FrameMeter`). Only with `-LuxBenchmark`.
+@MainActor
+final class ThreadBenchmark: NSObject {
+    private let view: NSView
+    private var meter = FrameMeter()
+    private var link: CADisplayLink?
+
+    init(_ view: NSView) {
+        self.view = view
+    }
+
+    /// `jump`: to a message far back; `back`: to the live rows; `send`: a new message.
+    func run(jump: () -> Void, back: () -> Void, send: (String) -> Void) async throws {
+        start()
+        jump()
+        try await Task.sleep(for: .seconds(3))
+        stop("chat jump")
+        back()
+        try await Task.sleep(for: .seconds(2))
+        start()
+        for index in 0..<12 {
+            send("benchmark \(index)")
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        try await Task.sleep(for: .seconds(1))
+        stop("chat new messages")
+    }
+
+    private func start() {
+        meter = FrameMeter()
+        let link = view.displayLink(target: self, selector: #selector(frame))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    private func stop(_ name: String) {
+        link?.invalidate()
+        link = nil
+        meter.report(name)
+    }
+
+    @objc private func frame(_ link: CADisplayLink) {
+        meter.frame(at: link.timestamp, duration: link.targetTimestamp - link.timestamp)
+    }
+}

@@ -53,6 +53,63 @@ public struct ScrollGeometry: Sendable, Equatable {
     }
 }
 
+/// Where an update leaves a chat's list: decided once per update by the presenter, applied once
+/// by the screen right after its snapshot. Nothing else moves the list. Only following new messages
+/// at the bottom animates, as Messages does; everything else (a jump, rows coming in) is put in
+/// place at once.
+public enum ScrollIntent: Sendable, Equatable {
+    /// Where it is.
+    case none
+    /// At the newest message; `animated`: a new message slides the list up to it.
+    case bottom(animated: Bool)
+    /// The row starts `top` points below the list's offset, where the reader saw it (rows coming
+    /// in above it, a new width, the rows switching back to live).
+    case keep(String, top: CGFloat)
+    /// The row in the middle of what the reader sees (a jump to it).
+    case centre(String)
+    /// At the first unread message, under the bar, when more than a screen follows it; else at
+    /// the newest (a chat opening).
+    case firstUnread(String)
+
+    /// The list moves there with an animation.
+    public var isAnimated: Bool { self == .bottom(animated: true) }
+}
+
+extension ScrollGeometry {
+    /// The offset `intent` asks for once the rows `ids`, `height` points each, are stacked from
+    /// `lead` points down, with `trail` points after them: where the list goes before an update's
+    /// rows are in, so the list lays out only the rows that will be on screen there.
+    public func offset(for intent: ScrollIntent, stacking ids: [String], height: (String) -> CGFloat,
+                       lead: CGFloat = 0, trail: CGFloat = 0) -> CGFloat? {
+        let total = ids.reduce(lead + trail) { $0 + height($1) }
+        var stacked = self
+        stacked.contentHeight = total
+        return stacked.offset(for: intent) { id in
+            guard let at = ids.firstIndex(of: id) else { return nil }
+            let minY = ids[..<at].reduce(lead) { $0 + height($1) }
+            return (minY, minY + height(id))
+        }
+    }
+
+    /// The offset `intent` asks for, within the content; nil: the list stays (no intent, or its
+    /// row is not in the list). `rowSpan`: a row's top and bottom in the content.
+    public func offset(for intent: ScrollIntent, rowSpan: (String) -> (minY: CGFloat, maxY: CGFloat)?) -> CGFloat? {
+        let range = range
+        switch intent {
+        case .none:
+            return nil
+        case .bottom:
+            return range.upperBound
+        case .keep(let id, let top):
+            return rowSpan(id).map { min(max($0.minY - top, range.lowerBound), range.upperBound) }
+        case .centre(let id):
+            return rowSpan(id).map { JumpPlan(toRowFrom: $0.minY, to: $0.maxY, in: self).end }
+        case .firstUnread(let id):
+            return rowSpan(id).flatMap { opening(atUnread: $0.minY) } ?? range.upperBound
+        }
+    }
+}
+
 /// How the chat glides to a message (a quoted one, the first unread): its middle to the middle of
 /// what the reader sees, as far as the content allows. A far message is first brought to a screen
 /// away (`start`), so the glide is always one screen long at most.
