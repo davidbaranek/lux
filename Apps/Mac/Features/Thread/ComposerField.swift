@@ -103,7 +103,10 @@ final class ComposerField: NSScrollView {
 }
 
 /// The composer's text view: a placeholder while it is empty, and a pasted or dropped file,
-/// picture or video goes with the message (`onAttach`) where text would be inserted.
+/// picture or video goes with the message (`onAttach`) where text would be inserted. It takes
+/// pictures and PDFs from Services too, so its context menu and the + offer Continuity Camera's
+/// Import from iPhone or iPad (take a photo, scan documents, add a sketch): what the iPhone
+/// returns comes in as a paste does.
 final class ComposerTextView: NSTextView {
     /// What the empty field says: "Message", "Reply in Thread".
     var placeholder = "" {
@@ -125,6 +128,14 @@ final class ComposerTextView: NSTextView {
 
     override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
         super.acceptableDragTypes + Self.attachableTypes
+    }
+
+    /// Asked for what a service (Continuity Camera) returns with nothing sent: a picture or a PDF
+    /// is attached, as pasted.
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?,
+                                 returnType: NSPasteboard.PasteboardType?) -> Any? {
+        if sendType == nil, let returnType, onAttach != nil, Self.attachableTypes.contains(returnType) { return self }
+        return super.validRequestor(forSendType: sendType, returnType: returnType)
     }
 
     /// Paste and drop read the pasteboard here: files, pictures and videos on it are attached,

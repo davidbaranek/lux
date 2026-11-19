@@ -96,7 +96,13 @@ extension ThreadController {
         clearComposer()
     }
 
-    /// File > Attach Files…, or the + : the open panel, as a sheet; each file goes as a message.
+    /// The + : its menu, under it (above near the screen's bottom), for the composer (Continuity Camera's items go to it).
+    @objc func showAttachMenu(_ sender: NSButton) {
+        view.window?.makeFirstResponder(field)
+        sender.menu?.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.isFlipped ? sender.bounds.maxY + 4 : -4), in: sender)
+    }
+
+    /// File > Attach Files…, or the + 's first item: the open panel, as a sheet; each file goes as a message.
     @objc func attachFiles(_ sender: Any?) {
         guard let window = view.window else { return }
         let panel = NSOpenPanel()
