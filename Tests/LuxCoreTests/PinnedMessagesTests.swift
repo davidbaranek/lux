@@ -42,4 +42,23 @@ struct PinnedMessagesTests {
         try await changes.until { model.pinned.isEmpty }
         #expect(model.newPin == nil)
     }
+
+    @Test func aMessageIsPinnedWhileTheChatsPinsListIt() async throws {
+        let model = try await pinnedChat()
+        let changes = model.changes()
+        await model.start()
+        try await changes.until { !model.pinned.isEmpty && !model.messages.isEmpty }
+        let pin = try #require(model.pinned.first)
+        let message = try #require(model.messages.last { !$0.eventId.isEmpty && $0.eventId != pin.eventId })
+        #expect(!model.isPinned(message))
+        #expect(model.pinning(of: message) == false)
+
+        model.pin(message, true)
+        try await changes.until { model.isPinned(message) }
+        #expect(model.pinning(of: message) == true)
+        #expect(model.pinned.map(\.eventId) == [pin.eventId, message.eventId], "the newest pinned last")
+
+        model.pin(message, false)
+        try await changes.until { !model.isPinned(message) }
+    }
 }

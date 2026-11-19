@@ -324,8 +324,9 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             if let self, let message = messages[id], let layout = layouts[id] {
                 cell.show(message, layout: layout, isGroup: row.isGroup, text: text, images: images)
             }
-            // the jump's message flashes, also when its row shows later.
+            // the jump's message flashes, also when its row shows later; a pinned one shows a pin.
             cell.isJumpTarget = self?.highlighted == id
+            cell.isPinned = self?.isPinned(id) == true
             cell.onLink = { NSWorkspace.shared.open($0) }
             cell.onBubbleTap = { [weak self] in
                 guard let self, let message = messages[id] else { return }
@@ -375,6 +376,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         model.onPinned = { [weak self] pinned in
             guard let self else { return }
             newPinBar.show(model.newPin)
+            showPins()
             onPinned?(pinned)
         }
         newPinBar.show(model.newPin)
@@ -694,6 +696,21 @@ extension ThreadController: ThreadScreen {
 
     func openThread(_ thread: MatrixThread, at message: MessageLink?) {
         onOpenThread?(thread, message)
+    }
+
+    private func isPinned(_ id: String) -> Bool {
+        messages[id].map(model.isPinned) ?? false
+    }
+
+    /// The chat's pins changed: a row on screen pinned or unpinned since it was shown shows it in
+    /// place; one shown later reads it as it is made.
+    private func showPins() {
+        let rows = table.rows(in: table.visibleRect)
+        for row in rows.location..<NSMaxRange(rows) {
+            guard let id = dataSource.itemIdentifier(forRow: row),
+                  let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) as? MessageCellView else { continue }
+            cell.isPinned = isPinned(id)
+        }
     }
 
     func highlight(_ id: String?) {

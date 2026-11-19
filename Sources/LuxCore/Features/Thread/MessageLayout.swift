@@ -158,6 +158,14 @@ public struct MessageLayout: Sendable, Equatable {
     /// "WhatsApp · Today 14:32" under a message the user tapped.
     public var detail: CGRect?
 
+    /// Where a pinned message's pin goes, `side` points square, level with the top of its content
+    /// and outside it, so a pin changes no row's height: before one's own bubble, after another's,
+    /// in a plain row's trailing margin.
+    public func pin(side: CGFloat, own: Bool) -> CGRect {
+        let x = style == .plain ? bubble.maxX + 2 : own ? bubble.minX - side - 6 : bubble.maxX + 6
+        return CGRect(x: x, y: bubble.minY + 4, width: side, height: side)
+    }
+
     public static func make(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool = false, style: ChatStyle = .bubbles,
                             width: CGFloat, metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
         if message.deletedRun > 0 {

@@ -44,6 +44,10 @@ final class MessageCellView: NSTableCellView {
     private let detail = TextView()
     /// A red mark beside a message that did not go out (as Messages shows one).
     private let failed = NSImageView(image: NSImage.symbol("exclamationmark.circle.fill", label: String(localized: "Not sent")))
+    /// A pin beside a message pinned in its room (as Slack and Element mark one).
+    private let pin = NSImageView(image: NSImage.symbol("pin.fill"))
+    /// What VoiceOver reads of the message, before whether it is pinned.
+    private var spoken = ""
     private var shown: (MessageItem, MessageLayout)?
     /// The message's menu (reactions, Copy), asked for on a right click or Control-click.
     var menuProvider: (() -> NSMenu?)?
@@ -116,12 +120,15 @@ final class MessageCellView: NSTableCellView {
         }
         failed.contentTintColor = .systemRed
         failed.symbolConfiguration = .init(pointSize: 16, weight: .regular)
+        pin.contentTintColor = .secondaryLabelColor
+        pin.symbolConfiguration = .init(pointSize: 10, weight: .regular)
+        pin.isHidden = true
         band.wantsLayer = true
         band.layer?.cornerRadius = 8
         band.layer?.cornerCurve = .continuous
         replyLine.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(quoteClicked)))
         for view in [band, day, unreadMarker, avatar, plainAvatar, sender, time, replyLink, replyAvatar, replyLine, bubble,
-                     thread, readers, detail, failed] as [NSView] {
+                     thread, readers, detail, failed, pin] as [NSView] {
             addSubview(view)
         }
         bubble.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(bubbleClicked)))
@@ -190,6 +197,20 @@ final class MessageCellView: NSTableCellView {
     /// row is shown anew meanwhile. Set after `show(_:layout:isGroup:text:images:)`.
     var isJumpTarget = false {
         didSet { if isJumpTarget, !oldValue { flash() } }
+    }
+
+    /// The message is pinned in its room: a pin beside it, and VoiceOver says so. Set after
+    /// `show(_:layout:isGroup:text:images:)`, from the chat's pins.
+    var isPinned = false {
+        didSet { if isPinned != oldValue { placePin() } }
+    }
+
+    private func placePin() {
+        pin.isHidden = !isPinned || shown == nil
+        if isPinned, let (message, layout) = shown {
+            pin.frame = layout.pin(side: 12, own: message.isOwn && message.deletedRun == 0)
+        }
+        setAccessibilityLabel(isPinned ? [spoken, String(localized: "Pinned")].filter { !$0.isEmpty }.joined(separator: ", ") : spoken)
     }
 
     /// A click on the bubble's padding or its time; its text, quote and media handle their own.
@@ -349,15 +370,16 @@ final class MessageCellView: NSTableCellView {
             fileRow.frame = frame
             fileRow.show(file, own: own, text: text)
         }
-        setAccessibilityLabel([layout.sender == nil ? nil : message.senderName, message.quoteText,
-                               message.video != nil ? String(localized: "Video") : message.photo == nil ? nil : String(localized: "Photo"),
-                               message.file.map { "\($0.name), \($0.detailText)" }, message.postCard?.title,
-                               message.postCard?.description, message.body, message.footerText, message.reactionsText,
-                               message.threadText].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", "))
+        spoken = [layout.sender == nil ? nil : message.senderName, message.quoteText,
+                  message.video != nil ? String(localized: "Video") : message.photo == nil ? nil : String(localized: "Photo"),
+                  message.file.map { "\($0.name), \($0.detailText)" }, message.postCard?.title,
+                  message.postCard?.description, message.body, message.footerText, message.reactionsText,
+                  message.threadText].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
         // deleted messages folded together are a button: pressing it shows each.
-        if folded { setAccessibilityLabel(message.body) }
+        if folded { spoken = message.body }
         setAccessibilityRole(folded ? .button : .staticText)
         setAccessibilityHelp(folded ? MessageItem.unfoldDeletedHint : nil)
+        placePin()
     }
 
     /// VoiceOver's press on deleted messages folded together shows each, as a click does.

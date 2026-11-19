@@ -1,5 +1,6 @@
 //! A room's pinned messages against the SDK's mock server: the pinned event read and named, the
-//! right to pin by the power levels, and pinning sending the room's new `m.room.pinned_events`.
+//! right to pin by the power levels, pinning sending the room's new `m.room.pinned_events`, and
+//! the room subscribed while its pins are followed, as only a subscription brings them.
 
 // the sdk's futures nest deeply.
 #![recursion_limit = "256"]
@@ -16,12 +17,13 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use lux_core::ids::RoomId;
-use lux_core::ports::{ChatAccount, ChatTimelines};
+use lux_core::ports::{ChatAccount, ChatTimelines, PinsStream};
 use lux_core::preview::PreviewKind;
+use lux_core::timeline::Pins;
 use lux_matrix::MatrixAccount;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use serde_json::json;
-use wiremock::matchers::{body_partial_json, method, path, path_regex};
+use wiremock::matchers::{PathExactMatcher, body_partial_json, method, path, path_regex};
 use wiremock::{Mock, ResponseTemplate};
 
 mod support;
@@ -32,46 +34,119 @@ fn crew() -> RoomId {
     RoomId::from("!crew:matrix.org")
 }
 
-/// A server whose sync brings one encrypted group, "Climbing crew", which the account administers.
+/// A server whose sync brings one encrypted group, "Climbing crew", which the account
+/// administers, with the message `$pinned` pinned. As a server does, it sends the room's pinned
+/// events only to a sync that subscribes to the room: the room list's own `required_state`
+/// leaves them out.
 async fn server() -> MatrixMockServer {
     let server = support::server().await;
+    answer_subscription(&server, &["$pinned"], 2).await;
+    Mock::given(method("POST"))
+        .and(sync())
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(crew_sync(None))
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(server.server())
+        .await;
+    server
+}
+
+fn sync() -> PathExactMatcher {
+    path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync")
+}
+
+/// From now on, a sync subscribed to the room brings `pinned` as its pinned events (a lower
+/// `priority` answers before a higher one).
+async fn answer_subscription(server: &MatrixMockServer, pinned: &[&str], priority: u8) {
+    Mock::given(method("POST"))
+        .and(sync())
+        .and(body_partial_json(
+            json!({ "room_subscriptions": { "!crew:matrix.org": {} } }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(crew_sync(Some(pinned)))
+                .set_delay(Duration::from_millis(200)),
+        )
+        .with_priority(priority)
+        .mount(server.server())
+        .await;
+}
+
+/// A sync's answer with the group's state, and its pinned events when `pinned` is given.
+fn crew_sync(pinned: Option<&[&str]>) -> serde_json::Value {
     let state = |kind: &str, key: &str, content: serde_json::Value| {
         json!({
             "type": kind, "state_key": key, "content": content, "sender": OWN,
             "event_id": format!("${kind}"), "origin_server_ts": 1_700_000_000_000_u64,
         })
     };
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "pos": "1",
-                    "lists": { "all_rooms": { "count": 1 } },
-                    "rooms": { "!crew:matrix.org": {
-                        "name": "Climbing crew",
-                        "initial": true,
-                        "joined_count": 3,
-                        "required_state": [
-                            state("m.room.create", "", json!({ "creator": "@anna:matrix.org", "room_version": "10" })),
-                            state("m.room.name", "", json!({ "name": "Climbing crew" })),
-                            state("m.room.topic", "", json!({ "topic": "Wednesdays at the wall" })),
-                            state("m.room.encryption", "", json!({ "algorithm": "m.megolm.v1.aes-sha2" })),
-                            state("m.room.canonical_alias", "", json!({ "alias": "#crew:matrix.org" })),
-                            state("m.room.power_levels", "", json!({
-                                "users": { OWN: 100, "@anna:matrix.org": 50 },
-                                "users_default": 0, "state_default": 50,
-                            })),
-                            state("m.room.member", OWN, json!({ "membership": "join" })),
-                            state("m.room.pinned_events", "", json!({ "pinned": ["$pinned"] })),
-                        ],
-                    }},
-                }))
-                .set_delay(Duration::from_millis(200)),
-        )
+    let mut required = vec![
+        state(
+            "m.room.create",
+            "",
+            json!({ "creator": "@anna:matrix.org", "room_version": "10" }),
+        ),
+        state("m.room.name", "", json!({ "name": "Climbing crew" })),
+        state("m.room.topic", "", json!({ "topic": "Wednesdays at the wall" })),
+        state("m.room.encryption", "", json!({ "algorithm": "m.megolm.v1.aes-sha2" })),
+        state("m.room.canonical_alias", "", json!({ "alias": "#crew:matrix.org" })),
+        state(
+            "m.room.power_levels",
+            "",
+            json!({
+                "users": { OWN: 100, "@anna:matrix.org": 50 },
+                "users_default": 0, "state_default": 50,
+            }),
+        ),
+        state("m.room.member", OWN, json!({ "membership": "join" })),
+    ];
+    if let Some(pinned) = pinned {
+        required.push(state("m.room.pinned_events", "", json!({ "pinned": pinned })));
+    }
+    json!({
+        "pos": "1",
+        "lists": { "all_rooms": { "count": 1 } },
+        "rooms": { "!crew:matrix.org": {
+            "name": "Climbing crew",
+            "initial": true,
+            "joined_count": 3,
+            "required_state": required,
+        }},
+    })
+}
+
+/// The server answers for the room's message `id` (`$…`).
+async fn answer_event(server: &MatrixMockServer, id: &str, body: &str) {
+    let name = id.trim_start_matches('$');
+    Mock::given(method("GET"))
+        .and(path_regex(format!(
+            r"^/_matrix/client/v3/rooms/!crew:matrix.org/event/\${name}/?$"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "m.room.message", "event_id": id, "sender": "@anna:matrix.org",
+            "origin_server_ts": 1_700_000_000_000_u64, "room_id": "!crew:matrix.org",
+            "content": { "msgtype": "m.text", "body": body },
+        })))
         .mount(server.server())
         .await;
-    server
+}
+
+/// The pins of `stream` once they list `count` messages: the first answer is the room as it is
+/// kept, before the subscription's sync brings its pinned events.
+async fn listing(stream: &mut PinsStream, count: usize) -> Pins {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pins = stream.next().await.unwrap();
+            if pins.messages.len() == count {
+                return pins;
+            }
+        }
+    })
+    .await
+    .expect("the room's pinned events came with its subscription")
 }
 
 /// A signed-in account of `server`, synced once, in a new folder (kept with it).
@@ -87,23 +162,11 @@ async fn signed_in(server: &MatrixMockServer) -> (MatrixAccount, tempfile::TempD
 async fn a_rooms_pinned_message_is_read_seen_and_another_is_pinned() {
     let server = server().await;
     let (account, _folder) = signed_in(&server).await;
-    Mock::given(method("GET"))
-        .and(path_regex(
-            r"^/_matrix/client/v3/rooms/!crew:matrix.org/event/\$pinned/?$",
-        ))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "type": "m.room.message", "event_id": "$pinned", "sender": "@anna:matrix.org",
-            "origin_server_ts": 1_700_000_000_000_u64, "room_id": "!crew:matrix.org",
-            "content": { "msgtype": "m.text", "body": "Meet at the wall at six" },
-        })))
-        .mount(server.server())
-        .await;
+    answer_event(&server, "$pinned", "Meet at the wall at six").await;
 
+    // following the pins subscribes to the room, whose sync brings its pinned events.
     let mut pins = account.timelines().pins(&crew()).unwrap();
-    let first = tokio::time::timeout(Duration::from_secs(10), pins.next())
-        .await
-        .unwrap()
-        .unwrap();
+    let first = listing(&mut pins, 1).await;
     assert!(first.may_pin, "the account's power level lets it pin");
     let pinned: Vec<&str> = first.messages.iter().map(|pin| pin.event.as_str()).collect();
     assert_eq!(pinned, ["$pinned"]);
@@ -128,6 +191,13 @@ async fn a_rooms_pinned_message_is_read_seen_and_another_is_pinned() {
         .await
         .unwrap();
 
+    // the sync after it brings the room's new pins: the message pinned is among them.
+    answer_event(&server, "$new", "Bring the rope").await;
+    answer_subscription(&server, &["$pinned", "$new"], 1).await;
+    let after = listing(&mut pins, 2).await;
+    let pinned: Vec<&str> = after.messages.iter().map(|pin| pin.event.as_str()).collect();
+    assert_eq!(pinned, ["$pinned", "$new"]);
+
     Mock::given(method("PUT"))
         .and(path_regex(
             r"^/_matrix/client/v3/user/[^/]+/rooms/!crew:matrix.org/account_data/im.vector.room.read_pins/?$",
@@ -141,5 +211,38 @@ async fn a_rooms_pinned_message_is_read_seen_and_another_is_pinned() {
         .timelines()
         .mark_pins_seen(&crew(), &[lux_core::ids::EventId::from("$pinned")])
         .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_room_is_subscribed_only_while_its_pins_are_followed() {
+    let server = server().await;
+    let (account, _folder) = signed_in(&server).await;
+    answer_event(&server, "$pinned", "Meet at the wall at six").await;
+    // whether the room list's last sync subscribed to the room (a matcher that only looks,
+    // answering none; the encryption's sync never subscribes).
+    let (subscribed, mut asks) = tokio::sync::watch::channel(false);
+    Mock::given(move |request: &wiremock::Request| {
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap_or_default();
+        if request.url.path().ends_with("/sync") && body["conn_id"] == "room-list" {
+            subscribed.send_replace(body["room_subscriptions"].get("!crew:matrix.org").is_some());
+        }
+        false
+    })
+    .respond_with(ResponseTemplate::new(500))
+    .with_priority(1)
+    .mount(server.server())
+    .await;
+
+    let mut pins = account.timelines().pins(&crew()).unwrap();
+    listing(&mut pins, 1).await;
+    tokio::time::timeout(Duration::from_secs(10), asks.wait_for(|subscribed| *subscribed))
+        .await
+        .unwrap()
+        .unwrap();
+    drop(pins);
+    tokio::time::timeout(Duration::from_secs(10), asks.wait_for(|subscribed| !*subscribed))
+        .await
+        .expect("the sync lets the room go once nothing follows its pins")
         .unwrap();
 }

@@ -133,9 +133,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             guard let self, let message = messages[id], let layout = layouts[id] else { return }
             cell.ownFill = ownFill
             cell.show(message, layout: layout, isGroup: row.isGroup, text: text, images: images)
-            // the jump's message flashes, also when its cell shows later or is configured again.
+            // the jump's message flashes, also when its cell shows later or is configured again;
+            // a pinned message shows a pin, as the chat's pins say.
             cell.configurationUpdateHandler = { [weak self] cell, _ in
-                (cell as? MessageCell)?.isJumpTarget = self?.highlighted == id
+                guard let cell = cell as? MessageCell else { return }
+                cell.isJumpTarget = self?.highlighted == id
+                cell.isPinned = self?.isPinned(id) == true
             }
             cell.onQuoteTap = message.quote == nil ? nil : { [weak self] in self?.presenter.jump(toRepliedMessageOf: id) }
             cell.onLink = { url in UIApplication.shared.open(url) }
@@ -279,6 +282,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             guard let self else { return }
             newPinBar.show(model.newPin)
             shownDetails?.show(pinned: pinned)
+            showPins()
         }
         newPinBar.show(model.newPin)
         model.onError = { [weak self] error in self?.report(error, of: "chat") }
@@ -695,6 +699,20 @@ extension ThreadViewController: ThreadScreen {
         glideEnd = animated ? offset : nil
         collectionView.setContentOffset(CGPoint(x: collectionView.contentOffset.x, y: offset), animated: animated)
         if !animated { collectionView.layoutIfNeeded() }
+    }
+
+    private func isPinned(_ id: String) -> Bool {
+        messages[id].map(model.isPinned) ?? false
+    }
+
+    /// The chat's pins changed: a visible message pinned or unpinned since its cell was configured
+    /// reads it again; one shown later reads it as it is configured.
+    private func showPins() {
+        for path in collectionView.indexPathsForVisibleItems {
+            guard let id = dataSource.itemIdentifier(for: path),
+                  let cell = collectionView.cellForItem(at: path) as? MessageCell, cell.isPinned != isPinned(id) else { continue }
+            cell.setNeedsUpdateConfiguration()
+        }
     }
 
     func highlight(_ id: String?) {
