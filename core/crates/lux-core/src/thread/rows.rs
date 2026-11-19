@@ -18,6 +18,12 @@ use crate::timeline::{MessageKind, Reader, TimelineMessage, Window};
 /// How many messages a chat shows when it opens: its last screenful.
 pub(crate) const FIRST_SCREEN: usize = 60;
 
+/// How many messages a live timeline is paged back for, once, beyond those it waits for: a
+/// reset one for the oldest row shown, a jump's return for the reader's message (past the last
+/// page forward, whose messages may not be in the rows yet). A busy group after a long while
+/// away may need more: its rows then shrink, or the jump's stay.
+pub(crate) const RETURN_MARGIN: usize = OLDER + 50;
+
 /// How many older messages one page back shows: a large page, so a fling up meets few of them.
 /// Each insert above the reader costs the apps a layout of the rows on screen (the table views
 /// configure them again for their new positions), so fewer, larger pages scroll smoother.
@@ -118,15 +124,45 @@ impl PartialEq for ThreadRow {
     }
 }
 
+/// Where a room of the thread is between its opening and a reset of its timeline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Phase {
+    /// The backend's first list has not come.
+    Waiting,
+    /// Paged back until the timeline holds a first screen, or the room's first message.
+    Filling,
+    /// Its messages show as the timeline has them.
+    Live,
+    /// The timeline was reset to its newest messages (a limited sync): its rows wait, as they
+    /// were, until it holds `first` again, the oldest message they showed, or the page back for it
+    /// (`paged`) ends without.
+    Refilling { first: MessageId, paged: bool },
+}
+
+/// A room's first unread message, as the thread looks for it on opening: the backend answers
+/// from what the timeline holds, and when the read receipt is older, the thread pages back
+/// (its one pager) and asks again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unreading {
+    /// The backend is asked, after this many pages back for it.
+    Asking(usize),
+    /// Older messages may be unread: a page back is due, then the backend is asked again.
+    PageDue(usize),
+    /// That page is on its way.
+    Paging(usize),
+    /// Found: the message, or none.
+    Found(Option<MessageId>),
+}
+
 /// One room of the thread: its messages as the backend sends them, and which of them show.
 #[derive(Debug)]
 pub(crate) struct RoomMessages {
     pub(crate) room: ChatRoom,
     pub(crate) messages: Vec<Arc<TimelineMessage>>,
     window: Window,
-    /// The backend's first list came (or the room could not be read).
-    pub(crate) loaded: bool,
-    /// The timeline holds the room's first message.
+    pub(crate) phase: Phase,
+    pub(crate) unread: Unreading,
+    /// The timeline holds the room's first message, as the backend's last page back said.
     pub(crate) at_start: bool,
     /// Older messages asked for and not shown yet: they show as the timeline has them.
     pub(crate) older_due: usize,
@@ -140,24 +176,65 @@ impl RoomMessages {
             room,
             messages: Vec::new(),
             window: Window::new(),
-            loaded: false,
+            phase: Phase::Waiting,
+            unread: Unreading::Asking(0),
             at_start: false,
             older_due: 0,
             paging: false,
         }
     }
 
-    /// Applies a batch of the backend's diffs.
-    pub(crate) fn apply(&mut self, diffs: Vec<VectorDiff<Arc<TimelineMessage>>>) {
+    /// Applies a batch of the backend's diffs; the oldest message shown before, when the batch
+    /// took it away (the timeline was reset to its newest messages).
+    pub(crate) fn apply(&mut self, diffs: Vec<VectorDiff<Arc<TimelineMessage>>>) -> Option<MessageId> {
+        // while it refills, the window keeps its start: it would move to what the timeline holds.
+        let first = (!matches!(self.phase, Phase::Refilling { .. }))
+            .then(|| self.shown().first().map(|message| message.message.id.clone()))
+            .flatten();
         for diff in diffs {
-            // the timeline was reset to its newest messages (a limited sync): it no longer holds
-            // the room's first, until a page back says it does again.
+            // a reset: the timeline no longer holds the room's first message, until a page back
+            // says it does again.
             if matches!(diff, VectorDiff::Clear) {
                 self.at_start = false;
             }
             diff::apply(&mut self.messages, diff);
         }
-        self.loaded = true;
+        if self.phase == Phase::Waiting {
+            self.phase = Phase::Filling;
+            return None;
+        }
+        first.filter(|first| self.message(first).is_none())
+    }
+
+    /// How many messages the next page back is for, if one is due: the first screen while it
+    /// fills, the reader's place after a reset, else the first unread message.
+    pub(crate) fn page_due(&mut self) -> Option<usize> {
+        if self.paging {
+            return None;
+        }
+        let done = match &self.phase {
+            Phase::Filling => self.at_start || self.messages.len() >= FIRST_SCREEN,
+            Phase::Refilling { first, paged } => *paged || self.at_start || self.message(first).is_some(),
+            Phase::Waiting | Phase::Live => false,
+        };
+        if done {
+            self.phase = Phase::Live;
+        }
+        match &mut self.phase {
+            Phase::Waiting => None,
+            Phase::Filling => Some(FIRST_SCREEN - self.messages.len()),
+            Phase::Refilling { paged, .. } => {
+                *paged = true;
+                Some(RETURN_MARGIN)
+            }
+            Phase::Live => match self.unread {
+                Unreading::PageDue(pages) => {
+                    self.unread = Unreading::Paging(pages);
+                    Some(FIRST_SCREEN)
+                }
+                _ => None,
+            },
+        }
     }
 
     /// The messages shown, oldest first.

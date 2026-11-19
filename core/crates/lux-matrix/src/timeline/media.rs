@@ -84,8 +84,7 @@ impl ChatMedia for MatrixTimelines {
             ImageSource::Photo { .. } | ImageSource::Poster { .. } | ImageSource::Shared { .. } => {
                 let media = match source {
                     ImageSource::Photo { room, message } | ImageSource::Poster { room, message } => {
-                        let timeline = self.holding(room, message).await?;
-                        let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
+                        let (_, item) = self.holding(room, message).await?;
                         media_of(&item)
                     }
                     ImageSource::Shared { room, event } => event_media(&self.room(room)?, event).await?,
@@ -118,8 +117,7 @@ impl ChatMedia for MatrixTimelines {
     }
 
     async fn media_file(&self, room: &RoomId, message: &MessageId, folder: &Path) -> Result<PathBuf, BackendError> {
-        let timeline = self.holding(room, message).await?;
-        let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
+        let (_, item) = self.holding(room, message).await?;
         let media = media_of(&item).ok_or(BackendError::NotAllowed)?;
         self.original_file(media, folder).await
     }

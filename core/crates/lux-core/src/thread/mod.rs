@@ -17,6 +17,7 @@ mod tests;
 use crate::gone::OtherEndGone;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 use eyeball_im::VectorDiff;
@@ -111,6 +112,15 @@ pub enum Jumped {
     },
 }
 
+/// Where a jump landed, told in the update that shows its rows: never before the app has them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JumpAnswer {
+    /// The jump, as [`ThreadViewModel::jump`] numbered it.
+    pub jump: u64,
+    /// Where it landed, or why not.
+    pub landed: Result<Jumped, JumpFailure>,
+}
+
 /// Why a jump did not land.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JumpFailure {
@@ -122,26 +132,29 @@ pub enum JumpFailure {
     Failed,
 }
 
-/// The rows switched between a jump's and the live ones, keeping the reader's place: the row
-/// `from` the reader looked at shows the same message as `to` now, where it was.
+/// Why the rows changed, when it is news the app follows to the newest message. An update
+/// without one (the opening, a page, a jump, a refill after a reset, a message changing) leaves
+/// the reader where they are.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Anchor {
-    /// The row before the switch.
-    pub from: MessageId,
-    /// The row after it.
-    pub to: MessageId,
+pub enum Cause {
+    /// The user sent a message from here: this row, the newest, shows it.
+    Sent(MessageId),
+    /// New messages arrived after the newest one shown.
+    Arrived,
 }
 
-/// One frame's changes: the rows' diffs (the first batch a `Reset`), and the state if it
-/// changed.
+/// One frame's changes: the rows' diffs (the first batch a `Reset`), why they changed, and the
+/// state if it changed.
 #[derive(Clone, Debug, Default)]
 pub struct ThreadUpdate {
     /// The rows' changes, in order.
     pub rows: Vec<VectorDiff<Arc<ThreadRow>>>,
     /// The state, when it changed.
     pub state: Option<ThreadState>,
-    /// The rows switched between a jump's and the live ones: keep this row in place.
-    pub anchor: Option<Anchor>,
+    /// Why the rows changed, if it is news.
+    pub cause: Option<Cause>,
+    /// The jumps that landed (their rows among these), or did not.
+    pub jumped: Vec<JumpAnswer>,
 }
 
 /// Files to send, one message each: the platform prepares and uploads them.
@@ -186,6 +199,8 @@ pub trait ThreadListener: Send + Sync + 'static {
 #[derive(Debug)]
 pub struct ThreadViewModel {
     intents: mpsc::UnboundedSender<Intent>,
+    /// The last jump's number.
+    jumps: AtomicU64,
 }
 
 /// What the user does, to the task.
@@ -194,8 +209,8 @@ enum Intent {
     PinsSeen,
     Unpin(RoomId, EventId),
     LoadOlder,
-    JumpToReplied(MessageId, oneshot::Sender<Result<Jumped, JumpFailure>>),
-    Jump(RoomId, EventId, oneshot::Sender<Result<Jumped, JumpFailure>>),
+    JumpToReplied(MessageId, u64),
+    Jump(RoomId, EventId, u64),
     LoadNewer,
     ReturnToLive,
     SetAnchor(MessageId),
@@ -254,7 +269,14 @@ impl ThreadViewModel {
     ) -> Self {
         let (intents, receiver) = mpsc::unbounded_channel();
         runtime.spawn(task::run(backend, spec, listener, receiver));
-        Self { intents }
+        Self {
+            intents,
+            jumps: AtomicU64::new(0),
+        }
+    }
+
+    fn next_jump(&self) -> u64 {
+        self.jumps.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     fn send(&self, intent: Intent) {
@@ -273,26 +295,23 @@ impl ThreadViewModel {
         self.send(Intent::LoadOlder);
     }
 
-    /// Brings the message `message` answers into the thread, as [`jump`](Self::jump) does.
-    ///
-    /// # Errors
-    /// When `message` quotes nothing the thread knows, or the quoted message cannot be shown.
-    pub async fn jump_to_replied(&self, message: MessageId) -> Result<Jumped, JumpFailure> {
-        self.ask(|answer| Intent::JumpToReplied(message, answer))
-            .await
-            .unwrap_or(Err(JumpFailure::Failed))
+    /// Brings the message `message` answers into the thread, as [`jump`](Self::jump) does; a
+    /// quote of nothing the thread knows does not land.
+    pub fn jump_to_replied(&self, message: MessageId) -> u64 {
+        let jump = self.next_jump();
+        self.send(Intent::JumpToReplied(message, jump));
+        jump
     }
 
     /// Brings the message of `event` in `room` into the thread: scrolled to among the live rows
     /// when they hold it, else shown among its neighbours from the server (the rows are no longer
-    /// live until the user returns, or pages forward to the newest).
-    ///
-    /// # Errors
-    /// When the server has no such message, the account may not see it, or it cannot be fetched.
-    pub async fn jump(&self, room: RoomId, event: EventId) -> Result<Jumped, JumpFailure> {
-        self.ask(|answer| Intent::Jump(room, event, answer))
-            .await
-            .unwrap_or(Err(JumpFailure::Failed))
+    /// live until the user returns, or pages forward to the newest). The jump's number: an
+    /// update's [`JumpAnswer`] says where it landed, the update that shows its rows (or why not:
+    /// the server has no such message, the account may not see it, it cannot be fetched).
+    pub fn jump(&self, room: RoomId, event: EventId) -> u64 {
+        let jump = self.next_jump();
+        self.send(Intent::Jump(room, event, jump));
+        jump
     }
 
     /// Shows newer messages of a jump's rows (the user scrolled down to their end).
@@ -305,7 +324,8 @@ impl ThreadViewModel {
         self.send(Intent::ReturnToLive);
     }
 
-    /// The row the reader looks at (the topmost whole one): a switch to the live rows keeps it.
+    /// The row the reader looks at (the topmost whole one) among a jump's rows: they switch to
+    /// the live ones once those hold it too.
     pub fn set_anchor(&self, message: MessageId) {
         self.send(Intent::SetAnchor(message));
     }
@@ -315,7 +335,8 @@ impl ThreadViewModel {
         self.ask(Intent::FirstUnread).await.flatten()
     }
 
-    /// Returns once the opening fill is in (the rooms' first screens, from the server too).
+    /// Returns once the opening fill is in (the rooms' first screens, from the server too, or
+    /// their first messages).
     pub async fn loaded(&self) {
         self.ask(Intent::Loaded).await;
     }

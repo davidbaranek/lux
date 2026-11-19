@@ -128,6 +128,45 @@ impl Opened {
         updates
     }
 
+    /// Asks for a jump, and waits for its answer, the updates before it applied: a jump that
+    /// landed here comes with the rows that show it.
+    async fn jump(&mut self, room: RoomId, event: EventId) -> Result<Jumped, JumpFailure> {
+        let jump = self.model.jump(room, event);
+        self.answer(jump).await
+    }
+
+    async fn jump_to_replied(&mut self, message: MessageId) -> Result<Jumped, JumpFailure> {
+        let jump = self.model.jump_to_replied(message);
+        self.answer(jump).await
+    }
+
+    async fn answer(&mut self, jump: u64) -> Result<Jumped, JumpFailure> {
+        for _ in 0..50 {
+            tokio::time::sleep(FRAME * 3).await;
+            while let Ok(heard) = self.heard.try_recv() {
+                let Heard::Update(update) = heard else { continue };
+                let mut rows: eyeball_im::Vector<_> = self.rows.iter().cloned().collect();
+                for diff in update.rows.clone() {
+                    diff.apply(&mut rows);
+                }
+                self.rows = rows.into_iter().collect();
+                if let Some(state) = &update.state {
+                    self.state = Some(state.clone());
+                }
+                if let Some(answer) = update.jumped.iter().find(|answer| answer.jump == jump) {
+                    if let Ok(Jumped::Here(row)) = &answer.landed {
+                        assert!(
+                            self.rows.iter().any(|shown| shown.id() == row),
+                            "the answer came before its row"
+                        );
+                    }
+                    return answer.landed.clone();
+                }
+            }
+        }
+        panic!("the jump was not answered");
+    }
+
     fn state(&self) -> &ThreadState {
         self.state.as_ref().expect("a state came")
     }
@@ -170,6 +209,133 @@ async fn changes_within_a_frame_go_as_one_batch_of_row_diffs() {
     // nothing changed: nothing is sent.
     tokio::time::sleep(FRAME * 5).await;
     assert!(thread.updates().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_message_sent_from_here_says_so_with_its_row_and_others_arrive() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
+    thread.model.send_text("on my way".to_owned(), None);
+    let update = thread.frame().await;
+    let newest = thread.rows.last().expect("rows").clone();
+    assert_eq!(newest.message.message.body, "on my way");
+    assert_eq!(update.cause, Some(Cause::Sent(newest.id().clone())));
+
+    // the same chat open elsewhere sends: news, but not this view's own.
+    thread
+        .demo()
+        .send_text(&TimelineId::from(&RoomId::from("!r:demo")), "from elsewhere", None)
+        .await
+        .expect("sent");
+    assert_eq!(thread.frame().await.cause, Some(Cause::Arrived));
+    // a change to a message shown is no news.
+    let id = thread.rows[3].id().clone();
+    thread.model.toggle_detail(id);
+    assert_eq!(thread.frame().await.cause, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn older_messages_paged_in_are_no_news() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 200, ReadReceipts::Automatic).await;
+    thread.model.load_older();
+    let update = thread.frame().await;
+    assert!(!update.rows.is_empty());
+    assert_eq!(update.cause, None);
+}
+
+/// Waits frames until `done`, with the updates on the way.
+async fn frames_until(thread: &mut Opened, done: impl Fn(&Opened) -> bool) -> Vec<ThreadUpdate> {
+    let mut seen = Vec::new();
+    for _ in 0..50 {
+        tokio::time::sleep(FRAME * 3).await;
+        seen.extend(thread.updates());
+        if done(thread) {
+            return seen;
+        }
+    }
+    panic!("not within 50 frames");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timeline_reset_that_keeps_its_messages_adds_only_the_new_row() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
+    let before: Vec<String> = thread.ids().iter().map(|id| (*id).to_owned()).collect();
+
+    thread
+        .demo()
+        .reset_to_newest(&TimelineId::from(&RoomId::from("!r:demo")), 30, "after the reset");
+    let update = thread.frame().await;
+    // the rows that stay are not removed and inserted again: one new row, nothing loading.
+    assert!(
+        update.rows.iter().all(|diff| !matches!(
+            diff,
+            VectorDiff::Reset { .. } | VectorDiff::Clear | VectorDiff::Remove { .. }
+        )),
+        "{:?}",
+        update.rows
+    );
+    assert_eq!(
+        thread.ids()[..before.len()],
+        before.iter().map(String::as_str).collect::<Vec<_>>()[..]
+    );
+    assert_eq!(thread.ids().len(), before.len() + 1);
+    assert!(!thread.state().is_loading);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reset_never_blanks_the_rows_and_its_refill_adds_only_whats_new() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 200, ReadReceipts::Automatic).await;
+    let before: Vec<String> = thread.ids().iter().map(|id| (*id).to_owned()).collect();
+    // a limited sync leaves the timeline its newest two messages and a new one; the server takes
+    // a while with the page back.
+    thread.demo().page_millis.store(500, Ordering::Relaxed);
+    thread
+        .demo()
+        .reset_to_newest(&TimelineId::from(&RoomId::from("!r:demo")), 2, "after the reset");
+
+    let updates = frames_until(&mut thread, |thread| thread.ids().len() > before.len()).await;
+    // the rows never shrank: while the page came, only the state did (loading).
+    let rows: Vec<&VectorDiff<Arc<ThreadRow>>> = updates.iter().flat_map(|update| &update.rows).collect();
+    assert!(
+        rows.iter().all(|diff| !matches!(
+            diff,
+            VectorDiff::Reset { .. } | VectorDiff::Clear | VectorDiff::Remove { .. }
+        )),
+        "{rows:?}"
+    );
+    assert!(
+        updates
+            .iter()
+            .any(|update| update.state.as_ref().is_some_and(|state| state.is_loading))
+    );
+    assert_eq!(updates.iter().filter(|update| !update.rows.is_empty()).count(), 1);
+    // each row kept its id, the new one after them; a refill is no news.
+    assert_eq!(
+        thread.ids()[..before.len()],
+        before.iter().map(String::as_str).collect::<Vec<_>>()[..]
+    );
+    assert_eq!(
+        thread.rows.last().map(|row| row.message.message.body.as_str()),
+        Some("after the reset")
+    );
+    assert!(updates.iter().all(|update| update.cause.is_none()));
+    frames_until(&mut thread, |thread| !thread.state().is_loading).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refill_whose_page_fails_shows_what_the_timeline_holds() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 200, ReadReceipts::Automatic).await;
+    thread.demo().pages_fail.store(true, Ordering::Relaxed);
+    thread
+        .demo()
+        .reset_to_newest(&TimelineId::from(&RoomId::from("!r:demo")), 2, "after the reset");
+    frames_until(&mut thread, |thread| {
+        thread.ids().len() == 3 && !thread.state().is_loading
+    })
+    .await;
+    assert_eq!(
+        thread.rows.last().map(|row| row.message.message.body.as_str()),
+        Some("after the reset")
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -246,10 +412,7 @@ async fn a_jump_to_a_folded_deleted_message_unfolds_its_run_and_lands_on_its_row
     thread.frame().await;
     assert!(row_of(&thread, &three[1]).is_none());
     // the demo's events are its messages.
-    let jumped = thread
-        .model
-        .jump("!r:demo".into(), EventId::from(three[1].as_str()))
-        .await;
+    let jumped = thread.jump("!r:demo".into(), EventId::from(three[1].as_str())).await;
     assert_eq!(here(jumped), three[1]);
     thread.updates();
     assert_eq!(row_of(&thread, &three[1]).map(|row| row.deleted.len()), Some(0));
@@ -354,7 +517,7 @@ async fn older_messages_show_as_the_user_scrolls_up_until_the_first() {
     assert_eq!(thread.rows.first().map(|row| row.id().as_str()), Some("!r:demo/0"));
     assert!(thread.state().is_at_start);
     assert!(!thread.state().can_load_older);
-    let target = thread.model.jump_to_replied("!r:demo/89".into()).await;
+    let target = thread.jump_to_replied("!r:demo/89".into()).await;
     assert_eq!(target, Ok(Jumped::Here("!r:demo/79".into())));
 }
 
@@ -365,10 +528,7 @@ fn open_slow(unread: Duration, listed_unread: bool) -> (ThreadViewModel, mpsc::U
         ..DemoConfig::new(30)
     }));
     let millis = u64::try_from(unread.as_millis()).unwrap();
-    threads
-        .timelines()
-        .unread_millis
-        .store(millis, std::sync::atomic::Ordering::Relaxed);
+    threads.timelines().unread_millis.store(millis, Ordering::Relaxed);
     let (sender, heard) = mpsc::unbounded_channel();
     let room = chat_room("!r:demo", "matrix");
     let spec = ThreadSpec {
@@ -426,10 +586,7 @@ async fn a_first_unread_found_late_still_places_the_marker() {
 #[tokio::test(start_paused = true)]
 async fn a_slow_forward_holds_back_only_its_message() {
     let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
-    thread
-        .demo()
-        .forward_millis
-        .store(60_000, std::sync::atomic::Ordering::Relaxed);
+    thread.demo().forward_millis.store(60_000, Ordering::Relaxed);
     thread.model.forward("!r:demo/20".into(), "!other:demo".into());
     thread.model.delete("!r:demo/20".into());
     thread.model.toggle_reaction("!r:demo/21".into(), "👍".to_owned());
@@ -478,8 +635,9 @@ async fn a_jump_to_a_photo_in_an_album_answers_the_albums_row() {
     let photo = album.album[1].message.id.clone();
     assert_ne!(&photo, album.id());
     // the demo's events are its messages.
-    let row = thread.model.jump("!r:demo".into(), EventId::from(photo.as_str())).await;
-    assert_eq!(row, Ok(Jumped::Here(album.id().clone())));
+    let album = album.id().clone();
+    let row = thread.jump("!r:demo".into(), EventId::from(photo.as_str())).await;
+    assert_eq!(row, Ok(Jumped::Here(album)));
 }
 
 // MARK: Matrix threads
@@ -661,10 +819,7 @@ async fn open_long(rooms: Vec<ChatRoom>, messages: usize, tail: usize) -> Opened
         messages_per_room: messages,
         ..DemoConfig::new(30)
     }));
-    threads
-        .timelines()
-        .live_tail
-        .store(tail, std::sync::atomic::Ordering::Relaxed);
+    threads.timelines().live_tail.store(tail, Ordering::Relaxed);
     open_on(threads, rooms, ReadReceipts::Automatic, None).await
 }
 
@@ -691,7 +846,7 @@ async fn until_live(thread: &mut Opened, live: bool) -> Vec<ThreadUpdate> {
 #[tokio::test(start_paused = true)]
 async fn a_message_the_live_rows_hold_is_scrolled_to_and_they_stay_live() {
     let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 200, 0).await;
-    let row = here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/120")).await);
+    let row = here(thread.jump("!r:demo".into(), EventId::from("!r:demo/120")).await);
     assert_eq!(row.as_str(), "!r:demo/120");
     thread.updates();
     assert!(thread.ids().contains(&"!r:demo/120"));
@@ -701,26 +856,25 @@ async fn a_message_the_live_rows_hold_is_scrolled_to_and_they_stay_live() {
 #[tokio::test(start_paused = true)]
 async fn an_old_message_shows_among_its_neighbours_until_the_user_returns() {
     let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
-    let row = here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/40")).await);
+    let row = here(thread.jump("!r:demo".into(), EventId::from("!r:demo/40")).await);
     until_live(&mut thread, false).await;
+    // the message by its own id: a message's id is its event's in every timeline.
+    assert_eq!(row.as_str(), "!r:demo/40");
     assert!(thread.ids().contains(&row.as_str()));
-    assert!(
-        thread.ids().iter().all(|id| id.starts_with('@')),
-        "only the jump's rows"
-    );
+    assert!(!thread.ids().contains(&"!r:demo/299"), "only the jump's rows");
     assert!(thread.state().can_load_newer);
 
     thread.model.return_to_live();
     until_live(&mut thread, true).await;
     assert_eq!(thread.ids().last(), Some(&"!r:demo/299"));
-    assert!(thread.ids().iter().all(|id| !id.starts_with('@')));
+    assert!(!thread.ids().contains(&"!r:demo/40"));
     assert!(!thread.state().can_load_newer);
 }
 
 #[tokio::test(start_paused = true)]
 async fn paging_forward_to_the_newest_switches_to_the_live_rows_at_the_readers_message() {
     let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
-    here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/200")).await);
+    here(thread.jump("!r:demo".into(), EventId::from("!r:demo/200")).await);
     until_live(&mut thread, false).await;
     // the reader looks at a message the live rows do not hold yet (they start at the 240th).
     let reading = thread
@@ -733,12 +887,12 @@ async fn paging_forward_to_the_newest_switches_to_the_live_rows_at_the_readers_m
     thread.model.load_newer();
 
     let updates = until_live(&mut thread, true).await;
-    let anchor = updates
-        .iter()
-        .find_map(|update| update.anchor.clone())
-        .expect("the switch keeps the reader's row");
-    assert_eq!(anchor.from, reading);
-    assert_eq!(anchor.to.as_str(), "!r:demo/230");
+    // the reader's row is the same in both, by its id: the app keeps it where it was.
+    assert_eq!(reading.as_str(), "!r:demo/230");
+    assert!(
+        updates.iter().all(|update| update.cause.is_none()),
+        "a switch is no news"
+    );
     // the live rows from the reader's message to the newest: none twice, none missing.
     let ids = thread.ids();
     let from = ids
@@ -763,7 +917,7 @@ async fn paging_forward_to_the_newest_switches_to_the_live_rows_at_the_readers_m
 #[tokio::test(start_paused = true)]
 async fn sending_from_a_jumps_rows_returns_to_the_live_ones_first() {
     let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
-    here(thread.model.jump("!r:demo".into(), EventId::from("!r:demo/40")).await);
+    here(thread.jump("!r:demo".into(), EventId::from("!r:demo/40")).await);
     until_live(&mut thread, false).await;
     thread.model.send_text("back to now".to_owned(), None);
     until_live(&mut thread, true).await;
@@ -775,7 +929,7 @@ async fn sending_from_a_jumps_rows_returns_to_the_live_ones_first() {
 async fn a_merged_chat_shows_a_jumps_room_alone_and_its_own_filter_again_after() {
     let rooms = vec![chat_room("!a:demo", "whatsapp"), chat_room("!b:demo", "signal")];
     let mut thread = open_long(rooms, 300, 60).await;
-    here(thread.model.jump("!b:demo".into(), EventId::from("!b:demo/40")).await);
+    here(thread.jump("!b:demo".into(), EventId::from("!b:demo/40")).await);
     until_live(&mut thread, false).await;
     assert_eq!(thread.state().shown_room.as_ref().map(RoomId::as_str), Some("!b:demo"));
     assert!(thread.rows.iter().all(|row| row.room.as_str() == "!b:demo"));
@@ -792,18 +946,39 @@ async fn a_merged_chat_shows_a_jumps_room_alone_and_its_own_filter_again_after()
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_jumps_answer_comes_in_the_update_that_brings_its_rows() {
+    let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
+    let jump = thread.model.jump("!r:demo".into(), EventId::from("!r:demo/40"));
+    let answering = loop {
+        tokio::time::sleep(FRAME * 3).await;
+        if let Some(update) = thread.updates().into_iter().find(|update| !update.jumped.is_empty()) {
+            break update;
+        }
+    };
+    assert_eq!(answering.jumped.len(), 1);
+    assert_eq!(answering.jumped[0].jump, jump);
+    assert_eq!(answering.jumped[0].landed, Ok(Jumped::Here("!r:demo/40".into())));
+    // the same update brings the jump's rows, the message among them.
+    let brings = |row: &Arc<ThreadRow>| row.id().as_str() == "!r:demo/40";
+    assert!(answering.rows.iter().any(|diff| match diff {
+        VectorDiff::Reset { values } | VectorDiff::Append { values } => values.iter().any(brings),
+        VectorDiff::Insert { value, .. } | VectorDiff::PushBack { value } | VectorDiff::PushFront { value } => {
+            brings(value)
+        }
+        _ => false,
+    }));
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_jump_the_server_cannot_show_leaves_the_rows_as_they_are() {
     let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
     let before = thread.ids().iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
     assert_eq!(
-        thread.model.jump("!r:demo".into(), EventId::from("$gone")).await,
+        thread.jump("!r:demo".into(), EventId::from("$gone")).await,
         Err(JumpFailure::NotFound)
     );
     assert_eq!(
-        thread
-            .model
-            .jump("!elsewhere:demo".into(), EventId::from("!r:demo/40"))
-            .await,
+        thread.jump("!elsewhere:demo".into(), EventId::from("!r:demo/40")).await,
         Err(JumpFailure::NotFound)
     );
     tokio::time::sleep(FRAME * 3).await;

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use lux_core::ids::{EventId, MediaId, MessageId, RoomId, UserId};
 use lux_core::message::{self, Attachment, Message, SendState};
+use lux_core::ports::BackendError;
 use lux_core::preview::{PreviewKind, PreviewSource as QuotedKind};
 use lux_core::timeline::{
     FileKind, Media, MessageKind, Participant, Picture, Quote, Reaction, Reader, SharedPost, TextStyle, ThreadReply,
@@ -19,17 +20,42 @@ use matrix_sdk::ruma::events::relation::RelationType;
 use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::ruma::events::room::message::{FormattedBody, MessageFormat, MessageType};
 use matrix_sdk::ruma::serde::Raw;
-use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UInt};
+use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UInt};
 use matrix_sdk_ui::timeline::{
     EventSendState, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, Profile,
-    ThreadSummary as SdkSummary, TimelineDetails, TimelineItem, TimelineItemContent,
+    ThreadSummary as SdkSummary, TimelineDetails, TimelineEventItemId, TimelineItem, TimelineItemContent,
+    TimelineUniqueId,
 };
 
 use super::previews::{LinkPreview, LinkPreviews};
 use crate::convert::{member_name, system_time};
 
+/// A message's id: its room, then its event, or `~` and its send's transaction for the account's
+/// message on its way. The same event has the same id in every timeline of the room, and through
+/// a reset.
+pub(crate) fn message_id(room: &RoomId, item: &TimelineEventItemId) -> MessageId {
+    match item {
+        TimelineEventItemId::EventId(event) => MessageId::from(format!("{room}/{event}")),
+        TimelineEventItemId::TransactionId(sent) => MessageId::from(format!("{room}/~{sent}")),
+    }
+}
+
+/// The SDK's id of the item a message's id names, as the SDK's actions take it (it finds a sent
+/// message by its transaction too).
+///
+/// # Errors
+/// When it is no message id.
+pub(crate) fn item_id(message: &MessageId) -> Result<TimelineEventItemId, BackendError> {
+    let (_, item) = message.as_str().split_once('/').ok_or(BackendError::UnknownMessage)?;
+    Ok(match item.strip_prefix('~') {
+        Some(sent) => TimelineEventItemId::TransactionId(OwnedTransactionId::from(sent)),
+        None => TimelineEventItemId::EventId(OwnedEventId::try_from(item).map_err(|_| BackendError::UnknownMessage)?),
+    })
+}
+
 /// Maps one room's items. Owned by the room's timeline task: it remembers the names of the
-/// people it met, and the replies whose quoted message it asked the SDK for.
+/// people it met, the replies whose quoted message it asked the SDK for, and the account's sent
+/// messages' transactions.
 pub(crate) struct ItemMapper {
     room: Room,
     /// What shared posts' addresses say about them.
@@ -43,6 +69,11 @@ pub(crate) struct ItemMapper {
     /// the replies themselves).
     sums_threads: bool,
     asked: HashSet<OwnedEventId>,
+    /// The local echoes, by the item the SDK keeps for their remote echo.
+    echoes: HashMap<TimelineUniqueId, OwnedTransactionId>,
+    /// The account's messages sent from this timeline, by their event: each keeps its
+    /// transaction's id, so its row stays as its remote echo replaces its local one.
+    sent: HashMap<OwnedEventId, OwnedTransactionId>,
 }
 
 /// A message, and the event whose quoted message is still to fetch.
@@ -64,7 +95,30 @@ impl ItemMapper {
             avatars: HashMap::new(),
             sums_threads: true,
             asked: HashSet::new(),
+            echoes: HashMap::new(),
+            sent: HashMap::new(),
         }
+    }
+
+    /// The SDK's id of the item's message, as its id says it: a local echo's transaction, kept
+    /// once it is sent (the SDK keeps the item for its remote echo, whichever comes first, the
+    /// send's answer or the sync's echo).
+    fn item_id(&mut self, item: &TimelineItem, event: &EventTimelineItem) -> Option<TimelineEventItemId> {
+        if let Some(sent) = event.transaction_id() {
+            self.echoes.insert(item.unique_id().clone(), sent.to_owned());
+            if let Some(event) = event.event_id() {
+                self.sent.insert(event.to_owned(), sent.to_owned());
+            }
+            return Some(TimelineEventItemId::TransactionId(sent.to_owned()));
+        }
+        let event = event.event_id()?;
+        if let Some(sent) = self.echoes.remove(item.unique_id()) {
+            self.sent.insert(event.to_owned(), sent);
+        }
+        Some(match self.sent.get(event) {
+            Some(sent) => TimelineEventItemId::TransactionId(sent.clone()),
+            None => TimelineEventItemId::EventId(event.to_owned()),
+        })
     }
 
     /// The mapper of a Matrix thread's own timeline: its root carries no summary.
@@ -87,7 +141,7 @@ impl ItemMapper {
                 fetch_quote_of: None,
             };
         };
-        let Some(mut shown) = Shown::of(content) else {
+        let (Some(mut shown), Some(id)) = (Shown::of(content), self.item_id(item, event)) else {
             return Mapped {
                 message: None,
                 fetch_quote_of: None,
@@ -126,7 +180,7 @@ impl ItemMapper {
         };
         let message = TimelineMessage {
             message: Message {
-                id: MessageId::from(item.unique_id().0.as_str()),
+                id: message_id(&self.room_id, &id),
                 sender: UserId::from(event.sender().as_str()),
                 room: Some(self.room_id.clone()),
                 date: system_time(event.timestamp()),

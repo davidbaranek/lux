@@ -1,32 +1,48 @@
 //! A jump to a message the live rows do not hold. The rows show it among its neighbours, from a
 //! timeline the backend opens around it (one request), while the live timelines go on underneath.
 //! They are live again when the user returns ("jump to bottom", sending, all rooms of a merged
-//! chat), or when paging forward reaches the newest. Then the switch keeps the reader's row in
-//! place: it waits until the live rows hold that message too, paging the live timeline back once,
-//! a bounded number of messages, if they do not yet. A page's answer can come before its messages
-//! do, so the switch is decided by the live batches themselves, never by the page's end.
+//! chat), or when paging forward reaches the newest. Then the switch keeps the reader's row: it
+//! waits until the live rows hold that message too (a message has the same id in both), paging
+//! the live timeline back once, a bounded number of messages, if they do not yet. A page's answer
+//! can come before its messages do, so the switch is decided by the live batches themselves,
+//! never by the page's end.
 
 use crate::gone::OtherEndGone;
 use std::mem;
 use std::sync::Arc;
 
 use futures_util::StreamExt;
-use tokio::sync::oneshot;
+use tokio::sync::mpsc;
 
 use super::{Event, Thread};
 use crate::ids::{EventId, MessageId, RoomId, TimelineId};
 use crate::ports::{BackendError, ChatTimelines, Diffs, ThreadBackend, TimelineHold};
-use crate::thread::rows::{OLDER, RoomMessages};
-use crate::thread::{Anchor, JumpFailure, Jumped};
+use crate::thread::rows::{OLDER, Phase, RETURN_MARGIN, RoomMessages};
+use crate::thread::{JumpAnswer, JumpFailure, Jumped};
 use crate::timeline::{Focused, TimelineMessage};
 
-/// Who waits for a jump.
-pub(in crate::thread) type Answer = oneshot::Sender<Result<Jumped, JumpFailure>>;
+/// Who waits for a jump: the app, told with the next update the task sends, after its rows.
+pub(in crate::thread) struct Answer {
+    jump: u64,
+    to: mpsc::UnboundedSender<JumpAnswer>,
+}
 
-/// How many messages past the reader's the live timeline is paged back for, beyond those the
-/// jump's rows hold after it: the last page forward (whose messages may not be in the rows yet)
-/// and one server page more.
-const RETURN_MARGIN: usize = OLDER + 50;
+impl Answer {
+    pub(in crate::thread) fn new(jump: u64, to: mpsc::UnboundedSender<JumpAnswer>) -> Self {
+        Self { jump, to }
+    }
+
+    /// Where the jump landed, or why not, for the next update.
+    pub(in crate::thread) fn send(
+        self,
+        landed: Result<Jumped, JumpFailure>,
+    ) -> Result<(), mpsc::error::SendError<JumpAnswer>> {
+        self.to.send(JumpAnswer {
+            jump: self.jump,
+            landed,
+        })
+    }
+}
 
 /// The thread's jumps: the one shown, the one opening, the way back.
 #[derive(Default)]
@@ -47,8 +63,6 @@ pub(in crate::thread) struct Jumps {
     pub(in crate::thread) anchor: Option<MessageId>,
     /// Paging forward reached the newest: the switch waits for the live rows to hold this.
     returning: Option<Returning>,
-    /// The switch the next update tells the app, to keep the reader's row in place.
-    pub(in crate::thread) switched: Option<Anchor>,
 }
 
 /// A jump's rows: one room's timeline opened around a message.
@@ -75,10 +89,8 @@ impl Detached {
 
 /// The switch back to the live rows, waiting for them to hold the reader's message.
 struct Returning {
-    /// The reader's row among the jump's.
-    from: MessageId,
-    /// Its message.
-    event: EventId,
+    /// The reader's message.
+    message: MessageId,
     /// How many messages the live timeline is paged back for it, once; 0 once asked for.
     budget: usize,
 }
@@ -102,7 +114,7 @@ impl<B: ThreadBackend> Thread<B> {
                 .other_end_may_be_gone("the caller");
             return;
         };
-        if self.rooms.get(index).is_some_and(|room| !room.loaded) {
+        if self.rooms.get(index).is_some_and(|room| room.phase == Phase::Waiting) {
             // what the device holds decides: its live messages come first.
             self.jumps.waiting.push((room, event, answer));
             return;
@@ -277,11 +289,7 @@ impl<B: ThreadBackend> Thread<B> {
         let (generation, id) = (detached.generation, detached.id.clone());
         let (backend, events) = (Arc::clone(&self.backend), self.events.clone());
         self.followers.spawn(async move {
-            let timelines = backend.timelines();
-            let at_start = match timelines.load_older(&id, missing).await {
-                Ok(()) => timelines.is_at_start(&id).await.ok(),
-                Err(_) => None,
-            };
+            let at_start = backend.timelines().load_older(&id, missing).await.ok();
             events
                 .send(Event::JumpPaged(generation, true, at_start))
                 .other_end_may_be_gone("the thread's task");
@@ -327,9 +335,7 @@ impl<B: ThreadBackend> Thread<B> {
         };
         if older {
             detached.messages.paging = false;
-            if let Some(at_start) = reached {
-                detached.messages.at_start = at_start;
-            }
+            detached.messages.at_start |= reached == Some(true);
             return;
         }
         detached.paging_newer = false;
@@ -355,38 +361,27 @@ impl<B: ThreadBackend> Thread<B> {
             self.leave_detached();
             return;
         };
-        let Some(event) = message.event_id.clone() else {
-            self.leave_detached();
-            return;
-        };
         self.jumps.returning = Some(Returning {
-            from: message.message.id.clone(),
-            event,
+            message: message.message.id.clone(),
             // the reader's message is at most this many before the newest.
             budget: messages.len() - position + RETURN_MARGIN,
         });
         self.try_return();
     }
 
-    /// Switches to the live rows once they hold the reader's message; pages the live timeline
-    /// back for it, once, as far as the budget goes; else the jump's rows stay.
+    /// Switches to the live rows once they hold the reader's message, its row where the reader
+    /// sees it; pages the live timeline back for it, once, as far as the budget goes; else the
+    /// jump's rows stay.
     pub(super) fn try_return(&mut self) {
         let Some(index) = self.jumps.detached.as_ref().map(|detached| detached.index) else {
             self.jumps.returning = None;
             return;
         };
-        let Some(id) = self.rooms.get(index).map(|room| self.timeline(&room.room.id)) else {
+        let (Some(returning), Some(room)) = (self.jumps.returning.as_mut(), self.rooms.get_mut(index)) else {
             return;
         };
-        let Some(returning) = self.jumps.returning.as_mut() else {
-            return;
-        };
-        let Some(room) = self.rooms.get_mut(index) else { return };
-        if let Some(to) = room.find_event(&returning.event) {
-            room.reveal(&to);
-            let from = returning.from.clone();
+        if room.reveal(&returning.message) {
             self.leave_detached();
-            self.jumps.switched = Some(Anchor { from, to });
             return;
         }
         if room.paging || room.at_start || returning.budget == 0 {
@@ -395,20 +390,7 @@ impl<B: ThreadBackend> Thread<B> {
             return;
         }
         let missing = mem::take(&mut returning.budget);
-        room.paging = true;
-        self.paging += 1;
-        self.dirty.state = true;
-        let (backend, events) = (Arc::clone(&self.backend), self.events.clone());
-        self.followers.spawn(async move {
-            let timelines = backend.timelines();
-            let at_start = match timelines.load_older(&id, missing).await {
-                Ok(()) => timelines.is_at_start(&id).await.ok(),
-                Err(_) => None,
-            };
-            events
-                .send(Event::Paged(index, at_start))
-                .other_end_may_be_gone("the thread's task");
-        });
+        self.page(index, missing);
     }
 
     /// Shows the live rows again, at the newest: no row is kept in place.

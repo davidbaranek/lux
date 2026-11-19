@@ -79,6 +79,14 @@ async fn until(
     .expect("the timeline did not get there in time")
 }
 
+/// The thread held and open, a page back of it asked for, as a thread's view does.
+async fn opened(timelines: &MatrixTimelines) -> lux_core::ports::TimelineHold {
+    let hold = timelines.hold(&thread());
+    drop(timelines.messages(&thread()).await.unwrap());
+    timelines.load_older(&thread(), 50).await.unwrap();
+    hold
+}
+
 fn bodies(messages: &[Arc<TimelineMessage>]) -> Vec<&str> {
     messages.iter().map(|message| message.message.body.as_str()).collect()
 }
@@ -190,15 +198,15 @@ async fn a_thread_shows_its_root_and_replies_and_sends_its_replies() {
         .mount()
         .await;
     let timelines = MatrixTimelines::new(client, None);
-    let _hold = timelines.hold(&thread());
+    let _hold = opened(&timelines).await;
 
     let page = until(&timelines, &thread(), |page| page.len() == 3).await;
     assert_eq!(bodies(&page)[0], "trip on saturday?");
     assert_eq!(bodies(&page)[2], "count me in");
-    // the root in the thread is not summed up again, and has an id of its own.
+    // the root in the thread is not summed up again; it is the same message, by its event.
     assert!(page[0].thread.is_none());
     let main = until(&timelines, &room(), |page| page.len() == 2).await;
-    assert_ne!(main[0].message.id, page[0].message.id);
+    assert_eq!(main[0].message.id, page[0].message.id);
 
     timelines.send_text(&thread(), "see you there", None).await.unwrap();
     let page = until(&timelines, &thread(), |page| {
@@ -237,10 +245,10 @@ async fn a_thread_paged_back_to_its_root_is_at_its_start() {
         .await;
     let timelines = MatrixTimelines::new(client, None);
     let _hold = timelines.hold(&thread());
+    let _messages = timelines.messages(&thread()).await.unwrap();
 
     // the SDK marks no start item on a thread's timeline: its page back says it.
-    timelines.load_older(&thread(), 50).await.unwrap();
-    assert!(timelines.is_at_start(&thread()).await.unwrap());
+    assert!(timelines.load_older(&thread(), 50).await.unwrap());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -276,7 +284,7 @@ async fn reacting_join_thread_to_the_bridges_notice_joins_and_its_replies_come_i
         .mount()
         .await;
     let timelines = MatrixTimelines::new(client.clone(), None);
-    let _hold = timelines.hold(&thread());
+    let _hold = opened(&timelines).await;
     let page = until(&timelines, &thread(), |page| page.len() == 3).await;
     let notice = &page[1];
     assert!(notice.message.body.starts_with("Thread created."));

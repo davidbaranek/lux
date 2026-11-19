@@ -1,7 +1,8 @@
 //! Sending to a room through its send queue: text, replies, edits, deletions, reactions,
 //! attachments, forwards; the composer's draft, read receipts and typing notices. What goes to a
 //! Matrix thread goes through its timeline, which makes it the thread's reply; a message is acted
-//! on in the open timeline that shows it.
+//! on in the open timeline that shows it, by the SDK's id its own id names. None of it opens a
+//! timeline: a chat sends through the one its view holds.
 
 use std::path::Path;
 
@@ -33,7 +34,7 @@ use crate::errors::from_sdk;
 
 impl ChatSending for MatrixTimelines {
     async fn send_text(&self, to: &TimelineId, text: &str, reply: Option<&MessageRef>) -> Result<(), BackendError> {
-        let timeline = self.open(to).await?;
+        let timeline = self.held(to).await?;
         match reply {
             Some(reply) => {
                 let event = timeline.event_id(reply).await?;
@@ -60,8 +61,7 @@ impl ChatSending for MatrixTimelines {
     }
 
     async fn edit(&self, room: &RoomId, message: &MessageId, text: &str) -> Result<(), BackendError> {
-        let timeline = self.holding(room, message).await?;
-        let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
+        let (timeline, item) = self.holding(room, message).await?;
         if !item.is_editable() {
             return Err(BackendError::NotAllowed);
         }
@@ -76,14 +76,17 @@ impl ChatSending for MatrixTimelines {
     }
 
     async fn delete(&self, room: &RoomId, message: &MessageId) -> Result<(), BackendError> {
-        let timeline = self.holding(room, message).await?;
-        let item = timeline.identifier(message).await?;
-        timeline.timeline.redact(&item, None).await.map_err(from_timeline)
+        let (timeline, item) = self.holding(room, message).await?;
+        timeline
+            .timeline
+            .redact(&item.identifier(), None)
+            .await
+            .map_err(from_timeline)
     }
 
     async fn retry(&self, room: &RoomId, message: &MessageId) -> Result<(), BackendError> {
-        let timeline = self.holding(room, message).await?;
-        let item = timeline.identifier(message).await?;
+        let (timeline, item) = self.holding(room, message).await?;
+        let item = item.identifier();
         // a passing failure turned the room's queue off: unwedging alone would leave it waiting.
         timeline.room.send_queue().set_enabled(true);
         timeline
@@ -95,22 +98,20 @@ impl ChatSending for MatrixTimelines {
     }
 
     async fn discard(&self, room: &RoomId, message: &MessageId) -> Result<(), BackendError> {
-        let timeline = self.holding(room, message).await?;
-        let item = timeline.identifier(message).await?;
+        let (timeline, item) = self.holding(room, message).await?;
         timeline
             .timeline
-            .abort_send(&item, SendTarget::Event)
+            .abort_send(&item.identifier(), SendTarget::Event)
             .await
             .map(drop)
             .map_err(from_timeline)
     }
 
     async fn toggle_reaction(&self, room: &RoomId, message: &MessageId, key: &str) -> Result<(), BackendError> {
-        let timeline = self.holding(room, message).await?;
-        let item = timeline.identifier(message).await?;
+        let (timeline, item) = self.holding(room, message).await?;
         timeline
             .timeline
-            .toggle_reaction(&item, key)
+            .toggle_reaction(&item.identifier(), key)
             .await
             .map(drop)
             .map_err(from_timeline)
@@ -123,7 +124,7 @@ impl ChatSending for MatrixTimelines {
         caption: Option<&str>,
         reply: Option<&MessageRef>,
     ) -> Result<UploadStream, BackendError> {
-        let timeline = self.open(to).await?;
+        let timeline = self.held(to).await?;
         let reply = match reply {
             Some(reply) => Some(timeline.event_id(reply).await?),
             None => None,
@@ -141,8 +142,7 @@ impl ChatSending for MatrixTimelines {
         let target = target
             .send_room(&self.cuts.borrow().merges)
             .ok_or_else(|| BackendError::UnknownChat(target.clone()))?;
-        let timeline = self.holding(room, message).await?;
-        let item = timeline.item(message).await.ok_or(BackendError::UnknownMessage)?;
+        let (_, item) = self.holding(room, message).await?;
         // the message alone: no reply, no edit, no thread; its media keep their uploads.
         let content = item
             .content()
@@ -181,8 +181,12 @@ impl ChatSending for MatrixTimelines {
         let sdk_room = self.room(&of.room)?;
         let thread = thread_root(of)?;
         let draft_type = match reply {
+            Some(MessageRef::Event(event)) => ComposerDraftType::Reply {
+                event_id: OwnedEventId::try_from(event.as_str()).map_err(|_| BackendError::UnknownMessage)?,
+            },
+            // a message on its way has no event yet unless its timeline knows it.
             Some(reply) => ComposerDraftType::Reply {
-                event_id: self.open(of).await?.event_id(reply).await?,
+                event_id: self.held(of).await?.event_id(reply).await?,
             },
             None if text.is_empty() => {
                 return sdk_room.clear_composer_draft(thread.as_deref()).await.map_err(from_sdk);
@@ -277,7 +281,7 @@ impl MatrixTimelines {
             sender_avatar: None,
             kind: None,
         };
-        if let Ok(timeline) = self.open(room).await
+        if let Some(timeline) = self.opened(room).await
             && let Some(item) = timeline.timeline.item_by_event_id(event).await
         {
             quote.sender_name = profile_name(item.sender_profile(), item.sender().localpart());

@@ -178,11 +178,8 @@ async fn paging_back_shows_older_messages_and_reaches_the_start() {
         .await;
     let timelines = MatrixTimelines::new(client, None);
 
-    // the opening fills its first screen from the server, back to the start.
+    // opened ahead of time, a page back from the server comes with it.
     timelines.prefetch(&room().into()).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
-        .await
-        .unwrap();
     let page = page_until(&timelines, |page| page.len() == 3).await;
     assert_eq!(
         page.iter()
@@ -190,8 +187,8 @@ async fn paging_back_shows_older_messages_and_reaches_the_start() {
             .collect::<Vec<_>>(),
         ["oldest", "older", "newest"]
     );
-    timelines.load_older(&room().into(), 20).await.unwrap();
-    assert!(timelines.is_at_start(&room().into()).await.unwrap());
+    // the next page's answer says it is at the start: the SDK's own word, the only one.
+    assert!(timelines.load_older(&room().into(), 20).await.unwrap());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -430,7 +427,7 @@ async fn reading_sends_a_private_receipt_unless_asked_for_a_public_one() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_first_unread_message_is_paged_back_to() {
+async fn the_first_unread_message_is_found_once_a_page_back_holds_the_receipt() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
     let factory = EventFactory::new().room(room_id!("!chat:example.org"));
@@ -439,7 +436,12 @@ async fn the_first_unread_message_is_paged_back_to() {
     // a first screen of unread messages; the receipt is on an older one the timeline lacks.
     let mut joined = JoinedRoomBuilder::new(room_id!("!chat:example.org"));
     for number in 0..60 {
-        joined = joined.add_timeline_event(factory.text_msg(format!("new {number}")).sender(alice));
+        joined = joined.add_timeline_event(
+            factory
+                .text_msg(format!("new {number}"))
+                .sender(alice)
+                .server_ts(2_000 + number),
+        );
     }
     let joined = joined
         .add_receipt(
@@ -464,22 +466,30 @@ async fn the_first_unread_message_is_paged_back_to() {
                 factory
                     .text_msg("first unread")
                     .sender(alice)
-                    .event_id(event_id!("$unread")),
-                factory.text_msg("read").sender(alice).event_id(event_id!("$read")),
+                    .event_id(event_id!("$unread"))
+                    .server_ts(1_500),
+                factory
+                    .text_msg("read")
+                    .sender(alice)
+                    .event_id(event_id!("$read"))
+                    .server_ts(1_000),
             ])
             .end_token("older"))
         .mount()
         .await;
     let timelines = MatrixTimelines::new(client, None);
-    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
-        .await
-        .unwrap();
+    let held = snapshot(&timelines).await;
 
-    let first = timelines
-        .first_unread(&room().into())
-        .await
-        .unwrap()
-        .expect("an unread message");
+    // the receipt is older than all the timeline holds: older messages may be unread too.
+    let unread = timelines.first_unread(&room().into()).await.unwrap();
+    assert!(!unread.complete);
+    assert_eq!(unread.first, Some(held[0].message.id.clone()));
+    // the thread pages back (nothing pages by itself), and asks again.
+    timelines.load_older(&room().into(), 50).await.unwrap();
+    page_until(&timelines, body_is("first unread")).await;
+    let unread = timelines.first_unread(&room().into()).await.unwrap();
+    assert!(unread.complete);
+    let first = unread.first.expect("an unread message");
     let page = snapshot(&timelines).await;
     let shown = page
         .iter()
@@ -537,11 +547,9 @@ async fn a_newer_receipt_on_an_event_no_row_shows_reads_what_came_before_it() {
         );
     server.sync_room(&client, joined).await;
     let timelines = MatrixTimelines::new(client, None);
-    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
-        .await
-        .unwrap();
+    snapshot(&timelines).await;
 
-    assert_eq!(timelines.first_unread(&room().into()).await.unwrap(), None);
+    assert_eq!(timelines.first_unread(&room().into()).await.unwrap().first, None);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -980,9 +988,7 @@ async fn chat_with_quiet_pages(server: &MatrixMockServer, quiet: usize) -> Matri
         .await;
     let timelines = MatrixTimelines::new(client, None);
     timelines.prefetch(&room().into()).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
-        .await
-        .unwrap();
+    page_until(&timelines, |page| page.len() > FIRST_SCREEN).await;
     timelines
 }
 
@@ -998,13 +1004,17 @@ async fn paging_back_over_pages_without_messages_does_not_wait_on_them() {
     let server = MatrixMockServer::new().await;
     let timelines = chat_with_quiet_pages(&server, QUIET_PAGES).await;
 
-    // more than the room has: back to its start, over the quiet pages.
+    // more than the room has: back to its start, over the quiet pages, one page an answer.
     let started = std::time::Instant::now();
-    timelines.load_older(&room().into(), 1000).await.unwrap();
+    let mut pages = 0;
+    while !timelines.load_older(&room().into(), 1000).await.unwrap() {
+        pages += 1;
+        assert!(pages <= QUIET_PAGES + 1, "paged past the start");
+    }
 
     let took = started.elapsed();
     assert!(took < AT_ONCE, "paging back took {took:?}");
-    assert!(timelines.is_at_start(&room().into()).await.unwrap());
+    page_until(&timelines, body_is("target")).await;
     assert!(
         snapshot(&timelines)
             .await
@@ -1044,9 +1054,6 @@ async fn chat_with_a_gap(server: &MatrixMockServer, client: &Client, open_before
     let timelines = MatrixTimelines::new(client.clone(), None);
     if open_before {
         timelines.prefetch(&room().into()).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(10), timelines.wait_until_filled(&room().into()))
-            .await
-            .unwrap();
         page_until(&timelines, |page| page.len() == 2).await;
     }
     server
@@ -1080,12 +1087,134 @@ async fn a_chat_opened_after_a_limited_sync_shows_what_came_in_its_gap() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_open_chat_shows_what_came_in_a_limited_syncs_gap() {
+async fn an_open_chat_reset_by_a_limited_sync_pages_back_into_its_gap_when_asked() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
-    // open and filled before: the limited sync resets it to its newest message.
+    // open before: the limited sync resets it to its newest message, and nothing pages by itself.
     let timelines = chat_with_a_gap(&server, &client, true).await;
+    page_until(&timelines, |page| bodies(page) == ["six"]).await;
+    let before = snapshot(&timelines).await;
 
+    timelines.load_older(&room().into(), 50).await.unwrap();
     let page = page_until(&timelines, |page| page.len() == NO_GAP.len()).await;
     assert_eq!(bodies(&page), NO_GAP);
+    // a message's id is its event's: the same before the reset and after.
+    assert!(page.iter().any(|message| message.message.id == before[0].message.id));
+    assert_eq!(before[0].message.id.as_str(), "!chat:example.org/$six");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sent_message_and_those_before_it_keep_their_ids_through_its_echo_and_a_reset() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    let alice = user_id!("@alice:example.org");
+    let id = |id: &str| matrix_sdk::ruma::OwnedEventId::try_from(id).unwrap();
+    let text = |body: &str| factory.text_msg(body).sender(alice).event_id(&id(&format!("${body}")));
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(text("one"))
+                .add_timeline_event(text("two")),
+        )
+        .await;
+    server
+        .mock_room_send()
+        .ok(event_id!("$hello"))
+        .mock_once()
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client.clone(), None);
+    page_until(&timelines, |page| page.len() == 2).await;
+    timelines.send_text(&room().into(), "hello", None).await.unwrap();
+    let before = page_until(&timelines, |page| {
+        page.iter()
+            .any(|message| message.message.body == "hello" && message.message.state == SendState::Sent)
+    })
+    .await;
+    let ids_before: Vec<(String, MessageId)> = before
+        .iter()
+        .map(|message| (message.message.body.clone(), message.message.id.clone()))
+        .collect();
+
+    // the sync brings the sent message's remote echo and Alice's answer, limited: the timeline is
+    // reset to them, its `prev_batch` before three messages the device never had. Only the
+    // thread pages back for them: one request, asked for.
+    server
+        .mock_room_messages()
+        .match_from("gap")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            text("five"),
+            text("four"),
+            text("three"),
+            text("two"),
+            text("one"),
+        ]))
+        .expect(1)
+        .mount()
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id!("!chat:example.org"))
+                .add_timeline_event(
+                    factory
+                        .text_msg("hello")
+                        .sender(client.user_id().unwrap())
+                        .event_id(&id("$hello")),
+                )
+                .add_timeline_event(text("six"))
+                .set_timeline_limited()
+                .set_timeline_prev_batch("gap"),
+        )
+        .await;
+    page_until(&timelines, |page| bodies(page) == ["hello", "six"]).await;
+    timelines.load_older(&room().into(), 50).await.unwrap();
+    let page = page_until(&timelines, |page| page.len() == 7).await;
+    assert_eq!(bodies(&page), ["one", "two", "three", "four", "five", "hello", "six"]);
+    for (body, id) in &ids_before {
+        assert!(
+            page.iter()
+                .any(|message| message.message.body == *body && message.message.id == *id),
+            "{body} changed its id"
+        );
+    }
+
+    // a message that stayed is acted on by the id it kept.
+    let two = ids_before.iter().find(|(body, _)| body == "two").unwrap().1.clone();
+    server.mock_room_send().ok(event_id!("$reaction")).mount().await;
+    timelines.toggle_reaction(&room(), &two, "👍").await.unwrap();
+    page_until(&timelines, |page| {
+        page.iter()
+            .any(|message| message.message.id == two && !message.reactions.is_empty())
+    })
+    .await;
+    server.server().verify().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_reading_a_timeline_opens_it() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server.sync_joined_room(&client, room_id!("!chat:example.org")).await;
+    let timelines = MatrixTimelines::new(client, None);
+
+    // a send to a chat nobody shows goes nowhere; a draft is the room's, and opens nothing.
+    assert!(matches!(
+        timelines.send_text(&room().into(), "hello", None).await,
+        Err(lux_core::ports::BackendError::UnknownChat(_))
+    ));
+    timelines.save_draft(&room().into(), "later", None).await.unwrap();
+    assert_eq!(
+        timelines.draft(&room().into()).await.unwrap().map(|draft| draft.text),
+        Some("later".to_owned())
+    );
+    assert!(matches!(
+        timelines.load_older(&room().into(), 50).await,
+        Err(lux_core::ports::BackendError::UnknownChat(_))
+    ));
+    // its messages open it: what is done to it now goes.
+    snapshot(&timelines).await;
+    assert!(timelines.first_unread(&room().into()).await.is_ok());
 }
