@@ -1,5 +1,6 @@
 import AppKit
 import LuxCore
+import QuickLookUI
 import Testing
 @testable import Lux
 
@@ -251,6 +252,33 @@ struct ThreadViewTests {
     private func pendingFiles(of model: ThreadModel, wake changes: Changes) {
         let shown = model.onPendingFiles
         model.onPendingFiles = { shown?($0); changes.send() }
+    }
+
+    @Test func spaceShowsTheSelectedMessagesMediaInQuickLookTheArrowsStepThroughTheChatsMediaAndSpaceClosesIt() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            try await chat.changes.until { chat.isShown(chat.newest) && !model.isLoading }
+            let media = model.messages.filter(\.hasMedia).compactMap { chat.row(of: $0.id) }
+            try #require(media.count >= 2)
+            let panel = try #require(QLPreviewPanel.shared())
+            let visible = panel.observe(\.isVisible) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
+            defer { visible.invalidate() }
+            chat.table.selectRowIndexes([media[0]], byExtendingSelection: false)
+            chat.table.keyDown(with: try key(" "))
+            try await chat.changes.until { panel.isVisible && chat.controller.preview != nil }
+            // down: the chat's next message with media, selected and shown.
+            #expect(chat.controller.previewPanel(panel, handle: try key(String(utf16CodeUnits: [unichar(NSDownArrowFunctionKey)], count: 1))))
+            #expect(chat.table.selectedRow == media[1])
+            chat.table.keyDown(with: try key(" "))
+            try await chat.changes.until { !panel.isVisible }
+        }
+    }
+
+    /// A key pressed with no modifier, as the table gets it.
+    private func key(_ characters: String) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                      characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0))
     }
 
     /// A chat of the demo with no unread message: it opens at its newest.

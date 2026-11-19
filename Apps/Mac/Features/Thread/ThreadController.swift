@@ -15,7 +15,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     /// The screen's own work (downloads for Quick Look, the benchmark): it ends with the screen.
     let tasks = TaskBag()
     var messages: [String: MessageItem] = [:]
-    private var order: [String] = []
+    /// The rows' ids, as the applied snapshot has them.
+    private(set) var order: [String] = []
     let table = MessageTableView()
     let scroll = NSScrollView()
     /// Holds the place an update moves it to while the update goes in.
