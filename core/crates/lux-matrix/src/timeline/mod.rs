@@ -196,7 +196,7 @@ impl ChatTimelines for MatrixTimelines {
     async fn is_at_start(&self, timeline: &TimelineId) -> Result<bool, BackendError> {
         let timeline = self.open(timeline).await?;
         timeline.wait_until_filled().await;
-        Ok(timeline.is_at_start())
+        Ok(timeline.is_at_start().await)
     }
 
     async fn first_unread(&self, timeline: &TimelineId) -> Result<Option<MessageId>, BackendError> {

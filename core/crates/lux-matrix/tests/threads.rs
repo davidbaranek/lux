@@ -213,6 +213,37 @@ async fn a_thread_shows_its_root_and_replies_and_sends_its_replies() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_thread_paged_back_to_its_root_is_at_its_start() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    synced(&server, &client).await;
+    let factory = EventFactory::new().room(room_id!("!chat:example.org"));
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(factory
+            .text_msg("trip on saturday?")
+            .sender(user_id!("@alice:example.org"))
+            .event_id(event_id!("$root"))
+            .into())
+        .mount()
+        .await;
+    // no older replies: the next page back is the root's.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id!("$root").to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .mount()
+        .await;
+    let timelines = MatrixTimelines::new(client);
+    let _hold = timelines.hold(&thread());
+
+    // the SDK marks no start item on a thread's timeline: its page back says it.
+    timelines.load_older(&thread(), 50).await.unwrap();
+    assert!(timelines.is_at_start(&thread()).await.unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn reacting_join_thread_to_the_bridges_notice_joins_and_its_replies_come_in() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
