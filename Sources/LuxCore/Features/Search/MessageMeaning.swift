@@ -80,9 +80,11 @@ actor MessageMeaning {
 
     private func readUnread(limit: Int?, lease: ForegroundLease) async -> Bool {
         guard let model else { return false }
-        await model.textEncoderLoaded(lease: lease)
         var left = limit ?? .max
         while left > 0, !Task.isCancelled {
+            // the text encoder is kept only while it is used: one that went since the last batch
+            // (unused a while, memory short) loads again.
+            await model.textEncoderLoaded(lease: lease)
             let wanted = mean == nil ? Self.meanOver : Self.batch
             guard let messages = await bestEffort("message meaning: messages to read", {
                 try await store.messagesToEmbed(minChars: Self.minChars, limit: min(left, wanted))
@@ -90,20 +92,22 @@ actor MessageMeaning {
                 return false
             }
             if messages.isEmpty { return true }
-            var embeddings: [(eventId: String, embedding: [Float]?)] = []
+            var embeddings: [(eventId: String, embedding: [Float])] = []
             for message in messages where !Task.isCancelled {
-                // the encoder went (the app left the front, or memory ran short): the rest wait for the next reading.
-                guard let embedding = await bestEffort("message meaning: an embedding", { try await model.embedding(ofMessage: message) })
+                // the encoder went (the app left the front, or memory ran short), or failed to load:
+                // the rest wait for the next reading, unread.
+                guard let embedding = await bestEffort("message meaning: an embedding", { try await model.embedding(ofMessage: message) }),
+                      let embedding
                 else { return false }
                 embeddings.append((message.eventId, embedding))
             }
             if mean == nil {
-                guard let taken = Self.mean(of: embeddings.compactMap(\.embedding)) else { return false }
+                guard let taken = Self.mean(of: embeddings.map(\.embedding)) else { return false }
                 mean = taken
                 await bestEffort("message meaning: keep the mean") { try await store.keep(Self.meanKey(model), taken.withUnsafeBytes { Data($0) }) }
             }
             guard let mean else { return false }
-            let centred = embeddings.map { ($0.eventId, $0.embedding.map { Self.centred($0, less: mean) }) }
+            let centred = embeddings.map { (eventId: $0.eventId, embedding: Optional(Self.centred($0.embedding, less: mean))) }
             do { try await store.setMessageEmbeddings(centred, by: Self.embedder(model)) } catch {
                 Log.app.error("message meaning: \(String(describing: error), privacy: .public)")
                 return false

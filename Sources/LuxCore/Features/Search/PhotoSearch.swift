@@ -43,12 +43,15 @@ public final class PhotoSearch {
     private let preferences: Preferences
     private let indexer: PhotoIndexer
     private let assets: any PhotoModelSource
+    /// How the model's encoders load: Core ML's, or a test's.
+    private let encoders: PhotoSearchModel.Encoders
     private var model: PhotoSearchModel?
     private var loading: Task<Void, Never>?
     /// Which getting of the model `loading` is: one replaced ends without clearing the next.
     private var loadings = 0
     private var saving: AnyObject?
-    /// The app left the front: the model's encoders go until it is back.
+    /// The app left the front: the model's encoders go until it is back. (In front, each goes
+    /// too once it is not used: `PhotoSearchModel`.)
     private var leaving: AnyObject?
     /// The app came back to the front, or the device to a network: a model that could not be
     /// had is tried again.
@@ -58,10 +61,11 @@ public final class PhotoSearch {
     private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
 
     init(store: LocalStore, account: Task<any MediaSourcePort, any Error>, directory: URL, preferences: Preferences,
-         assets: any PhotoModelSource = PhotoSearchAssets()) {
+         assets: any PhotoModelSource = PhotoSearchAssets(), encoders: PhotoSearchModel.Encoders = .coreML) {
         self.store = store
         self.preferences = preferences
         self.assets = assets
+        self.encoders = encoders
         let (reports, report) = AsyncStream<PhotoIndexer.Progress>.makeStream(bufferingPolicy: .bufferingNewest(1))
         indexer = PhotoIndexer(store: store, account: account, directory: directory, reader: PhotoReader(model: nil)) { report.yield($0) }
         Task { [weak self] in
@@ -192,7 +196,8 @@ public final class PhotoSearch {
 
     /// Someone is about to search: the text encoder loads now, off the main actor, so the first
     /// query finds photos by their look too. It loads in about a second once Core ML has compiled
-    /// it on this device (some 20 s the first time), and is kept only from the first search on.
+    /// it on this device (some 20 s the first time), and is kept while searches and messages'
+    /// readings use it (`PhotoSearchModel.textIdle`).
     public func prepareForSearch() {
         guard let model else { return }
         work.start("text encoder", priority: .userInitiated) { lease in
@@ -251,10 +256,20 @@ public final class PhotoSearch {
     /// The words' embedding, in the photos' space; nil while the model or its text encoder is not
     /// ready. A search of messages by meaning starts from it too.
     func embedding(of text: String) async -> [Float]? {
-        do { return try await model?.embedding(ofQuery: text) } catch {
+        guard let model else { return nil }
+        do {
+            if let embedding = try await model.embedding(ofQuery: text) { return embedding }
+        } catch {
             Log.app.error("photo search: the words' embedding: \(String(describing: error), privacy: .public)")
             return nil
         }
+        // the text encoder went (unused a while, the app away, memory short): it loads again,
+        // under way before this returns so the search waits for it (`waitForLook`), and the
+        // photos are found by their words meanwhile.
+        await ForegroundWork.shared.run("text encoder", priority: .userInitiated) { lease in
+            await model.prepareTextEncoder(lease: lease)
+        }
+        return nil
     }
 
     /// The photos that match `text`, and look like `embedding`, the best first.
@@ -306,7 +321,7 @@ public final class PhotoSearch {
                 Task { @MainActor in self?.show(step) }
             }
             guard !Task.isCancelled, searchesByLook else { return }
-            let model = try PhotoSearchModel(files: files)
+            let model = try PhotoSearchModel(files: files, encoders: encoders)
             self.model = model
             looks = .ready
             onModel?(model)

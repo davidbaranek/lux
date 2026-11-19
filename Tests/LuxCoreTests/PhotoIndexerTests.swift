@@ -36,6 +36,7 @@ struct PhotoIndexerReadingTests {
         let name: String
         private let unreadable: Set<String>
         private let state = Mutex<[String]>([])
+        private let rested = Mutex(0)
 
         init(name: String = "made-up-1", unreadable: Set<String> = []) {
             self.name = name
@@ -44,6 +45,12 @@ struct PhotoIndexerReadingTests {
 
         /// The photos read, by their words, in order.
         var read: [String] { state.withLock { $0 } }
+        /// How many times it was told the reading ended (its model goes).
+        var rests: Int { rested.withLock { $0 } }
+
+        func rest() async {
+            rested.withLock { $0 += 1 }
+        }
 
         func read(_ file: URL, lease: ForegroundLease) async throws -> (words: String, embedding: [Float]?) {
             let words = try String(contentsOf: file, encoding: .utf8)
@@ -89,6 +96,22 @@ struct PhotoIndexerReadingTests {
         // nothing is due: a second reading reads nothing.
         #expect(try await read(indexer))
         #expect(reader.read.count == 3)
+    }
+
+    @Test func theReaderRestsOnceNothingIsLeftToReadAndReadsAgainWhenNewPhotosCome() async throws {
+        let store = try await store(photos: 2)
+        let reader = Reader()
+        let indexer = PhotoIndexer(store: store, account: Task { Photos() }, directory: try downloads(), reader: reader) { _ in }
+
+        // kept for the whole reading, let go once at its end.
+        #expect(try await read(indexer))
+        #expect(reader.read.count == 2)
+        #expect(reader.rests == 1)
+
+        try await store.addImages([IndexedImage(eventId: "$new", roomId: "!room", senderName: "Anna", caption: "", date: .now, isOwn: false)])
+        #expect(try await read(indexer))
+        #expect(reader.read.last == Photos.words(of: "$new"))
+        #expect(reader.rests == 2)
     }
 
     @Test func aLimitedReadingReadsOnlyTheNewestAndSaysMoreAreDue() async throws {
