@@ -97,6 +97,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         button.isHidden = true
         return button
     }()
+    /// The chat's pinned messages, over its top.
+    private let pinnedBar = PinnedBar()
     /// Shows while messages come from the server (the opening fill, older messages).
     private let loading = LoadingBubble(text: String(localized: "Loading messages"))
     private let empty = NSTextField(labelWithString: String(localized: "No messages"))
@@ -243,7 +245,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         typingAvatar.alphaValue = 0
         // a glass capsule behind "Anna is typing…": legible over the messages it floats on.
         typingGlass.alphaValue = 0
-        for view in [scroll, attach, glass, eye, jumpToBottom, jumpToUnread, typingGlass, typing, typingAvatar] as [NSView] {
+        for view in [scroll, attach, glass, eye, jumpToBottom, jumpToUnread, typingGlass, typing, typingAvatar, pinnedBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -285,6 +287,9 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             // above the way down: unread messages are up, the newest down.
             jumpToUnread.centerXAnchor.constraint(equalTo: jumpToBottom.centerXAnchor),
             jumpToUnread.bottomAnchor.constraint(equalTo: jumpToBottom.topAnchor, constant: -8),
+            pinnedBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            pinnedBar.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
+            pinnedBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
         ])
         glassBesideEye = glass.trailingAnchor.constraint(equalTo: eye.leadingAnchor, constant: -8)
         glassToEdge = glass.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16)
@@ -360,6 +365,9 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         model.onShownRoom = { [weak self] _ in self?.onShownRoom?() }
         model.onReadState = { [weak self] _ in self?.updateEye() }
         model.onTyping = { [weak self] names in self?.showTyping(names) }
+        pinnedBar.onJump = { [weak self] pin in self?.presenter.jump(toMessage: pin.link) }
+        model.onPinned = { [weak self] pinned in self?.pinnedBar.show(pinned) }
+        pinnedBar.show(model.pinned)
         model.onError = { [weak self] error in self?.report(error, of: "chat") }
         presenter.start()
     }

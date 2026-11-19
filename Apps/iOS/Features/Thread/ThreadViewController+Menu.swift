@@ -41,7 +41,7 @@ extension ThreadViewController {
             }
             children.append(UIMenu(options: [.displayInline, .displayAsPalette], children: reactions + [more]))
         }
-        let actions = MessageAction.available(for: message, inThread: model.thread != nil).map { action in
+        let actions = MessageAction.available(for: message, inThread: model.thread != nil, pinned: model.pinning(of: message)).map { action in
             UIAction(title: action.title, image: UIImage(systemName: action.symbol), attributes: action.isDestructive ? .destructive : []) {
                 [weak self] _ in self?.perform(action, on: message)
             }
@@ -60,6 +60,8 @@ extension ThreadViewController {
         case .copyLink: UIPasteboard.general.string = message.shared?.url
         case .save: model.save(message)
         case .unsave: model.unsave(message)
+        case .pin: model.pin(message, true)
+        case .unpin: model.pin(message, false)
         case .retry: model.retry(message.id)
         case .discard: model.discard(message.id)
         case .forward:

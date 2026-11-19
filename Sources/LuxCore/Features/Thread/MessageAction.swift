@@ -2,13 +2,14 @@ import Foundation
 
 /// What a message's menu offers. The rules live here, so both apps offer the same.
 public enum MessageAction: Hashable, Sendable {
-    case reply, edit, copy, copyLink, save, unsave, forward, delete, retry, discard
+    case reply, edit, copy, copyLink, save, unsave, pin, unpin, forward, delete, retry, discard
     /// Opens the Matrix thread the message starts (a new one if it starts none yet), to reply there.
     case replyInThread
 
     /// The actions for `message`, in menu order (reactions come before them, where they apply);
-    /// `inThread`: it shows in a Matrix thread's timeline, where no thread starts.
-    public static func available(for message: MessageItem, inThread: Bool = false) -> [MessageAction] {
+    /// `inThread`: it shows in a Matrix thread's timeline, where no thread starts. `pinned`: whether
+    /// it is pinned, nil where the user may not pin or unpin (`ThreadModel.pinning(of:)`).
+    public static func available(for message: MessageItem, inThread: Bool = false, pinned: Bool? = nil) -> [MessageAction] {
         if message.isDeleted { return [] }
         switch message.state {
         case .failed: return [.retry, .discard] + (message.body.isEmpty ? [] : [.copy])
@@ -22,6 +23,7 @@ public enum MessageAction: Hashable, Sendable {
         if !message.body.isEmpty { actions.append(.copy) }
         if message.shared?.url != nil { actions.append(.copyLink) }
         if !message.eventId.isEmpty { actions.append(message.isSaved ? .unsave : .save) }
+        if let pinned { actions.append(pinned ? .unpin : .pin) }
         if !message.body.isEmpty || message.photo != nil { actions.append(.forward) }
         if message.isOwn { actions.append(.delete) }
         return actions
@@ -41,6 +43,8 @@ public enum MessageAction: Hashable, Sendable {
         case .copyLink: String(localized: "Copy Link")
         case .save: String(localized: "Save")
         case .unsave: String(localized: "Remove from Saved")
+        case .pin: String(localized: "Pin")
+        case .unpin: String(localized: "Unpin")
         case .forward: String(localized: "Forward…")
         case .delete: String(localized: "Delete for Everyone")
         case .retry: String(localized: "Send Again")
@@ -57,6 +61,8 @@ public enum MessageAction: Hashable, Sendable {
         case .copyLink: "link"
         case .save: "bookmark"
         case .unsave: "bookmark.slash"
+        case .pin: "pin"
+        case .unpin: "pin.slash"
         case .forward: "arrowshape.turn.up.right"
         case .delete, .discard: "trash"
         case .retry: "arrow.clockwise"

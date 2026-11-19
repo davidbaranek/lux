@@ -206,6 +206,11 @@ public final class ThreadModel {
         sendRoom = state.sendRoom
         canSendLater = state.canSendLater
         typists = state.typists
+        if state.pinned != pinned || state.mayPinIn != mayPinIn {
+            pinned = state.pinned
+            mayPinIn = state.mayPinIn
+            onPinned?(pinned)
+        }
         mode = state.mode
         pendingFiles = state.pendingFiles
         needsReadReceipt = state.needsReadReceipt
@@ -296,6 +301,27 @@ public final class ThreadModel {
 
     public func unsave(_ message: MessageItem) {
         withCore { $0.unsave(message.id) }
+    }
+
+    // MARK: Pinned
+
+    /// The messages pinned in the rooms shown, in the order they were pinned (the newest last).
+    public private(set) var pinned: [PinnedMessage] = []
+    /// The rooms shown where the user may pin and unpin.
+    private var mayPinIn: Set<String> = []
+    /// The pinned messages changed.
+    public var onPinned: (([PinnedMessage]) -> Void)?
+
+    /// Whether `message` is pinned: nil when the user may not pin or unpin it (the room's power
+    /// levels, or a message the server does not have yet).
+    public func pinning(of message: MessageItem) -> Bool? {
+        guard !message.eventId.isEmpty, mayPinIn.contains(message.roomId) else { return nil }
+        return pinned.contains { $0.roomId == message.roomId && $0.eventId == message.eventId }
+    }
+
+    /// Pins `message` in its room for everyone there, or unpins it.
+    public func pin(_ message: MessageItem, _ pinned: Bool) {
+        withCore { $0.pin(message.id, pinned) }
     }
 
     /// The chat can have messages sent later (it is not end-to-end encrypted).

@@ -56,6 +56,7 @@ final class RustThreadView: ThreadView {
     func forward(_ messageId: String, to chatId: String) { view.forward(messageId: messageId, targetChatId: chatId) }
     func save(_ messageId: String) { view.save(messageId: messageId) }
     func unsave(_ messageId: String) { view.unsave(messageId: messageId) }
+    func pin(_ messageId: String, _ pinned: Bool) { view.pin(messageId: messageId, pinned: pinned) }
     func didReadLatest() { view.didReadLatest() }
     func sendReadReceipt() { view.sendReadReceipt() }
     func set(readReceipts: ReadReceipts) { view.setReadReceipts(receipts: CoreReadReceipts(readReceipts)) }
@@ -161,7 +162,12 @@ private extension ThreadState {
                   typists: state.typists.map { Typist(name: $0.name, avatar: $0.avatar.map { .person(url: $0) }) },
                   shownRoom: state.shownRoom, sendRoom: state.sendRoom, mode: mode,
                   pendingFiles: state.pendingFiles.map { URL(fileURLWithPath: $0) }, canSendLater: state.canSendLater,
-                  isLive: state.isLive, canLoadNewer: state.canLoadNewer)
+                  isLive: state.isLive, canLoadNewer: state.canLoadNewer,
+                  pinned: state.pinned.map { pin in
+                      PinnedMessage(roomId: pin.roomId, eventId: pin.eventId, senderName: pin.sender.name,
+                                    senderAvatar: pin.sender.avatar.map { .person(url: $0) }, text: PreviewLine.body(pin.kind), date: pin.date)
+                  },
+                  mayPinIn: Set(state.mayPinIn))
     }
 }
 
