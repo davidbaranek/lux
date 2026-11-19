@@ -270,6 +270,29 @@ async fn an_error_of_the_disk_leaves_the_file_be() {
     assert_eq!(found(&store, "výletu").await.unwrap(), 300);
 }
 
+/// The file cannot be opened again after the store let it go (in the background): data
+/// protection refuses a protected file while the device is locked, as the disk refuses one
+/// without permission here. The error surfaces, nothing is replaced, and once the file can be
+/// read again the store goes on with all it held.
+#[tokio::test]
+async fn a_file_refused_after_a_release_is_not_damage() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let folder = TempDir::new().unwrap();
+    let path = file(&folder);
+    written(&path).await;
+    let store = Store::open_or_replace(&path, key()).await.unwrap();
+    store.release().await.unwrap();
+    let bytes = fs::read(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+    let refused = found(&store, "výletu").await;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let error = refused.err().unwrap();
+    assert!(matches!(error, Error::Sqlite(_) | Error::Io(_)), "{error:?}");
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(found(&store, "výletu").await.unwrap(), 300);
+}
+
 /// A folder that cannot be made (a file is in its place): the error surfaces.
 #[tokio::test]
 async fn a_folder_that_cannot_be_made_is_an_error() {
