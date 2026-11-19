@@ -77,3 +77,14 @@ final class MessageTableView: NSTableView {
         }
     }
 }
+
+/// The chat's clip view. While an update goes in, the place the chat moved it to holds, even past
+/// the end of the rows still to come (`constrainBoundsRect(_:)`): the table then lays out only the
+/// rows that will be on screen there, not those at a place the clip was pulled back to meanwhile.
+final class MessageClipView: NSClipView {
+    var holdsPlace = false
+
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        holdsPlace ? proposedBounds : super.constrainBoundsRect(proposedBounds)
+    }
+}

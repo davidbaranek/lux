@@ -356,7 +356,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
                 tasks.run { [weak self] in
                     try await Task.sleep(for: .seconds(2))
                     guard let self else { return }
-                    ScrollBenchmark(collectionView, name: "chat", direction: -1).run()
+                    ScrollBenchmark(collectionView, name: "chat", direction: -1).run { [weak self] in self?.runThreadBenchmark() }
                 }
             }
             return
@@ -376,7 +376,9 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         } else {
             // while the server's pages come in, the rows switch, or older rows go in above the
             // reader, the chat stays still: no animated inserts.
-            dataSource.apply(snapshot, animatingDifferences: !model.isLoading && !presenter.isSwitching && !prepended)
+            let animates = !model.isLoading && !presenter.isSwitching && !prepended
+            if !animates { preplace(scroll, among: ids) }
+            dataSource.apply(snapshot, animatingDifferences: animates)
             // a reconfigured row, or the old first row under new ones, may have a new height: the flow layout asks again.
             if !changed.isEmpty || prepended { collectionView.collectionViewLayout.invalidateLayout() }
             collectionView.layoutIfNeeded()
@@ -386,6 +388,39 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
         updateJumpToUnread()
         if isAtBottom { model.didReadLatest() }
+    }
+
+    /// After the chat's scroll (`-LuxBenchmark`): a jump far back while its pages load, then new
+    /// messages at the newest.
+    private func runThreadBenchmark() {
+        guard let room = model.rooms.first?.id else { return }
+        tasks.run { [weak self] in
+            guard let self else { return }
+            try await ThreadBenchmark().run(
+                jump: { presenter.jump(toMessage: MessageLink(roomId: room, eventId: "\(room)/1000")) },
+                back: {
+                    presenter.userStartedScrolling()
+                    if !presenter.returnToLive() { scrollToBottom(animated: false) }
+                },
+                send: { model.send($0) })
+        }
+    }
+
+    /// The list moves to where `intent` puts the rows `ids` before they go in unanimated (their
+    /// heights are exact): the layout then makes cells only for the rows that will be on screen
+    /// there, not for those where the list was (a jump's rows replacing the live ones, a page
+    /// going in above the reader). `place(_:)` puts it exactly once they are in.
+    private func preplace(_ intent: ScrollIntent, among ids: [String]) {
+        let items = collectionView.numberOfSections > 0 ? collectionView.numberOfItems(inSection: 0) : 0
+        let layout = collectionView.collectionViewLayout
+        guard !intent.isAnimated, items > 0,
+              let first = layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame,
+              let last = layout.layoutAttributesForItem(at: IndexPath(item: items - 1, section: 0))?.frame else { return }
+        // the section's own margins, as the layout has them now.
+        let lead = first.minY, trail = layout.collectionViewContentSize.height - last.maxY
+        guard let y = scrollGeometry.offset(for: intent, stacking: ids, height: { layouts[$0]?.height ?? 44 }, lead: lead, trail: trail),
+              abs(y - collectionView.contentOffset.y) > 0.5 else { return }
+        collectionView.contentOffset.y = y
     }
 
     /// An empty chat says so, once the server has had its say.
@@ -530,6 +565,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        // slid to the newest message: it is read.
+        if isAtBottom { model.didReadLatest() }
         // UIKit also ends an animation another scroll replaced, where it stopped: only the
         // presenter's last glide, arrived, is its end.
         guard let end = glideEnd, abs(scrollView.contentOffset.y - end) < 1 else { return }

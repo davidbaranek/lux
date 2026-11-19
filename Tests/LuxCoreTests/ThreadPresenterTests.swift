@@ -329,9 +329,9 @@ struct ThreadPresenterTests {
         #expect(screen.centres(target))
     }
 
-    @Test func aJumpFarBackPutsItsMessageInTheMiddleAtOnceWhilePagesComeAndFlashesItOnceTheyStop() async throws {
-        // 400 messages a chat: the device's live timeline holds the newest 200, the message is among a jump's rows.
-        let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 400)
+    @Test func aJumpFarBackEndsWithItsMessageInTheMiddleFlashedOnceItsPagesStop() async throws {
+        // 1 000 messages a chat: the device's live timeline holds the newest 200 (and a page more as it opens), the message is among a jump's rows.
+        let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 1_000)
         let rows = try await long.account.value.chats()
         let row = try #require(rows.first { !$0.isMerged })
         let presenter = ThreadPresenter(session: long, row: row, removeDelivered: { _ in })
@@ -345,11 +345,11 @@ struct ThreadPresenterTests {
         try await screen.changes.until { !(screen.shown.last ?? []).isEmpty }
         presenter.didShowFirst()
         presenter.jump(toMessage: MessageLink(roomId: row.id, eventId: "\(row.id)/10"))
-        try await screen.changes.until { !screen.flashed.isEmpty }
+        // while the jump's rows come it is put in place; a glide only when it landed on rows already in.
+        try await screen.changes.until { presenter.isJumping || !screen.flashed.isEmpty }
+        try await screen.arrives()
         let target = try #require(screen.flashed.first)
         #expect(presenter.model.messages.first { $0.id == target }?.eventId == "\(row.id)/10")
-        // the rows switched and pages came around the message: it was put in place, never glided to.
-        #expect(screen.glides.isEmpty)
         #expect(!presenter.model.isLoading)
         #expect(!presenter.isJumping)
         #expect(screen.centres(target))
@@ -384,6 +384,9 @@ struct ThreadPresenterTests {
         screen.offset = 0
         presenter.model.send("on my way")
         try await screen.changes.until { screen.shown.last?.last?.body == "on my way" }
+        // it slides there, as Messages has it.
+        #expect(screen.glides.last == screen.scrollGeometry.range.upperBound)
+        screen.arrive()
         #expect(screen.scrollGeometry.isAtBottom)
     }
 
@@ -405,10 +408,18 @@ struct ThreadPresenterTests {
         other.forward(copied.id, to: presenter.model.chatId)
         try await screen.changes.until { (screen.shown.last ?? []).count > count }
         #expect(try #require(screen.rowSpan(of: reading)).minY - screen.offset == top)
-        // at the newest, the next one is followed.
+        // at the newest, the next one is followed: the list slides to it.
         screen.offset = screen.scrollGeometry.bottomOffset
         other.forward(copied.id, to: presenter.model.chatId)
         try await screen.changes.until { (screen.shown.last ?? []).count > count + 1 }
+        #expect(screen.glides.last == screen.scrollGeometry.range.upperBound)
+        // one more while it slides: the list still counts as at the newest, and follows it too.
+        let glides = screen.glides.count
+        other.forward(copied.id, to: presenter.model.chatId)
+        try await screen.changes.until { (screen.shown.last ?? []).count > count + 2 }
+        #expect(screen.glides.count == glides + 1)
+        #expect(screen.glides.last == screen.scrollGeometry.range.upperBound)
+        screen.arrive()
         #expect(screen.scrollGeometry.isAtBottom)
     }
 

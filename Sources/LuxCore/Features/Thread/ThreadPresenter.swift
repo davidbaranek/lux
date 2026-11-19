@@ -8,7 +8,7 @@ import Foundation
 public protocol ThreadScreen: AnyObject {
     /// Shows `messages`, measured; `changed`: the rows that look different (every row after a
     /// relayout). Right after the snapshot is applied and laid out, the list goes where `scroll`
-    /// says, at once and unanimated (`place(_:)`): no other code moves it for the update.
+    /// says, once (`place(_:)`): no other code moves it for the update.
     func show(_ messages: [MessageItem], layouts: [String: MessageLayout], changed: [String], scroll: ScrollIntent)
     /// The draft the chat had, for the composer.
     func showDraft(_ text: String)
@@ -19,6 +19,8 @@ public protocol ThreadScreen: AnyObject {
     /// Scrolls to `offset`. Animated, it calls `didEndScrolling()` when the glide stops, once; a
     /// later scroll asked for while it goes takes over, and the glide it replaces ends silently.
     func scrollList(to offset: CGFloat, animated: Bool)
+    /// Puts the list where `intent` says; a glide under way stops there.
+    func place(_ intent: ScrollIntent)
     /// The message a jump brought into view, whose row flashes once as it shows (a row shown
     /// later, or shown again, reads it too); nil once the flash is over.
     func highlight(_ id: String?)
@@ -29,10 +31,12 @@ public protocol ThreadScreen: AnyObject {
 }
 
 extension ThreadScreen {
-    /// Puts the list where `intent` says, at once, without animation; a glide under way stops there.
+    /// Puts the list where `intent` says: animated when it asks and the list is not there yet (an
+    /// animation to where it is would never end), else at once.
     public func place(_ intent: ScrollIntent) {
-        guard let offset = scrollGeometry.offset(for: intent, rowSpan: rowSpan) else { return }
-        scrollList(to: offset, animated: false)
+        let geometry = scrollGeometry
+        guard let offset = geometry.offset(for: intent, rowSpan: rowSpan) else { return }
+        scrollList(to: offset, animated: intent.isAnimated && abs(offset - geometry.offset) > 0.5)
     }
 }
 
@@ -83,6 +87,8 @@ public final class ThreadPresenter {
     private var target: String?
     /// The target is shown and nothing loaded: one animated glide brings it to the middle.
     private var gliding = false
+    /// The list slides to the newest message (a new one came): it counts as there until it arrives.
+    private var followsBottom = false
     /// Bringing a message into view; the reader scrolling ends it.
     public var isJumping: Bool { target != nil }
     /// The message whose shared post's caption the user just unfolded or folded: its next change animates.
@@ -212,7 +218,13 @@ public final class ThreadPresenter {
         screen.show(new, layouts: layouts, changed: changed, scroll: intent)
         isShowing = false
         isSwitching = false
+        // sliding to the newest: until it arrives (`didEndScrolling`), the list counts as there.
+        followsBottom = intent.isAnimated && screen.scrollGeometry.fromBottom > 0.5
+        let opened = !shownRows && !new.isEmpty
         if !new.isEmpty { shownRows = true }
+        // the opening fill is a screen or two: the page before it comes at once, while the reader
+        // looks, not as they scroll (a page going in under a fling hitches).
+        if opened, model.isLive, model.canLoadOlder { model.loadOlder() }
         settle()
         // the update's rows are on screen, in their place: as when the list shows a row.
         displayed(screen.scrollGeometry)
@@ -255,7 +267,7 @@ public final class ThreadPresenter {
             followedEcho = echo
             target = nil
             gliding = false
-            return .bottom
+            return .bottom(animated: !model.isLoading)
         }
         if let id = target, shown[id] == nil, !model.messages.contains(where: { $0.id == id }) {
             // the jump's message left the chat (the rows switched): nothing to bring into view.
@@ -263,12 +275,12 @@ public final class ThreadPresenter {
             gliding = false
         }
         if let target, shown[target] != nil { return .centre(target) }
-        if !shownRows { return model.firstUnreadId.map { .firstUnread($0) } ?? .bottom }
+        if !shownRows { return model.firstUnreadId.map { .firstUnread($0) } ?? .bottom(animated: false) }
         if model.isLive, landsAtBottom {
             landsAtBottom = false
             switchTo = nil
             isSwitching = true
-            return .bottom
+            return .bottom(animated: false)
         }
         if model.isLive, let kept = switchTo, shown[kept.id] != nil {
             switchTo = nil
@@ -279,16 +291,18 @@ public final class ThreadPresenter {
             scrollsToLateUnread = false
             if let unread = model.firstUnreadId { return .firstUnread(unread) }
         }
-        return standingIntent()
+        // new messages at the newest slide in, as Messages has them; pages coming in do not.
+        return standingIntent(animated: model.isLive && !model.isLoading)
     }
 
     /// Where the list stays through a change that is not the reader's (an update, a new inset):
-    /// on the jump's message, at the newest, or on the row the reader looks at.
-    public func standingIntent() -> ScrollIntent {
+    /// on the jump's message, at the newest (`animated`: sliding there), or on the row the reader
+    /// looks at. A list still sliding to the newest counts as there.
+    public func standingIntent(animated: Bool = false) -> ScrollIntent {
         guard let screen else { return .none }
         if let target, screen.rowSpan(of: target) != nil { return .centre(target) }
         let geometry = screen.scrollGeometry
-        if geometry.isAtBottom { return .bottom }
+        if followsBottom || geometry.isAtBottom { return .bottom(animated: animated) }
         guard let row = screen.readingRow, let span = screen.rowSpan(of: row) else { return .none }
         return .keep(row, top: span.minY - geometry.offset)
     }
@@ -301,6 +315,7 @@ public final class ThreadPresenter {
         guard let screen else { return }
         if case .centre = intent { gliding = false }
         screen.place(intent)
+        followsBottom = false
         settle()
     }
 
@@ -308,6 +323,7 @@ public final class ThreadPresenter {
     /// way stops there, unflashed, and a first unread message found late no longer moves the chat.
     public func userStartedScrolling() {
         userScrolled = true
+        followsBottom = false
         target = nil
         gliding = false
     }
@@ -382,7 +398,7 @@ public final class ThreadPresenter {
     private func jump(to id: String) {
         target = id
         gliding = false
-        guard let screen, shownRows, !isShowing, shownGeneration == generation, let span = screen.rowSpan(of: id) else { return }
+        guard let screen, let span = screen.rowSpan(of: id), shownRows, !isShowing, shownGeneration == generation else { return }
         guard !model.isLoading else { return screen.place(.centre(id)) }
         let geometry = screen.scrollGeometry
         let plan = JumpPlan(toRowFrom: span.minY, to: span.maxY, in: geometry)
@@ -392,9 +408,10 @@ public final class ThreadPresenter {
         screen.scrollList(to: plan.end, animated: true)
     }
 
-    /// An animated scroll ended: the glide's message is put in the middle, should anything have
-    /// moved it meanwhile, and flashes.
+    /// An animated scroll ended: the list slid to the newest, or the glide's message is put in the
+    /// middle, should anything have moved it meanwhile, and flashes.
     public func didEndScrolling() {
+        followsBottom = false
         guard gliding, let target, let screen else { return }
         gliding = false
         screen.place(.centre(target))

@@ -18,6 +18,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     private var order: [String] = []
     let table = MessageTableView()
     let scroll = NSScrollView()
+    /// Holds the place an update moves it to while the update goes in.
+    private let clip = MessageClipView()
     private var dataSource: NSTableViewDiffableDataSource<Int, String>!
     let field = NSTextField()
     /// Called once the first messages (or "No messages") are drawn.
@@ -187,6 +189,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         }
         table.onScrollWheel = { [weak self] in self?.presenter.userStartedScrolling() }
         table.setAccessibilityIdentifier("messages")
+        scroll.contentView = clip
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
@@ -478,19 +481,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         snapshot.appendItems(ids)
         let state = Signposts.thread.beginInterval("apply")
         defer { Signposts.thread.endInterval("apply", state, "\(changed.count) changed") }
-        // the row the reader is looking at stays where it is, whatever goes in above it: the clip
-        // moves to the row's new place first (the heights are exact), so the table lays out only
-        // the rows that stay on screen, and makes no views for rows the reader never sees.
-        if shownFirst, case .keep(let id, let top) = intent, let at = ids.firstIndex(of: id) {
-            let y = ids[..<at].reduce(CGFloat(0)) { $0 + (layouts[$1]?.height ?? 44) } - top
-            let clip = scroll.contentView
-            if abs(y - clip.bounds.minY) > 0.5 {
-                // quietly: told now, the table would lay out the rows before the insert at the new place.
-                clip.postsBoundsChangedNotifications = false
-                clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: y))
-                clip.postsBoundsChangedNotifications = true
-            }
-        }
+        // the place holds while the rows go in, past the end of the rows there now; `place(_:)`
+        // puts it exactly after.
+        clip.holdsPlace = shownFirst
+        if shownFirst { preplace(intent, among: ids, layouts: layouts) }
         // no animation: the table would slide rows from their old places and animate new heights,
         // and the chat would visibly shift under the reader; but a caption the user unfolds or
         // folds grows or shrinks before their eyes.
@@ -512,12 +506,13 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             }
             if !resized.isEmpty { table.noteHeightOfRows(withIndexesChanged: resized) }
         }
+        clip.holdsPlace = false
         let first = !shownFirst
         if first {
             if LaunchOptions.isBenchmark {
-                tasks.run { [scroll] in
+                tasks.run { [weak self, scroll] in
                     try await Task.sleep(for: .seconds(2))
-                    ScrollBenchmark(scroll, name: "chat", direction: -1).run()
+                    ScrollBenchmark(scroll, name: "chat", direction: -1).run { self?.runThreadBenchmark() }
                 }
             }
             if fadesIn {
@@ -538,6 +533,20 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             onReady = nil
         }
         updateJumpToUnread()
+    }
+
+    /// The clip moves, quietly, to where `intent` puts the rows `ids` before they go in (their
+    /// heights are exact): the table then lays out only the rows that will be on screen, and makes
+    /// no views for rows the reader never sees (where the list was, among rows going in above it,
+    /// or a jump's rows replacing the live ones). `place(_:)` puts it exactly once they are in.
+    private func preplace(_ intent: ScrollIntent, among ids: [String], layouts: [String: MessageLayout]) {
+        let clip = scroll.contentView
+        guard let y = scrollGeometry.offset(for: intent, stacking: ids, height: { layouts[$0]?.height ?? 44 }),
+              abs(y - clip.bounds.minY) > 0.5 else { return }
+        // quietly: told now, the table would lay out the rows before the insert at the new place.
+        clip.postsBoundsChangedNotifications = false
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: y))
+        clip.postsBoundsChangedNotifications = true
     }
 
     @objc private func userStartedScrolling() {
@@ -592,6 +601,19 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         presenter.displayed(scrollGeometry)
     }
 
+    /// After the chat's scroll (`-LuxBenchmark`): a jump far back while its pages load, then new
+    /// messages at the newest.
+    private func runThreadBenchmark() {
+        guard let room = model.rooms.first?.id else { return }
+        tasks.run { [weak self] in
+            guard let self else { return }
+            try await ThreadBenchmark(scroll).run(
+                jump: { presenter.jump(toMessage: MessageLink(roomId: room, eventId: "\(room)/1000")) },
+                back: { scrollToNewest() },
+                send: { model.send($0) })
+        }
+    }
+
     @objc private func scrollToNewest() {
         // a jump's rows give way to the live ones; live rows scroll down.
         presenter.userStartedScrolling()
@@ -618,6 +640,13 @@ extension ThreadController: ThreadScreen {
         guard let row = order.firstIndex(of: id) else { return nil }
         let rect = table.rect(ofRow: row)
         return (rect.minY, rect.maxY)
+    }
+
+    /// Puts the list where `intent` says, at once: the table follows new messages to the newest
+    /// unanimated, as `scrollRowToVisible(_:)` did (only a jump glides).
+    func place(_ intent: ScrollIntent) {
+        guard let offset = scrollGeometry.offset(for: intent, rowSpan: rowSpan) else { return }
+        scrollList(to: offset, animated: false)
     }
 
     func scrollList(to offset: CGFloat, animated: Bool) {
