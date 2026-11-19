@@ -121,6 +121,9 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.keyboardDismissMode = .interactive
         collectionView.delegate = self
+        // a photo, video or file drags out of the chat, also on iPhone (off there by default).
+        collectionView.dragDelegate = self
+        collectionView.dragInteractionEnabled = true
         collectionView.prefetchDataSource = self
         collectionView.accessibilityIdentifier = "messages"
         view.addSubview(collectionView)

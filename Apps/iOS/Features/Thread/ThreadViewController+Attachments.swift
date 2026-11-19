@@ -51,6 +51,42 @@ extension ThreadViewController {
     }
 }
 
+/// A row's photo, video or file dragged out of the chat (to Files, Notes, Mail, an app beside
+/// Lux): the twin of the Mac's file promise. It is downloaded (once) when the receiving app loads
+/// it, and the system copies the session's original to that app; nothing else is written.
+extension ThreadViewController: UICollectionViewDragDelegate {
+    func collectionView(_ collectionView: UICollectionView, itemsForBeginning session: any UIDragSession,
+                        at indexPath: IndexPath) -> [UIDragItem] {
+        guard let id = dataSource.itemIdentifier(for: indexPath), let message = messages[id], AttachmentAction.canDrag(message) else { return [] }
+        let provider = NSItemProvider()
+        provider.suggestedName = SavedFiles.promisedName(for: message)
+        let model = model
+        provider.registerFileRepresentation(for: SavedFiles.promisedType(for: message)) { loaded in
+            // Foundation's handler is not marked `Sendable`, but it may be called from any thread
+            // (it hands the file over); it is called once, when the download is done.
+            nonisolated(unsafe) let loaded = loaded
+            let loading = Task { @MainActor in
+                do {
+                    guard let file = try await model.mediaFiles(of: message).first else { throw CocoaError(.fileNoSuchFile) }
+                    loaded(file, false, nil)
+                } catch {
+                    loaded(nil, false, error)
+                }
+            }
+            // a drop given up stops the download.
+            let progress = Progress(totalUnitCount: 1)
+            progress.cancellationHandler = { loading.cancel() }
+            return progress
+        }
+        return [UIDragItem(itemProvider: provider)]
+    }
+
+    /// The bubble alone lifts, as for the long-press menu.
+    func collectionView(_ collectionView: UICollectionView, dragPreviewParametersForItemAt indexPath: IndexPath) -> UIDragPreviewParameters? {
+        (collectionView.cellForItem(at: indexPath) as? MessageCell)?.dragPreview
+    }
+}
+
 /// The photo library, which Lux may only add to (it reads nothing there).
 private enum PhotoLibrary {
     struct Denied: LocalizedError {

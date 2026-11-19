@@ -87,10 +87,8 @@ extension ThreadController {
     /// The message a row shows, dragged out of the chat: a promise of its file, kept once it is
     /// downloaded; one file a row (an album's photos are saved from the menu).
     func filePromise(for message: MessageItem) -> NSFilePromiseProvider? {
-        guard AttachmentAction.available(for: message, on: .mac).contains(.saveAs) else { return nil }
-        let name = SavedFiles.promisedName(for: message)
-        let type = UTType(filenameExtension: (name as NSString).pathExtension) ?? .data
-        let provider = NSFilePromiseProvider(fileType: type.identifier, delegate: self)
+        guard AttachmentAction.canDrag(message) else { return nil }
+        let provider = NSFilePromiseProvider(fileType: SavedFiles.promisedType(for: message).identifier, delegate: self)
         provider.userInfo = message
         return provider
     }
