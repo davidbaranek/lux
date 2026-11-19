@@ -604,7 +604,8 @@ impl CoreAccountOpener {
     /// The account of the folder `folder_name` in `stores` (`…/matrix`, which holds every
     /// account's folder: once this account is open, the others there are deleted), its session
     /// kept by `keeper`; its chat list kept in `store`, the account's encrypted store, when there
-    /// is one.
+    /// is one. Not `in_front` (the system launched the app for a background task), the account
+    /// opens without its sync, which starts when the app comes to the front (`resume_sync`).
     #[uniffi::constructor]
     #[must_use]
     pub fn new(
@@ -612,6 +613,7 @@ impl CoreAccountOpener {
         folder_name: String,
         keeper: Arc<dyn CoreSessionKeeper>,
         store: Option<Arc<CoreStore>>,
+        in_front: bool,
     ) -> Arc<Self> {
         let folder = StoreFolder::in_stores(stores, folder_name);
         let sign_in = MatrixSignIn::new(folder, Arc::new(Keeper(keeper)));
@@ -619,6 +621,7 @@ impl CoreAccountOpener {
             Some(store) => sign_in.with_store(Arc::clone(&store.store)),
             None => sign_in,
         };
+        let sign_in = if in_front { sign_in } else { sign_in.in_background() };
         Arc::new(Self { sign_in })
     }
 
@@ -895,6 +898,14 @@ impl CoreAccount {
     pub async fn begin_background_work(&self) {
         if let Backend::Matrix(account) = &self.backend {
             account.begin_background_work().await;
+        }
+    }
+
+    /// Ends work in the background begun with `begin_background_work`: the stores close again,
+    /// unless the app came to the front meanwhile.
+    pub async fn end_background_work(&self) {
+        if let Backend::Matrix(account) = &self.backend {
+            account.end_background_work().await;
         }
     }
 

@@ -73,16 +73,22 @@ pub(crate) struct Lifecycle {
 }
 
 impl Lifecycle {
-    /// Starts the task over the started `sync`; `flush` writes the kept chat list, `store` is
-    /// the account's own store.
-    pub(crate) fn start(client: Client, sync: SyncService, store: Option<Arc<Store>>, flush: Option<Flush>) -> Self {
+    /// Starts the task over `sync`, started if the app is `in_front`; `flush` writes the kept
+    /// chat list, `store` is the account's own store.
+    pub(crate) fn start(
+        client: Client,
+        sync: SyncService,
+        store: Option<Arc<Store>>,
+        flush: Option<Flush>,
+        in_front: bool,
+    ) -> Self {
         let (commands, received) = mpsc::unbounded_channel();
         let owner = Owner {
             client,
             sync,
             store,
             flush,
-            foreground: true,
+            foreground: in_front,
             paused: false,
         };
         // it ends by itself once this drops its sender, after the command at hand: aborted, a
@@ -102,10 +108,15 @@ impl Lifecycle {
         self.ask(Command::Foreground).await;
     }
 
-    /// Opens the stores for work in the background (a notification's action), if they are
-    /// closed. The app pauses the account again when the work is done.
+    /// Opens the stores for work in the background (a notification's action, a processing
+    /// task's reading), if they are closed. The app pauses the account again when the work is done.
     pub(crate) async fn begin_background_work(&self) {
         self.ask(Command::BeginWork).await;
+    }
+
+    /// Ends work in the background: as [`pause`](Self::pause), unless the app is in front.
+    pub(crate) async fn end_background_work(&self) {
+        self.ask(Command::EndWork).await;
     }
 
     /// Stops the sync (signing out).
