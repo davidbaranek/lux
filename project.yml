@@ -81,8 +81,9 @@ targets:
         # files go on sending in a continued processing task when the user leaves the app, and
         # search reads what it has left in a processing task while the iPhone charges.
         UIBackgroundModes: [fetch, processing]
-        # the chats the user writes in, donated as conversations: the share sheet suggests them.
-        NSUserActivityTypes: [INSendMessageIntent]
+        # the chats the user writes in, donated as conversations: the share sheet suggests them;
+        # the open chat, continued on the account's other devices (Handoff, `ChatActivity`).
+        NSUserActivityTypes: [INSendMessageIntent, $(LUX_BUNDLE_ID).chat]
         # photo search's model, an Apple-hosted asset pack (Lux-iOS-Assets downloads it).
         BAAppGroupID: $(LUX_APP_GROUP)
         BAHasManagedAssetPacks: true
@@ -233,6 +234,8 @@ targets:
         LuxBundleID: $(LUX_BUNDLE_ID)
         LuxPushGateway: $(LUX_PUSH_GATEWAY)
         LuxOAuthClientURI: $(LUX_OAUTH_CLIENT_URI)
+        # the open chat, continued on the account's other devices (Handoff, `ChatActivity`).
+        NSUserActivityTypes: [$(LUX_BUNDLE_ID).chat]
         # photo search's model, an Apple-hosted asset pack (Lux-Mac-Assets downloads it).
         BAAppGroupID: $(LUX_APP_GROUP)
         BAHasManagedAssetPacks: true

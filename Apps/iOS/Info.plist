@@ -43,6 +43,7 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>
+		<string>$(LUX_BUNDLE_ID).chat</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

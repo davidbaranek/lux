@@ -32,5 +32,9 @@
 	<string>$(LUX_OAUTH_CLIENT_URI)</string>
 	<key>LuxPushGateway</key>
 	<string>$(LUX_PUSH_GATEWAY)</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>$(LUX_BUNDLE_ID).chat</string>
+	</array>
 </dict>
 </plist>
