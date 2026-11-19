@@ -277,10 +277,25 @@ async fn the_chat_list_shows_a_synced_bridged_chat() {
         .await
         .unwrap();
 
-    // going to the background keeps the list for the next launch.
+    // going to the background keeps the list for the next launch, and pauses the store: a call
+    // meanwhile does not open its file again, which iOS would find held as it suspends the app.
     account.pause_sync().await;
-    let kept = KeptList::new(store).read().await;
+    assert!(matches!(
+        store.kept("core-chat-list".into()).await,
+        Err(lux_store::Error::Paused)
+    ));
+    // the share extension reads it on a connection of its own.
+    let extension = Store::open(
+        folder.path().join("lux-search/index.sqlite"),
+        Key::from_hex(&"0d".repeat(32)).unwrap(),
+    )
+    .await
+    .unwrap();
+    let kept = KeptList::new(Arc::new(extension)).read().await;
     assert!(kept.iter().any(|chat| says(chat, "hello there")));
+    // back in front, the app's store opens again.
+    account.resume_sync().await;
+    assert!(!KeptList::new(store).read().await.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

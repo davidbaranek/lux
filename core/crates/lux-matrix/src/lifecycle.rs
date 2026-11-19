@@ -1,10 +1,11 @@
 //! Where the app is, for the sync and the stores: one task owns the sync service and the
 //! stores' state, and takes the account's commands in turn.
 //!
-//! In the background (iOS) the sync stops and the stores close, the SDK's and the account's own:
+//! In the background (iOS) the sync stops and the stores pause, the SDK's and the account's own:
 //! iOS ends an app that holds a lock on a file in the App Group's container when it suspends it
-//! (`0xdead10cc`). A background refresh, or a notification's action, opens them again for its
-//! time. Each command runs to its end before the next, so a refresh's opening and start cannot
+//! (`0xdead10cc`). A paused store refuses the calls that come meanwhile rather than open its file
+//! again: only this task opens them, for the front, a background refresh or a notification's
+//! action. Each command runs to its end before the next, so a refresh's opening and start cannot
 //! be split by a pause, and a caller that gives up waiting never leaves them half-way.
 
 use lux_core::gone::OtherEndGone;
@@ -247,13 +248,17 @@ impl Owner {
         if !self.paused {
             return;
         }
+        if let Some(store) = &self.store {
+            store.resume();
+        }
         if let Err(error) = self.client.resume().await {
             warn!(%error, "the stores did not open again");
         }
         self.paused = false;
     }
 
-    /// Stops the sync, keeps the lists, and closes the stores.
+    /// Stops the sync, keeps the lists, and closes the stores: the account's own first, as soon
+    /// as the list is kept (a write still under way elsewhere is cut short), then the SDK's.
     async fn close(&mut self) {
         if self.paused {
             return;
@@ -262,13 +267,13 @@ impl Owner {
         if let Some(flush) = &self.flush {
             flush.run().await;
         }
-        if let Err(error) = self.client.pause().await {
-            warn!(%error, "the stores stay open");
-        }
         if let Some(store) = &self.store
-            && let Err(error) = store.release().await
+            && let Err(error) = store.pause().await
         {
             warn!(%error, "the account's store stays open");
+        }
+        if let Err(error) = self.client.pause().await {
+            warn!(%error, "the stores stay open");
         }
         self.paused = true;
     }

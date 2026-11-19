@@ -35,6 +35,9 @@ pub enum Error {
     /// The store's thread has ended (it could not start, or it panicked).
     #[error("the store is closed")]
     Closed,
+    /// The store is paused (the app is in the background): the call did not touch the file.
+    #[error("the store is paused")]
+    Paused,
     /// The file or its folder.
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -77,8 +80,13 @@ impl Error {
                 Some(ErrorCode::OutOfMemory) => Evidence::Suspicion,
                 _ => Evidence::None,
             },
-            Self::InvalidKey | Self::NotEncrypted | Self::Closed | Self::Io(_) => Evidence::None,
+            Self::InvalidKey | Self::NotEncrypted | Self::Closed | Self::Paused | Self::Io(_) => Evidence::None,
         }
+    }
+
+    /// Whether SQLite stopped the statement because it was interrupted.
+    pub(crate) fn interrupted(&self) -> bool {
+        matches!(self, Self::Sqlite(error) if error.sqlite_error_code() == Some(ErrorCode::OperationInterrupted))
     }
 
     /// SQLite's extended result code, if SQLite's error this is: what a log of the file's damage

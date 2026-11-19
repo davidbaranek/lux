@@ -93,6 +93,8 @@ impl ChatList {
 
 /// The task that writes the chat list to the kept list: one write at a time, the latest list,
 /// at most every [`KEEP_INTERVAL`] while the list changes and once more after the last change.
+/// A write the paused store refuses (the app in the background) is tried again as often, and so
+/// lands once the app is back.
 struct Keeper {
     flush: Flush,
     _task: crate::task::Owned,
@@ -135,9 +137,14 @@ async fn keep(
     mut list_changes: watch::Receiver<()>,
     mut asked: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
 ) {
-    let write = async |rows: &LiveList<Arc<Chat>>| {
-        if let Err(error) = kept.write(rows.snapshot()).await {
+    // false when the store is paused (the app in the background): the list is written once it
+    // opens again.
+    let write = async |rows: &LiveList<Arc<Chat>>| match kept.write(rows.snapshot()).await {
+        Ok(()) => true,
+        Err(lux_store::Error::Paused) => false,
+        Err(error) => {
             warn!(%error, "the kept list could not be written");
+            true
         }
     };
     let mut written: Option<Instant> = None;
@@ -152,14 +159,13 @@ async fn keep(
                 due.get_or_insert_with(|| written.map_or_else(Instant::now, |at| at + KEEP_INTERVAL));
             }
             () = sleep_until(due.unwrap_or_else(Instant::now)), if due.is_some() => {
-                due = None;
                 written = Some(Instant::now());
-                write(&rows).await;
+                due = (!write(&rows).await).then(|| Instant::now() + KEEP_INTERVAL);
             }
             Some(done) = asked.recv() => {
-                if due.take().is_some() {
+                if due.is_some() {
                     written = Some(Instant::now());
-                    write(&rows).await;
+                    due = (!write(&rows).await).then(|| Instant::now() + KEEP_INTERVAL);
                 }
                 done.send(()).other_end_may_be_gone("the caller");
             }
