@@ -28,6 +28,13 @@ chat list, the thread, launch, images) says in its pull request what these numbe
   the scroll hitch ratio and memory, in Release, on the demo. `TEST_RUNNER_LUX_REAL=1` uses the
   signed-in account instead (read only); use a test account, never a personal one.
 - **Instruments.** The signposts `list`, `thread` and `images` mark the expensive intervals.
+- **Memory.** `heap <pid>` sorts the live allocations; `MallocStackLogging=lite` at launch lets
+  `malloc_history <pid> -allBySize` name the call stack of each. Most of the core's memory is
+  the SDK's: each room's newest events (its event cache keeps every room it has seen), and the
+  stores' SQLite connections, each with a page cache of up to 2 MB (about 4 KB a block) and
+  100 KB of parsed schema. `lsof -p <pid>` counts the connections: the app keeps at most eight
+  to each store (`APP_STORE_CONNECTIONS`); the SDK's default, four per core, opened 72 to the
+  crypto store on an 18-core Mac.
 
 Measure on the demo (`-LuxDemo`) for numbers anyone can reproduce, in Release, with the library
 built by `scripts/setup-sdk.sh` (not `--profile release`, which skips the LTO).
