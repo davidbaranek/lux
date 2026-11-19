@@ -16,6 +16,13 @@ final class MessageTableView: NSTableView {
     private var gesture: Gesture?
     private var armed = false
 
+    /// Space shows the selected message's photo, video or file in Quick Look, and hides it again,
+    /// as in Finder: the responder action for it goes up the chain, to the chat.
+    override func keyDown(with event: NSEvent) {
+        guard event.charactersIgnoringModifiers == " ", event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+              tryToPerform(#selector(quickLookPreviewItems(_:)), with: self) else { return super.keyDown(with: event) }
+    }
+
     override func scrollWheel(with event: NSEvent) {
         onScrollWheel?()
         // a mouse wheel, or the momentum after a swipe that answered: nothing to decide.

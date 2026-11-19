@@ -1,5 +1,6 @@
 import AppKit
 import LuxCore
+import QuickLookUI
 import Testing
 @testable import Lux
 
@@ -251,6 +252,50 @@ struct ThreadViewTests {
     private func pendingFiles(of model: ThreadModel, wake changes: Changes) {
         let shown = model.onPendingFiles
         model.onPendingFiles = { shown?($0); changes.send() }
+    }
+
+    /// What Lux asks of Quick Look, not the system's panel on screen (a test host without a key
+    /// window, as on CI, may never show it): Space hands the selected message's files to the
+    /// panel, the chat takes control of it, and the arrow keys the panel leaves step on to the
+    /// chat's next message with media.
+    @Test func spaceHandsTheSelectedMessagesMediaToQuickLookAndTheArrowsStepThroughTheChatsMedia() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let controller = chat.controller, model = controller.model
+            try await chat.changes.until { chat.isShown(chat.newest) && !model.isLoading }
+            let media = model.messages.filter(\.hasMedia)
+            try #require(media.count >= 2)
+            let first = try await model.mediaFiles(of: media[0]), second = try await model.mediaFiles(of: media[1])
+            let panel = try #require(QLPreviewPanel.shared())
+            // the chat sets the item the panel opens at, shown on screen or not.
+            let asked = panel.observe(\.currentPreviewItemIndex) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
+            defer {
+                asked.invalidate()
+                panel.orderOut(nil)
+            }
+            // the files the chat gives the panel, in order.
+            @MainActor func handed() -> [URL] {
+                (0..<controller.numberOfPreviewItems(in: panel)).compactMap { controller.previewPanel(panel, previewItemAt: $0) as? URL }
+            }
+            chat.table.selectRowIndexes([try #require(chat.row(of: media[0].id))], byExtendingSelection: false)
+            chat.table.keyDown(with: try key(" "))
+            try await chat.changes.until { controller.acceptsPreviewPanelControl(panel) && handed() == first }
+            // the panel's keys come to the chat once it controls it.
+            controller.beginPreviewPanelControl(panel)
+            #expect(panel.dataSource === controller)
+            // down, which the panel leaves: the chat's next message with media, selected and handed over.
+            #expect(controller.previewPanel(panel, handle: try key(String(utf16CodeUnits: [unichar(NSDownArrowFunctionKey)], count: 1))))
+            #expect(chat.table.selectedRow == chat.row(of: media[1].id))
+            try await chat.changes.until { handed() == second }
+            controller.endPreviewPanelControl(panel)
+            #expect(panel.dataSource == nil)
+        }
+    }
+
+    /// A key pressed with no modifier, as the table gets it.
+    private func key(_ characters: String) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                      characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0))
     }
 
     /// A chat of the demo with no unread message: it opens at its newest.
