@@ -74,9 +74,9 @@ impl MatrixAccount {
         };
         let kept = store.as_ref().map(|store| KeptList::new(Arc::clone(store)));
         let chats = ChatList::start(client.clone(), Arc::clone(&service), own.clone(), kept, organizing).await;
-        let requests = RequestList::start(service);
+        let requests = RequestList::start(Arc::clone(&service));
         let spaces = SpaceList::start(client.clone());
-        let timelines = MatrixTimelines::new(client.clone()).cutting_history(organizer.subscribe());
+        let timelines = MatrixTimelines::new(client.clone(), Some(service)).cutting_history(organizer.subscribe());
         let live = LiveFeed::start(&client, own, organizer.subscribe()).await;
         let sending = QueueKeeper::start(client.clone(), sync.state());
         let session_end = SessionEnd::follow(&client);

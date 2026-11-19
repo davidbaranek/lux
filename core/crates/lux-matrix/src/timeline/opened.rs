@@ -1,14 +1,21 @@
 //! Which timelines are open (a room's own, a Matrix thread's): the few used last, and those the
 //! apps hold (a chat or a thread on screen). One task owns the set; a timeline it lets go closes
 //! once no call still uses it.
+//!
+//! The holds are also the open chats' rooms, so the same task owns the sync's room subscriptions:
+//! the room list asks each room only for a row's state and its last event, a subscription for its
+//! whole state (its pinned events among it) and its last 20 events, so a send's sync is rarely
+//! limited and does not reset the chat. The SDK reads a room's state only from what was asked
+//! for, never from its timeline.
 
 use lux_core::gone::OtherEndGone;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
 use lux_core::ports::TimelineHold;
-use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
-use tokio::sync::{OnceCell, mpsc, oneshot};
+use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use matrix_sdk_ui::RoomListService;
+use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 
 use super::room::RoomTimeline;
 
@@ -48,12 +55,16 @@ pub(crate) struct Opened {
 }
 
 impl Opened {
-    /// Starts the task, which keeps `kept` timelines open besides the held ones.
-    pub(crate) fn new(kept: usize) -> Self {
+    /// Starts the task, which keeps `kept` timelines open besides the held ones, and subscribes
+    /// the sync of `service` to the held timelines' rooms (none without a service: a bare client).
+    pub(crate) fn new(kept: usize, service: Option<Arc<RoomListService>>) -> Self {
         let (commands, mut received) = mpsc::unbounded_channel();
         let task = crate::task::spawn(async move {
+            let (subscribed, subscribing) = watch::channel(BTreeSet::new());
+            let _subscribing = service.map(|service| crate::task::spawn(subscribe(service, subscribing)));
             let mut rooms = Rooms::new(kept);
             while let Some(command) = received.recv().await {
+                let holding = matches!(command, Command::Hold(_) | Command::Release(_));
                 match command {
                     // a caller that went away needs no answer.
                     Command::Use(room, reply) => drop(reply.send(rooms.use_room(room))),
@@ -61,6 +72,14 @@ impl Opened {
                     Command::OfRoom(room, reply) => drop(reply.send(rooms.of_room(&room))),
                     Command::Hold(room) => rooms.hold(room),
                     Command::Release(room) => rooms.release(&room),
+                }
+                if holding {
+                    let held = rooms.subscribed();
+                    subscribed.send_if_modified(|rooms| {
+                        let changed = *rooms != held;
+                        *rooms = held;
+                        changed
+                    });
                 }
             }
         });
@@ -107,6 +126,17 @@ impl Opened {
                 .send(Command::Release(room))
                 .other_end_may_be_gone("the open timelines' task");
         })
+    }
+}
+
+/// Sets the sync's room subscriptions to exactly the rooms held, each time they change. Each set
+/// that differs ends the sync's request in flight, so changes that come while one is made (a
+/// merged chat holding its rooms one by one) are made together, as the latest set.
+async fn subscribe(service: Arc<RoomListService>, mut held: watch::Receiver<BTreeSet<OwnedRoomId>>) {
+    while held.changed().await.is_ok() {
+        let rooms: Vec<OwnedRoomId> = held.borrow_and_update().iter().cloned().collect();
+        let ids: Vec<&RoomId> = rooms.iter().map(AsRef::as_ref).collect();
+        service.set_room_subscriptions(&ids).await;
     }
 }
 
@@ -168,6 +198,16 @@ impl Rooms {
                 self.close_unused();
             }
         }
+    }
+
+    /// The rooms of the held live timelines, a room's own or a thread's: a jump's is shown
+    /// beside its room's live one, and the sync brings nothing to it.
+    fn subscribed(&self) -> BTreeSet<OwnedRoomId> {
+        self.holds
+            .keys()
+            .filter(|key| key.around.is_none())
+            .map(|key| key.room.clone())
+            .collect()
     }
 
     fn close(&mut self, room: &Key) {
@@ -261,6 +301,45 @@ mod tests {
         rooms.use_room(room(1));
         rooms.release(&jump);
         assert_eq!(open(&rooms), vec![room(1)]);
+    }
+}
+
+#[cfg(test)]
+mod subscription_tests {
+    use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
+
+    use super::{Key, Rooms};
+
+    fn key(room: &str, thread: Option<&str>, around: Option<&str>) -> Key {
+        let event = |id: &str| OwnedEventId::try_from(id).unwrap();
+        Key {
+            room: OwnedRoomId::try_from(room).unwrap(),
+            thread: thread.map(event),
+            around: around.map(event),
+        }
+    }
+
+    fn subscribed(rooms: &Rooms) -> Vec<String> {
+        rooms.subscribed().iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn the_rooms_subscribed_are_those_of_the_held_live_timelines() {
+        let (chat, thread) = (key("!1:a.org", None, None), key("!1:a.org", Some("$root"), None));
+        let (merged, jump) = (key("!2:a.org", None, None), key("!3:a.org", None, Some("$old")));
+        let mut rooms = Rooms::new(8);
+        rooms.use_room(key("!4:a.org", None, None));
+        for held in [&chat, &thread, &merged, &jump] {
+            rooms.hold(held.clone());
+        }
+        assert_eq!(subscribed(&rooms), ["!1:a.org", "!2:a.org"]);
+
+        // the chat closes beside its thread: the room stays until both have.
+        rooms.release(&chat);
+        rooms.release(&merged);
+        assert_eq!(subscribed(&rooms), ["!1:a.org"]);
+        rooms.release(&thread);
+        assert!(subscribed(&rooms).is_empty());
     }
 }
 

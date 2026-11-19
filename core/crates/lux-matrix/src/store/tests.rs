@@ -381,7 +381,7 @@ async fn jumped(
     let app = restore(folder, secrets, Process::App).await.unwrap().unwrap();
     server.sync_joined_room(&app, room).await;
     let factory = EventFactory::new().room(room);
-    let timelines = crate::MatrixTimelines::new(app.clone());
+    let timelines = crate::MatrixTimelines::new(app.clone(), None);
     for jump in 0..jumps {
         let event = OwnedEventId::try_from(format!("$old{jump}")).unwrap();
         server

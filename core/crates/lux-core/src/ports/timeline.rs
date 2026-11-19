@@ -73,7 +73,9 @@ pub trait ChatTimelines: Send + Sync {
     /// The rooms whose open timeline changes, from now on.
     fn changes(&self) -> RoomChanges;
 
-    /// Keeps the timeline open, once a call opens it, until the hold goes.
+    /// Keeps the timeline open, once a call opens it, until the hold goes; meanwhile the backend
+    /// follows a live timeline's room in full (a chat or a thread on screen: its whole state, its
+    /// pins among it, and its newest events as they come).
     fn hold(&self, timeline: &TimelineId) -> TimelineHold;
 
     /// The timeline's messages, oldest first, as they change: a `Reset` with those it has, then

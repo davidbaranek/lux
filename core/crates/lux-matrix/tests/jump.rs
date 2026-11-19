@@ -169,7 +169,7 @@ async fn a_jump_opens_the_old_message_among_its_neighbours_from_one_request() {
         .never()
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     let opened = Watched::open(&timelines, &around("$old")).await.unwrap();
     assert_eq!(
@@ -220,7 +220,7 @@ async fn a_jump_pages_back_to_the_start_and_forward_to_the_newest() {
         ]))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
     let mut opened = Watched::open(&timelines, &around("$old")).await.unwrap();
     assert!(!timelines.is_at_start(&around("$old")).await.unwrap());
 
@@ -266,7 +266,7 @@ async fn a_jump_to_a_thread_reply_shows_its_thread_around_it() {
         ]))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     let opened = Watched::open(&timelines, &around("$reply")).await.unwrap();
     assert_eq!(opened.bodies(), ["root", "reply"]);
@@ -291,7 +291,7 @@ async fn a_jump_to_a_message_the_server_has_not_or_will_not_show_says_so() {
         .respond_with_code_and_json(403, json!({ "errcode": "M_FORBIDDEN", "error": "Not allowed." }))
         .mount()
         .await;
-    let timelines = MatrixTimelines::new(client);
+    let timelines = MatrixTimelines::new(client, None);
 
     assert!(matches!(
         timelines.messages(&around("$gone")).await,
