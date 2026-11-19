@@ -32,9 +32,10 @@ What is done, and what comes next in order. How things work lives in
 - [x] Formatted messages: bold, italic, code, quotes, lists, links
 - [x] Replies, swipe to reply, reactions, edits, deletes, forwards
 - [x] Read receipts, typing with the typists' pictures
-- [x] Photos, albums, videos, files: sent, opened in Quick Look, dragged and dropped
+- [x] Photos, albums, videos, files: sent, opened in Quick Look, dragged and dropped, pasted
 - [x] Uploads that go on in the background (iPhone, with a live activity)
-- [x] The composer's Markdown formatted as typed, with a format menu
+- [x] The composer's Markdown formatted as typed, with a format menu; it grows with its text,
+      then scrolls
 - [x] Saved messages
 - [x] The first unread message marked, the chat opening at it
 - [x] Messages that failed to send retried or discarded

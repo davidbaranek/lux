@@ -108,6 +108,17 @@ struct UploadsTests {
         #expect(uploads.finished == 1)
     }
 
+    @Test func aPastedPictureOverTheServersLimitReachesTheChatUnderItsName() async throws {
+        let server = Server(limit: 10)
+        let (uploads, finishes, failures, report) = uploads(over: server)
+        let pasted = try await PastedItems.files([.data(Data(repeating: 0x61, count: 11), type: .png, name: nil)], in: folder)
+        uploads.send(pasted, to: "!r", replyTo: nil, failure: report)
+
+        let failure = try await failures.first()
+        #expect(failure.localizedDescription == AttachmentMaker.Failure.tooLarge(name: "Pasted Image.png", limit: 10).localizedDescription)
+        #expect(try await finishes.first() == false)
+    }
+
     @Test func aFileTheQueueRefusesReachesTheChat() async throws {
         let (uploads, finishes, failures, report) = uploads(over: Server(refusal: Refused()))
         uploads.send([try file("a.txt", bytes: 5)], to: "!r", replyTo: nil, failure: report)

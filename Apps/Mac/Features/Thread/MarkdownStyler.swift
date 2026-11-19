@@ -2,7 +2,7 @@ import AppKit
 import LuxCore
 
 /// Shows the composer's Markdown formatted while it is typed (bold as bold, code fixed-width, the
-/// marks dimmed), on the text view that edits the field. Only attributes change: the text, the
+/// marks dimmed), on the composer's text view. Only attributes change: the text, the
 /// cursor and undo stay as they are.
 @MainActor
 enum MarkdownStyler {

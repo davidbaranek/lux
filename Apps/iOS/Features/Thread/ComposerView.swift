@@ -1,17 +1,21 @@
 import LuxCore
 import UIKit
+import UniformTypeIdentifiers
 
 /// A growing text view and a send button on Liquid Glass, with a bar above the text when it
 /// answers or edits a message. While nothing is written and the chat has unread messages, the
 /// button is an eye that sends a read receipt; holding it shows `readReceiptsMenu`. The text is
 /// Markdown, shown formatted as it is typed (the marks dimmed); a selection's menu has Format.
-final class ComposerView: UIView, UITextViewDelegate {
+/// A pasted or dropped photo, video or file waits in it as one picked with the + does.
+final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
     /// The round buttons beside the field, and the field's one-line height: as Messages has them.
     static let button: CGFloat = 40
 
     var onSend: ((String) -> Void)?
     var onCancelMode: (() -> Void)?
     var onReadReceipt: (() -> Void)?
+    /// Photos, videos or files pasted or dropped into the text: they go with the message.
+    var onPasteItems: (([NSItemProvider]) -> Void)?
     /// The user changed the text (not the app, as a draft does).
     var onTextChange: ((String) -> Void)?
     /// What holding the eye offers: how this chat sends read receipts.
@@ -84,6 +88,12 @@ final class ComposerView: UIView, UITextViewDelegate {
         textView.delegate = self
         textView.textContainerInset = UIEdgeInsets(top: 7, left: 4, bottom: 7, right: 4)
         textView.accessibilityIdentifier = "composer"
+        // pictures, videos and files paste too, beside the text the view takes as it would; the
+        // system asks the user before a paste reads another app's pasteboard.
+        textView.pasteDelegate = self
+        textView.pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers:
+            (textView.pasteConfiguration?.acceptableTypeIdentifiers ?? [UTType.text.identifier])
+                + [UTType.image, .movie, .fileURL, .data].map(\.identifier))
         placeholder.text = String(localized: "Message")
         placeholder.textColor = .placeholderText
         placeholder.font = textView.font
@@ -177,6 +187,14 @@ final class ComposerView: UIView, UITextViewDelegate {
         restyle()
         refresh()
         onTextChange?(textView.text)
+    }
+
+    /// A photo, a video or a file goes with the message; text pastes as the text view pastes it.
+    func textPasteConfigurationSupporting(_ textPasteConfigurationSupporting: any UITextPasteConfigurationSupporting,
+                                          transform item: UITextPasteItem) {
+        guard PastedItems.attachableType(of: item.itemProvider.registeredTypeIdentifiers) != nil else { return item.setDefaultResult() }
+        onPasteItems?([item.itemProvider])
+        item.setNoResult()
     }
 
     // MARK: Formatting

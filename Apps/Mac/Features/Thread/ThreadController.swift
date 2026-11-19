@@ -6,7 +6,7 @@ import LuxCore
 /// (`MessageLayoutCache`); the table gets exact heights and the rows only place their parts. A
 /// Matrix thread of the chat shows the same way, in the window's inspector beside the chat:
 /// its root, its replies, the composer replying there.
-final class ThreadController: NSViewController, NSTableViewDelegate, NSTextFieldDelegate, NSMenuItemValidation {
+final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewDelegate, NSMenuItemValidation {
     let session: Session
     let row: ChatRow
     /// The screen's logic, shared with the iPhone: opening, measuring, jumping, being on screen.
@@ -21,7 +21,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
     /// Holds the place an update moves it to while the update goes in.
     private let clip = MessageClipView()
     private var dataSource: NSTableViewDiffableDataSource<Int, String>!
-    let field = NSTextField()
+    /// The composer's text, as tall as what is written up to a few lines.
+    let composerField = ComposerField(font: .systemFont(ofSize: NSFont.systemFontSize + 1))
+    /// The text view the user writes in (the window's first responder while the chat has the keyboard).
+    var field: ComposerTextView { composerField.textView }
     /// Called once the first messages (or "No messages") are drawn.
     var onReady: (() -> Void)?
     /// A merged chat now shows another of its rooms, or all.
@@ -201,17 +204,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 
         let glass = composer
         glass.cornerRadius = 18
-        field.placeholderString = model.thread == nil ? String(localized: "Message") : String(localized: "Reply in Thread")
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.font = .systemFont(ofSize: NSFont.systemFontSize + 1)
+        field.placeholder = model.thread == nil ? String(localized: "Message") : String(localized: "Reply in Thread")
         field.delegate = self
-        field.target = self
-        field.action = #selector(send)
-        field.cell?.wraps = true
-        field.cell?.isScrollable = false
-        field.maximumNumberOfLines = 5
+        // a pasted or dropped picture, video or file waits in the composer, as a picked one does.
+        field.onAttach = { [weak self] items in self?.attachPasted(items) }
         modeBar.isHidden = true
         modeBar.onCancel = { [weak self] in self?.model.cancelMode() }
         strip.isHidden = true
@@ -224,7 +220,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             sendNetwork.widthAnchor.constraint(equalToConstant: 16),
             sendNetwork.heightAnchor.constraint(equalToConstant: 16),
         ])
-        let fieldRow = NSStackView(views: [field, sendNetwork])
+        let fieldRow = NSStackView(views: [composerField, sendNetwork])
         fieldRow.orientation = .horizontal
         fieldRow.alignment = .centerY
         fieldRow.spacing = 6
@@ -263,6 +259,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             glass.leadingAnchor.constraint(equalTo: attach.trailingAnchor, constant: 8),
             glass.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
             fieldRow.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+            // at most a third of the chat: past it, the text scrolls inside.
+            composerField.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor, multiplier: 1 / 3),
             eye.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
             eye.centerYAnchor.constraint(equalTo: glass.bottomAnchor, constant: -18.5),
             // a circle as tall as the one-line composer.
@@ -384,7 +382,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        presenter.disappeared(draft: field.stringValue)
+        presenter.disappeared(draft: composerField.text)
     }
 
     /// The composer's bar says what sending does; an edit puts the message's text in the field.
@@ -398,7 +396,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         case .edit(_, let original):
             modeBar.show(symbol: "pencil", title: String(localized: "Editing"), detail: original)
             modeBar.isHidden = false
-            field.stringValue = original
+            composerField.text = original
         }
         view.window?.makeFirstResponder(field)
     }
@@ -646,7 +644,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
 }
 
 extension ThreadController: ThreadScreen {
-    func showDraft(_ text: String) { field.stringValue = text }
+    func showDraft(_ text: String) { composerField.text = text }
 
     var scrollGeometry: ScrollGeometry {
         let clip = scroll.contentView.bounds

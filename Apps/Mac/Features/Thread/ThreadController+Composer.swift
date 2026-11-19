@@ -6,9 +6,8 @@ extension ThreadController {
     /// Message › Send Through: sends what is written through that network (the item's room).
     @objc func sendThrough(_ sender: NSMenuItem) {
         guard let room = sender.representedObject as? String else { return }
-        model.send(field.stringValue, via: room)
-        field.stringValue = ""
-        updateEye()
+        model.send(composerField.text, via: room)
+        clearComposer()
     }
 
     // MARK: Format (the Format menu, ⌘B, ⌘I, ⇧⌘X, ⌘K)
@@ -19,14 +18,13 @@ extension ThreadController {
     @objc func formatCode(_ sender: Any?) { format(Markdown.codeMark) }
 
     private func format(_ mark: String) {
-        if field.currentEditor() == nil { view.window?.makeFirstResponder(field) }
-        guard let editor = field.currentEditor() as? NSTextView else { return }
-        MarkdownStyler.toggle(mark, in: editor)
+        view.window?.makeFirstResponder(field)
+        MarkdownStyler.toggle(mark, in: field)
     }
 
     /// The eye sits beside the composer, which makes room for it.
     func updateEye() {
-        let shows = model.needsReadReceipt && field.stringValue.isEmpty
+        let shows = model.needsReadReceipt && composerField.text.isEmpty
         guard shows == eye.isHidden else { return }
         eye.isHidden = !shows
         // off before on: the two never hold at once.
@@ -34,10 +32,34 @@ extension ThreadController {
         (shows ? glassBesideEye : glassToEdge).isActive = true
     }
 
-    func controlTextDidChange(_ notification: Notification) {
-        if let editor = field.currentEditor() as? NSTextView, let font = field.font { MarkdownStyler.style(editor, font: font) }
+    func textDidChange(_ notification: Notification) {
+        if let font = field.font { MarkdownStyler.style(field, font: font) }
         updateEye()
-        model.composerChanged(field.stringValue)
+        // the composer takes its text's height in the window's next layout, and the messages'
+        // bottom inset follows it in the same pass (`viewDidLayout`), keeping the list's place:
+        // the two move as one, never the composer over the newest message.
+        composerField.textChanged()
+        model.composerChanged(composerField.text)
+    }
+
+    /// Sent: the composer empties and goes back to one line.
+    private func clearComposer() {
+        composerField.text = ""
+        updateEye()
+    }
+
+    /// Pictures, videos and files pasted or dropped into the text: those only on the pasteboard
+    /// are written to files first, off the main thread; then they wait in the composer.
+    func attachPasted(_ items: [PastedItems.Item]) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pasted", isDirectory: true)
+        tasks.run { [weak self] in
+            do {
+                let files = try await PastedItems.files(items, in: folder)
+                self?.model.attach(files)
+            } catch {
+                self?.report(error, of: "paste")
+            }
+        }
     }
 
     func showTyping(_ typists: [Typist]) {
@@ -65,9 +87,8 @@ extension ThreadController {
     }
 
     @objc func send() {
-        model.send(field.stringValue)
-        field.stringValue = ""
-        updateEye()
+        model.send(composerField.text)
+        clearComposer()
     }
 
     /// File > Attach Files…, or the + : the open panel, as a sheet; each file goes as a message.
@@ -92,32 +113,40 @@ extension ThreadController {
     /// Sends what is written at the item's time (its `representedObject`).
     @objc func sendLater(_ sender: NSMenuItem) {
         guard let date = sender.representedObject as? Date else { return }
-        model.sendLater(field.stringValue, at: date)
-        field.stringValue = ""
-        updateEye()
+        model.sendLater(composerField.text, at: date)
+        clearComposer()
     }
 
     /// Send Later needs words to send and a chat that can hold them.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(sendThrough(_:)) { return !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let written = !composerField.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if item.action == #selector(sendThrough(_:)) { return written }
         guard item.action == #selector(sendLater(_:)) else { return true }
-        return model.canSendLater && !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return model.canSendLater && written
     }
 
-    /// Return sends; Option-Return adds a line.
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+    /// Return sends; Option-Return adds a line; Tab moves on, as from a text field.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.insertNewline(_:)), !(NSApp.currentEvent?.modifierFlags.contains(.option) ?? false) {
             send()
             return true
         }
         // Escape leaves a reply or an edit.
         if selector == #selector(NSResponder.cancelOperation(_:)), model.mode != .message {
-            if case .edit = model.mode { field.stringValue = "" }
+            if case .edit = model.mode { clearComposer() }
             model.cancelMode()
             return true
         }
         if selector == #selector(NSResponder.insertNewline(_:)) || selector == #selector(NSResponder.insertLineBreak(_:)) {
             textView.insertNewlineIgnoringFieldEditor(nil)
+            return true
+        }
+        if selector == #selector(NSResponder.insertTab(_:)) {
+            view.window?.selectNextKeyView(nil)
+            return true
+        }
+        if selector == #selector(NSResponder.insertBacktab(_:)) {
+            view.window?.selectPreviousKeyView(nil)
             return true
         }
         return false
