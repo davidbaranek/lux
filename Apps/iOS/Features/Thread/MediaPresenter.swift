@@ -66,9 +66,10 @@ final class MediaPresenter: NSObject, @MainActor QLPreviewControllerDataSource, 
 }
 
 /// The composer's + : photos and videos from the library (no permission needed: the picker runs
-/// out of process and hands over only what is chosen), or any file.
+/// out of process and hands over only what is chosen), or any file; or what is pasted or dropped.
 @MainActor
-final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegate, @MainActor UIDocumentPickerDelegate {
+final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegate, @MainActor UIDocumentPickerDelegate,
+    @MainActor UIDropInteractionDelegate {
     private weak var host: UIViewController?
     private let picked: ([URL]) -> Void
     /// Copying the picked photos out of the picker: it ends with the screen.
@@ -108,16 +109,34 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard !results.isEmpty else { return }
+        copy(results.compactMap { result in
+            let provider = result.itemProvider
+            return [UTType.movie, .image].first { provider.hasItemConformingToTypeIdentifier($0.identifier) }.map { (provider, $0, nil) }
+        })
+    }
+
+    /// Photos, videos and files pasted into the composer or dropped on the chat: they wait in it as
+    /// picked ones do. Text among them is not theirs (the text view pastes it).
+    func take(_ providers: [NSItemProvider]) {
+        // a screenshot has no name: it is named for what it is ("Pasted Image.png").
+        copy(providers.compactMap { provider in
+            PastedItems.attachableType(of: provider.registeredTypeIdentifiers).map { type in
+                (provider, type, PastedItems.fileName(provider.suggestedName, type: type))
+            }
+        })
+    }
+
+    /// Each copied out of its provider's temporary file before its callback ends, in order.
+    private func copy(_ items: [(provider: NSItemProvider, type: UTType, name: String?)]) {
+        guard !items.isEmpty else { return }
         let copies = copies
         copying.run { [weak self] in
-            // each copied out of the picker's temporary file before its callback ends, in order.
             var files: [URL] = []
-            for result in results {
-                let provider = result.itemProvider
-                guard let type = [UTType.movie, .image].first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) else { continue }
+            for item in items {
                 // the others still go; the log says why this one did not.
-                if let file = await bestEffort("picked media: copy", { try await Self.copy(from: provider, type: type, into: copies) }) {
+                if let file = await bestEffort("attached item: copy", {
+                    try await PastedItems.file(from: item.provider, type: item.type, name: item.name, in: copies)
+                }) {
                     files.append(file)
                 }
             }
@@ -130,21 +149,22 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
         picked(urls)
     }
 
-    private static func copy(from provider: NSItemProvider, type: UTType, into folder: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, error in
-                guard let url else { return continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown)) }
-                do {
-                    let target = folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
-                    try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-                    let copy = target.appendingPathComponent(url.lastPathComponent)
-                    try FileManager.default.copyItem(at: url, to: copy)
-                    continuation.resume(returning: copy)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+    // MARK: Dropped on the chat
+
+    private func attachable(_ session: any UIDropSession) -> [NSItemProvider] {
+        session.items.map(\.itemProvider).filter { PastedItems.attachableType(of: $0.registeredTypeIdentifiers) != nil }
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: any UIDropSession) -> Bool {
+        !attachable(session).isEmpty
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: any UIDropSession) -> UIDropProposal {
+        UIDropProposal(operation: .copy)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: any UIDropSession) {
+        take(attachable(session))
     }
 }
 

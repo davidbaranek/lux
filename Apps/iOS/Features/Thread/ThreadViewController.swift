@@ -195,6 +195,9 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         }
         // holding Send: send later, in a chat that is not end-to-end encrypted.
         composer.attachMenu = attachments.menu
+        composer.onPasteItems = { [weak self] providers in self?.attachments.take(providers) }
+        // photos, videos and files dropped anywhere on the chat wait in the composer too.
+        view.addInteraction(UIDropInteraction(delegate: attachments))
         composer.onRemoveAttachment = { [weak self] file in self?.model.removePending(file) }
         model.onPendingFiles = { [weak self] files in self?.composer.attachments = files }
         // holding Send: send later, and in a merged chat, send through another network.

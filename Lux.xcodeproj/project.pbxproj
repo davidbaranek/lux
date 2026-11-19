@@ -63,6 +63,7 @@
 		50126D1969796B2F94B31CF0 /* NotificationMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682B4E67D96FE38FA2A235C7 /* NotificationMenu.swift */; };
 		50F5F40E8F91A5F6C64854BD /* ChatStylePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE43DFD6C4B1FDD6D4D93D33 /* ChatStylePicker.swift */; };
 		5470DEAD78BA1CDEAFDBA5CF /* NSImage+Symbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861B6215E0535216006F41DA /* NSImage+Symbol.swift */; };
+		57FE37405903D3C7F7446DA3 /* ComposerField.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE52F1994BE797BA5D48ACF /* ComposerField.swift */; };
 		5816376B6BAB3747BA0818C1 /* Lux-Mac-Assets.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 20A7CAA9E7FA199F4817C483 /* Lux-Mac-Assets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		58C2E873FD564CCAC91B8BF3 /* EditChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA5C750269A65579B132470 /* EditChatViewController.swift */; };
 		5D704AF1A337A6AE235114DA /* NewPinBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC1F5B41E55B51EC24083785 /* NewPinBar.swift */; };
@@ -409,6 +410,7 @@
 		DE4B68B262C3637F56D0AAC7 /* ChatListViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListViewTests.swift; sourceTree = "<group>"; };
 		DE4C9FF0F97F7DDE576EC682 /* ThreadsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadsPane.swift; sourceTree = "<group>"; };
 		DEC2C68FC0EDAFF2781D12DF /* NotificationMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationMenu.swift; sourceTree = "<group>"; };
+		DEE52F1994BE797BA5D48ACF /* ComposerField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerField.swift; sourceTree = "<group>"; };
 		E00570185AFDD380CCE7DD74 /* SignInViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInViewController.swift; sourceTree = "<group>"; };
 		E03D292A05B73F3E895EF3E8 /* ThemeMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeMenu.swift; sourceTree = "<group>"; };
 		E11450DD99B4486ADBCA386C /* ChatRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRowView.swift; sourceTree = "<group>"; };
@@ -803,6 +805,7 @@
 			children = (
 				A688E800048B078A52B754C7 /* AlbumView.swift */,
 				045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */,
+				DEE52F1994BE797BA5D48ACF /* ComposerField.swift */,
 				4F7C64CCAFB2B23EBFBBF6A9 /* ComposerModeBar.swift */,
 				B078C1F708797864150311C6 /* FileDropView.swift */,
 				4D1A30D2DF3D718DA2A4B81F /* FileRowView.swift */,
@@ -1335,6 +1338,7 @@
 				EAA215B7DC7259486BC719F0 /* ChatPickerController.swift in Sources */,
 				1D909DDF5C83BC9399F987E2 /* ChatStylePicker.swift in Sources */,
 				C49CF522A44DCFC69D5B38C5 /* ChatTitleView.swift in Sources */,
+				57FE37405903D3C7F7446DA3 /* ComposerField.swift in Sources */,
 				EA5D02631FE7BFF04D17AAFC /* ComposerModeBar.swift in Sources */,
 				F91924DF587B1C2B946408C7 /* ConfirmIdentityController.swift in Sources */,
 				BCC7AFFF52283FE7CFFA26FD /* EditChatController.swift in Sources */,

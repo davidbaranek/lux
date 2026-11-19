@@ -154,6 +154,105 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func theComposerGrowsWithItsTextToEightLinesThenScrollsAndIsOneLineAgainOnceSent() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            try await chat.changes.until { chat.isShown(chat.newest) && !chat.controller.model.isLoading }
+            let controller = chat.controller, composer = controller.composerField, text = controller.field
+            let oneLine = composer.frame.height, inset = chat.scrollView.contentInsets.bottom
+            /// The composer's height once the window has laid it out, the messages' bottom inset
+            /// following it in the same pass.
+            @MainActor func shown() -> CGFloat {
+                chat.layOut()
+                #expect(chat.scrollView.contentInsets.bottom == inset + composer.frame.height - oneLine)
+                return composer.frame.height
+            }
+
+            text.insertText("Packing list:", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(shown() == oneLine)
+            // a line at a time, as Option-Return adds them.
+            var heights: [CGFloat] = []
+            for item in 1...11 {
+                text.insertNewlineIgnoringFieldEditor(nil)
+                text.insertText("item \(item)", replacementRange: NSRange(location: NSNotFound, length: 0))
+                heights.append(shown())
+                // the newest message stays all on screen above it.
+                #expect(chat.isShown(chat.newest))
+            }
+            // each of the first seven new lines makes it taller; from the eighth line on it holds.
+            #expect(zip(heights.prefix(7), heights.prefix(7).dropFirst()).allSatisfy { $0 < $1 })
+            #expect(heights.dropFirst(7).allSatisfy { $0 == heights[6] })
+            #expect(abs(heights[6] - oneLine * CGFloat(ComposerField.maxLines)) <= CGFloat(ComposerField.maxLines))
+            // past it the text scrolls inside.
+            #expect(text.frame.height > composer.contentView.bounds.height)
+
+            controller.send()
+            #expect(shown() == oneLine)
+        }
+    }
+
+    @Test func aFilePastedIntoTheComposerWaitsInItAsAPickedOneDoes() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            pendingFiles(of: model, wake: chat.changes)
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("Trip plan \(UUID().uuidString).txt")
+            try Data("plan".utf8).write(to: file)
+            defer { _ = bestEffort("the test's file") { try FileManager.default.removeItem(at: file) } }
+            let pasteboard = pasteboard { $0.writeObjects([file as NSURL]) }
+            defer { pasteboard.releaseGlobally() }
+
+            #expect(chat.controller.field.readSelection(from: pasteboard))
+            try await chat.changes.until { model.pendingFiles == [file] }
+            // the file, not its name, as Finder also offers it.
+            #expect(chat.controller.composerField.text.isEmpty)
+        }
+    }
+
+    @Test func aPastedPictureWaitsAsAFileAndPastedTextStillGoesInAsText() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            pendingFiles(of: model, wake: chat.changes)
+            // a screenshot copied on the Mac: a PNG, and the TIFF beside it.
+            let picture = NSImage(size: NSSize(width: 40, height: 30), flipped: false) { rect in
+                NSColor.systemBlue.setFill()
+                rect.fill()
+                return true
+            }
+            let tiff = try #require(picture.tiffRepresentation)
+            let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+            let pictures = pasteboard { $0.setData(png, forType: .png); $0.setData(tiff, forType: .tiff) }
+            defer { pictures.releaseGlobally() }
+
+            #expect(chat.controller.field.readSelection(from: pictures))
+            try await chat.changes.until { model.pendingFiles.count == 1 }
+            let pasted = try #require(model.pendingFiles.first)
+            #expect(pasted.lastPathComponent == "Pasted Image.png")
+            #expect(try Data(contentsOf: pasted) == png)
+
+            let words = pasteboard { $0.setString("see you there", forType: .string) }
+            defer { words.releaseGlobally() }
+            #expect(chat.controller.field.readSelection(from: words))
+            #expect(chat.controller.composerField.text == "see you there")
+            #expect(model.pendingFiles == [pasted])
+        }
+    }
+
+    /// A pasteboard of the test's own (never the user's), as `write` fills it.
+    private func pasteboard(_ write: (NSPasteboard) -> Void) -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("lux-tests-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        write(pasteboard)
+        return pasteboard
+    }
+
+    /// The files waiting in the composer wake the test as they change, after the screen shows them.
+    private func pendingFiles(of model: ThreadModel, wake changes: Changes) {
+        let shown = model.onPendingFiles
+        model.onPendingFiles = { shown?($0); changes.send() }
+    }
+
     /// A chat of the demo with no unread message: it opens at its newest.
     private func readChat(in session: Session) async throws -> ChatRow {
         let list = ChatListModel(session: session)
@@ -268,4 +367,11 @@ private final class ShownChat {
 
     /// The reader moves the table to its oldest message.
     func scrollToTop() { scroll(by: -.greatestFiniteMagnitude) }
+
+    /// What the window does before it draws: the constraints that changed (a view's intrinsic
+    /// size), then the layout.
+    func layOut() {
+        controller.view.updateConstraintsForSubtreeIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+    }
 }

@@ -1,6 +1,7 @@
 import LuxCore
 import Testing
 import UIKit
+import UniformTypeIdentifiers
 @testable import Lux
 
 /// A chat's screen over a demo account of its own, seen through its collection view: where the
@@ -121,6 +122,38 @@ struct ThreadViewTests {
             #expect(!chat.isShown(chat.newest))
             chat.controller.model.send("on my way")
             try await chat.changes.until { chat.shows("on my way") && chat.isShown(chat.newest) }
+        }
+    }
+
+    @Test func aPastedPictureWaitsInTheComposerAndPastedTextIsLeftToTheTextView() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            let shown = model.onPendingFiles
+            model.onPendingFiles = { shown?($0); chat.changes.send() }
+            let composer = try #require(chat.controller.view.descendant(where: { $0.accessibilityIdentifier == "composer" }) as? UITextView)
+            let delegate = try #require(composer.pasteDelegate)
+            // Paste is on with only a picture to paste.
+            let accepted = composer.pasteConfiguration?.acceptableTypeIdentifiers ?? []
+            #expect([UTType.png, .movie, .fileURL].allSatisfy { type in accepted.contains { type.conforms(to: UTType($0) ?? .item) } })
+
+            // a screenshot: a PNG, with no name.
+            let png = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 30)).pngData { context in
+                UIColor.systemBlue.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+            }
+            let picture = PasteItem(NSItemProvider(item: png as NSData, typeIdentifier: UTType.png.identifier))
+            delegate.textPasteConfigurationSupporting?(composer, transform: picture)
+            #expect(picture.result == .none)
+            try await chat.changes.until { model.pendingFiles.count == 1 }
+            let pasted = try #require(model.pendingFiles.first)
+            #expect(pasted.lastPathComponent == "Pasted Image.png")
+            #expect(try Data(contentsOf: pasted) == png)
+
+            let words = PasteItem(NSItemProvider(object: "see you there" as NSString))
+            delegate.textPasteConfigurationSupporting?(composer, transform: words)
+            #expect(words.result == .default)
+            #expect(model.pendingFiles == [pasted])
         }
     }
 
@@ -272,4 +305,35 @@ private struct ShownChat {
 
     /// The reader moves the list to its oldest message.
     func scrollToTop() { scroll(by: -.greatestFiniteMagnitude) }
+}
+
+/// One item of a paste, as the text view hands it to its paste delegate: what the delegate made of it.
+@MainActor
+private final class PasteItem: NSObject, UITextPasteItem {
+    enum Result: Equatable { case pending, `default`, none, text }
+    let itemProvider: NSItemProvider
+    var localObject: Any? { nil }
+    var defaultAttributes: [NSAttributedString.Key: Any] { [:] }
+    private(set) var result = Result.pending
+
+    init(_ provider: NSItemProvider) {
+        itemProvider = provider
+    }
+
+    func setResult(string: String) { result = .text }
+    func setResult(attributedString: NSAttributedString) { result = .text }
+    func setResult(attachment: NSTextAttachment) { result = .text }
+    func setNoResult() { result = .none }
+    func setDefaultResult() { result = .default }
+}
+
+private extension UIView {
+    /// The first view under this one, depth first, that `matches`.
+    func descendant(where matches: (UIView) -> Bool) -> UIView? {
+        for view in subviews {
+            if matches(view) { return view }
+            if let found = view.descendant(where: matches) { return found }
+        }
+        return nil
+    }
 }
