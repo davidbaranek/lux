@@ -203,6 +203,7 @@ enum Intent {
     Loaded(oneshot::Sender<()>),
     ToggleDetail(MessageId),
     TogglePost(MessageId),
+    UnfoldDeleted(MessageId),
     ShowRoom(Option<RoomId>),
     Reply(MessageId),
     Edit(MessageId),
@@ -327,6 +328,12 @@ impl ThreadViewModel {
     /// Shows a shared post's whole caption, or folds it to its first lines again.
     pub fn toggle_post(&self, message: MessageId) {
         self.send(Intent::TogglePost(message));
+    }
+
+    /// Shows each of the deleted messages folded into the row `message` (any of them) in its
+    /// own row, for as long as the thread is open.
+    pub fn unfold_deleted(&self, message: MessageId) {
+        self.send(Intent::UnfoldDeleted(message));
     }
 
     /// Shows one room of a merged chat alone (its messages, writing to it), or all (`None`).

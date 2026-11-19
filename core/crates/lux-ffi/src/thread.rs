@@ -20,7 +20,7 @@ use crate::account::{CoreAccount, CoreAccountError, with_account};
 use crate::chat::{CorePreviewKind, path_text};
 use crate::message::{CoreFooter, CoreLink, CoreSeparator, zone};
 use crate::runtime;
-use crate::timeline::{CoreMessage, CoreParticipant, CoreTypist};
+use crate::timeline::{CoreMessage, CoreParticipant, CoreReader, CoreTypist};
 use lux_core::timeline::PinnedMessage;
 
 // MARK: records
@@ -96,10 +96,14 @@ impl From<CoreThreadOpening> for ThreadSpec {
 /// One row of the thread (`lux_core::thread::ThreadRow`).
 #[derive(uniffi::Record)]
 pub struct CoreThreadRow {
-    /// The message it shows (an album's first).
+    /// The message it shows (an album's first, a run of deleted messages' first, with the run's
+    /// readers all).
     pub message: CoreMessage,
     /// An album's other messages, after this one; empty for anything else.
     pub album_rest: Vec<CoreMessage>,
+    /// How many deleted messages, one after another, it folds ("6 deleted messages"): 0 for a
+    /// row of its own.
+    pub deleted: u32,
     /// Its room.
     pub room_id: String,
     /// Its room's network, in a merged chat.
@@ -129,14 +133,19 @@ pub struct CoreRowShows {
 
 impl From<&ThreadRow> for CoreThreadRow {
     fn from(row: &ThreadRow) -> Self {
+        let mut message = CoreMessage::from(row.message.as_ref());
+        if !row.deleted.is_empty() {
+            message.readers = row.readers().map(CoreReader::from).collect();
+        }
         Self {
-            message: CoreMessage::from(row.message.as_ref()),
+            message,
             album_rest: row
                 .album
                 .iter()
                 .skip(1)
                 .map(|message| CoreMessage::from(message.as_ref()))
                 .collect(),
+            deleted: u32::try_from(row.deleted.len()).unwrap_or(u32::MAX),
             room_id: row.room.to_string(),
             network: row.network.as_ref().map(|network| network.as_str().to_owned()),
             starts_run: row.starts_run,
@@ -511,6 +520,12 @@ impl CoreThread {
     /// Shows a shared post's whole caption, or folds it.
     pub fn toggle_post(&self, message_id: String) {
         self.model.toggle_post(message_id.into());
+    }
+
+    /// Shows each of the deleted messages folded into a row in its own row (any of them names
+    /// the run).
+    pub fn unfold_deleted(&self, message_id: String) {
+        self.model.unfold_deleted(message_id.into());
     }
 
     /// Shows one room of a merged chat alone, or all.

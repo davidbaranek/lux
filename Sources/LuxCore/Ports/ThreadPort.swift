@@ -30,6 +30,8 @@ protocol ThreadView: Sendable {
     func loaded() async
     func toggleDetail(_ messageId: String)
     func togglePost(_ messageId: String)
+    /// Shows each of the deleted messages folded into a row in its own row (any of them names the run).
+    func unfoldDeleted(_ messageId: String)
     func show(room: String?)
     func reply(to messageId: String)
     func edit(_ messageId: String)

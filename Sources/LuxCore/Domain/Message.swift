@@ -88,6 +88,9 @@ public struct MessageItem: Hashable, Sendable, Identifiable {
     public var isSaved = false
     /// Deleted for everyone (its body says so).
     public var isDeleted = false
+    /// The row folds this many deleted messages, one after another, this one first ("6 deleted
+    /// messages", its body); a tap shows each in its own row. 0 for a message shown on its own.
+    public var deletedRun = 0
     /// Who has read the chat up to this message (others, not its sender), the earliest first.
     public var readers: [Reader] = []
     /// The first message of a day: a day separator goes above it.

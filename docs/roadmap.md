@@ -39,6 +39,7 @@ What is done, and what comes next in order. How things work lives in
 - [x] The first unread message marked, the chat opening at it
 - [x] Messages that failed to send retried or discarded
 - [x] Shared posts (reels, posts) as cards: their media, title and caption, folded to four lines
+- [x] Deleted messages one after another folded into one row ("6 deleted messages"), unfolded by a tap
 
 ### Search
 

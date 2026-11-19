@@ -327,7 +327,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
             // the jump's message flashes, also when its row shows later.
             cell.isJumpTarget = self?.highlighted == id
             cell.onLink = { NSWorkspace.shared.open($0) }
-            cell.onBubbleTap = { [weak self] in self?.model.toggleDetail(of: id) }
+            cell.onBubbleTap = { [weak self] in
+                guard let self, let message = messages[id] else { return }
+                model.tap(message)
+            }
             cell.onReactionTap = { [weak self] key in self?.model.toggleReaction(key, on: id) }
             cell.onPostMore = { [weak self] in self?.presenter.togglePost(of: id) }
             // a shared post's card (its title and caption) opens the post; its media opens as any.

@@ -1,5 +1,6 @@
 //! The thread's rows: the shown messages of its rooms as one conversation, presented (albums,
-//! runs, separators, links, footers), each with its room and whether its details show.
+//! runs, separators, links, footers, deleted messages folded together), each with its room and
+//! whether its details show.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use crate::diff;
 use crate::ids::{EventId, MessageId, MessageRef, RoomId};
 use crate::message::{self, Footer, Link, Separator};
 use crate::network::Network;
-use crate::timeline::{TimelineMessage, Window};
+use crate::timeline::{MessageKind, Reader, TimelineMessage, Window};
 
 /// How many messages a chat shows when it opens: its last screenful.
 pub(crate) const FIRST_SCREEN: usize = 60;
@@ -22,13 +23,17 @@ pub(crate) const FIRST_SCREEN: usize = 60;
 /// configure them again for their new positions), so fewer, larger pages scroll smoother.
 pub(crate) const OLDER: usize = 240;
 
-/// One row of the thread: a message, or an album of several, as the app draws it.
+/// One row of the thread: a message, an album of several, or a run of deleted messages, as the
+/// app draws it.
 #[derive(Clone, Debug)]
 pub struct ThreadRow {
-    /// The message it shows (an album's first).
+    /// The message it shows (an album's first, a run's first).
     pub message: Arc<TimelineMessage>,
     /// An album's messages, this one first; empty for anything else.
     pub album: Vec<Arc<TimelineMessage>>,
+    /// Two or more deleted messages one after another, folded into this row ("6 deleted
+    /// messages") until the user unfolds them, this one first; empty for anything else.
+    pub deleted: Vec<Arc<TimelineMessage>>,
     /// The room it is in: one of a merged chat's.
     pub room: RoomId,
     /// Its room's network, in a merged chat (where it shows on asking); `None` elsewhere.
@@ -57,10 +62,39 @@ pub struct RowShows {
 }
 
 impl ThreadRow {
-    /// Its id: its message's, stable from local echo to sent.
+    /// Its id: its message's, stable from local echo to sent; a run's first, so a run that grows
+    /// newer keeps its row.
     #[must_use]
     pub fn id(&self) -> &MessageId {
         &self.message.message.id
+    }
+
+    /// The newest message it shows: an album's or a run's last, else its own.
+    #[must_use]
+    pub fn latest(&self) -> &Arc<TimelineMessage> {
+        self.deleted.last().or(self.album.last()).unwrap_or(&self.message)
+    }
+
+    /// Who read the chat up to a message it shows (others, not its sender), the earliest first: a
+    /// run's readers all, its row standing for each of its messages.
+    pub fn readers(&self) -> impl Iterator<Item = &Reader> {
+        let run = if self.deleted.is_empty() {
+            std::slice::from_ref(&self.message)
+        } else {
+            self.deleted.as_slice()
+        };
+        run.iter().flat_map(|message| &message.readers)
+    }
+
+    /// Whether it shows the message `id`: as its own, or in its album or run.
+    #[must_use]
+    pub fn shows(&self, id: &MessageId) -> bool {
+        self.id() == id
+            || self
+                .album
+                .iter()
+                .chain(&self.deleted)
+                .any(|message| &message.message.id == id)
     }
 }
 
@@ -71,6 +105,8 @@ impl PartialEq for ThreadRow {
         Arc::ptr_eq(&self.message, &other.message)
             && self.album.len() == other.album.len()
             && self.album.iter().zip(&other.album).all(|(a, b)| Arc::ptr_eq(a, b))
+            && self.deleted.len() == other.deleted.len()
+            && self.deleted.iter().zip(&other.deleted).all(|(a, b)| Arc::ptr_eq(a, b))
             && self.room == other.room
             && self.network == other.network
             && self.starts_run == other.starts_run
@@ -187,11 +223,15 @@ impl RoomMessages {
     }
 }
 
-/// What the user unfolded, by message: its details, its shared post's whole caption.
+/// What the user unfolded, by message: its details, its shared post's whole caption, the run of
+/// deleted messages it is in. Kept while the thread is open, not saved.
 #[derive(Debug, Default)]
 pub(crate) struct Unfolded {
     pub(crate) details: HashSet<MessageId>,
     pub(crate) posts: HashSet<MessageId>,
+    /// A run shows each of its messages in its own row when any of them is here: one that grows,
+    /// older or newer, stays unfolded.
+    pub(crate) deleted: HashSet<MessageId>,
 }
 
 impl Unfolded {
@@ -205,12 +245,15 @@ impl Unfolded {
 
 /// The rows of the rooms' shown messages (`shown`: one room alone), as one conversation in time
 /// order: a stable sort, so one room's messages keep their order at equal times. `merged`: the
-/// chat merges rooms, so each row tells its network.
+/// chat merges rooms, so each row tells its network. Runs of deleted messages fold into one row
+/// ([`fold_deleted`]); a message of `apart` (where the unread messages start) starts a run of
+/// its own.
 pub(crate) fn present(
     rooms: &mut [RoomMessages],
     shown: Option<usize>,
     merged: bool,
     unfolded: &Unfolded,
+    apart: &HashSet<MessageId>,
     zone: &TimeZone,
 ) -> Vec<Arc<ThreadRow>> {
     let mut tagged: Vec<(usize, Arc<TimelineMessage>)> = Vec::new();
@@ -230,12 +273,12 @@ pub(crate) fn present(
         unique(messages.iter().map(|message| &message.message.id)),
         "two shown messages share an id: the apps' lists need each row's id once"
     );
-    message::present(&messages, zone)
+    let rows = message::present(&messages, zone)
         .into_iter()
         .filter_map(|row| {
             let room = &rooms.get(*origins.get(row.message)?)?.room;
             let lead = messages.get(row.message)?;
-            Some(Arc::new(ThreadRow {
+            Some(ThreadRow {
                 shows: RowShows {
                     detail: unfolded.details.contains(&lead.message.id),
                     whole_post: unfolded.posts.contains(&lead.message.id),
@@ -247,6 +290,7 @@ pub(crate) fn present(
                     .filter_map(|&index| messages.get(index))
                     .map(Arc::clone)
                     .collect(),
+                deleted: Vec::new(),
                 room: room.id.clone(),
                 network: merged.then(|| room.network.clone()),
                 starts_run: row.starts_run,
@@ -254,9 +298,75 @@ pub(crate) fn present(
                 separator: row.separator,
                 links: row.links,
                 footer: row.footer,
-            }))
+            })
         })
-        .collect()
+        .collect();
+    fold_deleted(rows, unfolded, apart).into_iter().map(Arc::new).collect()
+}
+
+/// Folds each run of two or more deleted messages into one row, as Element folds the events it
+/// hides: whoever sent them, since what they said is gone and one line says as much. A run is of
+/// one room (its row has one), and what the reader would lose breaks it: a day or a pause above
+/// a message (its separator shows above its row), the first unread message (the marker goes
+/// above it), and a deleted message with reactions or a Matrix thread, which keeps its own row
+/// so they stay at hand. A run the user unfolded (`unfolded.deleted` names one of its messages)
+/// shows each message in its own row. The rows around a folded run end and start their
+/// sender's runs, since the folded row is no sender's.
+fn fold_deleted(rows: Vec<ThreadRow>, unfolded: &Unfolded, apart: &HashSet<MessageId>) -> Vec<ThreadRow> {
+    let mut folded: Vec<ThreadRow> = Vec::with_capacity(rows.len());
+    let mut run: Vec<ThreadRow> = Vec::new();
+    for mut row in rows {
+        if folds(&row) {
+            let continues = run.first().is_some_and(|first| first.room == row.room)
+                && row.separator.is_none()
+                && !apart.contains(row.id());
+            if !continues {
+                close_run(&mut run, &mut folded, unfolded);
+            }
+            run.push(row);
+            continue;
+        }
+        close_run(&mut run, &mut folded, unfolded);
+        if folded.last().is_some_and(|before| !before.deleted.is_empty()) {
+            row.starts_run = true;
+        }
+        folded.push(row);
+    }
+    close_run(&mut run, &mut folded, unfolded);
+    folded
+}
+
+/// Whether the row is a deleted message that may fold with others: nothing of it is left to
+/// reach (an album, reactions, a Matrix thread).
+fn folds(row: &ThreadRow) -> bool {
+    let message = &row.message;
+    message.kind == MessageKind::Deleted
+        && row.album.is_empty()
+        && message.thread.is_none()
+        && message.reactions.is_empty()
+        && !message.message.has_reactions
+}
+
+/// Puts a run of deleted messages after `folded`: one row for two or more, unless unfolded.
+fn close_run(run: &mut Vec<ThreadRow>, folded: &mut Vec<ThreadRow>, unfolded: &Unfolded) {
+    if run.len() < 2 || run.iter().any(|row| unfolded.deleted.contains(row.id())) {
+        folded.append(run);
+        return;
+    }
+    let mut rows = run.drain(..);
+    let Some(mut lead) = rows.next() else { return };
+    lead.deleted = std::iter::once(Arc::clone(&lead.message))
+        .chain(rows.map(|row| row.message))
+        .collect();
+    lead.starts_run = true;
+    lead.ends_run = true;
+    lead.links = Vec::new();
+    lead.footer = None;
+    lead.shows = RowShows::default();
+    if let Some(before) = folded.last_mut() {
+        before.ends_run = true;
+    }
+    folded.push(lead);
 }
 
 /// Whether no id shows twice.
@@ -271,7 +381,6 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::message::{Message, SendState};
-    use crate::timeline::MessageKind;
 
     pub(crate) fn message(id: &str, room: &str, seconds: u64, own: bool) -> Arc<TimelineMessage> {
         Arc::new(TimelineMessage {
@@ -346,12 +455,26 @@ pub(crate) mod tests {
             ),
             room("!b", vec![message("b1", "!b", 10, true), message("b2", "!b", 20, true)]),
         ];
-        let rows = present(&mut rooms, None, true, &Unfolded::default(), &TimeZone::UTC);
+        let rows = present(
+            &mut rooms,
+            None,
+            true,
+            &Unfolded::default(),
+            &HashSet::new(),
+            &TimeZone::UTC,
+        );
         // equal times keep the rooms' order.
         assert_eq!(ids(&rows), ["a1", "b1", "a2", "b2"]);
         assert_eq!(rows[1].room.as_str(), "!b");
         assert_eq!(rows[1].network.as_ref().map(Network::as_str), Some("net!b"));
-        let alone = present(&mut rooms, Some(1), true, &Unfolded::default(), &TimeZone::UTC);
+        let alone = present(
+            &mut rooms,
+            Some(1),
+            true,
+            &Unfolded::default(),
+            &HashSet::new(),
+            &TimeZone::UTC,
+        );
         assert_eq!(ids(&alone), ["b1", "b2"]);
     }
 
@@ -364,7 +487,14 @@ pub(crate) mod tests {
             room("!a", vec![message("0", "!a", 0, false)]),
             room("!b", vec![message("0", "!b", 10, false)]),
         ];
-        present(&mut rooms, None, true, &Unfolded::default(), &TimeZone::UTC);
+        present(
+            &mut rooms,
+            None,
+            true,
+            &Unfolded::default(),
+            &HashSet::new(),
+            &TimeZone::UTC,
+        );
     }
 
     #[test]
@@ -377,7 +507,7 @@ pub(crate) mod tests {
             details: HashSet::from([MessageId::from("a2")]),
             ..Unfolded::default()
         };
-        let rows = present(&mut rooms, None, false, &unfolded, &TimeZone::UTC);
+        let rows = present(&mut rooms, None, false, &unfolded, &HashSet::new(), &TimeZone::UTC);
         assert_eq!(rows[0].network, None);
         assert_eq!(
             rows.iter().map(|row| row.shows.detail).collect::<Vec<_>>(),
@@ -388,8 +518,22 @@ pub(crate) mod tests {
     #[test]
     fn rows_of_the_same_messages_are_equal_and_a_new_message_is_not() {
         let mut rooms = [room("!a", vec![message("a1", "!a", 0, false)])];
-        let before = present(&mut rooms, None, false, &Unfolded::default(), &TimeZone::UTC);
-        let again = present(&mut rooms, None, false, &Unfolded::default(), &TimeZone::UTC);
+        let before = present(
+            &mut rooms,
+            None,
+            false,
+            &Unfolded::default(),
+            &HashSet::new(),
+            &TimeZone::UTC,
+        );
+        let again = present(
+            &mut rooms,
+            None,
+            false,
+            &Unfolded::default(),
+            &HashSet::new(),
+            &TimeZone::UTC,
+        );
         assert_eq!(before, again);
         rooms[0].apply(vec![VectorDiff::Set {
             index: 0,
@@ -397,7 +541,14 @@ pub(crate) mod tests {
         }]);
         assert_ne!(
             before,
-            present(&mut rooms, None, false, &Unfolded::default(), &TimeZone::UTC)
+            present(
+                &mut rooms,
+                None,
+                false,
+                &Unfolded::default(),
+                &HashSet::new(),
+                &TimeZone::UTC
+            )
         );
     }
 
@@ -429,5 +580,189 @@ pub(crate) mod tests {
         assert_eq!(one.shown().len(), 100);
         assert!(one.reveal(&"5".into()));
         assert!(!one.reveal(&"gone".into()));
+    }
+
+    // MARK: deleted messages
+
+    fn deleted(id: &str, room: &str, seconds: u64, own: bool) -> Arc<TimelineMessage> {
+        let mut message = Arc::unwrap_or_clone(message(id, room, seconds, own));
+        message.kind = MessageKind::Deleted;
+        message.message.body.clear();
+        Arc::new(message)
+    }
+
+    /// One room's rows, with the messages of `apart` starting their own.
+    fn rows_of(messages: Vec<Arc<TimelineMessage>>, unfolded: &Unfolded, apart: &[&str]) -> Vec<Arc<ThreadRow>> {
+        let apart = apart.iter().map(|&id| MessageId::from(id)).collect();
+        present(
+            &mut [room("!a", messages)],
+            None,
+            false,
+            unfolded,
+            &apart,
+            &TimeZone::UTC,
+        )
+    }
+
+    /// Each row's id and how many deleted messages it folds.
+    fn folds(rows: &[Arc<ThreadRow>]) -> Vec<(&str, usize)> {
+        rows.iter().map(|row| (row.id().as_str(), row.deleted.len())).collect()
+    }
+
+    #[test]
+    fn deleted_messages_one_after_another_fold_into_one_row_whoever_sent_them() {
+        let read_by = |message: Arc<TimelineMessage>, who: &str| {
+            let mut message = Arc::unwrap_or_clone(message);
+            message.readers.push(Reader {
+                user: format!("@{who}").as_str().into(),
+                name: who.to_owned(),
+            });
+            Arc::new(message)
+        };
+        let rows = rows_of(
+            vec![
+                message("a1", "!a", 0, false),
+                read_by(deleted("d1", "!a", 10, false), "petr"),
+                deleted("d2", "!a", 20, true),
+                read_by(deleted("d3", "!a", 30, false), "eva"),
+                message("a2", "!a", 40, false),
+            ],
+            &Unfolded::default(),
+            &[],
+        );
+        assert_eq!(folds(&rows), [("a1", 0), ("d1", 3), ("a2", 0)]);
+        assert_eq!(
+            rows[1]
+                .deleted
+                .iter()
+                .map(|message| message.message.id.as_str())
+                .collect::<Vec<_>>(),
+            ["d1", "d2", "d3"]
+        );
+        // the folded row is no sender's: Anna's run ends above it and starts again below.
+        assert!(rows[0].ends_run && rows[1].starts_run && rows[1].ends_run && rows[2].starts_run);
+        // its newest message is the run's last, and a jump to any of them finds its row.
+        assert_eq!(rows[1].latest().message.id.as_str(), "d3");
+        assert!(rows[1].shows(&"d2".into()));
+        // who read up to any of them shows under it.
+        assert_eq!(
+            rows[1].readers().map(|reader| reader.name.as_str()).collect::<Vec<_>>(),
+            ["petr", "eva"]
+        );
+    }
+
+    #[test]
+    fn a_single_deleted_message_keeps_its_row() {
+        let rows = rows_of(
+            vec![
+                message("a1", "!a", 0, false),
+                deleted("d1", "!a", 10, false),
+                message("a2", "!a", 20, false),
+            ],
+            &Unfolded::default(),
+            &[],
+        );
+        assert_eq!(folds(&rows), [("a1", 0), ("d1", 0), ("a2", 0)]);
+        // as it always did: one run of Anna's.
+        assert!(!rows[0].ends_run && !rows[1].starts_run);
+    }
+
+    #[test]
+    fn a_new_day_a_pause_and_the_first_unread_message_break_a_run() {
+        let day = 24 * 60 * 60;
+        let rows = rows_of(
+            vec![
+                deleted("d1", "!a", 0, false),
+                deleted("d2", "!a", 10, false),
+                // the next day: its separator shows above it.
+                deleted("d3", "!a", day, false),
+                deleted("d4", "!a", day + 10, false),
+                // three hours on: the time shows above it.
+                deleted("d5", "!a", day + 3 * 60 * 60, false),
+                deleted("d6", "!a", day + 3 * 60 * 60 + 10, false),
+                // where the unread messages start: the marker goes above it.
+                deleted("d7", "!a", day + 3 * 60 * 60 + 20, false),
+                deleted("d8", "!a", day + 3 * 60 * 60 + 30, false),
+            ],
+            &Unfolded::default(),
+            &["d7"],
+        );
+        assert_eq!(folds(&rows), [("d1", 2), ("d3", 2), ("d5", 2), ("d7", 2)]);
+        assert_eq!(rows[1].separator, Some(Separator::Day));
+        assert_eq!(rows[2].separator, Some(Separator::Pause));
+    }
+
+    #[test]
+    fn a_deleted_message_with_reactions_or_a_thread_keeps_its_row() {
+        let mut reacted = Arc::unwrap_or_clone(deleted("d2", "!a", 10, false));
+        reacted.message.has_reactions = true;
+        let mut root = Arc::unwrap_or_clone(deleted("d4", "!a", 30, false));
+        root.thread = Some(crate::timeline::ThreadSummary {
+            replies: 2,
+            ..crate::timeline::ThreadSummary::default()
+        });
+        let rows = rows_of(
+            vec![
+                deleted("d1", "!a", 0, false),
+                Arc::new(reacted),
+                deleted("d3", "!a", 20, false),
+                Arc::new(root),
+                deleted("d5", "!a", 40, false),
+                deleted("d6", "!a", 50, false),
+            ],
+            &Unfolded::default(),
+            &[],
+        );
+        assert_eq!(folds(&rows), [("d1", 0), ("d2", 0), ("d3", 0), ("d4", 0), ("d5", 2)]);
+    }
+
+    #[test]
+    fn a_merged_chats_rooms_fold_their_runs_apart() {
+        let mut rooms = [
+            room(
+                "!a",
+                vec![deleted("a1", "!a", 0, false), deleted("a2", "!a", 20, false)],
+            ),
+            room("!b", vec![deleted("b1", "!b", 10, false)]),
+        ];
+        let rows = present(
+            &mut rooms,
+            None,
+            true,
+            &Unfolded::default(),
+            &HashSet::new(),
+            &TimeZone::UTC,
+        );
+        assert_eq!(folds(&rows), [("a1", 0), ("b1", 0), ("a2", 0)]);
+    }
+
+    #[test]
+    fn a_run_growing_newer_keeps_its_rows_id_and_an_unfolded_one_stays_unfolded() {
+        let mut messages = vec![
+            message("a1", "!a", 0, false),
+            deleted("d1", "!a", 10, false),
+            deleted("d2", "!a", 20, false),
+        ];
+        let before = rows_of(messages.clone(), &Unfolded::default(), &[]);
+        messages.push(deleted("d3", "!a", 30, false));
+        let after = rows_of(messages.clone(), &Unfolded::default(), &[]);
+        assert_eq!(folds(&before), [("a1", 0), ("d1", 2)]);
+        assert_eq!(folds(&after), [("a1", 0), ("d1", 3)]);
+        // the same row, changed: the apps update it in place.
+        assert_ne!(before[1], after[1]);
+        let unfolded = Unfolded {
+            deleted: HashSet::from([MessageId::from("d2")]),
+            ..Unfolded::default()
+        };
+        assert_eq!(
+            folds(&rows_of(messages.clone(), &unfolded, &[])),
+            [("a1", 0), ("d1", 0), ("d2", 0), ("d3", 0)]
+        );
+        // older ones coming in above keep it unfolded too.
+        messages.insert(1, deleted("d0", "!a", 5, false));
+        assert_eq!(
+            folds(&rows_of(messages, &unfolded, &[])),
+            [("a1", 0), ("d0", 0), ("d1", 0), ("d2", 0), ("d3", 0)]
+        );
     }
 }

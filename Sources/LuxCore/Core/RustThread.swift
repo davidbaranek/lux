@@ -41,6 +41,7 @@ final class RustThreadView: ThreadView {
     func loaded() async { await view.loaded() }
     func toggleDetail(_ messageId: String) { view.toggleDetail(messageId: messageId) }
     func togglePost(_ messageId: String) { view.togglePost(messageId: messageId) }
+    func unfoldDeleted(_ messageId: String) { view.unfoldDeleted(messageId: messageId) }
     func show(room: String?) { view.showRoom(roomId: room) }
     func reply(to messageId: String) { view.reply(messageId: messageId) }
     func edit(_ messageId: String) { view.edit(messageId: messageId) }
@@ -184,6 +185,10 @@ private extension MessageItem {
         self.init(row.message, roomId: row.roomId)
         if !row.albumRest.isEmpty {
             album = albumItems + row.albumRest.flatMap { MessageItem($0, roomId: row.roomId).albumItems }
+        }
+        if row.deleted > 0 {
+            deletedRun = Int(row.deleted)
+            body = Self.deletedRunText(deletedRun)
         }
         network = row.network
         startsGroup = row.startsRun

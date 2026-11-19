@@ -184,6 +184,77 @@ async fn a_shared_posts_whole_caption_unfolds_and_folds_in_its_row_alone() {
     assert!(matches!(update.rows.as_slice(), [VectorDiff::Set { index: 3, value }] if !value.shows.whole_post));
 }
 
+/// Three of the newest messages, one after another, that fold together once deleted (no album,
+/// no Matrix thread, no day or pause between them).
+fn three_to_delete(thread: &Opened) -> Vec<MessageId> {
+    let index = (0..thread.rows.len().saturating_sub(3))
+        .rev()
+        .find(|&index| {
+            let three = &thread.rows[index..index + 3];
+            three
+                .iter()
+                .all(|row| row.album.is_empty() && row.message.thread.is_none())
+                && three[1..].iter().all(|row| row.separator.is_none())
+        })
+        .expect("the demo has three such messages");
+    thread.rows[index..index + 3]
+        .iter()
+        .map(|row| row.id().clone())
+        .collect()
+}
+
+fn row_of<'a>(thread: &'a Opened, id: &MessageId) -> Option<&'a Arc<ThreadRow>> {
+    thread.rows.iter().find(|row| row.id() == id)
+}
+
+#[tokio::test(start_paused = true)]
+async fn deleted_messages_fold_into_one_row_that_grows_in_place_and_unfolds() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
+    let three = three_to_delete(&thread);
+    thread.model.delete(three[0].clone());
+    thread.model.delete(three[1].clone());
+    thread.frame().await;
+    let count = thread.rows.len();
+    assert_eq!(row_of(&thread, &three[0]).map(|row| row.deleted.len()), Some(2));
+    assert!(row_of(&thread, &three[1]).is_none());
+    // a third joins the run: its row goes, the run's changes in place.
+    thread.model.delete(three[2].clone());
+    let update = thread.frame().await;
+    assert!(
+        update
+            .rows
+            .iter()
+            .all(|diff| matches!(diff, VectorDiff::Set { .. } | VectorDiff::Remove { .. })),
+        "{:?}",
+        update.rows
+    );
+    assert_eq!(thread.rows.len(), count - 1);
+    assert_eq!(row_of(&thread, &three[0]).map(|row| row.deleted.len()), Some(3));
+    thread.model.unfold_deleted(three[0].clone());
+    thread.frame().await;
+    for id in &three {
+        assert_eq!(row_of(&thread, id).map(|row| row.deleted.len()), Some(0));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_jump_to_a_folded_deleted_message_unfolds_its_run_and_lands_on_its_row() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
+    let three = three_to_delete(&thread);
+    thread.model.delete(three[0].clone());
+    thread.model.delete(three[1].clone());
+    thread.frame().await;
+    assert!(row_of(&thread, &three[1]).is_none());
+    // the demo's events are its messages.
+    let jumped = thread
+        .model
+        .jump("!r:demo".into(), EventId::from(three[1].as_str()))
+        .await;
+    assert_eq!(here(jumped), three[1]);
+    thread.updates();
+    assert_eq!(row_of(&thread, &three[1]).map(|row| row.deleted.len()), Some(0));
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_toggled_detail_sets_only_its_row() {
     let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
