@@ -13,7 +13,8 @@ use lux_core::message::SendState;
 use lux_core::ports::{ChatMedia, ChatSending, ChatTimelines, ThreadBackend};
 use lux_core::timeline::{
     FileKind, ImageSource, IndexHistory, IndexedMessage, Media, MessageKind, OutgoingAttachment, OutgoingKind,
-    OutgoingThumbnail, Participant, Picture, Quote, StyleKind, ThreadReply, ThreadSummary, TimelineMessage, Typist,
+    OutgoingThumbnail, Participant, Picture, Quote, Reader, StyleKind, ThreadReply, ThreadSummary, TimelineMessage,
+    Typist,
 };
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, CoreListenerHandle, with_account};
@@ -165,6 +166,15 @@ pub struct CoreReader {
     pub user_id: String,
     /// Their name.
     pub name: String,
+}
+
+impl From<&Reader> for CoreReader {
+    fn from(reader: &Reader) -> Self {
+        Self {
+            user_id: reader.user.to_string(),
+            name: reader.name.clone(),
+        }
+    }
 }
 
 /// One message of a chat (`lux_core::timeline::TimelineMessage`).
@@ -574,14 +584,7 @@ impl From<&TimelineMessage> for CoreMessage {
                 })
                 .collect(),
             reply: message.reply.clone().map(quote),
-            readers: message
-                .readers
-                .iter()
-                .map(|reader| CoreReader {
-                    user_id: reader.user.to_string(),
-                    name: reader.name.clone(),
-                })
-                .collect(),
+            readers: message.readers.iter().map(CoreReader::from).collect(),
             shared: message.shared.clone().map(|post| CoreSharedPost {
                 url: post.url,
                 title: post.title,

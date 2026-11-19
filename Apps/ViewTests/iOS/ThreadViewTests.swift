@@ -101,6 +101,41 @@ struct ThreadViewTests {
     }
 
     /// A chat of the demo with no unread message: it opens at its newest.
+    @Test func deletedMessagesOneAfterAnotherShowAsOneRowThatGrowsInPlaceAndUnfoldsWhenActivated() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            try await chat.changes.until { chat.isShown(chat.newest) && !model.isLoading }
+            // three of the newest messages, one after another, that fold together once deleted.
+            let messages = model.messages
+            let start = try #require(messages.indices.dropLast(2).last { index in
+                let three = messages[index...(index + 2)]
+                return three.allSatisfy { $0.album.isEmpty && $0.thread == nil }
+                    && three.dropFirst().allSatisfy { !$0.startsDay && !$0.startsTimeGap }
+            })
+            let three = messages[start...(start + 2)].map(\.id)
+            model.delete(three[0])
+            model.delete(three[1])
+            try await chat.changes.until { chat.row(of: three[1]) == nil && chat.isCurrent }
+            let row = try #require(chat.row(of: three[0]))
+            chat.collectionView.layoutIfNeeded()
+            let cell = try #require(chat.collectionView.cellForItem(at: IndexPath(item: row, section: 0)) as? MessageCell)
+            #expect(cell.accessibilityLabel?.hasPrefix("2 deleted messages") == true)
+            #expect(cell.accessibilityTraits.contains(.button))
+            // a third joins the run: its row leaves, and the run's row shows the new count in place.
+            model.delete(three[2])
+            try await chat.changes.until { chat.row(of: three[2]) == nil && chat.isCurrent }
+            chat.collectionView.layoutIfNeeded()
+            let again = try #require(chat.row(of: three[0]))
+            #expect(chat.collectionView.cellForItem(at: IndexPath(item: again, section: 0)) === cell)
+            #expect(cell.accessibilityLabel?.hasPrefix("3 deleted messages") == true)
+            // activated (VoiceOver's double tap, as a tap): each shows in its own row.
+            #expect(cell.accessibilityActivate())
+            try await chat.changes.until { three.allSatisfy { chat.row(of: $0) != nil } && chat.isCurrent }
+            #expect(three.allSatisfy { id in model.messages.first { $0.id == id }?.deletedRun == 0 })
+        }
+    }
+
     private func readChat(in session: Session) async throws -> ChatRow {
         let list = ChatListModel(session: session)
         let changes = list.changes()

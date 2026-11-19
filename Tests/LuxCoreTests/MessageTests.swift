@@ -324,3 +324,38 @@ struct EmojiTests {
         #expect(empty.selection == NSRange(location: 2, length: 0))
     }
 }
+
+struct FoldedDeletedLayoutTests {
+    /// Four deleted messages folded together, the first one's sender's own or Anna's; Petr read them.
+    private func folded(own: Bool) -> MessageItem {
+        var item = MessageItem(id: "d1", senderId: own ? "me" : "anna", senderName: "Anna", body: "", date: .now, isOwn: own)
+        item.isDeleted = true
+        item.deletedRun = 4
+        item.body = MessageItem.deletedRunText(4)
+        item.readers = [.init(userId: "petr", name: "Petr")]
+        return item
+    }
+
+    @Test func deletedMessagesFoldedTogetherSayHowMany() {
+        #expect(MessageItem.deletedRunText(2) == "2 deleted messages")
+        #expect(MessageItem.deletedRunText(6) == "6 deleted messages")
+    }
+
+    /// The run is no one sender's: a pill in the row's middle in either style, whoever sent its
+    /// first message, with no name or picture, and who read them under it.
+    @Test func foldedDeletedMessagesAreAPillInTheRowsMiddleInEitherStyle() throws {
+        for style in ChatStyle.allCases {
+            for own in [true, false] {
+                let layout = MessageLayout.make(folded(own: own), showsSender: true, style: style, width: 400,
+                                                metrics: BubbleMetrics(), measure: FixedMeasure())
+                #expect(abs(layout.bubble.midX - 200) <= 1)
+                #expect(layout.body?.width == CGFloat("4 deleted messages".count * 10))
+                #expect(layout.sender == nil && layout.avatar == nil && layout.band == nil)
+                #expect(layout.style == .bubbles)
+                let readers = try #require(layout.readers)
+                #expect(abs(readers.midX - 200) <= 1)
+                #expect(readers.minY >= layout.bubble.maxY)
+            }
+        }
+    }
+}

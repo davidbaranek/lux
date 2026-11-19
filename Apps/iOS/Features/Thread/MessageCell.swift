@@ -254,9 +254,11 @@ final class MessageCell: UICollectionViewCell {
         if let shown, shown.0 == message, shown.1 == layout { return }
         shown = (message, layout)
         let plain = layout.style == .plain
-        // a plain row's parts are on the chat's own ground, one's own too.
-        let own = message.isOwn && !plain
-        let ink: UIColor = own ? .white : .label
+        let folded = message.deletedRun > 0
+        // a plain row's parts are on the chat's own ground, one's own too; deleted messages folded
+        // together are no one's, in a grey pill.
+        let own = message.isOwn && !plain && !folded
+        let ink: UIColor = folded ? .secondaryLabel : own ? .white : .label
 
         place(day, layout.day, message.separatorText, text.footer)
         unreadMarker.isHidden = layout.unreadMarker == nil
@@ -335,6 +337,17 @@ final class MessageCell: UICollectionViewCell {
                               message.body, message.footerText, message.reactionsText, message.threadText,
                               message.readersText(inGroup: isGroup)]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
+        // deleted messages folded together are a button: activating it shows each.
+        if folded { accessibilityLabel = [message.body, message.readersText(inGroup: isGroup)].compactMap { $0 }.joined(separator: ", ") }
+        accessibilityTraits = folded ? .button : .none
+        accessibilityHint = folded ? MessageItem.unfoldDeletedHint : nil
+    }
+
+    /// VoiceOver's activation of deleted messages folded together shows each, as a tap does.
+    override func accessibilityActivate() -> Bool {
+        guard let message = shown?.0, message.deletedRun > 0, let onBubbleTap else { return super.accessibilityActivate() }
+        onBubbleTap()
+        return true
     }
 
     /// A plain reply's line, as Discord draws one: the quoted sender's picture and name, then
@@ -431,8 +444,14 @@ final class MessageCell: UICollectionViewCell {
     }
 
     /// The bubble's colour; a tapped message darkens while its details show. A plain row has no
-    /// bubble: its band shades while the details show.
+    /// bubble: its band shades while the details show. Deleted messages folded together are a grey
+    /// pill in either style.
     private func fillBubble(_ message: MessageItem) {
+        if message.deletedRun > 0 {
+            bubble.backgroundColor = .tertiarySystemFill
+            band.backgroundColor = .clear
+            return
+        }
         if shown?.1.style == .plain {
             bubble.backgroundColor = .clear
             band.backgroundColor = message.showsDetail ? .tertiarySystemFill : .clear

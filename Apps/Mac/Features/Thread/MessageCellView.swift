@@ -257,9 +257,11 @@ final class MessageCellView: NSTableCellView {
         shown = (message, layout)
         source = (text, images, isGroup)
         let plain = layout.style == .plain
-        // a plain row's parts are on the chat's own ground, one's own too.
-        let own = message.isOwn && !plain
-        let ink: NSColor = own ? .white : .labelColor
+        let folded = message.deletedRun > 0
+        // a plain row's parts are on the chat's own ground, one's own too; deleted messages folded
+        // together are no one's, in a grey pill.
+        let own = message.isOwn && !plain && !folded
+        let ink: NSColor = folded ? .secondaryLabelColor : own ? .white : .labelColor
         day.isHidden = layout.day == nil
         if let frame = layout.day.map(Self.centredLine(text.footer)) {
             let centred = NSMutableParagraphStyle()
@@ -296,7 +298,7 @@ final class MessageCellView: NSTableCellView {
             band.layer?.backgroundColor = message.showsDetail ? NSColor.labelColor.withAlphaComponent(0.07).cgColor : nil
         }
         // a clicked message darkens while its details show.
-        let fill: NSColor = own ? accent : .incomingBubble
+        let fill: NSColor = folded ? .quaternaryLabelColor : own ? accent : .incomingBubble
         bubble.layer?.backgroundColor = message.isMediaOnly || plain ? nil
             : (message.showsDetail ? fill.blended(withFraction: 0.22, of: .black) ?? fill : fill).cgColor
         place(quote, layout.quote, message.quoteText, text.quote, ink.withAlphaComponent(0.75))
@@ -352,6 +354,17 @@ final class MessageCellView: NSTableCellView {
                                message.file.map { "\($0.name), \($0.detailText)" }, message.postCard?.title,
                                message.postCard?.description, message.body, message.footerText, message.reactionsText,
                                message.threadText].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", "))
+        // deleted messages folded together are a button: pressing it shows each.
+        if folded { setAccessibilityLabel(message.body) }
+        setAccessibilityRole(folded ? .button : .staticText)
+        setAccessibilityHelp(folded ? MessageItem.unfoldDeletedHint : nil)
+    }
+
+    /// VoiceOver's press on deleted messages folded together shows each, as a click does.
+    override func accessibilityPerformPress() -> Bool {
+        guard let message = shown?.0, message.deletedRun > 0, let onBubbleTap else { return false }
+        onBubbleTap()
+        return true
     }
 
     /// A plain reply's line, as Discord draws one: the quoted sender's picture and name, then

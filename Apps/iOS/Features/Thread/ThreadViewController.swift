@@ -139,7 +139,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             }
             cell.onQuoteTap = message.quote == nil ? nil : { [weak self] in self?.presenter.jump(toRepliedMessageOf: id) }
             cell.onLink = { url in UIApplication.shared.open(url) }
-            cell.onBubbleTap = { [weak self] in self?.model.toggleDetail(of: id) }
+            cell.onBubbleTap = { [weak self] in
+                guard let self, let message = messages[id] else { return }
+                model.tap(message)
+            }
             cell.onReactionTap = { [weak self] key in self?.model.toggleReaction(key, on: id) }
             cell.onPostMore = { [weak self] in self?.presenter.togglePost(of: id) }
             // a shared post's card (its title and caption) opens the post; its media opens as any.

@@ -433,6 +433,13 @@ impl<B: ThreadBackend> Thread<B> {
         }
     }
 
+    /// The messages of the jumps about to be answered, which show each in its own row: a run of
+    /// deleted messages one is in unfolds.
+    pub(super) fn unfold_landed(&mut self) {
+        let landed = self.jumps.landed.iter().map(|(id, _)| id.clone());
+        self.unfolded.deleted.extend(landed);
+    }
+
     /// Answers the jumps whose messages show now, with the rows that show them.
     pub(super) fn answer_landed(&mut self) {
         for (id, answer) in mem::take(&mut self.jumps.landed) {

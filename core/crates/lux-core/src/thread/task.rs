@@ -3,7 +3,7 @@
 //! frame, when anything changed, presents the rows and sends their diffs with the state.
 
 use crate::gone::OtherEndGone;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::mem;
 use std::path::PathBuf;
@@ -422,6 +422,8 @@ impl<B: ThreadBackend> Thread<B> {
         if self.dirty.rows || first {
             self.dirty.rows = false;
             let merged = self.rooms.len() > 1;
+            self.unfold_landed();
+            let apart = self.unread_start();
             let rows = if let Some(detached) = self.jumps.detached.as_mut() {
                 detached.messages.reveal_older();
                 rows::present(
@@ -429,13 +431,14 @@ impl<B: ThreadBackend> Thread<B> {
                     None,
                     merged,
                     &self.unfolded,
+                    &apart,
                     &self.zone,
                 )
             } else {
                 for room in &mut self.rooms {
                     room.reveal_older();
                 }
-                rows::present(&mut self.rooms, self.shown, merged, &self.unfolded, &self.zone)
+                rows::present(&mut self.rooms, self.shown, merged, &self.unfolded, &apart, &self.zone)
             };
             update.rows = if first {
                 vec![VectorDiff::Reset {
@@ -476,8 +479,20 @@ impl<B: ThreadBackend> Thread<B> {
         }
         // a jump's rows are not the newest: what they show says nothing of what was read.
         if !self.is_detached() {
-            self.read
-                .update(self.rows.last().map(|row| (row.id(), row.message.is_own)));
+            self.read.update(self.rows.last().map(|row| {
+                let latest = row.latest();
+                (&latest.message.id, latest.is_own)
+            }));
+        }
+    }
+
+    /// The messages where the unread ones may start, each to begin a row of its own (not folded
+    /// into a run of deleted ones), so the marker can go above it: the one decided, or, until
+    /// then, each room's first unread message.
+    fn unread_start(&self) -> HashSet<MessageId> {
+        match &self.first_unread {
+            FirstUnread::Decided(first) => first.iter().cloned().collect(),
+            FirstUnread::Undecided | FirstUnread::Late => self.unread_found.iter().flatten().cloned().collect(),
         }
     }
 
@@ -627,6 +642,9 @@ impl<B: ThreadBackend> Thread<B> {
             Intent::TogglePost(message) => {
                 rows::Unfolded::toggle(&mut self.unfolded.posts, message);
                 self.dirty.rows = true;
+            }
+            Intent::UnfoldDeleted(message) => {
+                self.dirty.rows |= self.unfolded.deleted.insert(message);
             }
             Intent::ShowRoom(room) => {
                 // another room filter is the live rows'.
@@ -995,7 +1013,7 @@ impl<B: ThreadBackend> Thread<B> {
     /// Tells the others the chat was read up to its newest message: every room of a merged
     /// chat, since what shows together is read together.
     fn send_read_receipt(&mut self) {
-        let latest = self.rows.last().map(|row| row.id().clone());
+        let latest = self.rows.last().map(|row| row.latest().message.id.clone());
         if !self.read.read(latest.as_ref()) {
             return;
         }
@@ -1111,12 +1129,9 @@ impl<B: ThreadBackend> Thread<B> {
         }
     }
 
-    /// The row that shows the message `id`: its own, or its album's.
+    /// The row that shows the message `id`: its own, or its album's or run's.
     fn row_of(&self, id: &MessageId) -> Option<MessageId> {
-        self.rows
-            .iter()
-            .find(|row| row.id() == id || row.album.iter().any(|message| &message.message.id == id))
-            .map(|row| row.id().clone())
+        self.rows.iter().find(|row| row.shows(id)).map(|row| row.id().clone())
     }
 
     /// Shows the messages waiting to show whose room now has them.

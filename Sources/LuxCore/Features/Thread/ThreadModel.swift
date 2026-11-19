@@ -247,6 +247,16 @@ public final class ThreadModel {
         withCore { $0.togglePost(messageId) }
     }
 
+    /// The row's tap: a row of deleted messages folded together shows each in its own row (for
+    /// as long as the chat is open); any other shows or hides its details.
+    public func tap(_ message: MessageItem) {
+        if message.deletedRun > 0 {
+            withCore { $0.unfoldDeleted(message.id) }
+        } else {
+            toggleDetail(of: message.id)
+        }
+    }
+
     /// False while older messages load, and once the chat shows its first message.
     public var canLoadOlder: Bool { !olderAsked && olderAllowed }
 

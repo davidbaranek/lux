@@ -160,7 +160,10 @@ public struct MessageLayout: Sendable, Equatable {
 
     public static func make(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool = false, style: ChatStyle = .bubbles,
                             width: CGFloat, metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
-        switch style {
+        if message.deletedRun > 0 {
+            return foldedDeleted(message, showsSender: showsSender, isFirstUnread: isFirstUnread, width: width, metrics: m, measure: measure)
+        }
+        return switch style {
         case .bubbles: bubbled(message, showsSender: showsSender, isFirstUnread: isFirstUnread, width: width, metrics: m, measure: measure)
         case .plain: plain(message, showsSender: showsSender, isFirstUnread: isFirstUnread, width: width, metrics: m, measure: measure)
         }
@@ -359,6 +362,26 @@ public struct MessageLayout: Sendable, Equatable {
             : nil
     }
 
+    /// Deleted messages folded together, alike in either style: "6 deleted messages" in a pill in
+    /// the row's middle (the run is no one sender's), who read up to them under it.
+    private static func foldedDeleted(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool, width: CGFloat,
+                                      metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
+        let maxWidth = max(floor(width - 2 * m.sideMargin), 1)
+        let text = measure.size(ofBody: message, width: max(maxWidth - 2 * m.paddingX, 1))
+        let size = CGSize(width: ceil(text.width + 2 * m.paddingX), height: ceil(text.height + 2 * m.paddingY))
+        var layout = MessageLayout(height: 0, bubble: .zero)
+        layout.body = CGRect(origin: CGPoint(x: m.paddingX, y: m.paddingY), size: text)
+        var top = layout.placeMarkers(message, isFirstUnread: isFirstUnread, width: width, metrics: m)
+        top += m.groupGap
+        layout.bubble = CGRect(x: floor((width - size.width) / 2), y: top, width: size.width, height: size.height)
+        top += size.height
+        top = layout.placeUnder(message, showsSender: showsSender, top: top, maxWidth: maxWidth, metrics: m, measure: measure) { part in
+            floor((width - part) / 2)
+        }
+        layout.height = ceil(top + m.groupGap / 2)
+        return layout
+    }
+
     /// A bubble, one's own at the trailing side, others' at the leading side under their name.
     private static func bubbled(_ message: MessageItem, showsSender: Bool, isFirstUnread: Bool, width: CGFloat,
                                 metrics m: BubbleMetrics, measure: some TextMeasuring) -> MessageLayout {
@@ -526,6 +549,15 @@ extension MessageItem {
             return card
         }
     }
+
+    /// A row of deleted messages folded together: "6 deleted messages", in the plural the
+    /// language takes (automatic grammar agreement; a string catalog's plural variants win).
+    static func deletedRunText(_ count: Int) -> String {
+        String(AttributedString(localized: "^[\(count) deleted message](inflect: true)").characters)
+    }
+
+    /// What a tap on a row of deleted messages folded together does, for VoiceOver.
+    public static let unfoldDeletedHint = String(localized: "Shows each deleted message")
 
     /// Under a folded caption, and under an unfolded one.
     public static let showMoreText = String(localized: "Show more")
