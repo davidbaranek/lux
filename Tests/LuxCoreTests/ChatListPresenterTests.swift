@@ -52,6 +52,20 @@ struct ChatListPresenterTests {
         #expect(screen.updates.dropFirst().allSatisfy { !$0.isFirst })
     }
 
+    @Test func aScreenThatComesAfterTheListsBatchesDrawsTheListAsItIs() async throws {
+        // the list follows the account from the presenter's start; its screen may come later (a
+        // scene connected in the background loads its views once it shows).
+        let presenter = ChatListPresenter(session: session, model: ChatListModel(session: session))
+        let changes = presenter.model.changes()
+        try await changes.until { presenter.model.loadState == .done && !presenter.model.rows.isEmpty }
+        let screen = RecordingListScreen()
+        presenter.screen = screen
+        let first = try #require(screen.updates.first)
+        #expect(first.isFirst)
+        #expect(first.sections.flatMap(\.rows).map(\.id) == presenter.model.rows.map(\.id))
+        #expect(screen.updates.count == 1)
+    }
+
     @Test func anotherPlaceReplacesTheListAndThenChangesRowByRow() async throws {
         let (presenter, screen) = started()
         try await screen.changes.until { !screen.updates.isEmpty }

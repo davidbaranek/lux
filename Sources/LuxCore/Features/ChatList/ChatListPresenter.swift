@@ -35,8 +35,13 @@ public protocol ChatListScreen: AnyObject {
 @MainActor
 public final class ChatListPresenter {
     public let model: ChatListModel
+    /// The screen may come after the list's first batches (a scene connected in the background
+    /// loads its views once it shows): it is told the bubble and the list as they are now.
     public weak var screen: ChatListScreen? {
-        didSet { screen?.showActivity(activity, toggles: true) }
+        didSet {
+            screen?.showActivity(activity, toggles: true)
+            if model.hasShown { show(model.sections, changed: []) }
+        }
     }
     private weak var session: Session?
     private let tasks = TaskBag()
@@ -67,6 +72,8 @@ public final class ChatListPresenter {
     // MARK: Updates
 
     private func show(_ sections: [ChatSection], changed: [String]) {
+        // no screen yet: it draws the sections as they are once it comes.
+        guard let screen else { return }
         let isFirst = !shownFirst
         shownFirst = true
         let isNewPlace = !isFirst && shownPlace != model.place
@@ -76,7 +83,7 @@ public final class ChatListPresenter {
             sections: sections, changed: changed, isFirst: isFirst, isNewPlace: isNewPlace,
             titles: Dictionary(sections.compactMap { section in section.title.map { (section.id, $0) } }, uniquingKeysWith: { first, _ in first }),
             pinned: grid.flatMap(\.rows), gridSections: Set(grid.map(\.id)))
-        screen?.show(update)
+        screen.show(update)
         guard isFirst else { return }
         let rows = sections.flatMap(\.rows)
         Signposts.firstChatsShown(count: rows.count)

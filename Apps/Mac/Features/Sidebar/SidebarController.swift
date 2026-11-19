@@ -142,14 +142,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
         rail.onTheme = { [weak self] place, theme in self?.listModel.setTheme(place, theme) }
         rail.onInbox = { [weak self] place, rule in self?.listModel.setInbox(place, rule) }
         rail.onNotifications = { [weak self] place, setting in self?.listModel.setNotifications(place, setting) }
-        listModel.onPlaces = { [weak self] places in
-            guard let self else { return }
-            if let inbox = places.first(where: { $0.id == .inbox }) { onBadge?(inbox.unread) }
-            rail.defaultTheme = listModel.defaultTheme
-            rail.show(places, selected: listModel.place)
-            onPlaceTitle?(placeTitle)
-            updateTheme()
-        }
+        listModel.onPlaces = { [weak self] places in self?.showPlaces(places) }
+        // the places that came before the view loaded.
+        if !listModel.places.isEmpty { showPlaces(listModel.places) }
         list.onSelect = { [weak self] row, focus in self?.onOpen?(row, focus) }
         results.onOpen = { [weak self] target in self?.open(target) }
         results.onShowAll = { [weak self] kind in self?.showAll(kind) }
@@ -164,6 +159,14 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate {
             rail.showAccount(session.profile?.profile)
         }
         Task { await session.profile?.load() }
+    }
+
+    private func showPlaces(_ places: [PlaceItem]) {
+        if let inbox = places.first(where: { $0.id == .inbox }) { onBadge?(inbox.unread) }
+        rail.defaultTheme = listModel.defaultTheme
+        rail.show(places, selected: listModel.place)
+        onPlaceTitle?(placeTitle)
+        updateTheme()
     }
 
     /// The shown place's colour: over the whole sidebar, and the list's accent. Neutral keeps the

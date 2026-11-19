@@ -197,12 +197,13 @@ public final class ChatListModel {
         batchWaiters.removeValue(forKey: id)?.resume()
     }
 
-    private var published = false
+    /// A batch of the newest place showed: `sections` are the list, not the empty one before it.
+    public private(set) var hasShown = false
 
     private func apply(_ batch: ChatListBatch) {
         defer { for id in Array(batchWaiters.keys) { resumeWaiter(id) } }
         let state = Signposts.list.beginInterval("batch")
-        let first = !published
+        let first = !hasShown
         if let selection = batch.selection { shownSelection = selection }
         let current = shownSelection == askedSelection
         let changed = listed.apply(batch)
@@ -247,7 +248,7 @@ public final class ChatListModel {
         if first {
             for row in sections.flatMap(\.rows).prefix(Self.prefetchedOnLaunch) { prefetch(row.id) }
         }
-        published = true
+        hasShown = true
         onUpdate?(sections, shownChanges)
     }
 
