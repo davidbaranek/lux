@@ -16,16 +16,18 @@ use crate::embedding;
 use crate::search::{Ranked, fuse, query, unmark};
 use crate::types::{from_millis, to_millis};
 use crate::{
-    Browse, Error, FileHit, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch, IndexedChat, Key, LinkHit,
-    MessageEmbedding, Result, TextSearch, ThreadHit, schema,
+    Browse, ContextMessage, Error, FileHit, Hit, ImageCounts, ImageHit, ImageRead, ImageReason, ImageSearch,
+    IndexedChat, Key, LinkHit, MessageEmbedding, MessageToEmbed, Result, TextSearch, ThreadHit, schema,
 };
 
 /// Adds a message, or changes its text and sender (an edit keeps its event id); an unchanged
-/// message writes nothing, so the index does not grow its deleted rows.
+/// message writes nothing, so the index does not grow its deleted rows. A change to what its
+/// meaning is read from (its text, its sender's name, its thread and so the messages before it)
+/// has it read again; the messages after it are the schema's triggers' (migration 5).
 const UPSERT_MESSAGE: &str = "
     INSERT INTO messages(event_id, room_id, sender, body, ts, own, thread) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
     ON CONFLICT(event_id) DO UPDATE SET body = excluded.body, sender = excluded.sender, thread = excluded.thread,
-        embedding = iif(body = excluded.body, embedding, NULL), embedder = iif(body = excluded.body, embedder, NULL)
+        embedding = NULL, embedder = NULL
     WHERE body != excluded.body OR sender != excluded.sender OR thread IS NOT excluded.thread";
 
 /// The messages whose meaning is most like the query's embedding (`?1`), at least `?3` alike.
@@ -33,6 +35,29 @@ const SEARCH_MEANING: &str = "
     SELECT event_id, room_id, sender, body, ts, own, similarity(embedding, ?1) AS alike FROM messages
     WHERE embedding IS NOT NULL AND (?2 IS NULL OR room_id = ?2) AND alike >= ?3
     ORDER BY alike DESC LIMIT ?4";
+
+/// How many messages before one its meaning is read with: four found short replies best
+/// (`scripts/image-search/evaluate-messages.py`). The schema's triggers read again the
+/// messages after a changed one as far (migration 5): a change here is a new migration.
+const CONTEXT_MESSAGES: u32 = 4;
+
+/// How much of each message before one is read with it, in characters: the encoder reads a few
+/// dozen words, and the apps cut by its tokens (the oldest message first, never the message).
+const CONTEXT_CHARS: u32 = 100;
+
+/// The messages before one (`?2`, `?3`: its time and row) in its chat, not in a thread, the
+/// newest first.
+const CHAT_CONTEXT: &str = "
+    SELECT sender, substr(body, 1, ?5) FROM messages
+    WHERE room_id = ?1 AND thread IS NULL AND (ts, id) < (?2, ?3)
+    ORDER BY ts DESC, id DESC LIMIT ?4";
+
+/// The messages before one in its thread (`?1`, the root's event): the replies before it, then
+/// the root; the newest first.
+const THREAD_CONTEXT: &str = "
+    SELECT sender, substr(body, 1, ?5) FROM messages
+    WHERE (thread = ?1 OR event_id = ?1) AND (ts, id) < (?2, ?3)
+    ORDER BY ts DESC, id DESC LIMIT ?4";
 
 /// How long a found message's excerpt is when it was found by its meaning, not by its words.
 const MEANING_EXCERPT: usize = 160;
@@ -784,21 +809,42 @@ impl Store {
     }
 
     /// Messages the index has not read the meaning of, the newest first, at most `limit`: each
-    /// with its text. A message shorter than `min_chars` is left (too little to mean).
+    /// with its text and the messages before it, which it is read with
+    /// ([`MessageToEmbed::context`]). A message shorter than `min_chars` is left (too little to
+    /// mean, even with what came before).
     ///
     /// # Errors
     /// SQLite's, or [`Error::Closed`].
-    pub async fn messages_to_embed(&self, min_chars: u32, limit: u32) -> Result<Vec<(EventId, String)>> {
+    pub async fn messages_to_embed(&self, min_chars: u32, limit: u32) -> Result<Vec<MessageToEmbed>> {
         self.worker
             .run(move |connection| {
                 let mut statement = connection.prepare_cached(
-                    "SELECT event_id, body FROM messages WHERE embedder IS NULL AND length(body) >= ?1 \
-                     ORDER BY ts DESC LIMIT ?2",
+                    "SELECT id, event_id, room_id, sender, body, ts, thread FROM messages \
+                     WHERE embedder IS NULL AND length(body) >= ?1 ORDER BY ts DESC LIMIT ?2",
                 )?;
-                let rows = statement.query_map(params![min_chars, limit], |row| {
-                    Ok((EventId::from(row.get::<_, String>(0)?), row.get(1)?))
-                })?;
-                Ok(rows.collect::<rusqlite::Result<_>>()?)
+                let mut in_chat = connection.prepare_cached(CHAT_CONTEXT)?;
+                let mut in_thread = connection.prepare_cached(THREAD_CONTEXT)?;
+                let mut rows = statement.query(params![min_chars, limit])?;
+                let mut messages = Vec::new();
+                while let Some(row) = rows.next()? {
+                    let (id, chat, ts, thread): (i64, String, i64, Option<String>) =
+                        (row.get(0)?, row.get(2)?, row.get(5)?, row.get(6)?);
+                    let before = match &thread {
+                        Some(root) => in_thread
+                            .query_map(params![root, ts, id, CONTEXT_MESSAGES, CONTEXT_CHARS], context_message)?,
+                        None => in_chat
+                            .query_map(params![chat, ts, id, CONTEXT_MESSAGES, CONTEXT_CHARS], context_message)?,
+                    };
+                    let mut context = before.collect::<rusqlite::Result<Vec<_>>>()?;
+                    context.reverse();
+                    messages.push(MessageToEmbed {
+                        event_id: EventId::from(row.get::<_, String>(1)?),
+                        sender_name: row.get(3)?,
+                        body: row.get(4)?,
+                        context,
+                    });
+                }
+                Ok(messages)
             })
             .await
     }
@@ -994,6 +1040,14 @@ fn hit(row: &rusqlite::Row<'_>, excerpt: String, matches: Vec<std::ops::Range<u3
         matches,
         date: from_millis(row.get(4)?),
         is_own: row.get(5)?,
+    })
+}
+
+/// A message another is read with, from its row: sender, (cut) text.
+fn context_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<ContextMessage> {
+    Ok(ContextMessage {
+        sender_name: row.get(0)?,
+        body: row.get(1)?,
     })
 }
 
