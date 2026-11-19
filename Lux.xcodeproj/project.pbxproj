@@ -92,6 +92,7 @@
 		83EE1721774FE5F58AD12DE3 /* MessageStyling.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF9E97A95FEC3B449DB8D77 /* MessageStyling.swift */; };
 		869F52C8F8781C272562C2C4 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */; };
 		86F3B8A8B9B968FE806D03B6 /* MessageCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */; };
+		87464321E211B588BE85FE73 /* ReadingWhileCharging.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0248A2DAC5B414C7DF52997 /* ReadingWhileCharging.swift */; };
 		8AC205D501695BBB98E0D29D /* ThemeMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E03D292A05B73F3E895EF3E8 /* ThemeMenu.swift */; };
 		8BF603F051D07B6E699DBE82 /* NetworksViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4A4506DA1C1DD8E5FB5EE2 /* NetworksViewController.swift */; };
 		8C2D3CF20AD6B004B201B4A9 /* ThreadViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C0C47671510E77AAD8CA4D /* ThreadViewTests.swift */; };
@@ -397,6 +398,7 @@
 		C74036405B2152475BBCC458 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
 		CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D0248A2DAC5B414C7DF52997 /* ReadingWhileCharging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingWhileCharging.swift; sourceTree = "<group>"; };
 		D033E27621E55198942826B7 /* HostSessionCloser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSessionCloser.swift; sourceTree = "<group>"; };
 		D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploads.swift; sourceTree = "<group>"; };
 		D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Composer.swift"; sourceTree = "<group>"; };
@@ -571,6 +573,7 @@
 				4408B34BF5C98CB465AB62E8 /* BackgroundRefresh.swift */,
 				D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */,
 				45E4FC640AD4BBC4E431346A /* Notifications.swift */,
+				D0248A2DAC5B414C7DF52997 /* ReadingWhileCharging.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -1457,6 +1460,7 @@
 				2C6C61D1739FD5E41B33D6E0 /* PinnedChatCell.swift in Sources */,
 				99746989F9BF6DCCE165A6AD /* PlacesSheetViewController.swift in Sources */,
 				08B199F4C47F89EEA44BF366 /* ProfileViewController.swift in Sources */,
+				87464321E211B588BE85FE73 /* ReadingWhileCharging.swift in Sources */,
 				DECA8F2F35AC1DF95C3406C0 /* RecoveryKeyViewController.swift in Sources */,
 				478267813ABE0BBC663B3827 /* RecoverySetupViewController.swift in Sources */,
 				4A7B4DEEA8CBD32189398BF5 /* ScrollBenchmark.swift in Sources */,

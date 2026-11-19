@@ -19,7 +19,7 @@ struct PhotoReader: PhotoReading {
 
     /// What `file` shows: its words, one line each in reading order, and its embedding. Read on
     /// the executor for work that holds its thread (`ImageWork`), whoever asks.
-    func read(_ file: URL, lease: ForegroundLease) async throws -> (words: String, embedding: [Float]?) {
+    func read(_ file: URL, lease: WorkLease) async throws -> (words: String, embedding: [Float]?) {
         try await withTaskExecutorPreference(ImageWork.executor) {
             let image = try Self.picture(file)
             let lines = try Self.words(in: image)

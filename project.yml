@@ -77,8 +77,9 @@ targets:
         LuxAppGroup: $(LUX_APP_GROUP)
         LuxPushGateway: $(LUX_PUSH_GATEWAY)
         LuxOAuthClientURI: $(LUX_OAUTH_CLIENT_URI)
-        BGTaskSchedulerPermittedIdentifiers: [$(LUX_BUNDLE_ID).uploads, $(LUX_BUNDLE_ID).refresh]
-        # files go on sending in a continued processing task when the user leaves the app.
+        BGTaskSchedulerPermittedIdentifiers: [$(LUX_BUNDLE_ID).uploads, $(LUX_BUNDLE_ID).refresh, $(LUX_BUNDLE_ID).reading]
+        # files go on sending in a continued processing task when the user leaves the app, and
+        # search reads what it has left in a processing task while the iPhone charges.
         UIBackgroundModes: [fetch, processing]
         # the chats the user writes in, donated as conversations: the share sheet suggests them.
         NSUserActivityTypes: [INSendMessageIntent]
