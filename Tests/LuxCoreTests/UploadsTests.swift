@@ -142,7 +142,8 @@ struct UploadsTests {
         uploads.send([try file("a.txt", bytes: 5)], to: "!r", replyTo: nil, failure: { Issue.record($0) })
         _ = try await server.queued.first()
 
-        uploads.close()
+        // over when it returns: the batch ended, and nothing follows the upload any more.
+        await uploads.close()
         #expect(try await finishes.first() == false)
         #expect(!uploads.isActive)
         try await server.unfollowed.first()

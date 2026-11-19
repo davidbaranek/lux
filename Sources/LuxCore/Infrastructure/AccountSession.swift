@@ -70,10 +70,11 @@ final class AccountSession {
         }
     }
 
-    /// Ends the account's work (its search's reading and its images' loads, waited for) and its
-    /// watches: what is left goes with this session, and nothing writes in its files afterwards.
+    /// Ends the account's work (its uploads' following, its search's reading and its images' loads,
+    /// waited for) and its watches: what is left goes with this session, and nothing writes in its
+    /// files afterwards.
     func close() async {
-        uploads.close()
+        await uploads.close()
         opening?.cancel()
         watchingEnd?.cancel()
         await search?.stop()
