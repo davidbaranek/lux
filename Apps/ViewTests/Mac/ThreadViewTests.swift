@@ -2,6 +2,7 @@ import AppKit
 import LuxCore
 import QuickLookUI
 import Testing
+import UniformTypeIdentifiers
 @testable import Lux
 
 /// A chat's pane over a demo account of its own, seen through its table: where the chat opens, and
@@ -237,6 +238,35 @@ struct ThreadViewTests {
             #expect(chat.controller.field.readSelection(from: words))
             #expect(chat.controller.composerField.text == "see you there")
             #expect(model.pendingFiles == [pasted])
+        }
+    }
+
+    @Test func aPhotosMenuSavesAndCopiesItAndCopyPutsItsFileAndImageOnThePasteboard() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            try await chat.changes.until { chat.isCurrent && model.messages.contains { $0.photo != nil && $0.album.isEmpty && $0.video == nil } }
+            let photo = try #require(model.messages.last { $0.photo != nil && $0.album.isEmpty && $0.video == nil })
+            let menu = try #require(chat.controller.menu(for: photo.id))
+            let titles = menu.items.map(\.title)
+            #expect(["Copy Photo", "Save to Downloads", "Save As…"].allSatisfy(titles.contains))
+            #expect(menu.items.filter { $0.action == #selector(ThreadController.performAttachmentAction(_:)) }.allSatisfy { $0.target === chat.controller })
+            // a text message has none.
+            let text = try #require(model.messages.last { !$0.hasMedia && !$0.body.isEmpty && $0.state == .sent })
+            #expect(!(try #require(chat.controller.menu(for: text.id)).items.map(\.title).contains("Save to Downloads")))
+            // dragged out, its row promises the file.
+            let row = try #require(chat.row(of: photo.id))
+            #expect(chat.controller.tableView(chat.table, pasteboardWriterForRow: row) is NSFilePromiseProvider)
+
+            let pasteboard = pasteboard { _ in }
+            defer { pasteboard.releaseGlobally() }
+            try await chat.controller.copyMedia(of: photo, to: pasteboard)
+            let files = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+            #expect(files.count == 1)
+            #expect(try files.first.map { try Data(contentsOf: $0) }?.isEmpty == false)
+            // its image too, for apps that take pictures.
+            let image = pasteboard.pasteboardItems?.first?.types.compactMap { UTType($0.rawValue) }.first { $0.conforms(to: .image) }
+            #expect(image != nil)
         }
     }
 

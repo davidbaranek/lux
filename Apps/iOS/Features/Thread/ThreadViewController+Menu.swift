@@ -46,6 +46,8 @@ extension ThreadViewController {
                 [weak self] _ in self?.perform(action, on: message)
             }
         }
+        // its photos, videos and files: copy, save, share.
+        if let attachments = attachmentMenu(for: message) { children.append(attachments) }
         // a shared post's address, whole, to read: the menu's actions copy it.
         children.append(UIMenu(title: message.shared?.url ?? "", options: .displayInline, children: actions))
         return UIMenu(children: children)

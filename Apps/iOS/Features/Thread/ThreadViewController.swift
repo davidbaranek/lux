@@ -20,7 +20,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private var order: [String] = []
     private lazy var text = MessageText(traitCollection)
     /// The screen's own work (the benchmark): it ends with the screen.
-    private let tasks = TaskBag()
+    let tasks = TaskBag()
     var collectionView: UICollectionView!
     var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private let composer = ComposerView()
