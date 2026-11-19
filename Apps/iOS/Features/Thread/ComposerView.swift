@@ -42,6 +42,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
         get { strip.videos }
         set { strip.videos = newValue }
     }
+    /// A photo or a PDF waiting in the composer was tapped, in its tile: it opens in Markup.
+    var onMarkUpAttachment: ((URL, UIView) -> Void)?
     /// The files waiting to go with the message; the composer can send with them alone.
     var attachments: [URL] = [] {
         didSet {
@@ -115,6 +117,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
         strip.isHidden = true
         strip.onRemove = { [weak self] file in self?.onRemoveAttachment?(file) }
         strip.onVideoQuality = { [weak self] file, quality in self?.onVideoQuality?(file, quality) }
+        strip.onMarkUp = { [weak self] file, tile in self?.onMarkUpAttachment?(file, tile) }
         stack.addArrangedSubview(modeBar)
         stack.addArrangedSubview(strip)
         stack.addArrangedSubview(textView)

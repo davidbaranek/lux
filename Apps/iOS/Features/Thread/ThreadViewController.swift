@@ -90,6 +90,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     private lazy var media = MediaPresenter(host: self)
     private lazy var attachments = AttachmentPicker(host: self) { [weak self] files in self?.model.attach(files) }
+    private lazy var markup = PendingMarkup(host: self) { [weak self] original, copy in self?.model.replacePending(original, with: copy) }
 
     /// One's own bubbles: the place's colour, else the system's blue.
     private var ownFill: UIColor { theme.color ?? .systemBlue }
@@ -202,6 +203,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         // photos, videos and files dropped anywhere on the chat wait in the composer too.
         view.addInteraction(UIDropInteraction(delegate: attachments))
         composer.onRemoveAttachment = { [weak self] file in self?.model.removePending(file) }
+        composer.onMarkUpAttachment = { [weak self] file, tile in self?.markup.open(file, from: tile) }
         model.onPendingFiles = { [weak self] files in self?.composer.attachments = files }
         // a video goes smaller unless the user chooses Original in its tile.
         model.pendingVideos.onChange = { [weak self] in

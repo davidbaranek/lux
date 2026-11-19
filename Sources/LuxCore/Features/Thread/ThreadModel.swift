@@ -463,6 +463,17 @@ public final class ThreadModel {
         withCore { $0.removePending(file) }
     }
 
+    /// Puts `new` in the place of `old` among the files waiting (a photo marked up, a video made
+    /// smaller): the files after it come back after it, so each still goes in its order.
+    public func replacePending(_ old: URL, with new: URL) {
+        guard let index = pendingFiles.firstIndex(of: old) else { return }
+        let after = Array(pendingFiles[(index + 1)...])
+        withCore { core in
+            for file in [old] + after { core.removePending(file) }
+            core.attach([new] + after)
+        }
+    }
+
     /// The composer can send: text, or files waiting.
     public func canSend(_ text: String) -> Bool {
         !pendingFiles.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

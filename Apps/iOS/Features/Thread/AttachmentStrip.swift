@@ -3,12 +3,15 @@ import QuickLookThumbnailing
 import UIKit
 
 /// The files waiting in the composer, in a row above the text: each as Quick Look draws it (a
-/// photo's picture, a document's first page, a file's icon), with a button that takes it out.
+/// photo's picture, a document's first page, a file's icon), with a button that takes it out. A
+/// photo or a PDF opens in Markup when tapped, to draw on it, crop or sign it before it goes.
 final class AttachmentStrip: UIView {
     static let side: CGFloat = 64
     var onRemove: ((URL) -> Void)?
     /// A video's quality was chosen in its tile.
     var onVideoQuality: ((URL, VideoQuality) -> Void)?
+    /// A photo or a PDF was tapped, in its tile: it opens in Markup.
+    var onMarkUp: ((URL, UIView) -> Void)?
     private let scroll = UIScrollView()
     private let row = UIStackView()
     private var tiles: [URL: AttachmentTile] = [:]
@@ -49,7 +52,9 @@ final class AttachmentStrip: UIView {
     func show(_ files: [URL]) {
         var kept: [URL: AttachmentTile] = [:]
         for file in files {
-            kept[file] = tiles[file] ?? AttachmentTile(file: file) { [weak self] in self?.onRemove?(file) }
+            kept[file] = tiles[file] ?? AttachmentTile(file: file) { [weak self] in self?.onRemove?(file) } markUp: { [weak self] tile in
+                self?.onMarkUp?(file, tile)
+            }
         }
         tiles = kept
         let views = files.compactMap { kept[$0] }
@@ -80,9 +85,24 @@ private final class AttachmentTile: UIView {
     private let progress = UIProgressView(progressViewStyle: .bar)
     private var video: PendingVideo?
 
-    init(file: URL, remove: @escaping () -> Void) {
+    init(file: URL, remove: @escaping () -> Void, markUp: @escaping (UIView) -> Void) {
         self.remove = UIButton(primaryAction: UIAction { _ in remove() })
         super.init(frame: .zero)
+        if PendingMarkup.canMarkUp(file) {
+            let open = UIButton(primaryAction: UIAction { [weak self] _ in
+                guard let self else { return }
+                markUp(self)
+            })
+            open.accessibilityLabel = String(localized: "Mark Up \(file.lastPathComponent)")
+            open.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(open)
+            NSLayoutConstraint.activate([
+                open.leadingAnchor.constraint(equalTo: leadingAnchor),
+                open.trailingAnchor.constraint(equalTo: trailingAnchor),
+                open.topAnchor.constraint(equalTo: topAnchor),
+                open.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+        }
         picture.contentMode = .scaleAspectFill
         picture.layer.cornerRadius = 12
         picture.layer.cornerCurve = .continuous
