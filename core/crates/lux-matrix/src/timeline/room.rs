@@ -18,6 +18,7 @@ use lux_core::organizer::Organized;
 use lux_core::ports::BackendError;
 use lux_core::timeline::{Filtered, TimelineMessage};
 use matrix_sdk::Room;
+use matrix_sdk::event_cache::PaginationStatus;
 use matrix_sdk::ruma::events::receipt::{Receipt, ReceiptThread, ReceiptType};
 use matrix_sdk::ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use matrix_sdk_ui::Timeline;
@@ -63,10 +64,10 @@ pub(crate) struct RoomTimeline {
     pub(crate) timeline: Arc<Timeline>,
     messages: LiveList<Arc<TimelineMessage>>,
     mapped: watch::Receiver<Mapped>,
-    at_start: watch::Receiver<bool>,
-    /// A timeline opened around a message paged back to the room's (the thread's) first: the SDK
-    /// marks the start only on a live timeline.
-    reached_start: AtomicBool,
+    /// A thread's timeline, or one opened around a message, paged back to its first: what the
+    /// SDK's last page back said. A live timeline asks the room's event cache instead
+    /// ([`RoomTimeline::is_at_start`]).
+    reached_start: Arc<AtomicBool>,
     filled: watch::Receiver<bool>,
     _tasks: Vec<crate::task::Owned>,
 }
@@ -102,7 +103,7 @@ impl RoomTimeline {
         let cut_of = |organized: &Organized, room: &RoomId| organized.marks.cleared.get(room.as_str()).copied();
         let cut = cut_of(&cuts.borrow_and_update(), &room_id);
         let messages = LiveList::new(Vector::new());
-        let (at_start_sender, at_start) = watch::channel(false);
+        let reached_start = Arc::new(AtomicBool::new(false));
         let (filled_sender, filled) = watch::channel(false);
         let (mapped_sender, mapped) = watch::channel(Mapped::new());
         // the first items are in once `subscribe` answers: the task maps them before anything else.
@@ -122,7 +123,6 @@ impl RoomTimeline {
             filter: Filtered::new(),
             messages: messages.clone(),
             mapped: mapped_sender,
-            at_start: at_start_sender,
             changes,
             room_id,
             cut,
@@ -170,6 +170,7 @@ impl RoomTimeline {
         } else {
             Some(crate::task::spawn(keep_filled(
                 Arc::clone(&timeline),
+                Arc::clone(&reached_start),
                 filled_sender,
                 mapped.clone(),
             )))
@@ -186,8 +187,7 @@ impl RoomTimeline {
             timeline,
             messages,
             mapped,
-            at_start,
-            reached_start: AtomicBool::new(false),
+            reached_start,
             filled,
             _tasks: [Some(follow), fill, Some(members)].into_iter().flatten().collect(),
         })
@@ -212,9 +212,26 @@ impl RoomTimeline {
             .other_end_may_be_gone("the timeline");
     }
 
-    /// The timeline holds the room's first message.
-    pub(crate) fn is_at_start(&self) -> bool {
-        *self.at_start.borrow() || self.reached_start.load(Ordering::Relaxed)
+    /// The timeline holds the room's (the thread's) first message: the SDK's own answer, the
+    /// one its page back returned, never read from the items it applies after it returned.
+    ///
+    /// A live timeline's is the room's event cache's back-pagination status, as
+    /// `Timeline::live_back_pagination_status` maps it: `Idle { hit_timeline_start }`, set before
+    /// a page back returns, set back to `false` when a limited sync resets the cache, and
+    /// `false` while items the timeline holds are not shown yet (its skip count). `Paginating`
+    /// only follows `Idle { hit_timeline_start: false }` (a cache at the start answers at once):
+    /// not at the start. Other timelines have no such status (it is `None`): what their last page
+    /// back returned.
+    pub(crate) async fn is_at_start(&self) -> bool {
+        match self.timeline.live_back_pagination_status().await {
+            Some((status, _)) => matches!(
+                status,
+                PaginationStatus::Idle {
+                    hit_timeline_start: true
+                }
+            ),
+            None => self.reached_start.load(Ordering::Relaxed),
+        }
     }
 
     /// A timeline opened around a message: one page back of at least `count` events. Its
@@ -277,7 +294,7 @@ impl RoomTimeline {
     /// Pages back until the timeline holds `count` more messages, or the room's first.
     pub(crate) async fn load_older(&self, count: usize) -> Result<(), BackendError> {
         let wanted = self.snapshot().len() + count;
-        while !*self.at_start.borrow() {
+        while !self.is_at_start().await {
             let before = self.snapshot().len();
             let missing = wanted.saturating_sub(before);
             if missing == 0 {
@@ -304,6 +321,7 @@ impl RoomTimeline {
         let held = event_count(&self.timeline.items().await);
         let shown = self.mapped.borrow().len();
         let reached_start = self.timeline.paginate_backwards(events).await.map_err(from_timeline)?;
+        self.reached_start.fetch_or(reached_start, Ordering::Relaxed);
         self.applied(PAGE_APPLIED, |mapped| {
             event_count(mapped) > held || mapped.len() >= shown + usize::from(events)
         })
@@ -439,7 +457,7 @@ impl RoomTimeline {
                 Some(read_at) => oldest.is_some_and(|oldest| oldest <= read_at),
                 None => shown.is_some(),
             };
-            if reached || *self.at_start.borrow() || pages >= UNREAD_PAGES {
+            if reached || pages >= UNREAD_PAGES || self.is_at_start().await {
                 break (items, shown.max(since).unwrap_or(0));
             }
             // read before what the timeline holds: a page back.
@@ -528,7 +546,6 @@ struct Follower {
     messages: LiveList<Arc<TimelineMessage>>,
     /// The SDK's items the messages hold, told after each of the SDK's batches.
     mapped: watch::Sender<Mapped>,
-    at_start: watch::Sender<bool>,
     changes: broadcast::Sender<RoomId>,
     room_id: RoomId,
     /// The thread starts after this: the chat was deleted then.
@@ -556,12 +573,6 @@ impl Follower {
                 mapped.push(diff);
             }
         }
-        // the start is the SDK's first item once the timeline reached it.
-        let at_start = self
-            .items
-            .front()
-            .is_some_and(|item| matches!(item.as_virtual(), Some(VirtualTimelineItem::TimelineStart)));
-        self.at_start.send_replace(at_start);
         while self.quotes.try_join_next().is_some() {}
         if self.follows_roots {
             self.follow_roots(&mapped);
@@ -708,9 +719,14 @@ fn event_count(items: &Vector<Arc<TimelineItem>>) -> usize {
 /// chunk, so the timeline is cleared down to them, and the gap is filled by paging back
 /// (matrix-sdk `RoomEventCacheState::handle_sync`: "observers may not render it (yet)"). A
 /// timeline already open, a chat's or a kept one, pages back as on its opening.
-async fn keep_filled(timeline: Arc<Timeline>, filled: watch::Sender<bool>, mut mapped: watch::Receiver<Mapped>) {
+async fn keep_filled(
+    timeline: Arc<Timeline>,
+    reached_start: Arc<AtomicBool>,
+    filled: watch::Sender<bool>,
+    mut mapped: watch::Receiver<Mapped>,
+) {
     loop {
-        fill(&timeline).await;
+        fill(&timeline, &reached_start).await;
         filled.send_replace(true);
         // what the fill brought is no reset; the follower goes only with the timeline.
         mapped.borrow_and_update();
@@ -747,12 +763,16 @@ fn message_count(items: &Vector<Arc<TimelineItem>>, at_most: usize) -> usize {
         .count()
 }
 
-/// Pages back until the timeline holds a first screen of messages, or the room's start.
-async fn fill(timeline: &Timeline) {
+/// Pages back until the timeline holds a first screen of messages, or the room's start, which
+/// `reached_start` keeps.
+async fn fill(timeline: &Timeline, reached_start: &AtomicBool) {
     while message_count(&timeline.items().await, FIRST_SCREEN) < FIRST_SCREEN {
         match timeline.paginate_backwards(PAGE).await {
             Ok(false) => {}
-            Ok(true) => break,
+            Ok(true) => {
+                reached_start.store(true, Ordering::Relaxed);
+                break;
+            }
             Err(error) => {
                 warn!(%error, "the chat's first screen could not be filled");
                 break;
