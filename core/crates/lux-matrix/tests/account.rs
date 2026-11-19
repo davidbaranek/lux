@@ -20,7 +20,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use lux_core::chat::Chat;
 use lux_core::ids::MediaId;
-use lux_core::ids::{ChatId, RoomId};
+use lux_core::ids::{ChatId, RoomId, TimelineId};
 use lux_core::message::SendState;
 use lux_core::ports::{
     BackendError, Bridges, ChatAccount, ChatSending, ChatTimelines, SecretStore, Security, SessionSecrets, SignIn,
@@ -1844,4 +1844,78 @@ async fn a_message_synced_before_the_key_backup_opened_is_read_in_the_list_after
             .any(|chat| chat.id == ChatId::from(room.as_str()) && says(chat, "see you at the wall"))
     })
     .await;
+}
+
+/// How many descriptors this process holds open on `file`: one per SQLite connection to it.
+#[allow(unsafe_code, reason = "F_GETPATH is how macOS tells an open descriptor's path")]
+fn connections_to(file: &std::path::Path) -> usize {
+    use std::os::unix::ffi::OsStrExt;
+    let file = file.canonicalize().unwrap();
+    // SAFETY: it reads no memory of ours.
+    let descriptors = unsafe { libc::getdtablesize() };
+    (0..descriptors)
+        .filter(|&descriptor| {
+            let mut buffer = [0 as libc::c_char; libc::PATH_MAX as usize];
+            // SAFETY: F_GETPATH writes a C string of at most PATH_MAX bytes into the buffer.
+            if unsafe { libc::fcntl(descriptor, libc::F_GETPATH, buffer.as_mut_ptr()) } != 0 {
+                return false;
+            }
+            // SAFETY: the call succeeded, so the buffer holds a C string.
+            let path = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) };
+            path.to_bytes() == file.as_os_str().as_bytes()
+        })
+        .count()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn opening_many_chats_at_once_keeps_a_few_connections_to_each_store() {
+    const ROOMS: usize = 40;
+    let server = server().await;
+    let rooms: serde_json::Map<String, serde_json::Value> = (0..ROOMS)
+        .map(|room| {
+            let room_id = format!("!room{room}:matrix.org");
+            let body = json!({
+                "name": format!("Room {room}"),
+                "initial": true,
+                "joined_count": 2,
+                "timeline": [message("@anna:matrix.org", &format!("$message{room}"))],
+                "prev_batch": format!("before{room}"),
+            });
+            (room_id, body)
+        })
+        .collect();
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "pos": "1", "lists": { "all_rooms": { "count": ROOMS } }, "rooms": rooms }))
+                // the sync long-polls: not every few milliseconds.
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(server.server())
+        .await;
+    let (account, folder) = signed_in(&server).await;
+    let mut chats = account.chats();
+    let mut rows = eyeball_im::Vector::new();
+    until(&mut chats, &mut rows, |rows| rows.len() == ROOMS).await;
+
+    // the chats open at once, each reading the stores.
+    let timelines = account.timelines();
+    let opened = futures_util::future::join_all((0..ROOMS).map(|room| async move {
+        let room = RoomId::from(format!("!room{room}:matrix.org").as_str());
+        timelines.messages(&TimelineId::from(&room)).await
+    }))
+    .await;
+    assert!(opened.iter().all(Result::is_ok));
+
+    // a connection stays open as long as the account, with its page cache: a few, not one for
+    // each read that came at once.
+    for store in [
+        "data/matrix-sdk-state.sqlite3",
+        "data/matrix-sdk-crypto.sqlite3",
+        "cache/matrix-sdk-event-cache.sqlite3",
+    ] {
+        let connections = connections_to(&folder.path().join(store));
+        assert!((1..=8).contains(&connections), "{connections} connections to {store}");
+    }
 }

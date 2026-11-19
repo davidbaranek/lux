@@ -53,6 +53,12 @@ impl Process {
 /// a device from a folder that was never one.
 const CRYPTO_STORE: &str = "matrix-sdk-crypto.sqlite3";
 
+/// How many connections the app keeps open to each of its stores, the write connection among
+/// them. The SDK's default is four per core (72 on an 18-core Mac), and its pool never closes
+/// one: each keeps a page cache of up to 2 MB for the app's life. Eight read a chat client's
+/// data as fast (docs/performance.md).
+const APP_STORE_CONNECTIONS: usize = 8;
+
 /// One account's folder on this device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoreFolder {
@@ -125,7 +131,7 @@ impl StoreFolder {
         let app = process == Process::App;
         // an extension lives in a few megabytes: few connections, small caches.
         let store = if app {
-            SqliteStoreConfig::new(self.data())
+            SqliteStoreConfig::new(self.data()).pool_max_size(APP_STORE_CONNECTIONS)
         } else {
             SqliteStoreConfig::with_low_memory_config(self.data()).pool_max_size(2)
         };
