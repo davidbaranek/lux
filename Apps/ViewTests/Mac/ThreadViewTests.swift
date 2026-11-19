@@ -22,6 +22,27 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func aChatOpensAtItsNewestAndStaysThereWhileItsOpeningRowsGoIn() async throws {
+        // 1 000 messages a chat: the opening fill, then the page before it, asked for at once and
+        // given from what the device holds, go in while the chat is on screen.
+        try await DemoAccount.with(rooms: 3, messagesPerRoom: 1_000) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            // every state the screen shows once its first rows are in: the newest message all on
+            // screen, never the list on its way there.
+            var first = 0
+            var leftTheNewest = false
+            try await chat.changes.until {
+                guard chat.newest >= 0 else { return false }
+                if first == 0 { first = chat.newest + 1 }
+                if !chat.isShown(chat.newest) { leftTheNewest = true }
+                return chat.isCurrent && model.messages.count > first && !model.isLoading && model.canLoadOlder
+            }
+            #expect(!leftTheNewest)
+            #expect(chat.isShown(chat.newest))
+        }
+    }
+
     @Test func aChatOpenedAtAMessageLandsOnIt() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             let row = try await readChat(in: session)

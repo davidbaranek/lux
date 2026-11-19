@@ -4,14 +4,14 @@ import UIKit
 @testable import Lux
 
 /// A chat's screen over a demo account of its own, seen through its collection view: where the
-/// chat opens, and where each kind of update leaves it. No window: the test reads the scroll
-/// view's place, not what is drawn.
+/// chat opens, and where each kind of update leaves it. No window (but where a test sees an
+/// animation's frames): the test reads the scroll view's place, not what is drawn.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct ThreadViewTests {
     /// The chat's screen, at `message` if given.
-    private func open(_ row: ChatRow, in session: Session, at message: MessageLink? = nil) throws -> ShownChat {
-        try ShownChat(ThreadViewController(session: session, row: row, theme: .neutral, list: nil, focus: message))
+    private func open(_ row: ChatRow, in session: Session, at message: MessageLink? = nil, inWindow: Bool = false) throws -> ShownChat {
+        try ShownChat(ThreadViewController(session: session, row: row, theme: .neutral, list: nil, focus: message), inWindow: inWindow)
     }
 
     @Test func aReadChatOpensAtItsNewestMessage() async throws {
@@ -19,6 +19,30 @@ struct ThreadViewTests {
             let chat = try open(try await readChat(in: session), in: session)
             // the newest message all on screen: nothing below it.
             try await chat.changes.until { chat.isShown(chat.newest) }
+        }
+    }
+
+    @Test func aChatOpensAtItsNewestAndStaysThereWhileItsOpeningRowsGoIn() async throws {
+        // 1 000 messages a chat: the opening fill, then the page before it, asked for at once and
+        // given from what the device holds, go in while the chat is on screen.
+        try await DemoAccount.with(rooms: 3, messagesPerRoom: 1_000) { session in
+            // in a window: an animated scroll moves the list frame by frame there (without one,
+            // UIKit puts it at its end at once), and every frame of it is seen.
+            let chat = try open(try await readChat(in: session), in: session, inWindow: true)
+            defer { chat.window?.isHidden = true }
+            let model = chat.controller.model
+            // every state the screen shows once its first rows are in: the newest message all on
+            // screen, never the list on its way there.
+            var first = 0
+            var leftTheNewest = false
+            try await chat.changes.until {
+                guard chat.newest >= 0 else { return false }
+                if first == 0 { first = chat.newest + 1 }
+                if !chat.isShown(chat.newest) { leftTheNewest = true }
+                return chat.isCurrent && model.messages.count > first && !model.isLoading && model.canLoadOlder
+            }
+            #expect(!leftTheNewest)
+            #expect(chat.isShown(chat.newest))
         }
     }
 
@@ -120,18 +144,31 @@ struct ThreadViewTests {
 }
 
 /// A chat's controller, its view loaded and laid out at a phone's size, and the announcements of
-/// its list: each new content size or place wakes the test.
+/// its list: each new content size or place wakes the test. `inWindow`: the controller is the root
+/// of a window of the host app's scene, so animations run as they do on screen.
 @MainActor
 private struct ShownChat {
     let controller: ThreadViewController
     let collectionView: UICollectionView
+    let window: UIWindow?
     let changes = Changes()
     private let observations: [NSKeyValueObservation]
 
-    init(_ controller: ThreadViewController) throws {
+    init(_ controller: ThreadViewController, inWindow: Bool = false) throws {
         self.controller = controller
+        let frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        if inWindow {
+            let scene = try #require(UIApplication.shared.connectedScenes.lazy.compactMap { $0 as? UIWindowScene }.first)
+            let window = UIWindow(windowScene: scene)
+            window.frame = frame
+            window.rootViewController = controller
+            window.isHidden = false
+            self.window = window
+        } else {
+            window = nil
+        }
         controller.loadViewIfNeeded()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        controller.view.frame = frame
         let collectionView = try #require(controller.view.subviews.lazy.compactMap { $0 as? UICollectionView }.first)
         self.collectionView = collectionView
         let changes = changes

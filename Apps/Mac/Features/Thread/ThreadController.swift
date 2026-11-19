@@ -526,7 +526,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextField
         if first {
             if LaunchOptions.isBenchmark {
                 tasks.run { [weak self, scroll] in
-                    try await Task.sleep(for: .seconds(2))
+                    try await ThreadBenchmark(scroll).open { [weak self] in self?.scrollGeometry.fromBottom ?? 0 }
                     ScrollBenchmark(scroll, name: "chat", direction: -1).run { self?.runThreadBenchmark() }
                 }
             }
