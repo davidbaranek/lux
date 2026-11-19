@@ -181,6 +181,9 @@ public final class ThreadModel {
         let first = !hasLoaded
         hasLoaded = true
         Signposts.thread.endInterval("messages", interval, "\(batch.rows.count) changes, \(self.messages.count) messages")
+        for (id, landing) in landings where messages.contains(where: { $0.id == landing.row }) {
+            landings.removeValue(forKey: id)?.continuation.resume()
+        }
         if first || !batch.rows.isEmpty { onUpdate?(messages) }
         // found after the chat opened (a slow server): the view places the marker now.
         if !first, let found = firstUnreadId, found != unreadBefore { onFirstUnread?(found) }
@@ -271,14 +274,32 @@ public final class ThreadModel {
     /// Brings the message `messageId` answers into the chat, as `jump(to:)` does.
     public func repliedMessage(of messageId: String) async throws(JumpError) -> JumpResult {
         guard let core = await openedCore() else { throw .failed }
-        return try await core.jumpToReplied(messageId)
+        return await landed(try await core.jumpToReplied(messageId))
     }
 
     /// Brings a message into the chat: the row to scroll to (among the live rows, or a jump's
-    /// rows around it, until the reader returns), or the Matrix thread it is a reply in.
+    /// rows around it, until the reader returns), or the Matrix thread it is a reply in. It returns
+    /// once `messages` hold the row.
     public func jump(to message: MessageLink) async throws(JumpError) -> JumpResult {
         guard let core = await openedCore() else { throw .failed }
-        return try await core.jump(to: message)
+        return await landed(try await core.jump(to: message))
+    }
+
+    /// The jumps waiting for their row to be among `messages`.
+    private var landings: [UUID: (row: String, continuation: CheckedContinuation<Void, Never>)] = [:]
+
+    /// The core answers a jump as it presents the rows that hold its message, before their batch
+    /// reaches `messages` here, and batches sent before it may still be on their way: the jump
+    /// returns once its row is among the messages, so the screen never sees a row it has not got.
+    private func landed(_ result: JumpResult) async -> JumpResult {
+        guard case .here(let row) = result, !messages.contains(where: { $0.id == row }) else { return result }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { landings[id] = (row, $0) }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.landings.removeValue(forKey: id)?.continuation.resume() }
+        }
+        return result
     }
 
     /// False while newer messages of a jump's rows load, and once they reach the newest.
