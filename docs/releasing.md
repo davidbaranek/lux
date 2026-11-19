@@ -54,7 +54,13 @@ change to how messages are read, or to the model, and put its table in the pull 
 
 ```sh
 uv run scripts/image-search/evaluate-messages.py 64    # the encoder's length in tokens
+uv run scripts/image-search/evaluate-messages.py --similarity
 ```
+
+The second says how many of the hits the model's `messageSimilarity` keeps, and how much of
+the unrelated rest. convert.py measures that threshold on the same conversations
+(`scripts/image-search/conversations.py`), read as the app reads them: a change to how messages
+are read is a change there too, and its threshold reaches the app with the next pack.
 
 TestFlight's archives are built by Xcode Cloud.
 
