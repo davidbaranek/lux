@@ -36,14 +36,25 @@ Simulator,name=iPhone 17' -only-testing:Lux-iOS-UITests/SmokeTests`.
 Photo search's reading by Vision and its model run by hand too, before a release, on a Mac with a
 GPU: GitHub's virtual machines read no text, so CI skips them (what photo reading decides without
 Vision, `PhotoIndexerReadingTests`, runs on every pull request). `PhotoReaderTests` and
-`PhotoIndexerTests` need Vision; `findsAPhotoByHowItLooks` and `findsAMessageByWhatItMeans` need
-the model as well (`scripts/image-search/package.sh` writes it):
+`PhotoIndexerTests` need Vision; `findsAPhotoByHowItLooks`, `findsAMessageByWhatItMeans` and
+`findsAShortReplyByTheMessagesBeforeIt` need the model as well (`scripts/image-search/package.sh`
+writes it):
 
 ```sh
 LUX_PHOTO_MODEL=<out>/PhotoSearch swift test --filter 'PhotoReaderTests|PhotoIndexerTests'
 ```
 
 Each skipped test says why in the test log; on a Mac where Vision reads, none may be skipped.
+
+How search by meaning reads messages (each with the messages before it, as the title of
+EmbeddingGemma's document prompt) was chosen on conversations written for it, in Czech and
+English: `scripts/image-search/evaluate-messages.py` measures recall@k and MRR of each way of
+reading against the model's PyTorch weights (the ones convert.py builds from). Run it after a
+change to how messages are read, or to the model, and put its table in the pull request:
+
+```sh
+uv run scripts/image-search/evaluate-messages.py 64    # the encoder's length in tokens
+```
 
 TestFlight's archives are built by Xcode Cloud.
 
