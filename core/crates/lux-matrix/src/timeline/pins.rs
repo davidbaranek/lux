@@ -14,6 +14,7 @@ use matrix_sdk::ruma::events::{RoomAccountDataEventType, StateEventType};
 use matrix_sdk::ruma::serde::Raw;
 use tokio::sync::broadcast;
 
+use super::subscribed::{RoomSubscriptions, Subscribed};
 use super::threads::participant;
 use crate::convert::system_time;
 use crate::errors::from_sdk;
@@ -33,25 +34,40 @@ struct Said {
 /// The room's pins, now and each time a sync brings the room a change of them (the pinned
 /// events, who may pin, or what the user has seen). A sync brings the room every message: only
 /// a change of what its state and account data say reads the events again.
-pub(super) fn pins(room: Room) -> PinsStream {
+///
+/// While followed, the room is subscribed through `subscriptions` (the account's): the room
+/// list's sync does not ask for its pinned events, and the SDK reads them only from what was
+/// asked for. The first answer is the room as it is kept; the next, the subscription's.
+pub(super) fn pins(room: Room, subscriptions: Option<RoomSubscriptions>) -> PinsStream {
     let updates = room.client().subscribe_to_all_room_updates();
     let asked = room.clone();
     Box::pin(
-        stream::unfold((updates, true), move |(mut updates, first)| {
-            let room = asked.clone();
-            async move {
-                if !first {
-                    loop {
-                        match updates.recv().await {
-                            Ok(update) if update.iter_all_room_ids().any(|id| id == room.room_id()) => break,
-                            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                            Err(broadcast::error::RecvError::Closed) => return None,
+        stream::unfold(
+            (updates, None),
+            move |(mut updates, held): (_, Option<Option<Subscribed>>)| {
+                let room = asked.clone();
+                let subscriptions = subscriptions.clone();
+                async move {
+                    let held = match held {
+                        Some(held) => {
+                            loop {
+                                match updates.recv().await {
+                                    Ok(update) if update.iter_all_room_ids().any(|id| id == room.room_id()) => break,
+                                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                    Err(broadcast::error::RecvError::Closed) => return None,
+                                }
+                            }
+                            held
                         }
-                    }
+                        None => match subscriptions {
+                            Some(subscriptions) => Some(subscriptions.hold(room.room_id()).await),
+                            None => None,
+                        },
+                    };
+                    Some((said(&room).await, (updates, Some(held))))
                 }
-                Some((said(&room).await, (updates, false)))
-            }
-        })
+            },
+        )
         .scan(None, |last: &mut Option<Said>, next| {
             let new = last.as_ref() != Some(&next);
             *last = Some(next.clone());

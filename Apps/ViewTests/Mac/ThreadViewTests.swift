@@ -154,6 +154,35 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func aPinnedMessageShowsAPinInPlaceAndItsMenuUnpinsIt() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            chat.controller.onPinned = { _ in chat.changes.send() }
+            try await chat.changes.until { chat.isShown(chat.newest) && !model.isLoading && chat.isCurrent }
+            let message = try #require(model.messages.last { !$0.eventId.isEmpty && $0.deletedRun == 0 })
+            let row = try #require(chat.row(of: message.id))
+            chat.table.layoutSubtreeIfNeeded()
+            let cell = try #require(chat.table.view(atColumn: 0, row: row, makeIfNecessary: false) as? MessageCellView)
+            let label = try #require(cell.accessibilityLabel())
+            #expect(!cell.isPinned)
+            #expect(chat.menuTitles(of: cell).contains("Pin"))
+
+            // pinned (from its menu, or anywhere else): the same row shows the pin, and says so.
+            model.pin(message, true)
+            try await chat.changes.until { cell.isPinned }
+            #expect(chat.table.view(atColumn: 0, row: row, makeIfNecessary: false) === cell)
+            #expect(cell.accessibilityLabel() == "\(label), Pinned")
+            #expect(chat.menuTitles(of: cell).contains("Unpin"))
+            #expect(!chat.menuTitles(of: cell).contains("Pin"))
+
+            model.pin(message, false)
+            try await chat.changes.until { !cell.isPinned }
+            #expect(cell.accessibilityLabel() == label)
+            #expect(chat.menuTitles(of: cell).contains("Pin"))
+        }
+    }
+
     /// A chat of the demo with no unread message: it opens at its newest.
     private func readChat(in session: Session) async throws -> ChatRow {
         let list = ChatListModel(session: session)
@@ -268,4 +297,9 @@ private final class ShownChat {
 
     /// The reader moves the table to its oldest message.
     func scrollToTop() { scroll(by: -.greatestFiniteMagnitude) }
+
+    /// The titles of a row's menu, as a right click opens it.
+    func menuTitles(of cell: MessageCellView) -> [String] {
+        cell.menuProvider?()?.items.map(\.title) ?? []
+    }
 }

@@ -38,6 +38,10 @@ final class MessageCell: UICollectionViewCell {
     private let avatar = AvatarView()
     /// A red mark beside a message that did not go out (as Messages shows one).
     private let failed = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
+    /// A pin beside a message pinned in its room (as Slack and Element mark one).
+    private let pin = UIImageView(image: UIImage(systemName: "pin.fill"))
+    /// What VoiceOver reads of the message, before whether it is pinned.
+    private var spoken: String?
     /// The arrow a swipe to reply uncovers at the leading edge (outside the content, which moves).
     private let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill"))
     /// One's own bubbles: the place's colour, else the system's blue. A fixed colour, not
@@ -106,13 +110,17 @@ final class MessageCell: UICollectionViewCell {
         }
         avatar.side = 28
         failed.tintColor = .systemRed
+        pin.tintColor = .secondaryLabel
+        pin.contentMode = .scaleAspectFit
+        pin.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .caption2)
+        pin.isHidden = true
         band.layer.cornerRadius = 10
         band.layer.cornerCurve = .continuous
         replyLine.lineBreakMode = .byTruncatingTail
         replyLine.isUserInteractionEnabled = true
         replyLine.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(quoteTapped)))
         replyAvatar.side = BubbleMetrics().replyAvatarSide
-        for view in [band, day, unreadMarker, avatar, sender, time, replyLink, replyAvatar, replyLine, bubble, thread, readers, detail, failed] {
+        for view in [band, day, unreadMarker, avatar, sender, time, replyLink, replyAvatar, replyLine, bubble, thread, readers, detail, failed, pin] {
             contentView.addSubview(view)
         }
         thread.onTap = { [weak self] in self?.onThreadTap?() }
@@ -165,6 +173,20 @@ final class MessageCell: UICollectionViewCell {
     /// cell is configured anew meanwhile.
     var isJumpTarget = false {
         didSet { if isJumpTarget, !oldValue { flash() } }
+    }
+
+    /// The message is pinned in its room: a pin beside it, and VoiceOver says so. Set by the
+    /// cell's configuration, which reads the chat's pins.
+    var isPinned = false {
+        didSet { if isPinned != oldValue { placePin() } }
+    }
+
+    private func placePin() {
+        pin.isHidden = !isPinned || shown == nil
+        if isPinned, let (message, layout) = shown {
+            pin.frame = layout.pin(side: 12, own: message.isOwn && message.deletedRun == 0)
+        }
+        accessibilityLabel = isPinned ? [spoken, String(localized: "Pinned")].compactMap(\.self).joined(separator: ", ") : spoken
     }
 
     /// Moves the message `offset` points to the right and uncovers the reply arrow, which stays at
@@ -341,6 +363,8 @@ final class MessageCell: UICollectionViewCell {
         if folded { accessibilityLabel = [message.body, message.readersText(inGroup: isGroup)].compactMap { $0 }.joined(separator: ", ") }
         accessibilityTraits = folded ? .button : .none
         accessibilityHint = folded ? MessageItem.unfoldDeletedHint : nil
+        spoken = accessibilityLabel
+        placePin()
     }
 
     /// VoiceOver's activation of deleted messages folded together shows each, as a tap does.

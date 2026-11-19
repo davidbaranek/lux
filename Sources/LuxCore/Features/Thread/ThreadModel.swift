@@ -346,8 +346,13 @@ public final class ThreadModel {
     /// Whether `message` is pinned: nil when the user may not pin or unpin it (the room's power
     /// levels, or a message the server does not have yet).
     public func pinning(of message: MessageItem) -> Bool? {
-        guard !message.eventId.isEmpty, mayPinIn.contains(message.roomId) else { return nil }
-        return pinned.contains { $0.roomId == message.roomId && $0.eventId == message.eventId }
+        guard mayPinIn.contains(message.roomId) else { return nil }
+        return message.eventId.isEmpty ? nil : isPinned(message)
+    }
+
+    /// Whether `message` is pinned in its room: its row shows a pin.
+    public func isPinned(_ message: MessageItem) -> Bool {
+        !message.eventId.isEmpty && pinned.contains { $0.roomId == message.roomId && $0.eventId == message.eventId }
     }
 
     /// Pins `message` in its room for everyone there, or unpins it.

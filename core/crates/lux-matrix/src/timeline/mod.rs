@@ -16,6 +16,7 @@ mod previews;
 mod room;
 pub(crate) mod send;
 pub(crate) mod shared;
+mod subscribed;
 pub(crate) mod threads;
 mod upload;
 
@@ -34,6 +35,7 @@ use tokio::sync::{broadcast, watch};
 use self::opened::{Key, Opened};
 use self::previews::LinkPreviews;
 use self::room::RoomTimeline;
+pub(crate) use self::subscribed::RoomSubscriptions;
 
 /// How many room changes wait for a slow listener before it skips to the newest.
 const CHANGES_BUFFER: usize = 256;
@@ -48,6 +50,8 @@ pub struct MatrixTimelines {
     changes: broadcast::Sender<RoomId>,
     /// What shared posts' addresses say about them, from the server.
     previews: LinkPreviews,
+    /// The rooms the sync follows in full while their pins are followed; none over a bare client.
+    subscriptions: Option<RoomSubscriptions>,
 }
 
 impl MatrixTimelines {
@@ -66,6 +70,7 @@ impl MatrixTimelines {
             cuts: watch::channel(Arc::new(Organized::default())).1,
             opened: Opened::new(opened::KEPT),
             changes: broadcast::channel(CHANGES_BUFFER).0,
+            subscriptions: None,
         }
     }
 
@@ -73,6 +78,14 @@ impl MatrixTimelines {
     #[must_use]
     pub(crate) fn cutting_history(mut self, cuts: watch::Receiver<Arc<Organized>>) -> Self {
         self.cuts = cuts;
+        self
+    }
+
+    /// Subscribes to each room whose pins are followed, through the sync's room list: its list
+    /// leaves out the rooms' pinned events.
+    #[must_use]
+    pub(crate) fn subscribing(mut self, subscriptions: RoomSubscriptions) -> Self {
+        self.subscriptions = Some(subscriptions);
         self
     }
 
@@ -220,7 +233,7 @@ impl ChatTimelines for MatrixTimelines {
     }
 
     fn pins(&self, room: &RoomId) -> Result<PinsStream, BackendError> {
-        Ok(pins::pins(self.room(room)?))
+        Ok(pins::pins(self.room(room)?, self.subscriptions.clone()))
     }
 
     async fn mark_pins_seen(&self, room: &RoomId, events: &[EventId]) -> Result<(), BackendError> {

@@ -24,7 +24,7 @@ use crate::security::IncomingVerifications;
 use crate::send_queue::QueueKeeper;
 use crate::session::SessionEnd;
 use crate::spaces::SpaceList;
-use crate::timeline::MatrixTimelines;
+use crate::timeline::{MatrixTimelines, RoomSubscriptions};
 
 /// A signed-in Matrix account, its sync started.
 pub struct MatrixAccount {
@@ -74,9 +74,11 @@ impl MatrixAccount {
         };
         let kept = store.as_ref().map(|store| KeptList::new(Arc::clone(store)));
         let chats = ChatList::start(client.clone(), Arc::clone(&service), own.clone(), kept, organizing).await;
-        let requests = RequestList::start(service);
+        let requests = RequestList::start(Arc::clone(&service));
         let spaces = SpaceList::start(client.clone());
-        let timelines = MatrixTimelines::new(client.clone()).cutting_history(organizer.subscribe());
+        let timelines = MatrixTimelines::new(client.clone())
+            .cutting_history(organizer.subscribe())
+            .subscribing(RoomSubscriptions::new(Arc::clone(&service)));
         let live = LiveFeed::start(&client, own, organizer.subscribe()).await;
         let sending = QueueKeeper::start(client.clone(), sync.state());
         let session_end = SessionEnd::follow(&client);

@@ -160,6 +160,42 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func aPinnedMessageShowsAPinInPlaceAndItsMenuUnpinsIt() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            // the chat's pins changed: the screen has shown them.
+            let shown = model.onPinned
+            model.onPinned = { pinned in
+                shown?(pinned)
+                chat.changes.send()
+            }
+            try await chat.changes.until { chat.isShown(chat.newest) && !model.isLoading }
+            let message = try #require(model.messages.last { !$0.eventId.isEmpty && $0.deletedRun == 0 })
+            let row = try #require(chat.row(of: message.id))
+            chat.collectionView.layoutIfNeeded()
+            let cell = try #require(chat.collectionView.cellForItem(at: IndexPath(item: row, section: 0)) as? MessageCell)
+            let label = try #require(cell.accessibilityLabel)
+            #expect(!cell.isPinned)
+            #expect(MessageAction.available(for: message, pinned: model.pinning(of: message)).contains(.pin))
+
+            // pinned (from its menu, or anywhere else): the same cell shows the pin, and says so.
+            model.pin(message, true)
+            try await chat.changes.until { model.isPinned(message) }
+            chat.collectionView.layoutIfNeeded()
+            #expect(chat.collectionView.cellForItem(at: IndexPath(item: row, section: 0)) === cell)
+            #expect(cell.isPinned)
+            #expect(cell.accessibilityLabel == "\(label), Pinned")
+            #expect(MessageAction.available(for: message, pinned: model.pinning(of: message)).contains(.unpin))
+
+            model.pin(message, false)
+            try await chat.changes.until { !model.isPinned(message) }
+            chat.collectionView.layoutIfNeeded()
+            #expect(!cell.isPinned)
+            #expect(cell.accessibilityLabel == label)
+        }
+    }
+
     private func readChat(in session: Session) async throws -> ChatRow {
         let list = ChatListModel(session: session)
         let changes = list.changes()
