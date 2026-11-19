@@ -78,9 +78,11 @@ public final class ThreadPresenter {
     public private(set) var shownFirst = false
     /// Messages are on screen: the next update keeps the reader's place, it does not open the chat.
     private var shownRows = false
-    /// The oldest and the newest message the screen shows: an update ending in a newer one, with
-    /// none coming in above, brings new messages.
-    private var shownEnds: (oldest: String, newest: String)?
+    /// Why the updates not shown yet came, as the core says: the strongest of them (a message sent
+    /// from here over others arriving), for the one the screen shows next.
+    private var cause: ThreadCause?
+    /// The rows the screen shows are the live ones (not a jump's).
+    private var shownLive = true
     /// The user moved the chat: a first unread message found late no longer moves it.
     public private(set) var userScrolled = false
     /// The first unread message came late: the next update moves the chat to it.
@@ -96,15 +98,10 @@ public final class ThreadPresenter {
     public var isJumping: Bool { target != nil }
     /// The message whose shared post's caption the user just unfolded or folded: its next change animates.
     private var unfolding: String?
-    /// The rows switched between a jump's and the live ones: this row goes where the reader's was,
-    /// `top` below the list's top, once the screen shows it.
-    private var switchTo: (id: String, top: CGFloat)?
     /// The reader returned to the live rows: the next update lands at the bottom.
     private var landsAtBottom = false
-    /// The local echo the chat last followed to the bottom.
-    private var followedEcho: String?
-    /// The update the screen is showing switches the rows between a jump's and the live ones: it
-    /// goes in unanimated.
+    /// The update the screen is showing switches the rows between a jump's and the live ones (the
+    /// reader's row, the same message in both, keeps its place): it goes in unanimated.
     public private(set) var isSwitching = false
 
     /// The chat of `row`, or its Matrix thread `thread`; `focus`: a message to open at (a saved one,
@@ -117,8 +114,10 @@ public final class ThreadPresenter {
         rooms = Set([row.id] + row.rooms.map(\.id))
         isGroup = row.isGroup
         self.focus = focus
-        model.onUpdate = { [weak self] messages in self?.show(messages) }
-        model.onSwitch = { [weak self] from, to in self?.switching(from: from, to: to) }
+        model.onUpdate = { [weak self] messages, cause in
+            self?.heard(cause)
+            self?.show(messages)
+        }
         model.onFirstUnread = { [weak self] _ in self?.showLateFirstUnread() }
         model.onLoading = { [weak self] loading in
             self?.settle()
@@ -222,7 +221,10 @@ public final class ThreadPresenter {
     /// the middle with nothing loading has arrived.
     private func present(_ new: [MessageItem], layouts: [String: MessageLayout], changed: [String]) {
         guard let screen else { return }
-        let intent = intent(for: new, layouts: layouts)
+        isSwitching = shownLive != model.isLive
+        shownLive = model.isLive
+        let intent = intent(for: layouts)
+        cause = nil
         // the update centres the jump's message: a glide under way ends there.
         if case .centre = intent { gliding = false }
         isShowing = true
@@ -233,7 +235,6 @@ public final class ThreadPresenter {
         followsBottom = intent.isAnimated && screen.scrollGeometry.fromBottom > 0.5
         let opened = !shownRows && !new.isEmpty
         if !new.isEmpty { shownRows = true }
-        shownEnds = new.first.flatMap { oldest in new.last.map { (oldest.id, $0.id) } }
         // the opening fill is a screen or two: the page before it comes at once, while the reader
         // looks, not as they scroll (a page going in under a fling hitches).
         if opened, model.isLive, model.canLoadOlder { model.loadOlder() }
@@ -243,6 +244,13 @@ public final class ThreadPresenter {
     }
 
     // MARK: Showing
+
+    /// Keeps why an update came until the screen shows one: a message sent from here outweighs
+    /// others arriving.
+    private func heard(_ new: ThreadCause?) {
+        guard let new, !(new == .arrived && cause != nil) else { return }
+        cause = new
+    }
 
     /// The screen drew its first messages (or "No messages").
     public func didShowFirst() { shownFirst = true }
@@ -271,12 +279,11 @@ public final class ThreadPresenter {
 
     /// Where the update whose rows are `shown` (their layouts) leaves the list, decided once, in
     /// this order: a message the user just sent, at the bottom (a jump under way gives way); the
-    /// jump's message in the middle; a chat opening at its first unread message; the rows
-    /// switched, at the newest or the reader's row; a first unread message found late; else where
-    /// the reader is.
-    private func intent(for new: [MessageItem], layouts shown: [String: MessageLayout]) -> ScrollIntent {
-        if shownRows, model.isLive, let echo = model.sentNow, echo != followedEcho, shown[echo] != nil {
-            followedEcho = echo
+    /// jump's message in the middle; a chat opening at its first unread message; the reader's
+    /// return to the live rows, at the newest; a first unread message found late; else where the
+    /// reader is, sliding to the newest messages that arrived.
+    private func intent(for shown: [String: MessageLayout]) -> ScrollIntent {
+        if shownRows, model.isLive, case .sent(let echo) = cause, shown[echo] != nil {
             target = nil
             gliding = false
             return .bottom(animated: !model.isLoading)
@@ -290,31 +297,15 @@ public final class ThreadPresenter {
         if !shownRows { return model.firstUnreadId.map { .firstUnread($0) } ?? .bottom(animated: false) }
         if model.isLive, landsAtBottom {
             landsAtBottom = false
-            switchTo = nil
-            isSwitching = true
             return .bottom(animated: false)
-        }
-        if model.isLive, let kept = switchTo, shown[kept.id] != nil {
-            switchTo = nil
-            isSwitching = true
-            return .keep(kept.id, top: kept.top)
         }
         if scrollsToLateUnread {
             scrollsToLateUnread = false
             if let unread = model.firstUnreadId { return .firstUnread(unread) }
         }
-        // new messages at the newest slide in, as Messages has them; pages coming in do not.
-        return standingIntent(animated: model.isLive && !model.isLoading && bringsNewMessages(new))
-    }
-
-    /// Whether `new` ends in messages after the newest the screen shows, with nothing coming in
-    /// above it. The opening's own rows (the fill growing the rows the device kept, the page before
-    /// it asked for at once and given from what the device holds, with nothing loading) only come
-    /// in above, or replace the rows: they go in where the chat opened, unanimated. Only a
-    /// message that arrives once the chat is shown is followed.
-    private func bringsNewMessages(_ new: [MessageItem]) -> Bool {
-        guard let ends = shownEnds, new.first?.id == ends.oldest, let newest = new.last?.id, newest != ends.newest else { return false }
-        return new.contains { $0.id == ends.newest }
+        // new messages at the newest slide in, as Messages has them; the opening, pages and a
+        // switch of the rows do not (the core gives them no cause).
+        return standingIntent(animated: cause == .arrived && !model.isLoading)
     }
 
     /// Where the list stays through a change that is not the reader's (an update, a new inset):
@@ -402,11 +393,6 @@ public final class ThreadPresenter {
         return true
     }
 
-    /// The core switched the rows: `to` will go where the reader's `from` is now.
-    private func switching(from: String, to: String) {
-        guard let screen, let span = screen.rowSpan(of: from) else { return }
-        switchTo = (to, span.minY - screen.scrollGeometry.offset)
-    }
 
     /// Brings the first unread message into view, as a quoted one.
     public func jumpToFirstUnread() {

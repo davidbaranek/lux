@@ -74,7 +74,7 @@ extension ThreadModel {
     func changes() -> Changes {
         let changes = Changes()
         let (update, mode, shownRoom, error) = (onUpdate, onMode, onShownRoom, onError)
-        onUpdate = { update?($0); changes.send() }
+        onUpdate = { update?($0, $1); changes.send() }
         onMode = { mode?($0); changes.send() }
         onShownRoom = { shownRoom?($0); changes.send() }
         onError = { error?($0); changes.send() }

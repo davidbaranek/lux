@@ -481,6 +481,37 @@ struct ThreadPresenterTests {
         #expect(!presenter.returnToLive())
     }
 
+    @Test func aJumpsRowsReachingTheNewestGoLiveWithTheReadersRowWhereItWas() async throws {
+        // 400 messages a chat: the device's live timeline holds the newest 200, the message is a jump away.
+        let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 400)
+        let rows = try await long.account.value.chats()
+        let row = try #require(rows.first { !$0.isMerged })
+        let presenter = ThreadPresenter(session: long, row: row, focus: MessageLink(roomId: row.id, eventId: "\(row.id)/150"),
+                                        removeDelivered: { _ in })
+        let screen = StackedScreen()
+        presenter.screen = screen
+        screen.presenter = presenter
+        presenter.measure(with: GridMeasure())
+        presenter.resize(to: 390)
+        presenter.start()
+        let changes = presenter.model.changes()
+        try await changes.until { !presenter.model.isLive && presenter.model.messages.contains { $0.eventId == "\(row.id)/150" } }
+        presenter.didShowFirst()
+        // the reader reads a message the live rows hold only once paged back to, and pages to the newest.
+        try await screen.changes.until { screen.order.contains("\(row.id)/190") }
+        screen.offset = try #require(screen.rowSpan(of: "\(row.id)/190")).minY
+        let top = try #require(screen.rowSpan(of: "\(row.id)/190")).minY - screen.offset
+        presenter.displayed(screen.scrollGeometry)
+        while !presenter.model.isLive {
+            presenter.model.loadNewer()
+            try await changes.until { presenter.model.isLive || presenter.model.canLoadNewer }
+        }
+        try await screen.changes.until { screen.order.last == "\(row.id)/399" }
+        // the same message is the same row in both: it stays where the reader saw it.
+        #expect(screen.readingRow == "\(row.id)/190")
+        #expect(try #require(screen.rowSpan(of: "\(row.id)/190")).minY - screen.offset == top)
+    }
+
     @Test func aMessageFarBackShowsAmongItsNeighboursUntilJumpToBottom() async throws {
         // 400 messages a chat: the device's live timeline holds the newest 200.
         let long = try DemoSessions.open(rooms: 3, messagesPerRoom: 400)

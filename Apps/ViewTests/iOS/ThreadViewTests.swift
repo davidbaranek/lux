@@ -204,7 +204,7 @@ struct ThreadViewTests {
     /// The chat open in a second model, as in another window.
     private func elsewhere(_ row: ChatRow, in session: Session, changes: Changes) async throws -> ThreadModel {
         let other = ThreadModel(session: session, row: row)
-        other.onUpdate = { (_: [MessageItem]) in changes.send() }
+        other.onUpdate = { _, _ in changes.send() }
         await other.start()
         try await changes.until { !other.messages.isEmpty }
         return other

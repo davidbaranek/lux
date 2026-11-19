@@ -34,8 +34,9 @@ public final class ThreadModel {
     /// The core has answered once: an empty `messages` means an empty chat, not "not yet".
     public private(set) var hasLoaded = false
     public private(set) var isAtStart = false
-    /// The chat's messages; the view measures and compares them off the main thread.
-    public var onUpdate: ((_ messages: [MessageItem]) -> Void)?
+    /// The chat's messages, and why they changed when it is news (the core says so: a message
+    /// sent from here, others arriving); the view measures and compares them off the main thread.
+    public var onUpdate: ((_ messages: [MessageItem], _ cause: ThreadCause?) -> Void)?
     public var onError: ((Error) -> Void)?
     /// True while messages come from the server: the view shows it, and keeps the chat still.
     public private(set) var isLoading = true {
@@ -47,9 +48,6 @@ public final class ThreadModel {
         didSet { if isLive != oldValue { onLive?(isLive) } }
     }
     public var onLive: ((Bool) -> Void)?
-    /// The rows switched between a jump's and the live ones: the row `to` goes where `from` was.
-    /// Told before the rows that switched.
-    public var onSwitch: ((_ from: String, _ to: String) -> Void)?
 
     private let account: Task<any ThreadPort, any Error>
     private weak var session: Session?
@@ -68,6 +66,9 @@ public final class ThreadModel {
     private var newerAllowed = false
     /// The row last told to the core as the one the reader looks at.
     private var anchor: String?
+    /// The jumps asked for, by the core's number, until a batch says where each landed: the
+    /// batch that holds its rows, so a jump never returns a row the messages lack.
+    private var jumps: [UInt64: CheckedContinuation<Result<JumpResult, JumpError>, Never>] = [:]
 
     /// The chat of `row`, or its Matrix thread `thread`.
     public init(session: Session, row: ChatRow, thread: MatrixThread? = nil) {
@@ -94,6 +95,7 @@ public final class ThreadModel {
 
     isolated deinit {
         following?.cancel()
+        for jump in jumps.values { jump.resume(returning: .failure(.failed)) }
     }
 
     private func opened(_ core: any ThreadView) {
@@ -139,7 +141,6 @@ public final class ThreadModel {
         if let state = batch.state { apply(state) }
         olderAsked = false
         newerAsked = false
-        if let anchor = batch.anchor { onSwitch?(anchor.from, anchor.to) }
         // a page back is a run of inserts at the top: one splice, not one shift of every row each.
         var run: (start: Int, items: [MessageItem]) = (0, [])
         func flushRun() {
@@ -173,31 +174,14 @@ public final class ThreadModel {
             }
         }
         flushRun()
-        // the user sent a message from here: the newest row, new and their own, is its local echo.
-        if awaitsEcho, isLive, let newest = messages.last, newest.isOwn, Self.added(newest.id, in: batch.rows) {
-            awaitsEcho = false
-            sentNow = newest.id
-        }
         let first = !hasLoaded
         hasLoaded = true
         Signposts.thread.endInterval("messages", interval, "\(batch.rows.count) changes, \(self.messages.count) messages")
-        for (id, landing) in landings where messages.contains(where: { $0.id == landing.row }) {
-            landings.removeValue(forKey: id)?.continuation.resume()
-        }
-        if first || !batch.rows.isEmpty { onUpdate?(messages) }
+        if first || !batch.rows.isEmpty { onUpdate?(messages, batch.cause) }
         // found after the chat opened (a slow server): the view places the marker now.
         if !first, let found = firstUnreadId, found != unreadBefore { onFirstUnread?(found) }
-    }
-
-    /// Whether `changes` bring the row `id` in (not a change of a row already there).
-    private static func added(_ id: String, in changes: [ThreadRowChange]) -> Bool {
-        changes.contains { change in
-            switch change {
-            case .pushBack(let item), .pushFront(let item), .insert(_, let item): item.id == id
-            case .append(let items): items.contains { $0.id == id }
-            default: false
-            }
-        }
+        // the jumps that landed in these rows, now that the messages hold them.
+        for (jump, landed) in batch.jumped { jumps.removeValue(forKey: jump)?.resume(returning: landed) }
     }
 
     private func apply(_ state: ThreadState) {
@@ -273,33 +257,22 @@ public final class ThreadModel {
 
     /// Brings the message `messageId` answers into the chat, as `jump(to:)` does.
     public func repliedMessage(of messageId: String) async throws(JumpError) -> JumpResult {
-        guard let core = await openedCore() else { throw .failed }
-        return await landed(try await core.jumpToReplied(messageId))
+        try await landing { $0.jumpToReplied(messageId) }
     }
 
     /// Brings a message into the chat: the row to scroll to (among the live rows, or a jump's
-    /// rows around it, until the reader returns), or the Matrix thread it is a reply in. It returns
-    /// once `messages` hold the row.
+    /// rows around it, until the reader returns), or the Matrix thread it is a reply in. The core
+    /// answers in the batch that holds the row: `messages` have it when this returns.
     public func jump(to message: MessageLink) async throws(JumpError) -> JumpResult {
-        guard let core = await openedCore() else { throw .failed }
-        return await landed(try await core.jump(to: message))
+        try await landing { $0.jump(to: message) }
     }
 
-    /// The jumps waiting for their row to be among `messages`.
-    private var landings: [UUID: (row: String, continuation: CheckedContinuation<Void, Never>)] = [:]
-
-    /// The core answers a jump as it presents the rows that hold its message, before their batch
-    /// reaches `messages` here, and batches sent before it may still be on their way: the jump
-    /// returns once its row is among the messages, so the screen never sees a row it has not got.
-    private func landed(_ result: JumpResult) async -> JumpResult {
-        guard case .here(let row) = result, !messages.contains(where: { $0.id == row }) else { return result }
-        let id = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { landings[id] = (row, $0) }
-        } onCancel: {
-            Task { @MainActor [weak self] in self?.landings.removeValue(forKey: id)?.continuation.resume() }
-        }
-        return result
+    /// Asks the core for a jump, and waits for the batch that says where it landed.
+    private func landing(_ jump: (any ThreadView) -> UInt64) async throws(JumpError) -> JumpResult {
+        guard let core = await openedCore() else { throw .failed }
+        let number = jump(core)
+        // registered before any batch can answer it: batches are applied on this actor.
+        return try await withCheckedContinuation { jumps[number] = $0 }.get()
     }
 
     /// False while newer messages of a jump's rows load, and once they reach the newest.
@@ -462,18 +435,8 @@ public final class ThreadModel {
     public func send(_ text: String, via room: String? = nil) {
         // sending clears the chat's kept draft (a Matrix thread's is its own).
         if canSend(text), thread == nil { preferences.setHasDraft(false, in: chatId) }
-        // a new message (not an edit) comes back as the newest row, its local echo.
-        if canSend(text) {
-            if case .edit = mode {} else { awaitsEcho = true }
-        }
         withCore { $0.send(text, via: room) }
     }
-
-    /// The user sent a message here whose local echo has not come yet.
-    private var awaitsEcho = false
-    /// The local echo of the message the user last sent from here, once its row is in: the
-    /// chat follows it to the bottom.
-    public private(set) var sentNow: String?
 
     /// The text and reply the composer had when the chat was left.
     public func loadDraft() async -> String {

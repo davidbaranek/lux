@@ -16,15 +16,18 @@ protocol ThreadView: Sendable {
     /// The thread's events as they come, one per frame at most.
     var events: AsyncStream<ThreadEvent> { get }
     func loadOlder()
-    /// Brings the message `messageId` quotes into the thread.
-    func jumpToReplied(_ messageId: String) async throws(JumpError) -> JumpResult
-    /// Brings a message into the thread: among the live rows, or a jump's rows around it.
-    func jump(to message: MessageLink) async throws(JumpError) -> JumpResult
+    /// Brings the message `messageId` quotes into the thread; the jump's number, which a batch's
+    /// answer names.
+    func jumpToReplied(_ messageId: String) -> UInt64
+    /// Brings a message into the thread: among the live rows, or a jump's rows around it; the
+    /// jump's number, which a batch's answer names.
+    func jump(to message: MessageLink) -> UInt64
     /// Newer messages of a jump's rows.
     func loadNewer()
     /// The live rows again, at the newest.
     func returnToLive()
-    /// The row the reader looks at: the switch back to the live rows keeps it in place.
+    /// The row the reader looks at among a jump's rows: they switch to the live ones once those
+    /// hold it.
     func setAnchor(_ messageId: String)
     func firstUnread() async -> String?
     func loaded() async
@@ -71,12 +74,22 @@ enum ThreadEvent: Sendable {
     case failed(AccountFailure)
 }
 
-/// One frame: the rows' changes, and the state when it changed.
+/// One frame: the rows' changes, why they changed, the state when it changed, and the jumps
+/// whose rows are among them.
 struct ThreadBatch: Sendable {
     var rows: [ThreadRowChange]
     var state: ThreadState?
-    /// The rows switched between a jump's and the live ones: `to` goes where `from` was.
-    var anchor: (from: String, to: String)?
+    var cause: ThreadCause?
+    var jumped: [(jump: UInt64, landed: Result<JumpResult, JumpError>)]
+}
+
+/// Why the rows changed, when it is news the chat follows to its newest message; none for the
+/// opening, a page, a jump, a refill or a message changing.
+public enum ThreadCause: Sendable, Equatable {
+    /// The user sent a message from here: this row, the newest, shows it.
+    case sent(String)
+    /// New messages arrived after the newest one shown.
+    case arrived
 }
 
 /// A change to the rows, as the core's `VectorDiff`.
