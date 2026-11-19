@@ -58,44 +58,50 @@ public final class Uploads {
         tasks.run { [weak self, account, directory] in
             // unknown, the server refuses what is too large itself.
             let limit = await bestEffort("the server's upload limit") { try await account.value.maxUploadSize() } ?? nil
-            var replyTo = replyTo
-            var caption = caption
-            for url in urls {
-                do {
-                    let attachment = try await AttachmentMaker.prepare(url, in: directory)
-                    if let limit, attachment.size > limit { throw AttachmentMaker.Failure.tooLarge(name: attachment.name, limit: limit) }
-                    let size = Int64(attachment.size)
-                    self?.progress.totalUnitCount += size
-                    let states = try await account.value.send(attachment, roomId: roomId, threadRoot: threadRoot, caption: caption,
-                                                              replyTo: replyTo)
-                    replyTo = nil
-                    caption = nil
-                    self?.follow(states, size: size)
-                } catch {
-                    // closed with its account: nothing is counted any more.
-                    guard !Task.isCancelled, let self else { return }
-                    failure(error)
-                    done(ok: false)
+            // each upload is followed as a child of this task: cancelled with it, and over before it ends.
+            await withDiscardingTaskGroup { group in
+                var replyTo = replyTo
+                var caption = caption
+                for url in urls {
+                    do {
+                        let attachment = try await AttachmentMaker.prepare(url, in: directory)
+                        if let limit, attachment.size > limit { throw AttachmentMaker.Failure.tooLarge(name: attachment.name, limit: limit) }
+                        let size = Int64(attachment.size)
+                        self?.progress.totalUnitCount += size
+                        let states = try await account.value.send(attachment, roomId: roomId, threadRoot: threadRoot, caption: caption,
+                                                                  replyTo: replyTo)
+                        replyTo = nil
+                        caption = nil
+                        guard let following = self?.following(states, size: size) else { return }
+                        group.addTask(operation: following)
+                    } catch {
+                        // closed with its account: nothing is counted any more.
+                        guard !Task.isCancelled, let self else { return }
+                        failure(error)
+                        self.done(ok: false)
+                    }
                 }
             }
         }
     }
 
     /// The account closed: its uploads are no longer followed, and what was on its way ends, not
-    /// all through (the files stay in their chats' queues on the server's side of the account).
-    func close() {
-        tasks.cancelAll()
-        guard isActive else { return }
-        failed = true
-        finished = files
-        onProgress?()
-        onFinish?(false)
+    /// all through (the files stay in their chats' queues on the server's side of the account). It
+    /// returns once nothing follows them any more.
+    func close() async {
+        if isActive {
+            failed = true
+            finished = files
+            onProgress?()
+            onFinish?(false)
+        }
+        await tasks.end()
     }
 
-    /// Follows one file's upload, `size` bytes, as the core streams it, until it is sent, fails or
-    /// is discarded.
-    private func follow(_ states: AsyncStream<UploadState>, size: Int64) {
-        tasks.run { [weak self] in
+    /// Following one file's upload, `size` bytes, as the core streams it, until it is sent, fails or
+    /// is discarded, or the account closes (its stream is cancelled, and the core stops sending it).
+    private func following(_ states: AsyncStream<UploadState>, size: Int64) -> @MainActor @Sendable () async -> Void {
+        { [weak self] in
             var gone: Int64 = 0
             var ok = true
             for await state in states {

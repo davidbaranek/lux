@@ -38,6 +38,14 @@ public final class TaskBag {
         keys = [:]
     }
 
+    /// Cancels every task running and returns once they have all ended: nothing of the owner's
+    /// work goes on after it (its account closed).
+    public func end() async {
+        let running = Array(tasks.values)
+        cancelAll()
+        for task in running { await task.value }
+    }
+
     private func ended(_ id: Int, key: String?) {
         tasks[id] = nil
         if let key, keys[key] == id { keys[key] = nil }
