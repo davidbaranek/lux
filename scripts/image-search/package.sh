@@ -17,6 +17,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 mkdir -p "$root/PhotoSearch" "$out"
+# ba-package runs in $root: the pack's path from here, whole.
+out=$(cd "$out" && pwd)
 xcrun coremlcompiler compile "$model/Encoders.mlpackage" "$root/PhotoSearch" >/dev/null
 cp "$model/embeddings.bin" "$model/tokenizer.json" "$model/model.json" "$root/PhotoSearch/"
 # model.json says which files it came with ("content", the digest of all the others): the app
