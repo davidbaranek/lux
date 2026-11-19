@@ -1,7 +1,9 @@
 import CoreGraphics
+import CoreML
 import CoreText
 import Foundation
 import ImageIO
+import Synchronization
 import Testing
 import UniformTypeIdentifiers
 import Vision
@@ -324,6 +326,13 @@ private actor FakeModelSource: PhotoModelSource {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let description = #"{"model": "fake", "side": 224, "textLength": 64, "dimension": 8, "lowercase": true, "padId": 0}"#
         try Data(description.utf8).write(to: folder.appending(path: "model.json"))
+        // a tokenizer of three words, for a text encoder a test loads (`FakeEncoders`).
+        let tokenizer = #"""
+            {"version": "1.0", "truncation": null, "padding": null, "added_tokens": [], "normalizer": null,
+             "pre_tokenizer": {"type": "Whitespace"}, "post_processor": null, "decoder": null,
+             "model": {"type": "WordLevel", "vocab": {"[PAD]": 0, "[UNK]": 1, "dog": 2}, "unk_token": "[UNK]"}}
+            """#
+        try Data(tokenizer.utf8).write(to: folder.appending(path: "tokenizer.json"))
     }
 
     func isOnDevice() async -> Bool { false }
@@ -398,6 +407,201 @@ private actor FakeModelSource: PhotoModelSource {
         await photos.setSearchesByLook(false)
         #expect(photos.looks == .off)
         #expect(photos.searchNote() == nil)
+        withExtendedLifetime(observing) {}
+        await photos.stop()
+    }
+}
+
+/// The model's encoders in a test: each loads at once and reads anything as the same made-up
+/// embedding (the fake model's 8 numbers). How many times each kind loaded is counted, and each
+/// encoder let go (its memory the app's again) is told on `released`. The text encoder's unused
+/// time runs on `clock`.
+private final class FakeEncoders: Sendable {
+    let clock = TestClock()
+    /// Each encoder as its memory goes.
+    let released: AsyncStream<PhotoSearchModel.EncoderKind>
+    private let releasing: AsyncStream<PhotoSearchModel.EncoderKind>.Continuation
+    private let counts = Mutex<[PhotoSearchModel.EncoderKind: Int]>([:])
+    /// The kinds that fail to load (their model's file unreadable, say).
+    private let failing: Set<PhotoSearchModel.EncoderKind>
+
+    init(failing: Set<PhotoSearchModel.EncoderKind> = []) {
+        self.failing = failing
+        (released, releasing) = AsyncStream.makeStream()
+    }
+
+    func loads(_ kind: PhotoSearchModel.EncoderKind) -> Int {
+        counts.withLock { $0[kind, default: 0] }
+    }
+
+    var encoders: PhotoSearchModel.Encoders {
+        PhotoSearchModel.Encoders(load: { [self] kind, _ in
+            self.counts.withLock { $0[kind, default: 0] += 1 }
+            if self.failing.contains(kind) { throw PhotoSearchError.unexpectedModel }
+            return Encoder(kind: kind, gone: self.releasing)
+        }, clock: clock)
+    }
+
+    private final class Encoder: EmbeddingEncoder {
+        let kind: PhotoSearchModel.EncoderKind
+        let gone: AsyncStream<PhotoSearchModel.EncoderKind>.Continuation
+
+        init(kind: PhotoSearchModel.EncoderKind, gone: AsyncStream<PhotoSearchModel.EncoderKind>.Continuation) {
+            self.kind = kind
+            self.gone = gone
+        }
+
+        deinit { gone.yield(kind) }
+
+        func prediction(from input: any MLFeatureProvider) throws -> any MLFeatureProvider {
+            let embedding = try MLMultiArray(shape: [8], dataType: .float32)
+            for index in 0..<8 { embedding[index] = 0.5 }
+            return try MLDictionaryFeatureProvider(dictionary: ["embedding": embedding])
+        }
+
+        func input(_ image: CGImage) throws -> any MLFeatureProvider {
+            try MLDictionaryFeatureProvider(dictionary: [:])
+        }
+    }
+}
+
+/// Which of the model's encoders is kept, and when each goes and loads again: each only while it
+/// is used, so a Mac app left open does not hold them.
+@Suite(.ownPreferences, .ownFolder, .timeLimit(.minutes(1))) struct PhotoModelMemoryTests {
+    private func model(_ fake: FakeEncoders) async throws -> PhotoSearchModel {
+        try PhotoSearchModel(files: try await FakeModelSource().modelFiles { _ in }, encoders: fake.encoders)
+    }
+
+    private func photo() throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        return try #require(context.makeImage())
+    }
+
+    @Test func theTextEncoderGoesOnceUnusedForItsIdleTimeAndTheNextSearchLoadsItAgain() async throws {
+        let fake = FakeEncoders()
+        let model = try await model(fake)
+        let idle = PhotoSearchModel.textIdle
+        try await leased { lease in await model.textEncoderLoaded(lease: lease) }
+        _ = try await fake.clock.sleeps.first { $0 == fake.clock.now.advanced(by: idle) }
+
+        // a search just before the idle time ends keeps it a whole idle time from then.
+        fake.clock.advance(by: idle - .seconds(1))
+        #expect(try await model.embedding(ofQuery: "dog") != nil)
+        _ = try await fake.clock.sleeps.first { $0 == fake.clock.now.advanced(by: idle) }
+        fake.clock.advance(by: .seconds(1))
+        #expect(await model.isTextEncoderReady)
+
+        // unused for the idle time: it goes, and searches find photos by their words meanwhile.
+        fake.clock.advance(by: idle)
+        _ = try await fake.released.first { $0 == .text }
+        #expect(await !model.isTextEncoderReady)
+        #expect(try await model.embedding(ofQuery: "dog") == nil)
+
+        // the next search loads it again.
+        try await leased { lease in await model.textEncoderLoaded(lease: lease) }
+        #expect(try await model.embedding(ofQuery: "dog") != nil)
+        #expect(fake.loads(.text) == 2)
+        await model.close()
+    }
+
+    @Test func theImageEncoderIsKeptForTheWholeReadingAndGoesWhenItEnds() async throws {
+        let fake = FakeEncoders()
+        let model = try await model(fake)
+        let image = try photo()
+        for _ in 0..<3 {
+            _ = try await leased { lease in try await model.embedding(of: image, lease: lease) }
+        }
+        #expect(fake.loads(.image) == 1)
+
+        await PhotoReader(model: model).rest()
+        _ = try await fake.released.first { $0 == .image }
+        // new photos to read: it loads again for them.
+        _ = try await leased { lease in try await model.embedding(of: image, lease: lease) }
+        #expect(fake.loads(.image) == 2)
+        // the text encoder never loaded for photos.
+        #expect(fake.loads(.text) == 0)
+        await model.close()
+    }
+
+    @Test func bothEncodersGoWhenTheAppLeavesTheFrontOrMemoryRunsShort() async throws {
+        let fake = FakeEncoders()
+        let model = try await model(fake)
+        let image = try photo()
+        _ = try await leased { lease in try await model.embedding(of: image, lease: lease) }
+        try await leased { lease in await model.textEncoderLoaded(lease: lease) }
+
+        await model.releaseEncoders()
+        let gone = await fake.released.prefix(2).reduce(into: Set()) { $0.insert($1) }
+        #expect(gone == [.image, .text])
+        #expect(await !model.isTextEncoderReady)
+        await model.close()
+    }
+
+    private func messages(_ ids: Range<Int>) -> [IndexedMessage] {
+        ids.map { IndexedMessage(eventId: "$m\($0)", roomId: "!room", senderName: "Anna", body: "dog number \($0) on the beach",
+                                 date: Date(timeIntervalSince1970: 1_700_000_000 + Double($0) * 60), isOwn: false) }
+    }
+
+    @Test func messagesReadAfterTheTextEncoderWentLoadItAgainForTheirBatch() async throws {
+        let fake = FakeEncoders()
+        let model = try await model(fake)
+        let store = try await TemporaryFolder.store()
+        try await store.add(messages(0..<3))
+        let meaning = MessageMeaning(store: store)
+        await meaning.use(model)
+        #expect(try await leased { lease in await meaning.read(limit: nil, lease: lease) })
+        #expect(await meaning.progress().read == 3)
+        _ = try await fake.clock.sleeps.first { $0 == fake.clock.now.advanced(by: PhotoSearchModel.textIdle) }
+
+        // unused for the idle time: it goes; the next messages' batch loads it again.
+        fake.clock.advance(by: PhotoSearchModel.textIdle)
+        _ = try await fake.released.first { $0 == .text }
+        try await store.add(messages(3..<5))
+        #expect(try await leased { lease in await meaning.read(limit: nil, lease: lease) })
+        #expect(await meaning.progress().read == 5)
+        #expect(fake.loads(.text) == 2)
+        await model.close()
+    }
+
+    @Test func messagesTheTextEncoderCannotReadStayUnread() async throws {
+        let fake = FakeEncoders(failing: [.text])
+        let model = try await model(fake)
+        let store = try await TemporaryFolder.store()
+        try await store.add(messages(0..<3))
+        let meaning = MessageMeaning(store: store)
+        await meaning.use(model)
+        // no encoder: no message counts as read, each waits for the next reading.
+        #expect(try await leased { lease in await meaning.read(limit: nil, lease: lease) } == false)
+        let progress = await meaning.progress()
+        #expect(progress.total == 3 && progress.read == 0)
+        await model.close()
+    }
+
+    @MainActor @Test func aSearchAfterTheTextEncoderWentLoadsItAgainAndFindsPhotosByTheirLookOnceItHas() async throws {
+        let fake = FakeEncoders()
+        let preferences = try Preferences.ofTest
+        preferences.searchesPhotosByLook = true
+        let photos = PhotoSearch(store: try await photoStore(photos: 0), account: Task { HeldPhotos() }, directory: try folder(),
+                                 preferences: preferences, assets: try FakeModelSource(), encoders: fake.encoders)
+        let (changes, observing) = photos.announcements()
+        try await changes.until { photos.looks == .ready }
+
+        // the first search loads it, finding photos by their words meanwhile. (The fake loads at
+        // once: it may be ready before the wait, which then has nothing to wait for.)
+        #expect(await photos.embedding(of: "dog") == nil)
+        _ = await photos.waitForLook()
+        #expect(await !photos.isLookPending)
+        _ = try await fake.clock.sleeps.first { $0 == fake.clock.now.advanced(by: PhotoSearchModel.textIdle) }
+
+        fake.clock.advance(by: PhotoSearchModel.textIdle)
+        _ = try await fake.released.first { $0 == .text }
+        #expect(await photos.isLookPending)
+        // a search after it went: by the words now, by the look once it has loaded again.
+        #expect(await photos.embedding(of: "dog") == nil)
+        _ = await photos.waitForLook()
+        #expect(await photos.embedding(of: "dog") != nil)
+        #expect(fake.loads(.text) == 2)
         withExtendedLifetime(observing) {}
         await photos.stop()
     }

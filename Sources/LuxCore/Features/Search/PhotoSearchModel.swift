@@ -9,10 +9,31 @@ import Vision
 /// one, in any of the languages it learned. Both run on the device
 /// (Core ML, on the Neural Engine where there is one); each loads when first needed, as each is
 /// large: the image encoder while photos are read, the text encoder from the first search on
-/// (until it is loaded, a search finds photos by their words). Once loaded, each stays until the
-/// app leaves the front or memory runs short (`releaseEncoders`): Core ML keeps what it compiled
-/// for the device, so a load after that is quick, but no reading of a few new photos pays for one.
+/// (until it is loaded, a search finds photos by their words). Each is kept only while it is used,
+/// as Core ML advises (WWDC23, "Improve Core ML integration with async prediction"): the image
+/// encoder until the reading ends (`releaseImageEncoder`), the text encoder until it has gone
+/// unused for `textIdle`, and both go when the app leaves the front or memory runs short
+/// (`releaseEncoders`). A Mac app is always in front, and the two hold some 280 MB of the Neural
+/// Engine's memory: kept for good, they would weigh on the Mac while nothing uses them. Loading
+/// one again is quick: the model loads from the same copy each time (`PhotoSearchAssets`), so
+/// Core ML finds what it compiled for the device in its cache.
 actor PhotoSearchModel {
+    /// How long the text encoder is kept with no search and no message read by it. Longer than a
+    /// search's pauses (the user reads what was found, types again) and the gaps between the
+    /// messages' readings while chats are busy (a reading follows each pass of the index, every
+    /// few seconds), so neither waits for a load; short enough that a Mac left open with nothing
+    /// searched lets the memory go within minutes. A load after it is quick (Core ML's cache).
+    static let textIdle = Duration.seconds(180)
+
+    /// How the encoders load, and what measures how long the text encoder is unused: Core ML and
+    /// the system's clock, or a test's.
+    struct Encoders: Sendable {
+        var load: @Sendable (EncoderKind, @escaping Files) async throws -> sending any EmbeddingEncoder
+        var clock: any Clock<Duration>
+
+        static let coreML = Encoders(load: { try await PhotoSearchModel.load($0, from: $1) }, clock: ContinuousClock())
+    }
+
     /// What `model.json` says of the model.
     struct Description: Decodable, Sendable {
         var model: String
@@ -51,14 +72,17 @@ actor PhotoSearchModel {
 
     private let file: Files
     private let description: Description
-    private var imageEncoder: MLModel?
-    private var textEncoder: MLModel?
+    private let encoders: Encoders
+    private var imageEncoder: (any EmbeddingEncoder)?
+    private var textEncoder: (any EmbeddingEncoder)?
     private var tokenizer: QueryTokenizer?
     private var table: TokenTable?
     private var preparing: Task<Void, Never>?
-    /// How many times the encoders were let go: an encoder whose load began before the last time
-    /// is used for what it was loaded for, and not kept.
-    private var releases = 0
+    /// How many times the image encoder was let go: one whose load began before the last time is
+    /// used for what it was loaded for, and not kept.
+    private var imageReleases = 0
+    /// Lets the text encoder go once it has been unused for `textIdle`; each use starts it again.
+    private var idle: Task<Void, Never>?
     /// The encoders' loads under way, and who waits for them all to end (`close`, before the
     /// model's files go).
     private var loading = 0
@@ -68,8 +92,9 @@ actor PhotoSearchModel {
 
     /// The model whose files `file` finds (its `model.json`, encoders and tokenizer): an asset
     /// pack names each of its files' places itself, which need not share one folder.
-    init(files file: @escaping Files) throws {
+    init(files file: @escaping Files, encoders: Encoders = .coreML) throws {
         self.file = file
+        self.encoders = encoders
         description = try JSONDecoder().decode(Description.self, from: Data(contentsOf: file("model.json")))
         name = "\(description.model)@\(description.side)"
         minSimilarity = description.photoSimilarity ?? 0.085
@@ -84,28 +109,25 @@ actor PhotoSearchModel {
     /// A photo's unit embedding: the photo squashed to the encoder's square, as it learned. The
     /// first loads the image encoder (compiled for this device the first time: long).
     func embedding(of image: CGImage, lease _: ForegroundLease) async throws -> [Float] {
-        try embedding(of: image, by: try await loadedImageEncoder())
-    }
-
-    /// Predicts on the model's actor, which holds the encoder (an `MLModel` is not `Sendable`).
-    private func embedding(of image: CGImage, by encoder: MLModel) throws -> [Float] {
-        guard let constraint = encoder.modelDescription.inputDescriptionsByName["image"]?.imageConstraint else {
-            throw PhotoSearchError.unexpectedModel
-        }
-        let pixels = try MLFeatureValue(cgImage: image, constraint: constraint, options: [
-            .cropAndScale: VNImageCropAndScaleOption.scaleFill.rawValue,
-        ])
-        let output = try encoder.prediction(from: MLDictionaryFeatureProvider(dictionary: ["image": pixels]))
-        return try floats(output)
+        // predicts on the model's actor, which holds the encoder (an `MLModel` is not `Sendable`).
+        let encoder = try await loadedImageEncoder()
+        return try floats(encoder.prediction(from: encoder.input(image)))
     }
 
     /// The image encoder, loaded now if it is not (photos are read one at a time: one load).
-    private func loadedImageEncoder() async throws -> MLModel {
+    private func loadedImageEncoder() async throws -> any EmbeddingEncoder {
         if let imageEncoder { return imageEncoder }
-        let release = releases
+        let release = imageReleases
         let encoder = try await load(.image)
-        if release == releases { imageEncoder = encoder }
+        if release == imageReleases { imageEncoder = encoder }
         return encoder
+    }
+
+    /// The reading has ended: the image encoder goes until photos come to be read again (the
+    /// first of them loads it).
+    func releaseImageEncoder() {
+        imageReleases += 1
+        imageEncoder = nil
     }
 
     /// Loads the text encoder and the tokenizer off the model's actor: the first load on a device
@@ -145,6 +167,24 @@ actor PhotoSearchModel {
         textEncoder = encoder
         self.tokenizer = tokenizer
         self.table = table
+        usedTextEncoder()
+    }
+
+    /// The text encoder was used (or loaded): it is kept for `textIdle` from now.
+    private func usedTextEncoder() {
+        idle?.cancel()
+        let clock = encoders.clock
+        idle = Task { [weak self] in
+            do { try await Task.sleep(for: Self.textIdle, clock: clock) } catch { return }
+            await self?.textEncoderIdle()
+        }
+    }
+
+    private func textEncoderIdle() {
+        // used again as the wait ended (which cancelled it): the newer use's wait decides.
+        guard !Task.isCancelled else { return }
+        Log.app.notice("photo search: the text encoder goes, unused for \(Self.textIdle, privacy: .public)")
+        releaseTextEncoder()
     }
 
     /// A search's words' unit embedding, in the photos' and messages' space; nil until the text
@@ -174,6 +214,7 @@ actor PhotoSearchModel {
             inputs = ["ids": input]
         }
         let output = try encoder.prediction(from: MLDictionaryFeatureProvider(dictionary: inputs))
+        usedTextEncoder()
         return try floats(output)
     }
 
@@ -183,8 +224,15 @@ actor PhotoSearchModel {
     /// Lets both encoders go (the app left the front, or the system is short of memory): their
     /// memory is the app's again, and the next photo or search loads its encoder again.
     func releaseEncoders() {
-        releases += 1
-        imageEncoder = nil
+        releaseImageEncoder()
+        releaseTextEncoder()
+    }
+
+    /// Lets the text encoder go, and its load if one is under way: the next search or message
+    /// read loads it again (a search finds photos by their words meanwhile).
+    private func releaseTextEncoder() {
+        idle?.cancel()
+        idle = nil
         preparing?.cancel()
         preparing = nil
         textEncoder = nil
@@ -203,7 +251,7 @@ actor PhotoSearchModel {
     }
 
     /// The model's two encoders.
-    private enum Encoder: String {
+    enum EncoderKind: String, Sendable {
         case image, text
 
         /// Its own model file, in a model built before both were functions of one.
@@ -211,7 +259,7 @@ actor PhotoSearchModel {
     }
 
     /// Loads `encoder`, counted in `loading` until it ends.
-    private func load(_ encoder: Encoder) async throws -> MLModel {
+    private func load(_ encoder: EncoderKind) async throws -> any EmbeddingEncoder {
         guard !isClosed else { throw CancellationError() }
         loading += 1
         defer {
@@ -221,12 +269,18 @@ actor PhotoSearchModel {
                 loaded = []
             }
         }
-        return try await Self.load(encoder, from: file)
+        let started = ContinuousClock.now
+        let model = try await encoders.load(encoder, file)
+        Log.metrics.notice("""
+            photo search: the \(encoder.rawValue, privacy: .public) encoder loaded in \
+            \((ContinuousClock.now - started).formatted(.units(allowed: [.milliseconds])), privacy: .public)
+            """)
+        return model
     }
 
     /// An encoder: a function of the one model that holds both ("image", "text"), or, of a
     /// model built before, its own model file.
-    private static func load(_ encoder: Encoder, from file: Files) async throws -> MLModel {
+    private static func load(_ encoder: EncoderKind, from file: Files) async throws -> sending any EmbeddingEncoder {
         let signpost = Signposts.model.beginInterval("load", "\(encoder.rawValue, privacy: .public)")
         defer { Signposts.model.endInterval("load", signpost) }
         let configuration = MLModelConfiguration()
@@ -244,6 +298,25 @@ actor PhotoSearchModel {
             throw PhotoSearchError.unexpectedModel
         }
         return (0..<embedding.count).map { embedding[$0].floatValue }
+    }
+}
+
+/// An encoder of the model, as the model uses it: Core ML's `MLModel`, or a test's.
+protocol EmbeddingEncoder: AnyObject {
+    func prediction(from input: any MLFeatureProvider) throws -> any MLFeatureProvider
+    /// What the image encoder reads of `image`: the photo squashed to its square, as it learned.
+    func input(_ image: CGImage) throws -> any MLFeatureProvider
+}
+
+extension MLModel: EmbeddingEncoder {
+    func input(_ image: CGImage) throws -> any MLFeatureProvider {
+        guard let constraint = modelDescription.inputDescriptionsByName["image"]?.imageConstraint else {
+            throw PhotoSearchError.unexpectedModel
+        }
+        let pixels = try MLFeatureValue(cgImage: image, constraint: constraint, options: [
+            .cropAndScale: VNImageCropAndScaleOption.scaleFill.rawValue,
+        ])
+        return try MLDictionaryFeatureProvider(dictionary: ["image": pixels])
     }
 }
 

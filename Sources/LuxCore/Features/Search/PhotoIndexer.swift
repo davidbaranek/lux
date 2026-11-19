@@ -66,7 +66,12 @@ public actor PhotoIndexer {
         running = run
         report(await progress())
         let done = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
-        if running == run { running = nil }
+        // the last reading ended (nothing left to read, or it stopped): the reader lets its
+        // model go until new photos come; a reading after this one keeps it.
+        if running == run {
+            running = nil
+            await reader.rest()
+        }
         report(await progress())
         return done
     }
