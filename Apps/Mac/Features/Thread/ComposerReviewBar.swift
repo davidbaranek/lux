@@ -9,7 +9,7 @@ final class ComposerReviewBar: NSView {
     /// The composer's glass' corner radius, which its own follows (concentric).
     static let composerRadius: CGFloat = 18
     /// The buttons' inset from the box's edges.
-    static let inset: CGFloat = 6
+    static let inset: CGFloat = 5
     var onAccept: (() -> Void)?
     var onReject: (() -> Void)?
     private let icon = NSImageView()
@@ -36,6 +36,8 @@ final class ComposerReviewBar: NSView {
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 0
+        // as tall as its text, centred in the row, not stretched to the buttons' height.
+        labels.setContentHuggingPriority(.required, for: .vertical)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let row = NSStackView(views: [icon, labels, spacer, spinner, accept, reject])
@@ -88,7 +90,7 @@ final class ComposerReviewBar: NSView {
 
     private static func round(_ symbol: String, label: String, target: AnyObject, action: Selector) -> NSButton {
         let button = RoundButton(image: NSImage.symbol(symbol, label: label), target: target, action: action)
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         button.contentTintColor = symbol == "checkmark" ? .labelColor : .secondaryLabelColor
         button.toolTip = label
         return button
@@ -101,7 +103,7 @@ final class ComposerReviewBar: NSView {
 /// A round button with a plain fill, a size of its own: no bezel, whose frame is larger than what
 /// it draws, so the box's insets hold.
 private final class RoundButton: NSButton {
-    static let size: CGFloat = 28
+    static let size: CGFloat = 24
 
     convenience init(image: NSImage, target: AnyObject, action: Selector) {
         self.init(frame: NSRect(x: 0, y: 0, width: Self.size, height: Self.size))
