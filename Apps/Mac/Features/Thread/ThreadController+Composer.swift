@@ -99,6 +99,7 @@ extension ThreadController {
     /// The + : its menu, under it (above near the screen's bottom), for the composer (Continuity Camera's items go to it).
     @objc func showAttachMenu(_ sender: NSButton) {
         view.window?.makeFirstResponder(field)
+        if let menu = sender.menu { addTextActions(to: menu) }
         sender.menu?.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.isFlipped ? sender.bounds.maxY + 4 : -4), in: sender)
     }
 
@@ -128,10 +129,12 @@ extension ThreadController {
         clearComposer()
     }
 
-    /// Send Later needs words to send and a chat that can hold them.
+    /// Send Later needs words to send and a chat that can hold them; an AI action, text it can
+    /// work on.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let written = !composerField.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if item.action == #selector(sendThrough(_:)) { return written }
+        if item.action == #selector(runTextAction(_:)) { return validateTextAction(item) }
         guard item.action == #selector(sendLater(_:)) else { return true }
         return model.canSendLater && written
     }

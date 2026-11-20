@@ -204,6 +204,14 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             guard let self else { return }
             attachments.togglePanel(in: composer)
         }
+        // with AI on, the panel's row of AI actions over the text written.
+        attachments.textActions = { [weak self] in
+            guard let self else { return [] }
+            let actions = session.textActions
+            let reason = actions.unavailability(of: composer.text)
+            return actions.actions.map { AttachPanel.ActionButton(action: $0, unavailability: reason) }
+        }
+        attachments.onTextAction = { [weak self] action in self?.run(action) }
         composer.onPasteItems = { [weak self] providers in self?.attachments.take(providers) }
         // photos, videos and files dropped anywhere on the chat wait in the composer too.
         view.addInteraction(UIDropInteraction(delegate: attachments))
@@ -708,6 +716,30 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
 extension ThreadViewController: ThreadScreen {
     func showDraft(_ text: String) { composer.text = text }
+
+    /// Runs an AI action over the text written: its sheet works while the model answers, then
+    /// shows the result over the text, and Apply puts it in the composer.
+    private func run(_ action: TextAction) {
+        let text = composer.text
+        composer.inputPanel = nil
+        let sheet = TextActionSheet(action: action, original: text) { [weak self] new in
+            self?.composer.replaceText(with: new)
+        }
+        let navigation = UINavigationController(rootViewController: sheet)
+        navigation.sheetPresentationController?.detents = [.medium(), .large()]
+        present(navigation, animated: true)
+        let chat = TextActionChat(name: row.name, network: Networks.name(row.network), isGroup: row.isGroup,
+                                  myName: session.profile?.profile?.name, messages: model.messages)
+        Task { [weak self, weak sheet] in
+            guard let actions = self?.session.textActions else { return }
+            do {
+                let result = try await actions.run(action, on: text, in: chat)
+                sheet?.show(result)
+            } catch {
+                sheet?.show(message: error.localizedDescription)
+            }
+        }
+    }
 
     var scrollGeometry: ScrollGeometry {
         let inset = collectionView.adjustedContentInset

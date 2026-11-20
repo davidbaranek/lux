@@ -34,6 +34,7 @@
 		1C9F5F75836DD643D24F1AA2 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38EB133AC22139BB66D39275 /* main.swift */; };
 		1D909DDF5C83BC9399F987E2 /* ChatStylePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CAAA103DF399F24DF658ED /* ChatStylePicker.swift */; };
 		1F56A7740537C8A360EE3B04 /* SharedViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */; };
+		229703F5409E995CA18E56B7 /* TextActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25402D951AFF42D702BF512D /* TextActionSheet.swift */; };
 		252EDCA93CE5B2A96E8E349D /* BadgeLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */; };
 		27B057F73D3889A613A56B2E /* RailController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4104CEA496E32C0FC3DCF04 /* RailController.swift */; };
 		28CC9919B31369F7B26DB854 /* ThemeTint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26B64CD6E66347DCB8E7F15 /* ThemeTint.swift */; };
@@ -131,6 +132,7 @@
 		B139BD6E0E50BCBC3DA070DA /* VerificationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3633EB47A1DD6D7C2A8AEDA /* VerificationController.swift */; };
 		B19DE83C6A3884374DB7613D /* ThreadsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4C9FF0F97F7DDE576EC682 /* ThreadsPane.swift */; };
 		B1FA151DF3B7DE373AE4F34F /* MessageText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED44BAF9870039CBBE2D09 /* MessageText.swift */; };
+		B3427894209C76BF1FE03050 /* TextActionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28751C01CD235253EFF6986E /* TextActionPanel.swift */; };
 		B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2180360AB5C0E986ABBBF07D /* ChatListController.swift */; };
 		B5DE3B6E80FDC3A2CF34839C /* AttachMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA00C1C1E42BD7DDE10ABC76 /* AttachMenu.swift */; };
 		B653F26A44AE4D274DB849D7 /* UIFont+Bold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */; };
@@ -152,6 +154,7 @@
 		CFDD81976E553FAE1C1F0BA1 /* ChatContainerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */; };
 		D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BF609A3146709E57D5E8B0 /* MainSplitViewController.swift */; };
 		D19F67D51508D8D8BFB70B3E /* SearchListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84BC505E86E2BB171A5A694B /* SearchListController.swift */; };
+		D1F82C10B9356C23A317E5F8 /* AISettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2362AD6651B9CE93E9DEDCD /* AISettingsController.swift */; };
 		D7B0A9CFAEB084A4BADA352E /* NetworkSignInViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C74C4E666E59AC2A96EBBDE /* NetworkSignInViewController.swift */; };
 		D9F5BB596C18FA8E3AA08B01 /* RecoverySetupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E3E60D668BFA91A83F63D0 /* RecoverySetupController.swift */; };
 		DEC843A195F03049A897DEAC /* NewConversationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0D7D0A040670ADF0F3E79A /* NewConversationViewController.swift */; };
@@ -177,6 +180,7 @@
 		FA7B9102187DE1BB0B565AF4 /* ScrollBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1797AF77AA495AC53B1A7899 /* ScrollBenchmark.swift */; };
 		FA8C719FA0213F63F8924662 /* ThreadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83A756DC00736E9731ED03F4 /* ThreadController.swift */; };
 		FB5910E6EE9EDFF4C14ADD78 /* SearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188F38A0D0456D6088CF9096 /* SearchViews.swift */; };
+		FB5C274C6B3688286C8CEEB8 /* ThreadController+TextActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00D65C0229D6AC0E6896F757 /* ThreadController+TextActions.swift */; };
 		FBFB8C67453A709BC001A3FE /* ChatRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11450DD99B4486ADBCA386C /* ChatRowView.swift */; };
 		FCC55AB5A2F19938C4179CC4 /* ConfirmIdentityViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E889EBAD13A8573958DF1452 /* ConfirmIdentityViewController.swift */; };
 		FFF3696333526B49D846EA30 /* EmojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A911F525CB872B6D4D247132 /* EmojiPicker.swift */; };
@@ -272,6 +276,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		00D65C0229D6AC0E6896F757 /* ThreadController+TextActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+TextActions.swift"; sourceTree = "<group>"; };
 		00FBAE38F2ED9E7DDF6E73DC /* AttachmentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentPicker.swift; sourceTree = "<group>"; };
 		0424D3218B18987B7AEDF49E /* LoadingBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingBubble.swift; sourceTree = "<group>"; };
 		045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
@@ -304,7 +309,9 @@
 		2229367875593093149B0ED6 /* ChatCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCellView.swift; sourceTree = "<group>"; };
 		22D3FD7678E40CA2462EDF09 /* RecoverySetupViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySetupViewController.swift; sourceTree = "<group>"; };
 		23D25FFAD160961C3D0F6380 /* ChatContainerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatContainerController.swift; sourceTree = "<group>"; };
+		25402D951AFF42D702BF512D /* TextActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextActionSheet.swift; sourceTree = "<group>"; };
 		2707C6FF5C7D4A9203DD8AC1 /* Lux-iOS-Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lux-iOS-Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		28751C01CD235253EFF6986E /* TextActionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextActionPanel.swift; sourceTree = "<group>"; };
 		29B18657D90041431A80CE7C /* Lux.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Lux.xcconfig; sourceTree = "<group>"; };
 		2C74C4E666E59AC2A96EBBDE /* NetworkSignInViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSignInViewController.swift; sourceTree = "<group>"; };
 		2E8DBA576C484AC2544EB0FA /* Info-Mac.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-Mac.plist"; sourceTree = "<group>"; };
@@ -333,6 +340,7 @@
 		5827D4ECCC880D69EF48AD9C /* SharedViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViewController.swift; sourceTree = "<group>"; };
 		585DB56EA6C2D0EA6716130E /* BadgeLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeLabel.swift; sourceTree = "<group>"; };
 		5A9DD1C19B43BF752E0AD8DC /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
+		5B54B2E7AFB0BFFAAA762E36 /* architect-e3fa12 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "architect-e3fa12"; path = .; sourceTree = SOURCE_ROOT; };
 		5F2C98214DB4409B4C68E2DF /* InboxMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxMenu.swift; sourceTree = "<group>"; };
 		60079532E50D716748C497E7 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		61650F6A784137B4735B8EA7 /* MessageTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTableView.swift; sourceTree = "<group>"; };
@@ -391,6 +399,7 @@
 		A911F525CB872B6D4D247132 /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
 		ADA45A0281B861ABE7846762 /* ThreadViewController+Attachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadViewController+Attachments.swift"; sourceTree = "<group>"; };
 		B078C1F708797864150311C6 /* FileDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropView.swift; sourceTree = "<group>"; };
+		B2362AD6651B9CE93E9DEDCD /* AISettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISettingsController.swift; sourceTree = "<group>"; };
 		B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
 		B3BE29EDF6C9AE9C1DDB4E38 /* ThreadViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewTests.swift; sourceTree = "<group>"; };
 		B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewController.swift; sourceTree = "<group>"; };
@@ -407,7 +416,6 @@
 		C2FF76B87AC1426AF30D3441 /* Info-iOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-iOS.plist"; sourceTree = "<group>"; };
 		C3486FEA9B7E75C0C0CF63B7 /* ThemeBand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeBand.swift; sourceTree = "<group>"; };
 		C74036405B2152475BBCC458 /* ChatTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleView.swift; sourceTree = "<group>"; };
-		6035B78A9E0E9DE9B085F258 /* lux-native-details */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "lux-native-details"; path = .; sourceTree = SOURCE_ROOT; };
 		CC0E46797F87EA38CF6B3A1D /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		CF657CC4FB2A5714EAE02706 /* Lux-iOS-Share.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "Lux-iOS-Share.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D0248A2DAC5B414C7DF52997 /* ReadingWhileCharging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingWhileCharging.swift; sourceTree = "<group>"; };
@@ -825,11 +833,13 @@
 				E3ED44BAF9870039CBBE2D09 /* MessageText.swift */,
 				6B49DAD1FFC41642445CC086 /* NewPinBar.swift */,
 				E3044FCBF32576720D8DB5A1 /* SendLaterMenu.swift */,
+				28751C01CD235253EFF6986E /* TextActionPanel.swift */,
 				83A756DC00736E9731ED03F4 /* ThreadController.swift */,
 				DB92538FC0A4F530917F122A /* ThreadController+Attachments.swift */,
 				D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */,
 				7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */,
 				F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */,
+				00D65C0229D6AC0E6896F757 /* ThreadController+TextActions.swift */,
 				E8CEDE7F2FF46DA53A4C8D0C /* ThreadSummaryView.swift */,
 			);
 			path = Thread;
@@ -877,6 +887,7 @@
 			isa = PBXGroup;
 			children = (
 				4E12BEF6929D3632673C59AF /* AccountSettingsController.swift */,
+				B2362AD6651B9CE93E9DEDCD /* AISettingsController.swift */,
 				0D98930FAB5212EFBE46E3F0 /* AppearanceSettingsController.swift */,
 				77CAAA103DF399F24DF658ED /* ChatStylePicker.swift */,
 				14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */,
@@ -949,7 +960,7 @@
 		DC93430DB5458DAF85591C76 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				6035B78A9E0E9DE9B085F258 /* lux-native-details */,
+				5B54B2E7AFB0BFFAAA762E36 /* architect-e3fa12 */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -1007,6 +1018,7 @@
 				DC1F5B41E55B51EC24083785 /* NewPinBar.swift */,
 				04E57A2090D14A73307AB1BB /* PendingMarkup.swift */,
 				9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */,
+				25402D951AFF42D702BF512D /* TextActionSheet.swift */,
 				983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */,
 				B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */,
 				ADA45A0281B861ABE7846762 /* ThreadViewController+Attachments.swift */,
@@ -1340,6 +1352,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D1F82C10B9356C23A317E5F8 /* AISettingsController.swift in Sources */,
 				6CED0114453863479F5508B4 /* AccountSettingsController.swift in Sources */,
 				E87A984B2C06178BAE83ED09 /* AlbumView.swift in Sources */,
 				1322779071799623AC019A4A /* AppearanceSettingsController.swift in Sources */,
@@ -1399,6 +1412,7 @@
 				9D0FFDEEFE4F3E82502A4DAB /* SharedPane.swift in Sources */,
 				CCED9DD67B5C2015BE31E9D2 /* SidebarController.swift in Sources */,
 				021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */,
+				B3427894209C76BF1FE03050 /* TextActionPanel.swift in Sources */,
 				41F959329248BEFE43FF98F9 /* TextView.swift in Sources */,
 				B075CAE896F653EF49C0F8FE /* ThemeMenu.swift in Sources */,
 				28CC9919B31369F7B26DB854 /* ThemeTint.swift in Sources */,
@@ -1406,6 +1420,7 @@
 				43464F7811CCC69D928F220E /* ThreadController+Composer.swift in Sources */,
 				A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */,
 				CB917858113CEA60B6902902 /* ThreadController+QuickLook.swift in Sources */,
+				FB5C274C6B3688286C8CEEB8 /* ThreadController+TextActions.swift in Sources */,
 				FA8C719FA0213F63F8924662 /* ThreadController.swift in Sources */,
 				9FFF5BA4BC18335532D67927 /* ThreadSummaryView.swift in Sources */,
 				B19DE83C6A3884374DB7613D /* ThreadsPane.swift in Sources */,
@@ -1498,6 +1513,7 @@
 				1F56A7740537C8A360EE3B04 /* SharedViewController.swift in Sources */,
 				328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */,
 				39A051D7618EECD53E44045D /* SwipeToReply.swift in Sources */,
+				229703F5409E995CA18E56B7 /* TextActionSheet.swift in Sources */,
 				01C3E40E77DF50004F0F91BC /* ThemeBand.swift in Sources */,
 				8AC205D501695BBB98E0D29D /* ThemeMenu.swift in Sources */,
 				685C068BDF01C5CD0ECC80C8 /* ThreadSummaryView.swift in Sources */,
