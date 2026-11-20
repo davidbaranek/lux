@@ -1,6 +1,10 @@
 New
-- A new + in the iPhone chat: it opens a panel in the keyboard's place with the newest photos and videos, the camera, and Photos, Files and Scan buttons. Tapping a photo adds it to the message at once, numbered; tapping it again takes it out. Tapping the text brings the keyboard back, and × closes the panel.
-- Document scan: the scanned pages are sent as one PDF.
-- With limited photo access, the end of the row has a tile to choose more photos.
+- The panel under + in the iPhone chat is as tall as the keyboard, so nothing moves when you switch between them. × closes the panel and brings the keyboard back. The + turns into × faster.
+- A picked photo or video is in the message at once. If it is still downloading from iCloud, its tile is dimmed and shows how far it has come. Sending waits for it, and taking it out stops the download.
+- The video quality menu (Optimized / Original) shows the resolution and size of each, and how much smaller the optimized copy is.
 
-Please try: open + in a chat, pick a few photos and send them, take one out of the message, take a photo and scan a document.
+Fixed
+- A video's quality on its tile no longer wraps: it is a symbol, with the full words in its menu.
+- The panel under + fits at the largest text sizes too.
+
+Please try: pick a video that is only in iCloud and send it right away; open a video's quality menu; switch between the keyboard and the panel.
