@@ -1,0 +1,30 @@
+[package]
+name = "lux-intelligence"
+description = "The app's AI features over a language model the platform gives: what each asks, the shape of its answer and how the answer is checked."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# links, as messages find them.
+linkify.workspace = true
+# an action's prompts: templates whose variables (the chat, its recent messages) are filled in.
+minijinja = { version = "3.1", default-features = false, features = ["builtins", "fuel", "serde"] }
+# the composer's Markdown, read as sending reads it (the code a formatted message keeps).
+pulldown-cmark = { version = "0.13.0", default-features = false }
+# an answer's shape as JSON Schema, from its type (the one `rmcp` uses for tools).
+schemars = "1.2"
+serde.workspace = true
+serde_json.workspace = true
+# the words a formatted message changed, for its preview.
+similar = { version = "2.7", default-features = false, features = ["text"] }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

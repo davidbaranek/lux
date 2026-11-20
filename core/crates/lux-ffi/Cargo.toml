@@ -13,12 +13,16 @@ crate-type = ["staticlib", "lib"]
 [dependencies]
 # UniFFI runs the exported futures in its runtime; the core sets how that runtime is built.
 async-compat = "0.2.5"
+# the platform's model and the open chat, implemented in Swift with async methods.
+async-trait = "0.1.92"
 eyeball-im.workspace = true
 futures-util.workspace = true
 jiff.workspace = true
 lux-core.workspace = true
+lux-intelligence.workspace = true
 lux-matrix.workspace = true
 lux-store.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokenizers.workspace = true
 tracing.workspace = true
