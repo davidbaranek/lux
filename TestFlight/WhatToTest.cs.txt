@@ -1,19 +1,6 @@
 Novinky
-- Skok na starou zprávu: klepnutí na výsledek hledání, citovanou odpověď nebo uloženou zprávu otevře chat kolem té zprávy, ať je jakkoli stará. Tlačítko dole vrátí na nejnovější zprávy.
+- Nové + v chatu na iPhonu: místo klávesnice se otevře panel s nejnovějšími fotkami a videi, fotoaparátem a tlačítky Fotky, Soubory a Skenovat. Klepnutí na fotku ji hned přidá ke zprávě s pořadovým číslem, další klepnutí ji odebere. Klepnutí do pole vrátí klávesnici, × panel zavře.
+- Skenování dokumentu: naskenované stránky se pošlou jako jedno PDF.
+- Při omezeném přístupu k fotkám je na konci řady dlaždice pro výběr dalších fotek.
 
-Opravy
-- Po klepnutí na notifikaci chat ukáže všechny zprávy, které přišly, když jste byli pryč, ne jen tu poslední.
-- Odznak aplikace počítá nepřečtené chaty z Inboxu i ve chvíli, kdy Lux neběží, a po návratu do aplikace je vždy správně.
-- Nahrávání, které selže, se v chatu ukáže a dá se zopakovat nebo zahodit; průběh odpovídá skutečnému nahrávání.
-- Listování historií se už na sekundu nezastavuje na stránkách bez zpráv.
-- Discord server uvnitř prostoru bridge zobrazuje své kategorie.
-- Speciální znaky ve formátovaných zprávách (&, <, uvozovky, emoji) se zobrazují jako znaky.
-- Hledání ve fotkách: Zastavit a Číst teď reagují okamžitě.
-- Při odchodu z aplikace se úložiště hned zavřou, takže iOS už Lux na pozadí kvůli nim neukončuje.
-- Odhlášení už nečeká na hlavním vlákně na zavření úložišť.
-
-Rychlost
-- Seznam chatů a chat na iPhonu i Macu překreslují jen řádky, které se změnily.
-- Čtení fotek pro hledání a zmenšování příloh už nezpomalují zbytek aplikace.
-
-Vyzkoušejte prosím: vyhledat starou zprávu a otevřít ji, otevřít chat z notifikace po několika příchozích zprávách, poslat fotku se slabým připojením.
+Vyzkoušejte prosím: otevřít + v chatu, vybrat několik fotek a poslat je, odebrat jednu fotku ze zprávy, vyfotit fotku a naskenovat dokument.
