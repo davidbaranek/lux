@@ -90,16 +90,23 @@ final class AttachmentStrip: UIView {
 private final class AttachmentTile: UIView {
     private let picture = UIImageView()
     private let remove: UIButton
-    /// A video's quality, Optimized or Original, and how far its smaller copy is.
+    /// A video's quality, Optimized or Original: a symbol, as the tile is too small for its
+    /// word in any language; the word is in its menu, its accessibility label and, held at the
+    /// largest text sizes, the large content viewer.
     private let quality: UIButton = {
         var configuration = UIButton.Configuration.filled()
         configuration.baseBackgroundColor = .black.withAlphaComponent(0.6)
         configuration.baseForegroundColor = .white
         configuration.cornerStyle = .capsule
         configuration.buttonSize = .mini
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(textStyle: .caption2, scale: .small)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 5, bottom: 3, trailing: 5)
         let button = UIButton(configuration: configuration)
         button.showsMenuAsPrimaryAction = true
+        // the tile does not grow with the text: the symbol stops at a size that fits it.
+        button.maximumContentSizeCategory = .extraExtraLarge
+        button.showsLargeContentViewer = true
+        button.addInteraction(UILargeContentViewerInteraction())
         button.isHidden = true
         return button
     }()
@@ -196,8 +203,11 @@ private final class AttachmentTile: UIView {
         showProgress()
         guard let video else { return }
         let title = video.quality == .optimized ? String(localized: "Optimized") : String(localized: "Original")
-        quality.configuration?.attributedTitle = AttributedString(title, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .caption2).bold]))
+        let symbol = UIImage(systemName: video.quality == .optimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+        quality.configuration?.image = symbol
         quality.accessibilityLabel = String(localized: "Video quality, \(title)")
+        quality.largeContentTitle = title
+        quality.largeContentImage = symbol
         let optimized = UIAction(title: String(localized: "Optimized"), subtitle: String(localized: "Smaller, sent sooner"),
                                  state: video.quality == .optimized ? .on : .off) { _ in choose(.optimized) }
         let original = UIAction(title: String(localized: "Original"),

@@ -93,6 +93,9 @@ final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionView
     init(access: RecentPhotos.Access, height: CGFloat) {
         self.access = access
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: height), inputViewStyle: .keyboard)
+        // as tall as the keyboard, which does not grow with the text either: its words stop at a
+        // size that fits, and the buttons show larger in the large content viewer when held.
+        maximumContentSizeCategory = .extraExtraExtraLarge
         let buttons = UIStackView(arrangedSubviews: AttachChoice.allCases.filter { $0 != .camera && $0.isAvailable }.map(button))
         buttons.distribution = .fillEqually
         buttons.spacing = 10
@@ -133,13 +136,20 @@ final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionView
         configuration.imagePlacement = .top
         configuration.imagePadding = 6
         configuration.title = choice.title
-        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
-            var attributes = attributes
-            attributes.font = .preferredFont(forTextStyle: .footnote)
-            return attributes
-        }
         configuration.cornerStyle = .large
-        return UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in self?.onChoice?(choice) })
+        let button = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in self?.onChoice?(choice) })
+        // the title's size follows the button's own text size, which the panel caps.
+        button.configurationUpdateHandler = { button in
+            let traits = button.traitCollection
+            button.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var attributes = attributes
+                attributes.font = .preferredFont(forTextStyle: .footnote, compatibleWith: traits)
+                return attributes
+            }
+        }
+        button.showsLargeContentViewer = true
+        button.addInteraction(UILargeContentViewerInteraction())
+        return button
     }
 
     private static func layout() -> UICollectionViewCompositionalLayout {
@@ -251,6 +261,7 @@ private final class RecentPhotoCell: UICollectionViewCell {
         picture.contentMode = .scaleAspectFill
         picture.backgroundColor = .tertiarySystemFill
         length.font = .preferredFont(forTextStyle: .caption1).bold
+        length.adjustsFontForContentSizeCategory = true
         length.textColor = .white
         length.shadowColor = .black.withAlphaComponent(0.5)
         length.shadowOffset = CGSize(width: 0, height: 1)
