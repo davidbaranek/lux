@@ -1200,11 +1200,7 @@ async fn only_reading_a_timeline_opens_it() {
     server.sync_joined_room(&client, room_id!("!chat:example.org")).await;
     let timelines = MatrixTimelines::new(client, None);
 
-    // a send to a chat nobody shows goes nowhere; a draft is the room's, and opens nothing.
-    assert!(matches!(
-        timelines.send_text(&room().into(), "hello", None).await,
-        Err(lux_core::ports::BackendError::UnknownChat(_))
-    ));
+    // a draft is the room's, and opens nothing; nor does sending, through the room's send queue.
     timelines.save_draft(&room().into(), "later", None).await.unwrap();
     assert_eq!(
         timelines.draft(&room().into()).await.unwrap().map(|draft| draft.text),
@@ -1217,4 +1213,60 @@ async fn only_reading_a_timeline_opens_it() {
     // its messages open it: what is done to it now goes.
     snapshot(&timelines).await;
     assert!(timelines.first_unread(&room().into()).await.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upload_goes_on_once_its_chat_is_closed_and_its_timeline_let_go() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server.mock_authenticated_media_config().ok_default().mount().await;
+    let others: Vec<String> = (0..8).map(|n| format!("!other{n}:example.org")).collect();
+    for room in std::iter::once(ROOM.to_owned()).chain(others.iter().cloned()) {
+        let room = matrix_sdk::ruma::OwnedRoomId::try_from(room).unwrap();
+        server.sync_joined_room(&client, &room).await;
+    }
+    // a large file: its upload takes a while.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path_regex(r"/media/.*upload"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "content_uri": "mxc://example.org/trip" }))
+                .set_delay(Duration::from_millis(500)),
+        )
+        .mount(server.server())
+        .await;
+    server.mock_room_send().ok(event_id!("$trip")).expect(1).mount().await;
+    let timelines = MatrixTimelines::new(client, None);
+    let hold = timelines.hold(&room().into());
+    snapshot(&timelines).await;
+
+    let folder = tempfile::tempdir().unwrap();
+    let file = folder.path().join("trip.pdf");
+    std::fs::write(&file, b"a long report").unwrap();
+    let attachment = OutgoingAttachment {
+        file,
+        name: "trip.pdf".to_owned(),
+        mimetype: "application/pdf".to_owned(),
+        size: 13,
+        kind: OutgoingKind::File,
+        thumbnail: None,
+    };
+    let states = timelines
+        .send_attachment(&room().into(), &attachment, Some("Trip"), None)
+        .await
+        .unwrap();
+    // the chat closes, and eight others open after it: its timeline is let go.
+    drop(hold);
+    for other in &others {
+        let other = RoomId::from(other.as_str());
+        let _hold = timelines.hold(&(&other).into());
+        messages_of(&timelines, &other, 0).await;
+    }
+
+    // the room's send queue goes on with it: uploaded, and its message sent to the room, once.
+    let states: Vec<SendState> = tokio::time::timeout(Duration::from_secs(10), states.collect())
+        .await
+        .unwrap();
+    assert_eq!(states.last(), Some(&SendState::Sent));
+    server.server().verify().await;
 }

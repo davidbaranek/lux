@@ -46,8 +46,6 @@ const CONTEXT: u16 = 100;
 /// A room's or a Matrix thread's live timeline, open until the account closes.
 pub(crate) struct RoomTimeline {
     pub(crate) room: Room,
-    /// The Matrix thread's root; `None`: the room's own timeline.
-    pub(crate) thread: Option<OwnedEventId>,
     /// The message the timeline was opened around; `None`: the live one.
     pub(crate) around: Option<OwnedEventId>,
     pub(crate) timeline: Arc<Timeline>,
@@ -145,7 +143,6 @@ impl RoomTimeline {
         });
         Ok(Self {
             room,
-            thread,
             around,
             timeline,
             messages,
