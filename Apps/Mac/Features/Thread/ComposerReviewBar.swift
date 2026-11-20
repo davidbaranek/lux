@@ -63,7 +63,7 @@ final class ComposerReviewBar: NSStackView {
 
     override func updateLayer() {
         super.updateLayer()
-        layer?.backgroundColor = NSColor.quaternarySystemFill.cgColor
+        layer?.backgroundColor = NSColor.secondarySystemFill.cgColor
     }
 
     override var wantsUpdateLayer: Bool { true }

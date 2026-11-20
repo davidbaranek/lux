@@ -112,7 +112,7 @@ extension ThreadController {
                 attributes[.foregroundColor] = NSColor.secondaryLabelColor
                 attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             case .added:
-                attributes[.backgroundColor] = NSColor.controlAccentColor.withAlphaComponent(0.16)
+                attributes[.backgroundColor] = NSColor.controlAccentColor.withAlphaComponent(0.28)
             }
             text.append(NSAttributedString(string: run.text, attributes: attributes))
         }

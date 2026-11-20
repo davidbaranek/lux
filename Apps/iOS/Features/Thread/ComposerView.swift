@@ -264,7 +264,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
                 attributes[.foregroundColor] = UIColor.secondaryLabel
                 attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             case .added:
-                attributes[.backgroundColor] = UIColor.tintColor.withAlphaComponent(0.14)
+                attributes[.backgroundColor] = UIColor.tintColor.withAlphaComponent(0.24)
             }
             text.append(NSAttributedString(string: run.text, attributes: attributes))
         }
@@ -509,7 +509,7 @@ private final class ReviewBar: UIView {
         row.translatesAutoresizingMaskIntoConstraints = false
         // the name and its buttons in one box: a plain fill, as the composer around it is glass.
         let box = UIView()
-        box.backgroundColor = .tertiarySystemFill
+        box.backgroundColor = .secondarySystemFill
         // concentric with the composer's glass, the same gap all round: the system takes the
         // radius from the container. The composer's rows sit 10 in and 2 down; the box reaches
         // out to the gap.
