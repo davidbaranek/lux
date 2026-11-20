@@ -59,8 +59,14 @@ import Testing
         let changes = Changes()
         videos.onChange = { changes.send() }
         videos.follow([large])
-        try await changes.until { videos.videos[large] != nil && videos.videos[large]?.progress == nil }
-        #expect(videos.videos[large] == PendingVideo(quality: .optimized, canSendOriginal: true, progress: nil))
+        try await changes.until { videos.videos[large]?.progress == nil && videos.videos[large]?.optimized.bytes != nil }
+        let waiting = try #require(videos.videos[large])
+        #expect(waiting.quality == .optimized && waiting.canSendOriginal && waiting.progress == nil)
+        // what each choice sends: the video as it is, and its copy at 1080p with its bytes once made.
+        #expect((waiting.original.width, waiting.original.height) == (2560, 1440))
+        #expect((waiting.optimized.width, waiting.optimized.height) == (1920, 1080))
+        #expect(waiting.optimized.bytes ?? 0 > 0)
+        #expect(waiting.optimized.resolution == "1080p" && waiting.original.resolution == "1440p")
         let copy = try #require(videos.take([large])[large])
         #expect(try await VideoExport.measure(copy.value).width == 1920)
         #expect(videos.videos.isEmpty)
@@ -72,6 +78,14 @@ import Testing
         #expect(videos.videos[large]?.quality == .original)
         #expect(videos.videos[large]?.progress == nil)
         #expect(videos.take([large]).isEmpty)
+    }
+
+    @Test func aCopyKeepsItsVideosWayAndRatioWithinItsPresetsBox() {
+        #expect(VideoExport.size(width: 3840, height: 2160, preset: AVAssetExportPreset1920x1080) == (1920, 1080))
+        #expect(VideoExport.size(width: 1080, height: 2340, preset: AVAssetExportPreset1920x1080) == (886, 1920))
+        #expect(VideoExport.size(width: 1920, height: 1080, preset: AVAssetExportPreset1280x720) == (1280, 720))
+        // never larger than it is.
+        #expect(VideoExport.size(width: 640, height: 360, preset: AVAssetExportPreset1920x1080) == (640, 360))
     }
 
     /// A second of a plain colour, `width` by `height`, as H.264 in a QuickTime file.

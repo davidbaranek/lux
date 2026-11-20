@@ -112,6 +112,7 @@ private final class AttachmentTile: UIView {
     }()
     private let progress = UIProgressView(progressViewStyle: .bar)
     private var video: PendingVideo?
+    private var choose: ((VideoQuality) -> Void)?
     /// How far the file has come to the disk; nil once it is there.
     private var arriving: Double?
 
@@ -163,6 +164,9 @@ private final class AttachmentTile: UIView {
             progress.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
         isAccessibilityElement = false
+        quality.menu = UIMenu(title: String(localized: "Video Quality"), children: [
+            UIDeferredMenuElement.uncached { [weak self] completion in completion(self?.qualityChoices() ?? []) },
+        ])
         let scale = UITraitCollection.current.displayScale
         let request = QLThumbnailGenerator.Request(fileAt: file, size: CGSize(width: AttachmentStrip.side, height: AttachmentStrip.side),
                                                    scale: scale, representationTypes: .all)
@@ -198,22 +202,30 @@ private final class AttachmentTile: UIView {
     /// A video with a choice: its quality, with a menu to change it, and the smaller copy's progress.
     func show(_ video: PendingVideo?, choose: @escaping (VideoQuality) -> Void) {
         guard video != self.video else { return }
+        let quality = video?.quality
+        let changed = quality != self.video?.quality
         self.video = video
-        quality.isHidden = video == nil
+        self.choose = choose
+        self.quality.isHidden = video == nil
         showProgress()
-        guard let video else { return }
-        let title = video.quality == .optimized ? String(localized: "Optimized") : String(localized: "Original")
-        let symbol = UIImage(systemName: video.quality == .optimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-        quality.configuration?.image = symbol
-        quality.accessibilityLabel = String(localized: "Video quality, \(title)")
-        quality.largeContentTitle = title
-        quality.largeContentImage = symbol
-        let optimized = UIAction(title: String(localized: "Optimized"), subtitle: String(localized: "Smaller, sent sooner"),
+        guard let quality, changed else { return }
+        let title = quality == .optimized ? String(localized: "Optimized") : String(localized: "Original")
+        let symbol = UIImage(systemName: quality == .optimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+        self.quality.configuration?.image = symbol
+        self.quality.accessibilityLabel = String(localized: "Video quality, \(title)")
+        self.quality.largeContentTitle = title
+        self.quality.largeContentImage = symbol
+    }
+
+    /// The menu's choices, made as it opens (not on each step of the copy's progress): what each
+    /// sends, its lines and bytes, and how much smaller the copy is.
+    private func qualityChoices() -> [UIMenuElement] {
+        guard let video, let choose else { return [] }
+        let optimized = UIAction(title: String(localized: "Optimized"), subtitle: video.optimizedDetail,
                                  state: video.quality == .optimized ? .on : .off) { _ in choose(.optimized) }
-        let original = UIAction(title: String(localized: "Original"),
-                                subtitle: video.canSendOriginal ? String(localized: "As it is") : String(localized: "Larger than the server takes"),
+        let original = UIAction(title: String(localized: "Original"), subtitle: video.originalDetail,
                                 attributes: video.canSendOriginal ? [] : .disabled,
                                 state: video.quality == .original ? .on : .off) { _ in choose(.original) }
-        quality.menu = UIMenu(title: String(localized: "Video Quality"), children: [optimized, original])
+        return [optimized, original]
     }
 }

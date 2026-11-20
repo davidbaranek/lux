@@ -8,14 +8,58 @@ public enum VideoQuality: Sendable, Equatable {
     case original
 }
 
-/// What a video waiting in the composer is: how it will go, whether it may go as it is, and how
-/// far its smaller copy is made.
+/// What a video waiting in the composer is: how it will go, whether it may go as it is, how far
+/// its smaller copy is made, and what each choice sends.
 public struct PendingVideo: Sendable, Equatable {
     public var quality: VideoQuality
     /// Within the server's limit as it is: Original may be chosen.
     public var canSendOriginal: Bool
     /// Making the smaller copy, 0 to 1; nil once made, or going as it is.
     public var progress: Double?
+    /// The video as it is.
+    public var original: VideoSize
+    /// Its smaller copy: the size it is made to, and its bytes once made.
+    public var optimized: VideoSize
+
+    /// What Optimized sends, for its choice in the menu: "1080p · 12 MB, 86 % smaller"; while it
+    /// is made, how far.
+    public var optimizedDetail: String {
+        if let progress {
+            return String(localized: "\(optimized.resolution) · making it, \(progress.formatted(.percent.precision(.fractionLength(0))))")
+        }
+        guard let bytes = optimized.bytes, let originalBytes = original.bytes, originalBytes > 0 else { return optimized.description }
+        let saved = 1 - Double(bytes) / Double(originalBytes)
+        guard saved > 0 else { return optimized.description }
+        return String(localized: "\(optimized.description), \(saved.formatted(.percent.precision(.fractionLength(0)))) smaller")
+    }
+
+    /// What Original sends: "2160p · 85 MB", and why it cannot be chosen.
+    public var originalDetail: String {
+        canSendOriginal ? original.description : String(localized: "\(original.description), larger than the server takes")
+    }
+}
+
+/// A video's upright size and its length in bytes.
+public struct VideoSize: Sendable, Equatable {
+    public var width: Int
+    public var height: Int
+    /// Nil until known (a smaller copy not made yet).
+    public var bytes: Int?
+
+    public init(width: Int, height: Int, bytes: Int?) {
+        self.width = width
+        self.height = height
+        self.bytes = bytes
+    }
+
+    /// Its lines, as video sizes are named: "1080p".
+    public var resolution: String { "\(min(width, height))p" }
+
+    /// "1080p · 12 MB", or only "1080p" while its bytes are not known.
+    public var description: String {
+        guard let bytes else { return resolution }
+        return "\(resolution) · \(Int64(bytes).formatted(.byteCount(style: .file)))"
+    }
 }
 
 /// Makes a video smaller to send, with AVFoundation's export (no encoder of our own), off the main
@@ -39,6 +83,18 @@ public enum VideoExport {
         if max(width, height) > 1920 || min(width, height) > 1080 { return AVAssetExportPreset1920x1080 }
         if let limit, bytes > limit { return AVAssetExportPreset1280x720 }
         return nil
+    }
+
+    /// The upright size a video of `width` by `height` comes out of `preset` at: the preset's box,
+    /// turned to the video's way, its sides in the same ratio, never larger.
+    public static func size(width: Int, height: Int, preset: String) -> (width: Int, height: Int) {
+        let box: (long: Double, short: Double) = preset == AVAssetExportPreset1280x720 ? (1280, 720) : (1920, 1080)
+        let long = Double(max(width, height)), short = Double(min(width, height))
+        guard long > 0, short > 0 else { return (width, height) }
+        let scale = min(1, box.long / long, box.short / short)
+        // even sides, as H.264 takes them.
+        let fitted = { (side: Int) in Int((Double(side) * scale / 2).rounded()) * 2 }
+        return (fitted(width), fitted(height))
     }
 
     /// Whether the video may go as it is: within the server's limit, or the limit is unknown (the

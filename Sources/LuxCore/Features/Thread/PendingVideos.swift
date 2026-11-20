@@ -42,10 +42,13 @@ public final class PendingVideos {
                 guard let size else { return }
                 measured[file] = (size.width, size.height, size.bytes, limit)
                 // one that goes as it is anyway has no choice.
-                guard VideoExport.preset(width: size.width, height: size.height, bytes: size.bytes, limit: limit, quality: .optimized) != nil
+                guard let preset = VideoExport.preset(width: size.width, height: size.height, bytes: size.bytes, limit: limit, quality: .optimized)
                 else { return }
+                let smaller = VideoExport.size(width: size.width, height: size.height, preset: preset)
                 videos[file] = PendingVideo(quality: .optimized,
-                                            canSendOriginal: VideoExport.canSendOriginal(bytes: size.bytes, limit: limit), progress: nil)
+                                            canSendOriginal: VideoExport.canSendOriginal(bytes: size.bytes, limit: limit), progress: nil,
+                                            original: VideoSize(width: size.width, height: size.height, bytes: size.bytes),
+                                            optimized: VideoSize(width: smaller.width, height: smaller.height, bytes: nil))
                 makeSmaller(file)
             }
         }
@@ -112,7 +115,14 @@ public final class PendingVideos {
             guard let self, exports[file] == export else { return }
             videos[file]?.progress = nil
             // a copy that could not be made: the original goes (the log says why).
-            if copy == nil { exports[file] = nil }
+            guard let copy else {
+                exports[file] = nil
+                return
+            }
+            // what it really came out as.
+            guard let made = await bestEffort("pending video: measure its copy", { try await VideoExport.measure(copy) }),
+                  exports[file] == export else { return }
+            videos[file]?.optimized = VideoSize(width: made.width, height: made.height, bytes: made.bytes)
         }
     }
 
