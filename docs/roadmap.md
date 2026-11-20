@@ -33,7 +33,7 @@ What is done, and what comes next in order. How things work lives in
 - [x] Replies, swipe to reply, reactions, edits, deletes, forwards
 - [x] Read receipts, typing with the typists' pictures
 - [x] Photos, albums, videos, files: sent, opened in Quick Look (Space on the Mac, the arrows through
-      the chat's media), dragged and dropped, pasted
+      the chat's media), dragged and dropped, pasted; saved, copied and dragged out
 - [x] Uploads that go on in the background (iPhone, with a live activity)
 - [x] The composer's Markdown formatted as typed, with a format menu; it grows with its text,
       then scrolls

@@ -91,6 +91,8 @@ targets:
         # export compliance: only standard encryption (Matrix's Olm and Megolm, TLS) in a
         # mass-market messenger, exempt; App Store Connect asks nothing for each build (as Element X).
         ITSAppUsesNonExemptEncryption: false
+        # a chat's photo or video saved to the library (adding only: nothing in it is read).
+        NSPhotoLibraryAddUsageDescription: Lux saves the photos and videos you choose from a chat to your library.
   # downloads photo search's model (an Apple-hosted asset pack) when the system schedules it.
   Lux-iOS-Assets:
     type: extensionkit-extension
@@ -220,8 +222,10 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
-        # files the user picks in the open panel (attachments).
-        com.apple.security.files.user-selected.read-only: true
+        # files the user picks in the open panel (attachments) and where the save panel saves one.
+        com.apple.security.files.user-selected.read-write: true
+        # a chat's photos and files saved to Downloads.
+        com.apple.security.files.downloads.read-write: true
         # shared with the downloader of photo search's model (Lux-Mac-Assets).
         com.apple.security.application-groups: [$(LUX_APP_GROUP)]
     # merged with the generated Info.plist.

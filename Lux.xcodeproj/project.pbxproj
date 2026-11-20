@@ -40,8 +40,10 @@
 		3070AFA29798B0CD0AE87E10 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */; };
 		316952910C4EE229C71D7C06 /* EmojiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6062145D14EE693AA7E8CED /* EmojiPicker.swift */; };
 		328AB3B2520EDEFECFC9CCD6 /* SignInViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00570185AFDD380CCE7DD74 /* SignInViewController.swift */; };
+		3321FAE276C21A43D83353CB /* ThreadViewController+Attachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA45A0281B861ABE7846762 /* ThreadViewController+Attachments.swift */; };
 		33DA6D51E00662CDDBE4C0B0 /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3137E9AE7652C1F1211E24B9 /* LuxCore */; };
 		33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49761B942919CA84E69B8699 /* SectionHeader.swift */; };
+		355230683A42B8D504CB7156 /* ThreadController+Attachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB92538FC0A4F530917F122A /* ThreadController+Attachments.swift */; };
 		3782434E7EA7EF72FCEEF0B9 /* Info-iOS.plist in Resources */ = {isa = PBXBuildFile; fileRef = C2FF76B87AC1426AF30D3441 /* Info-iOS.plist */; };
 		3993F4C23B1133F5BE7127E8 /* ChatCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2229367875593093149B0ED6 /* ChatCellView.swift */; };
 		39A051D7618EECD53E44045D /* SwipeToReply.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */; };
@@ -382,6 +384,7 @@
 		A8D13E5EA6D6F6231E9F0C43 /* AssetDownloader-iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "AssetDownloader-iOS.entitlements"; sourceTree = "<group>"; };
 		A8F75AFB92D1559227086945 /* InspectorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorController.swift; sourceTree = "<group>"; };
 		A911F525CB872B6D4D247132 /* EmojiPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiPicker.swift; sourceTree = "<group>"; };
+		ADA45A0281B861ABE7846762 /* ThreadViewController+Attachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadViewController+Attachments.swift"; sourceTree = "<group>"; };
 		B078C1F708797864150311C6 /* FileDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropView.swift; sourceTree = "<group>"; };
 		B2CD5B0F1B3CB8B48E9812B8 /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
 		B3BE29EDF6C9AE9C1DDB4E38 /* ThreadViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViewTests.swift; sourceTree = "<group>"; };
@@ -405,6 +408,7 @@
 		D033E27621E55198942826B7 /* HostSessionCloser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSessionCloser.swift; sourceTree = "<group>"; };
 		D5C3970EB45D4FE67176D3B0 /* BackgroundUploads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploads.swift; sourceTree = "<group>"; };
 		D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Composer.swift"; sourceTree = "<group>"; };
+		DB92538FC0A4F530917F122A /* ThreadController+Attachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ThreadController+Attachments.swift"; sourceTree = "<group>"; };
 		DC1F5B41E55B51EC24083785 /* NewPinBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewPinBar.swift; sourceTree = "<group>"; };
 		DE4A4506DA1C1DD8E5FB5EE2 /* NetworksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworksViewController.swift; sourceTree = "<group>"; };
 		DE4B68B262C3637F56D0AAC7 /* ChatListViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListViewTests.swift; sourceTree = "<group>"; };
@@ -816,6 +820,7 @@
 				6B49DAD1FFC41642445CC086 /* NewPinBar.swift */,
 				E3044FCBF32576720D8DB5A1 /* SendLaterMenu.swift */,
 				83A756DC00736E9731ED03F4 /* ThreadController.swift */,
+				DB92538FC0A4F530917F122A /* ThreadController+Attachments.swift */,
 				D7C7FFC6AC6B1C20B9E58D0E /* ThreadController+Composer.swift */,
 				7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */,
 				F366666F434570433BC47F9F /* ThreadController+QuickLook.swift */,
@@ -995,6 +1000,7 @@
 				9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */,
 				983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */,
 				B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */,
+				ADA45A0281B861ABE7846762 /* ThreadViewController+Attachments.swift */,
 				62EFB1A7605ED5D99BD40EBA /* ThreadViewController+Menu.swift */,
 				BAC0D1B214F00F8C6A3313FD /* TypingView.swift */,
 			);
@@ -1387,6 +1393,7 @@
 				41F959329248BEFE43FF98F9 /* TextView.swift in Sources */,
 				B075CAE896F653EF49C0F8FE /* ThemeMenu.swift in Sources */,
 				28CC9919B31369F7B26DB854 /* ThemeTint.swift in Sources */,
+				355230683A42B8D504CB7156 /* ThreadController+Attachments.swift in Sources */,
 				43464F7811CCC69D928F220E /* ThreadController+Composer.swift in Sources */,
 				A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */,
 				CB917858113CEA60B6902902 /* ThreadController+QuickLook.swift in Sources */,
@@ -1482,6 +1489,7 @@
 				01C3E40E77DF50004F0F91BC /* ThemeBand.swift in Sources */,
 				8AC205D501695BBB98E0D29D /* ThemeMenu.swift in Sources */,
 				685C068BDF01C5CD0ECC80C8 /* ThreadSummaryView.swift in Sources */,
+				3321FAE276C21A43D83353CB /* ThreadViewController+Attachments.swift in Sources */,
 				47074059C06133CD5EDD5D79 /* ThreadViewController+Menu.swift in Sources */,
 				042345998078B252CFE0863D /* ThreadViewController.swift in Sources */,
 				17BF442818FAF191DBFB8270 /* ThreadsViewController.swift in Sources */,

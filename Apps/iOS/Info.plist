@@ -40,6 +40,8 @@
 	<string>$(LUX_OAUTH_CLIENT_URI)</string>
 	<key>LuxPushGateway</key>
 	<string>$(LUX_PUSH_GATEWAY)</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Lux saves the photos and videos you choose from a chat to your library.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>

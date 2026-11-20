@@ -36,6 +36,10 @@ extension ThreadController {
             address.toolTip = link
             menu.addItem(address)
         }
+        // its photos, videos and files: copy and save.
+        let attachments = attachmentItems(for: message)
+        for item in attachments { menu.addItem(item) }
+        if !attachments.isEmpty { menu.addItem(.separator()) }
         for action in MessageAction.available(for: message, inThread: model.thread != nil, pinned: model.pinning(of: message)) {
             if action.isDestructive { menu.addItem(.separator()) }
             let item = NSMenuItem(title: action.title, action: #selector(performAction(_:)), keyEquivalent: "")

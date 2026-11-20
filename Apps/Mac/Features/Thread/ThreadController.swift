@@ -188,6 +188,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         table.intercellSpacing = .zero
         table.backgroundColor = .clear
         table.delegate = self
+        // a file dragged out goes as a copy.
+        table.setDraggingSourceOperationMask(.copy, forLocal: false)
         // a two-finger swipe to the right answers a message.
         table.canReply = { [weak self] row in
             guard let self, row < order.count, let message = messages[order[row]] else { return false }
@@ -452,6 +454,11 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     /// An empty chat says so, once the server has had its say.
     private func updateEmpty() {
         empty.isHidden = !(model.hasLoaded && !model.isLoading && order.isEmpty)
+    }
+
+    /// A photo, video or file dragged out of the chat (to Finder, Mail): its file, once downloaded.
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        order.indices.contains(row) ? messages[order[row]].flatMap(filePromise) : nil
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
