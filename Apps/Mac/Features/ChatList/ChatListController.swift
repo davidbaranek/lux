@@ -78,6 +78,11 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         ])
         view = container
         self.scroll = scroll
+        // a live scroll ends after its momentum: until then the list is the reader's.
+        NotificationCenter.default.addObserver(self, selector: #selector(liveScrollStarted),
+                                               name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded),
+                                               name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         makeRoom(forLoading: true)
 
         let images = session.images
@@ -255,9 +260,9 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
         }
         let state = Signposts.list.beginInterval("apply")
         // a list at its top stays there when newer chats move up (the table would keep the row
-        // that was first in view).
+        // that was first in view); one the reader scrolls is theirs, its momentum and bounce too.
         let clip = scroll.contentView
-        let atTop = clip.bounds.minY <= -clip.contentInsets.top + 4 || !samePlace
+        let atTop = (!isLiveScrolling && clip.bounds.minY <= -clip.contentInsets.top + 4) || !samePlace
         // the open chat stays selected when it moves (a new message brings it to the top): the
         // table would drop the selection, and with it close the chat.
         let selected = table.selectedRow >= 0 ? dataSource.itemIdentifier(forRow: table.selectedRow) : nil
@@ -294,6 +299,11 @@ final class ChatListController: NSViewController, NSTableViewDelegate, NSMenuDel
 
     /// The list is applying a new snapshot: selection changes are the table's, not the user's.
     private var applying = false
+    /// The reader scrolls the list (a drag, a swipe and its momentum): `NSScrollView`'s live scroll.
+    private var isLiveScrolling = false
+
+    @objc private func liveScrollStarted() { isLiveScrolling = true }
+    @objc private func liveScrollEnded() { isLiveScrolling = false }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !applying else { return }

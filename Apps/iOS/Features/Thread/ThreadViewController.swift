@@ -711,6 +711,21 @@ extension ThreadViewController: ThreadScreen {
         if !animated { collectionView.layoutIfNeeded() }
     }
 
+    var isUserScrolling: Bool { collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating }
+
+    /// The layout's own adjustment for content that moved above the reader
+    /// (`UICollectionViewLayoutInvalidationContext.contentOffsetAdjustment`): unlike
+    /// `setContentOffset(_:animated:)`, it keeps a fling's deceleration going.
+    func shiftList(by delta: CGFloat) {
+        let context = UICollectionViewFlowLayoutInvalidationContext()
+        // the rows' sizes and places are as the update left them: only the offset moves.
+        context.invalidateFlowLayoutDelegateMetrics = false
+        context.invalidateFlowLayoutAttributes = false
+        context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
+        collectionView.collectionViewLayout.invalidateLayout(with: context)
+        collectionView.layoutIfNeeded()
+    }
+
     func highlight(_ id: String?) {
         let previous = highlighted
         highlighted = id

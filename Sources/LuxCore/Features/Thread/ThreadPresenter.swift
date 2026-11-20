@@ -18,8 +18,15 @@ public protocol ThreadScreen: AnyObject {
     func rowSpan(of id: String) -> (minY: CGFloat, maxY: CGFloat)?
     /// Scrolls to `offset`. Animated, it calls `didEndScrolling()` when the glide stops, once; a
     /// later scroll asked for while it goes takes over, and the glide it replaces ends silently.
+    /// It stops the reader's own scroll (a fling's momentum): only for a scroll the app asks for.
     func scrollList(to offset: CGFloat, animated: Bool)
-    /// Puts the list where `intent` says; a glide under way stops there.
+    /// The reader moves the list: their finger is on it, or it glides on after a fling.
+    var isUserScrolling: Bool { get }
+    /// Moves the content `delta` points under the reader, as the list's layout does for rows that
+    /// change above them: their drag and the list's momentum go on.
+    func shiftList(by delta: CGFloat)
+    /// Puts the list where `intent` says, writing nothing when it is there; a glide under way stops
+    /// there.
     func place(_ intent: ScrollIntent)
     /// The message a jump brought into view, whose row flashes once as it shows (a row shown
     /// later, or shown again, reads it too); nil once the flash is over.
@@ -31,12 +38,15 @@ public protocol ThreadScreen: AnyObject {
 }
 
 extension ThreadScreen {
-    /// Puts the list where `intent` says: animated when it asks and the list is not there yet (an
-    /// animation to where it is would never end), else at once.
+    /// Puts the list where `intent` says: nowhere when it is there already (an animation to where
+    /// it is would never end, and a scroll to it would stop a fling), animated when it asks, else
+    /// at once. While the reader scrolls, the content shifts under them instead: a scroll would
+    /// stop their fling dead.
     public func place(_ intent: ScrollIntent) {
         let geometry = scrollGeometry
-        guard let offset = geometry.offset(for: intent, rowSpan: rowSpan) else { return }
-        scrollList(to: offset, animated: intent.isAnimated && abs(offset - geometry.offset) > 0.5)
+        guard let offset = geometry.offset(for: intent, rowSpan: rowSpan), abs(offset - geometry.offset) > 0.5 else { return }
+        if isUserScrolling, !intent.isAnimated { return shiftList(by: offset - geometry.offset) }
+        scrollList(to: offset, animated: intent.isAnimated)
     }
 }
 
@@ -310,12 +320,13 @@ public final class ThreadPresenter {
 
     /// Where the list stays through a change that is not the reader's (an update, a new inset):
     /// on the jump's message, at the newest (`animated`: sliding there), or on the row the reader
-    /// looks at. A list still sliding to the newest counts as there.
+    /// looks at. A list still sliding to the newest counts as there. While the reader scrolls it
+    /// is theirs: it stays on their row, wherever their fling takes it.
     public func standingIntent(animated: Bool = false) -> ScrollIntent {
         guard let screen else { return .none }
         if let target, screen.rowSpan(of: target) != nil { return .centre(target) }
         let geometry = screen.scrollGeometry
-        if followsBottom || geometry.isAtBottom { return .bottom(animated: animated) }
+        if !screen.isUserScrolling, followsBottom || geometry.isAtBottom { return .bottom(animated: animated) }
         guard let row = screen.readingRow, let span = screen.rowSpan(of: row) else { return .none }
         return .keep(row, top: span.minY - geometry.offset)
     }
