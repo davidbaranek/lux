@@ -268,6 +268,7 @@ async fn a_reset_keeps_an_open_chats_rows_until_its_view_pages_its_gap_back() {
                 .set_body_json(json!({ "start": "gap", "chunk": gap }))
                 .set_delay(Duration::from_millis(300)),
         )
+        .expect(1)
         .mount(server.server())
         .await;
     // the room's start: nothing before what the syncs brought.
@@ -337,9 +338,6 @@ async fn a_reset_keeps_an_open_chats_rows_until_its_view_pages_its_gap_back() {
         assert!(shown.len() >= before.len() && shown.front().map(|row| row.id()) == before.front().map(|row| row.id()));
         assert_eq!(update.cause, None);
     }
-    assert!(
-        updates
-            .iter()
-            .any(|update| update.state.as_ref().is_some_and(|state| state.is_loading))
-    );
+    // the view paged back for the gap, once: the refill, not the rows the reset left.
+    server.server().verify().await;
 }

@@ -13,6 +13,7 @@ use crate::diff;
 use crate::ids::{EventId, MessageId, MessageRef, RoomId};
 use crate::message::{self, Footer, Link, Separator};
 use crate::network::Network;
+use crate::ports::BackendError;
 use crate::timeline::{MessageKind, Reader, TimelineMessage, Window};
 
 /// How many messages a chat shows when it opens: its last screenful.
@@ -134,10 +135,26 @@ pub(crate) enum Phase {
     /// Its messages show as the timeline has them.
     Live,
     /// The timeline was reset to its newest messages (a limited sync): its rows wait, as they
-    /// were, until it holds `first` again, the oldest message they showed, or the page back for it
-    /// (`paged`) ends without.
-    Refilling { first: MessageId, paged: bool },
+    /// were, until it holds `first` again, the oldest message they showed, or a page back brought
+    /// older messages without it, or failed.
+    Refilling { first: MessageId, page: Refill },
 }
+
+/// A refill's page back. Its messages are the ones older than the timeline held when it was
+/// asked, and they may come after its answer (the SDK's timeline applies a page on its own
+/// task), with other batches between: only they end it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Refill {
+    /// A page is due; `pages` were asked for before.
+    Due { pages: usize },
+    /// On its way; `oldest`: the oldest message the timeline held when it was asked.
+    Asked { oldest: Option<MessageId>, pages: usize },
+    /// Answered, its messages not in yet.
+    Answered { oldest: Option<MessageId>, pages: usize },
+}
+
+/// How many pages back a refill asks for at most, when they bring no message.
+const REFILL_PAGES: usize = 3;
 
 /// A room's first unread message, as the thread looks for it on opening: the backend answers
 /// from what the timeline holds, and when the read receipt is older, the thread pages back
@@ -188,7 +205,7 @@ impl RoomMessages {
     /// took it away (the timeline was reset to its newest messages).
     pub(crate) fn apply(&mut self, diffs: Vec<VectorDiff<Arc<TimelineMessage>>>) -> Option<MessageId> {
         // while it refills, the window keeps its start: it would move to what the timeline holds.
-        let first = (!matches!(self.phase, Phase::Refilling { .. }))
+        let first = (!self.refilling())
             .then(|| self.shown().first().map(|message| message.message.id.clone()))
             .flatten();
         for diff in diffs {
@@ -199,11 +216,62 @@ impl RoomMessages {
             }
             diff::apply(&mut self.messages, diff);
         }
-        if self.phase == Phase::Waiting {
-            self.phase = Phase::Filling;
-            return None;
+        match &mut self.phase {
+            Phase::Waiting => {
+                self.phase = Phase::Filling;
+                return None;
+            }
+            Phase::Refilling { page, .. } => {
+                let oldest = self.messages.first().map(|message| &message.message.id);
+                match page {
+                    // older messages came: the page's, whether or not it was answered yet.
+                    Refill::Asked { oldest: before, .. } | Refill::Answered { oldest: before, .. }
+                        if oldest != before.as_ref() =>
+                    {
+                        self.phase = Phase::Live;
+                    }
+                    // answered, and a batch without them: the page brought none the timeline
+                    // shows (state events), or they are still on their way. Another page goes
+                    // either way; while it is asked, theirs still end it.
+                    Refill::Answered { pages, .. } if *pages < REFILL_PAGES => {
+                        *page = Refill::Due { pages: *pages };
+                    }
+                    Refill::Answered { .. } => self.phase = Phase::Live,
+                    Refill::Due { .. } | Refill::Asked { .. } => {}
+                }
+            }
+            Phase::Filling | Phase::Live => {}
         }
         first.filter(|first| self.message(first).is_none())
+    }
+
+    /// Its rows wait for its timeline to refill after a reset.
+    pub(crate) fn refilling(&self) -> bool {
+        matches!(self.phase, Phase::Refilling { .. })
+    }
+
+    /// The room's page back is in (`Err`: it failed): a refill ends once its messages are, or at
+    /// once if it failed (none come).
+    pub(crate) fn paged(&mut self, paged: &Result<bool, BackendError>) {
+        self.paging = false;
+        match paged {
+            Ok(at_start) => self.at_start |= at_start,
+            Err(_) if self.phase == Phase::Filling => self.phase = Phase::Live,
+            Err(_) => {}
+        }
+        let Phase::Refilling { page, .. } = &mut self.phase else {
+            return;
+        };
+        let Refill::Asked { oldest, pages } = page else { return };
+        if paged.is_err() {
+            // none come.
+            self.phase = Phase::Live;
+            return;
+        }
+        *page = Refill::Answered {
+            oldest: oldest.take(),
+            pages: *pages,
+        };
     }
 
     /// How many messages the next page back is for, if one is due: the first screen while it
@@ -214,19 +282,23 @@ impl RoomMessages {
         }
         let done = match &self.phase {
             Phase::Filling => self.at_start || self.messages.len() >= FIRST_SCREEN,
-            Phase::Refilling { first, paged } => *paged || self.at_start || self.message(first).is_some(),
+            Phase::Refilling { first, .. } => self.message(first).is_some(),
             Phase::Waiting | Phase::Live => false,
         };
         if done {
             self.phase = Phase::Live;
         }
         match &mut self.phase {
-            Phase::Waiting => None,
             Phase::Filling => Some(FIRST_SCREEN - self.messages.len()),
-            Phase::Refilling { paged, .. } => {
-                *paged = true;
+            Phase::Refilling { page, .. } => {
+                let Refill::Due { pages } = *page else { return None };
+                *page = Refill::Asked {
+                    oldest: self.messages.first().map(|message| message.message.id.clone()),
+                    pages: pages + 1,
+                };
                 Some(RETURN_MARGIN)
             }
+            Phase::Waiting => None,
             Phase::Live => match self.unread {
                 Unreading::PageDue(pages) => {
                     self.unread = Unreading::Paging(pages);

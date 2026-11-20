@@ -322,6 +322,47 @@ async fn a_reset_never_blanks_the_rows_and_its_refill_adds_only_whats_new() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_refill_waits_for_its_pages_messages_that_come_after_its_answer() {
+    let mut thread = open(vec![chat_room("!r:demo", "matrix")], 200, ReadReceipts::Automatic).await;
+    let before: Vec<String> = thread.ids().iter().map(|id| (*id).to_owned()).collect();
+    // the page back answers at once; its messages come later, as the SDK applies a page.
+    thread.demo().pages_land_later.store(true, Ordering::Relaxed);
+    thread
+        .demo()
+        .reset_to_newest(&TimelineId::from(&RoomId::from("!r:demo")), 2, "after the reset");
+    let mut updates = Vec::new();
+    for _ in 0..10 {
+        tokio::time::sleep(FRAME * 3).await;
+        updates.extend(thread.updates());
+    }
+    // answered, its messages not in: the rows stay as they were.
+    assert_eq!(thread.ids(), before.iter().map(String::as_str).collect::<Vec<_>>());
+    // nor does another batch end it before them (a message the timeline holds changing).
+    thread
+        .demo()
+        .toggle_reaction(&RoomId::from("!r:demo"), &MessageId::from("!r:demo/199"), "👍")
+        .await
+        .expect("reacted");
+    for _ in 0..10 {
+        tokio::time::sleep(FRAME * 3).await;
+        updates.extend(thread.updates());
+    }
+    assert_eq!(thread.ids(), before.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(updates.iter().all(|update| update.rows.is_empty()), "{updates:?}");
+
+    thread.demo().land_pages();
+    frames_until(&mut thread, |thread| thread.ids().len() > before.len()).await;
+    assert_eq!(
+        thread.ids()[..before.len()],
+        before.iter().map(String::as_str).collect::<Vec<_>>()[..]
+    );
+    assert_eq!(
+        thread.rows.last().map(|row| row.message.message.body.as_str()),
+        Some("after the reset")
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_refill_whose_page_fails_shows_what_the_timeline_holds() {
     let mut thread = open(vec![chat_room("!r:demo", "matrix")], 200, ReadReceipts::Automatic).await;
     thread.demo().pages_fail.store(true, Ordering::Relaxed);

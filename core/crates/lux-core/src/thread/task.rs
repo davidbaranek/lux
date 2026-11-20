@@ -20,7 +20,7 @@ use tokio::time::Instant;
 pub(super) mod jump;
 
 use super::decide::{self, ComposerMode, ReadReceipts, ReadState, ReplyTarget, TypingNotice};
-use super::rows::{self, OLDER, Phase, RoomMessages, ThreadRow, Unreading};
+use super::rows::{self, OLDER, Phase, Refill, RoomMessages, ThreadRow, Unreading};
 use super::{
     Cause, DraftIntent, Intent, JumpFailure, MessageAction, ThreadListener, ThreadSpec, ThreadState, ThreadUpdate,
     Upload,
@@ -396,13 +396,17 @@ impl<B: ThreadBackend> Thread<B> {
     fn room_changed(&mut self, index: usize, diffs: Diffs<Arc<TimelineMessage>>) {
         let shown = self.sent.is_some();
         if let Some(room) = self.rooms.get_mut(index) {
-            let opening = room.phase == Phase::Waiting;
+            let (opening, refilling) = (room.phase == Phase::Waiting, room.refilling());
             if let Some(first) = room.apply(diffs)
                 && shown
                 && matches!(room.phase, Phase::Filling | Phase::Live)
             {
-                room.phase = Phase::Refilling { first, paged: false };
+                room.phase = Phase::Refilling {
+                    first,
+                    page: Refill::Due { pages: 0 },
+                };
             }
+            self.dirty.refilled |= refilling && !room.refilling();
             if opening {
                 self.ask_unread(index);
             }
@@ -416,23 +420,19 @@ impl<B: ThreadBackend> Thread<B> {
     }
 
     /// A page back of a room is in, or failed. Its messages may come after its answer: the next
-    /// page waits a frame.
+    /// page waits a frame, and a refill for its batch.
     fn paged(&mut self, index: usize, paged: Result<bool, BackendError>) {
         if let Some(room) = self.rooms.get_mut(index) {
-            room.paging = false;
-            match paged {
-                Ok(at_start) => room.at_start |= at_start,
-                Err(error) => {
-                    // only the user's own paging tells: the opening's ends quietly.
-                    if room.older_due > 0 {
-                        self.listener.on_error(error);
-                    }
-                    if room.phase == Phase::Filling {
-                        room.phase = Phase::Live;
-                    }
-                    if let Unreading::Paging(_) = room.unread {
-                        room.unread = Unreading::Paging(UNREAD_PAGES);
-                    }
+            let refilling = room.refilling();
+            room.paged(&paged);
+            self.dirty.refilled |= refilling && !room.refilling();
+            if let Err(error) = paged {
+                // only the user's own paging tells: the opening's ends quietly.
+                if room.older_due > 0 {
+                    self.listener.on_error(error);
+                }
+                if let Unreading::Paging(_) = room.unread {
+                    room.unread = Unreading::Paging(UNREAD_PAGES);
                 }
             }
         }
@@ -556,9 +556,9 @@ impl<B: ThreadBackend> Thread<B> {
             let Some(room) = self.rooms.get_mut(index) else {
                 continue;
             };
-            let refilling = matches!(room.phase, Phase::Refilling { .. });
+            let refilling = room.refilling();
             let due = room.page_due();
-            if refilling && !matches!(room.phase, Phase::Refilling { .. }) {
+            if refilling && !room.refilling() {
                 self.dirty.refilled = true;
                 self.dirty.rows = true;
             }

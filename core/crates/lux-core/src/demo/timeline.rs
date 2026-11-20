@@ -77,6 +77,12 @@ pub struct DemoTimelines {
     pub(crate) page_millis: AtomicU64,
     #[cfg(test)]
     pub(crate) pages_fail: std::sync::atomic::AtomicBool,
+    /// Tests: a page back answers before its messages come, as the SDK's timeline applies a page
+    /// after it answered; they come with [`land_pages`](Self::land_pages).
+    #[cfg(test)]
+    pub(crate) pages_land_later: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    landing: Mutex<Vec<(TimelineId, usize)>>,
     /// How many of a room's newest messages its live timeline holds at first (0: all), as a
     /// device holds only the latest of a long chat: paging back brings the rest, and an older
     /// message is a jump away.
@@ -131,6 +137,10 @@ impl DemoTimelines {
             page_millis: AtomicU64::new(0),
             #[cfg(test)]
             pages_fail: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            pages_land_later: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            landing: Mutex::new(Vec::new()),
             live_tail: std::sync::atomic::AtomicUsize::new(0),
         }
     }
@@ -168,6 +178,18 @@ impl DemoTimelines {
         self.changes
             .send(timeline.room.clone())
             .other_end_may_be_gone("the room's change listeners");
+    }
+
+    /// Tests: the pages answered before their messages came bring them now.
+    #[cfg(test)]
+    pub(crate) fn land_pages(&self) {
+        let landing = std::mem::take(&mut *self.landing.lock().unwrap_or_else(PoisonError::into_inner));
+        for (timeline, count) in landing {
+            self.widen(&timeline, count, true);
+            self.changes
+                .send(timeline.room.clone())
+                .other_end_may_be_gone("the room's change listeners");
+        }
     }
 
     /// Changes the timeline's messages (made first if new) and tells the listeners.
@@ -596,6 +618,13 @@ impl ChatTimelines for DemoTimelines {
             tokio::time::sleep(Duration::from_millis(self.page_millis.load(Ordering::Relaxed))).await;
             if self.pages_fail.load(Ordering::Relaxed) {
                 return Err(BackendError::NotAllowed);
+            }
+            if self.pages_land_later.load(Ordering::Relaxed) {
+                self.landing
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push((timeline.clone(), count));
+                return Ok(false);
             }
         }
         Ok(self.widen(timeline, count, true))
