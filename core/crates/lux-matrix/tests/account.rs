@@ -73,6 +73,11 @@ async fn until(
 /// The sync answers with one bridged chat, "!anna:matrix.org", whose last message says "hello
 /// there"; the syncs that reach `server`.
 async fn sync_anna(server: &MatrixMockServer) -> Requests {
+    sync_anna_with(server, json!({})).await
+}
+
+/// [`sync_anna`], its message with `unsigned` (its `age`: since the server took it).
+async fn sync_anna_with(server: &MatrixMockServer, unsigned: serde_json::Value) -> Requests {
     let syncs = Requests::default();
     Mock::given(method("POST"))
         .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
@@ -93,7 +98,8 @@ async fn sync_anna(server: &MatrixMockServer) -> Requests {
                                     "event_id": "$hello",
                                     "sender": "@whatsapp_4912345:matrix.org",
                                     "origin_server_ts": 1_700_000_000_000_u64,
-                                    "content": { "msgtype": "m.text", "body": "hello\nthere" }
+                                    "content": { "msgtype": "m.text", "body": "hello\nthere" },
+                                    "unsigned": unsigned
                                 }]
                             }
                         }
@@ -320,6 +326,118 @@ async fn an_old_message_from_a_bridges_user_in_a_room_without_its_bridge_state_i
     assert_eq!(networks.len(), 1);
     assert_eq!(networks[0].network.as_str(), "whatsapp");
     assert_eq!(networks[0].messages, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_old_message_the_server_took_long_ago_is_no_history_however_often_the_sync_brings_it() {
+    let server = server().await;
+    // an opened chat's latest messages, a sync that starts over: the server took them when they
+    // were sent (their age as long as they are old), and each sync brings them again.
+    let age = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+        .unwrap();
+    let syncs = sync_anna_with(&server, json!({ "age": u64::try_from(age.as_millis()).unwrap() })).await;
+    let (account, _folder) = signed_in(&server).await;
+
+    let mut catching_up = account.catching_up();
+    let caught_up = tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(networks) = catching_up.next().await {
+            if !networks.is_empty() {
+                return networks;
+            }
+        }
+        Vec::new()
+    })
+    .await;
+    assert!(syncs.more_within(Duration::from_secs(1)).await, "the sync stopped");
+    assert!(caught_up.is_err(), "a network caught up: {caught_up:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_old_message_the_server_just_took_is_its_bridges_history() {
+    let server = server().await;
+    // a bridge's backfill: the message keeps its time on the network, the server took it now.
+    sync_anna_with(&server, json!({ "age": 1_000 })).await;
+    let (account, _folder) = signed_in(&server).await;
+
+    let mut catching_up = account.catching_up();
+    let networks = tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(networks) = catching_up.next().await {
+            if !networks.is_empty() {
+                return networks;
+            }
+        }
+        Vec::new()
+    })
+    .await
+    .expect("no network caught up in time");
+    assert_eq!(networks[0].network.as_str(), "whatsapp");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rooms_unread_count_is_the_servers_when_the_device_holds_too_few_of_its_messages() {
+    let server = server().await;
+    let own = "@cheeky_monkey:matrix.org";
+    let message = |id: &str| {
+        json!({
+            "type": "m.room.message",
+            "event_id": id,
+            "sender": "@discord_1:matrix.org",
+            "origin_server_ts": 1_700_000_000_000_u64,
+            "content": { "msgtype": "m.text", "body": "hi" }
+        })
+    };
+    // the room list brings each room's latest event only: seven unread, one of them here.
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "pos": "1",
+                    "lists": { "all_rooms": { "count": 2 } },
+                    "rooms": {
+                        "!general:matrix.org": {
+                            "name": "general",
+                            "initial": true,
+                            "joined_count": 3,
+                            "notification_count": 7,
+                            "highlight_count": 2,
+                            "required_state": [joined(own, None)],
+                            "timeline": [message("$general")]
+                        },
+                        "!secret:matrix.org": {
+                            "name": "secret",
+                            "initial": true,
+                            "joined_count": 3,
+                            "notification_count": 7,
+                            "highlight_count": 2,
+                            "required_state": [
+                                joined(own, None),
+                                state("m.room.encryption", "", own, json!({ "algorithm": "m.megolm.v1.aes-sha2" })),
+                            ],
+                            "timeline": [message("$secret")]
+                        }
+                    }
+                }))
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(server.server())
+        .await;
+    let (account, _folder) = signed_in(&server).await;
+
+    let mut chats = account.chats();
+    let mut rows = eyeball_im::Vector::new();
+    let row =
+        |rows: &eyeball_im::Vector<Arc<Chat>>, id: &str| rows.iter().find(|chat| chat.id == ChatId::from(id)).cloned();
+    until(&mut chats, &mut rows, |rows| {
+        row(rows, "!general:matrix.org").is_some_and(|chat| chat.unread_count == 7)
+            && row(rows, "!secret:matrix.org").is_some()
+    })
+    .await;
+    assert_eq!(row(&rows, "!general:matrix.org").unwrap().unread_mentions, 2);
+    // an encrypted room's server count counts what it cannot read: the device's only.
+    let secret = row(&rows, "!secret:matrix.org").unwrap();
+    assert!(secret.unread_count < 7 && secret.unread_mentions < 2, "{secret:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -92,5 +92,7 @@ wellKnownDelegation:
 ## The history a bridge brings
 
 Bridges do not say when they bring a network's history (backfill). Lux sees it in the sync:
-messages arriving long after they were sent. While they come, the chat list shows the network
-loading its history; a minute after the last, it is done.
+messages the server took long after they were sent (their `unsigned.age` is short, their
+`origin_server_ts` long ago). An old message the server took long ago is no history, however
+late the sync brings it (an opened chat's latest messages, a sync that starts over). While history
+comes, the chat list shows the network loading it; a minute after the last, it is done.

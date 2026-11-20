@@ -16,6 +16,7 @@ use lux_core::bridges::{
 use lux_core::ids::RoomId;
 use lux_core::network::Network;
 use lux_core::ports::{BackendError, Bridges, NetworkFailure, StepAnswer, ValueStream};
+use matrix_sdk::event_handler::RawEvent;
 use matrix_sdk::reqwest::{self, Method, StatusCode, Url};
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::api::client::account::request_openid_token;
@@ -47,13 +48,15 @@ impl BridgeLink {
     /// Starts following the history the sync brings, over `client`.
     pub(crate) fn start(client: &Client) -> Self {
         let (arrived, arrivals) = mpsc::unbounded_channel();
-        client.add_event_handler(move |event: AnySyncTimelineEvent, room: Room| {
+        client.add_event_handler(move |event: AnySyncTimelineEvent, raw: RawEvent, room: Room| {
+            let at = SystemTime::now();
             arrived
                 .send(Arrival {
                     room,
                     sender: event.sender().to_owned(),
                     sent: system_time(event.origin_server_ts()),
-                    at: SystemTime::now(),
+                    taken: taken_by_server(&raw, at),
+                    at,
                 })
                 .other_end_may_be_gone("the bridges' task");
             async {}
@@ -142,16 +145,39 @@ impl BridgeLink {
     }
 }
 
-/// An event the sync brought: its room, its sender, when it was sent and when it came.
+/// An event the sync brought: its room, its sender, when it was sent, when the server took it
+/// and when it came.
 struct Arrival {
     room: Room,
     sender: OwnedUserId,
     sent: SystemTime,
+    taken: SystemTime,
     at: SystemTime,
 }
 
-/// Follows the events the sync brings: each old one is history of its room's network, and the
-/// networks catching up go out as they change, also when one goes quiet.
+/// When the server took the event the sync brought `at`: its age (`unsigned.age`, the time
+/// since the server took it, as the server counts) before; `at` when the server gives none.
+fn taken_by_server(raw: &serde_json::value::RawValue, at: SystemTime) -> SystemTime {
+    #[derive(Deserialize)]
+    struct Event {
+        #[serde(default)]
+        unsigned: Unsigned,
+    }
+    #[derive(Default, Deserialize)]
+    struct Unsigned {
+        age: Option<i64>,
+    }
+    let age = serde_json::from_str::<Event>(raw.get())
+        .ok()
+        .and_then(|event| event.unsigned.age)
+        .and_then(|age| u64::try_from(age).ok())
+        .map(Duration::from_millis);
+    age.and_then(|age| at.checked_sub(age)).unwrap_or(at)
+}
+
+/// Follows the events the sync brings: each the server took long after it was sent is history of
+/// its room's network, and the networks catching up go out as they change, also when one goes
+/// quiet.
 async fn follow_arrivals(mut arrived: mpsc::UnboundedReceiver<Arrival>, catching_up: watch::Sender<Vec<CatchUp>>) {
     let mut history = HistoryArrivals::default();
     let mut networks: HashMap<RoomId, Network> = HashMap::new();
@@ -175,10 +201,11 @@ async fn follow_arrivals(mut arrived: mpsc::UnboundedReceiver<Arrival>, catching
             room,
             sender,
             sent,
+            taken,
             at: now,
         })) = arrival
         {
-            if now.duration_since(sent).unwrap_or_default() < HistoryArrivals::OLD {
+            if !HistoryArrivals::is_history(sent, taken) {
                 continue;
             }
             let id = RoomId::from(room.room_id().as_str());
@@ -193,7 +220,7 @@ async fn follow_arrivals(mut arrived: mpsc::UnboundedReceiver<Arrival>, catching
                 let own = room.client().user_id().map(ToOwned::to_owned);
                 own.map_or(Network::Matrix, |own| network_of_members(&room, &own, &[sender]))
             };
-            history.arrived(network, id, sent, now);
+            history.arrived(network, id, sent, taken, now);
         }
         let now = history.catching_up(SystemTime::now());
         catching_up.send_if_modified(|current| {
