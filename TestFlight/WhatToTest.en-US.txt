@@ -1,10 +1,4 @@
-New
-- The panel under + in the iPhone chat is as tall as the keyboard, so nothing moves when you switch between them. × closes the panel and brings the keyboard back. The + turns into × faster.
-- A picked photo or video is in the message at once. If it is still downloading from iCloud, its tile is dimmed and shows how far it has come. Sending waits for it, and taking it out stops the download.
-- The video quality menu (Optimized / Original) shows the resolution and size of each, and how much smaller the optimized copy is.
-
 Fixed
-- A video's quality on its tile no longer wraps: it is a symbol, with the full words in its menu.
-- The panel under + fits at the largest text sizes too.
+- Pasting a photo, video or file into a message on the iPhone works: with only a picture or a file on the pasteboard, holding the field offers Paste (⌘V on a keyboard too), and the pasted item shows in the message.
 
-Please try: pick a video that is only in iCloud and send it right away; open a video's quality menu; switch between the keyboard and the panel.
+Please try: copy a photo in Photos, a PDF in Files and a picture in Safari, and paste each into a message; paste text and a picture together.

@@ -1,10 +1,4 @@
-Novinky
-- Panel pod + v chatu na iPhonu je stejně vysoký jako klávesnice, takže se při přepínání nic neposouvá. × panel zavře a vrátí klávesnici. Ikona + se mění na × rychleji.
-- Vybraná fotka nebo video se ve zprávě objeví hned. Pokud se ještě stahuje z iCloudu, dlaždice je ztlumená a ukazuje průběh. Odeslání na ni počká, odebrání stahování zastaví.
-- Menu kvality videa (Optimalizované / Originál) ukazuje rozlišení a velikost obou variant a o kolik je optimalizované menší.
-
 Opravy
-- Kvalita videa na dlaždici už se nezalamuje: je to ikona, celý popis je v jejím menu.
-- Panel pod + se vejde i při největší velikosti písma.
+- Vložení fotky, videa nebo souboru do zprávy na iPhonu funguje: když je ve schránce jen obrázek nebo soubor, podržení pole nabídne Vložit (i ⌘V na klávesnici) a vložená věc se objeví ve zprávě.
 
-Vyzkoušejte prosím: vybrat v panelu video, které je jen v iCloudu, a hned ho poslat; otevřít menu kvality u videa; přepínat mezi klávesnicí a panelem.
+Vyzkoušejte prosím: zkopírovat fotku ve Fotkách, PDF v Souborech a obrázek ze Safari a vložit je do zprávy; vložit text i obrázek najednou.
