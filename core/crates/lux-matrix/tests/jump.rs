@@ -222,15 +222,15 @@ async fn a_jump_pages_back_to_the_start_and_forward_to_the_newest() {
         .await;
     let timelines = MatrixTimelines::new(client, None);
     let mut opened = Watched::open(&timelines, &around("$old")).await.unwrap();
-    assert!(!timelines.is_at_start(&around("$old")).await.unwrap());
 
-    timelines.load_older(&around("$old"), 50).await.unwrap();
+    // the page's own answer says it reached the start.
+    assert!(timelines.load_older(&around("$old"), 50).await.unwrap());
     opened.until(|bodies| bodies.first() == Some(&"first")).await;
-    assert!(timelines.is_at_start(&around("$old")).await.unwrap());
 
     assert!(timelines.load_newer(&around("$old"), 50).await.unwrap());
     opened.until(|bodies| bodies.last() == Some(&"today")).await;
-    // the live timeline is at the newest already.
+    // the live timeline, once open, is at the newest already.
+    let _live = timelines.messages(&live()).await.unwrap();
     assert!(timelines.load_newer(&live(), 50).await.unwrap());
 }
 

@@ -12,7 +12,6 @@ use std::time::Duration;
 
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::StreamExt;
-use futures_util::future::join_all;
 use jiff::tz::TimeZone;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -21,9 +20,10 @@ use tokio::time::Instant;
 pub(super) mod jump;
 
 use super::decide::{self, ComposerMode, ReadReceipts, ReadState, ReplyTarget, TypingNotice};
-use super::rows::{self, OLDER, RoomMessages, ThreadRow};
+use super::rows::{self, OLDER, Phase, Refill, RoomMessages, ThreadRow, Unreading};
 use super::{
-    DraftIntent, Intent, JumpFailure, MessageAction, ThreadListener, ThreadSpec, ThreadState, ThreadUpdate, Upload,
+    Cause, DraftIntent, Intent, JumpFailure, MessageAction, ThreadListener, ThreadSpec, ThreadState, ThreadUpdate,
+    Upload,
 };
 use crate::FRAME;
 use crate::actions::Actions;
@@ -31,12 +31,15 @@ use crate::diff;
 use crate::ids::{EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::merge;
 use crate::ports::{BackendError, ChatSending, ChatTimelines, Diffs, ThreadBackend, TimelineHold};
-use crate::timeline::{Draft, Focused, Pins, Receipt, TimelineMessage, Typist};
+use crate::timeline::{Draft, Focused, Pins, Receipt, TimelineMessage, Typist, Unread};
 
 /// The longest the first rows wait for the rooms' first unread messages: finding one can page
 /// back on the server, and a bad connection must not hold back the messages already in. The
 /// lookup goes on; its answer still places the marker.
 const UNREAD_WAIT: Duration = Duration::from_secs(1);
+
+/// How many pages back a room's first unread message is looked for.
+const UNREAD_PAGES: usize = 10;
 
 /// What the backend and the thread's own spawned work tell the task.
 enum Event {
@@ -44,14 +47,12 @@ enum Event {
     Diffs(usize, Diffs<Arc<TimelineMessage>>),
     /// A room's messages cannot be read: it shows none.
     Unreadable(usize),
-    /// The rooms' first unread messages.
-    FirstUnread(Vec<MessageId>),
-    /// Finding them takes longer than the first rows wait.
+    /// Where a room's unread messages start, as far as its timeline holds them.
+    Unread(usize, Result<Unread, BackendError>),
+    /// Finding the first unread messages takes longer than the first rows wait.
     UnreadSlow,
-    /// A room's first screen is in; whether its timeline holds its first message.
-    Filled(usize, bool),
-    /// A page back of a room is in; whether its timeline now holds its first message.
-    Paged(usize, Option<bool>),
+    /// A page back of a room is in: whether its timeline now holds the room's first message.
+    Paged(usize, Result<bool, BackendError>),
     /// Who is typing in a room.
     Typing(usize, Vec<Typist>),
     /// A room's pinned messages.
@@ -111,6 +112,8 @@ async fn until(deadline: Option<Instant>) {
 struct Dirty {
     rows: bool,
     state: bool,
+    /// A room's rows, held back while its timeline refilled after a reset, show again: no news.
+    refilled: bool,
 }
 
 /// The first unread message is decided once: with the first rows, or after them when finding it
@@ -123,6 +126,10 @@ enum FirstUnread {
     Decided(Option<MessageId>),
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the chat's facts, each read on its own: an enum of their mixes would say less"
+)]
 struct Thread<B> {
     backend: Arc<B>,
     listener: Arc<dyn ThreadListener>,
@@ -163,8 +170,7 @@ struct Thread<B> {
     unread_slow: bool,
     /// The first unread message, decided with the first rows.
     first_unread: FirstUnread,
-    /// Rooms whose first screen is not in yet, pages back, and jumps under way.
-    filling: usize,
+    /// Pages back and jumps under way.
     paging: usize,
     jumping: usize,
     /// Messages to show once their room's timeline has them (the first unread ones).
@@ -173,10 +179,15 @@ struct Thread<B> {
     unread_waiters: Vec<oneshot::Sender<Option<MessageId>>>,
     send_room: RoomId,
     can_send_later: bool,
+    /// The user sent a message (or files) whose local echo the rows do not show yet.
+    sending: bool,
     /// The backend actions, in the order asked for on each target.
     actions: Actions<Target>,
     /// The jumps to messages the live rows do not hold.
     jumps: jump::Jumps,
+    /// Where the jumps landed, for the next update: its rows are those that show them.
+    answers: mpsc::UnboundedSender<super::JumpAnswer>,
+    answered: mpsc::UnboundedReceiver<super::JumpAnswer>,
 }
 
 /// What a thread's action changes: those on one target reach the server in the order asked.
@@ -199,6 +210,7 @@ impl<B: ThreadBackend> Thread<B> {
         listener: Arc<dyn ThreadListener>,
         events: mpsc::UnboundedSender<Event>,
     ) -> Self {
+        let (answers, answered) = mpsc::unbounded_channel();
         let mut rooms: Vec<RoomMessages> = spec.rooms.into_iter().map(RoomMessages::new).collect();
         if rooms.is_empty() {
             rooms.push(RoomMessages::new(crate::chat::ChatRoom {
@@ -216,7 +228,6 @@ impl<B: ThreadBackend> Thread<B> {
             listed_unread: spec.listed_unread,
             receipts: spec.read_receipts,
             zone: spec.zone,
-            filling: rooms.len(),
             rooms,
             shown: None,
             unfolded: rows::Unfolded::default(),
@@ -235,6 +246,7 @@ impl<B: ThreadBackend> Thread<B> {
             dirty: Dirty {
                 rows: true,
                 state: true,
+                refilled: false,
             },
             unread_found: None,
             unread_slow: false,
@@ -245,28 +257,30 @@ impl<B: ThreadBackend> Thread<B> {
             loaded_waiters: Vec::new(),
             unread_waiters: Vec::new(),
             can_send_later: false,
+            sending: false,
             actions: Actions::new(),
             jumps: jump::Jumps::default(),
+            answers,
+            answered,
         }
     }
 
     // MARK: opening
 
-    /// Holds the rooms' timelines, follows their messages, and asks for their first unread
-    /// messages and their opening fill.
+    /// Holds the rooms' timelines and follows their messages; each room's first list asks for
+    /// its first unread message and starts its opening fill.
     fn open(&mut self) {
         self.follow_pins();
         let ids: Vec<TimelineId> = self.rooms.iter().map(|room| self.timeline(&room.room.id)).collect();
-        for (index, id) in ids.iter().enumerate() {
-            self.holds.push(self.backend.timelines().hold(id));
-            let (backend, events, listener, timeline) = (
+        for (index, id) in ids.into_iter().enumerate() {
+            self.holds.push(self.backend.timelines().hold(&id));
+            let (backend, events, listener) = (
                 Arc::clone(&self.backend),
                 self.events.clone(),
                 Arc::clone(&self.listener),
-                id.clone(),
             );
             self.followers.spawn(async move {
-                match backend.timelines().messages(&timeline).await {
+                match backend.timelines().messages(&id).await {
                     Ok(mut batches) => {
                         while let Some(batch) = batches.next().await {
                             if events.send(Event::Diffs(index, batch)).is_err() {
@@ -282,32 +296,13 @@ impl<B: ThreadBackend> Thread<B> {
                     }
                 }
             });
-            let (backend, events, id) = (Arc::clone(&self.backend), self.events.clone(), id.clone());
-            self.followers.spawn(async move {
-                let timelines = backend.timelines();
-                timelines.wait_until_filled(&id).await;
-                let at_start = timelines.is_at_start(&id).await.unwrap_or(false);
-                events
-                    .send(Event::Filled(index, at_start))
-                    .other_end_may_be_gone("the thread's task");
-            });
         }
-        let (backend, events) = (Arc::clone(&self.backend), self.events.clone());
+        let events = self.events.clone();
         self.followers.spawn(async move {
-            let timelines = backend.timelines();
-            let mut found = std::pin::pin!(join_all(ids.iter().map(|id| timelines.first_unread(id))));
-            let found = if let Ok(found) = tokio::time::timeout(UNREAD_WAIT, &mut found).await {
-                found
-            } else {
-                // the rows go without it; the marker follows.
-                events
-                    .send(Event::UnreadSlow)
-                    .other_end_may_be_gone("the thread's task");
-                found.await
-            };
-            let found = found.into_iter().filter_map(|found| found.ok().flatten()).collect();
+            // the rows go without the first unread message after this; the marker follows.
+            tokio::time::sleep(UNREAD_WAIT).await;
             events
-                .send(Event::FirstUnread(found))
+                .send(Event::UnreadSlow)
                 .other_end_may_be_gone("the thread's task");
         });
         self.refresh_can_send_later();
@@ -317,64 +312,48 @@ impl<B: ThreadBackend> Thread<B> {
 
     /// The first rows wait for every room's messages and, for a while, the first unread one.
     fn ready(&self) -> bool {
-        (self.unread_found.is_some() || self.unread_slow) && self.rooms.iter().all(|room| room.loaded)
+        (self.unread_found.is_some() || self.unread_slow) && self.rooms.iter().all(|room| room.phase != Phase::Waiting)
     }
 
     fn wants_frame(&self) -> bool {
-        self.ready() && (self.dirty.rows || self.dirty.state)
+        self.ready() && (self.dirty.rows || self.dirty.state || !self.answered.is_empty())
     }
 
     fn event(&mut self, event: Event) {
         match event {
-            Event::Diffs(index, diffs) => {
-                if let Some(room) = self.rooms.get_mut(index) {
-                    room.apply(diffs);
-                }
-                self.reveal_waiting();
-                self.dirty.rows = true;
-                self.retry_waiting_jumps();
-                self.try_return();
-            }
+            Event::Diffs(index, diffs) => self.room_changed(index, diffs),
             Event::Unreadable(index) => {
                 if let Some(room) = self.rooms.get_mut(index) {
-                    room.loaded = true;
+                    room.phase = Phase::Live;
+                    room.unread = Unreading::Found(None);
                 }
+                self.unread_answered();
+                self.answer_loaded();
                 self.dirty.rows = true;
             }
-            Event::FirstUnread(found) => {
-                self.reveals.extend(found.iter().cloned());
-                self.unread_found = Some(found);
-                self.reveal_waiting();
-                self.dirty.rows = true;
+            Event::Unread(index, answer) => {
+                if let Some(room) = self.rooms.get_mut(index)
+                    && let Unreading::Asking(pages) = room.unread
+                {
+                    room.unread = match answer {
+                        Ok(unread) if !unread.complete && !room.at_start && pages < UNREAD_PAGES => {
+                            Unreading::PageDue(pages + 1)
+                        }
+                        Ok(unread) => Unreading::Found(unread.first),
+                        // the chat opens at the bottom.
+                        Err(_) => Unreading::Found(None),
+                    };
+                }
+                self.unread_answered();
+                self.page_where_due();
             }
             Event::UnreadSlow => {
-                self.unread_slow = true;
-                self.dirty.rows = true;
-            }
-            Event::Filled(index, at_start) => {
-                if let Some(room) = self.rooms.get_mut(index) {
-                    room.at_start = at_start;
+                if self.unread_found.is_none() {
+                    self.unread_slow = true;
+                    self.dirty.rows = true;
                 }
-                self.filling = self.filling.saturating_sub(1);
-                if self.filling == 0 {
-                    for waiter in self.loaded_waiters.drain(..) {
-                        waiter.send(()).other_end_may_be_gone("the caller");
-                    }
-                }
-                self.dirty.state = true;
             }
-            Event::Paged(index, at_start) => {
-                if let Some(room) = self.rooms.get_mut(index) {
-                    if let Some(at_start) = at_start {
-                        room.at_start = at_start;
-                    }
-                    room.paging = false;
-                }
-                self.dirty.rows = true;
-                self.paging = self.paging.saturating_sub(1);
-                self.dirty.state = true;
-                self.try_return();
-            }
+            Event::Paged(index, paged) => self.paged(index, paged),
             Event::Pins(index, pins) => {
                 if let Some(room) = self.rooms.get(index)
                     && self.pins_by_room.get(&room.room.id) != Some(&pins)
@@ -411,16 +390,86 @@ impl<B: ThreadBackend> Thread<B> {
         }
     }
 
-    /// Sends the frame's changes: the rows presented anew and diffed against those sent, and
-    /// the state if it changed. The first frame sends all the rows, even none.
+    /// A room's messages changed: its first list opens it (its first unread message asked for,
+    /// its fill begun); a reset that took rows the reader sees holds them until the room has
+    /// them again.
+    fn room_changed(&mut self, index: usize, diffs: Diffs<Arc<TimelineMessage>>) {
+        let shown = self.sent.is_some();
+        if let Some(room) = self.rooms.get_mut(index) {
+            let (opening, refilling) = (room.phase == Phase::Waiting, room.refilling());
+            if let Some(first) = room.apply(diffs)
+                && shown
+                && matches!(room.phase, Phase::Filling | Phase::Live)
+            {
+                room.phase = Phase::Refilling {
+                    first,
+                    page: Refill::Due { pages: 0 },
+                };
+            }
+            self.dirty.refilled |= refilling && !room.refilling();
+            if opening {
+                self.ask_unread(index);
+            }
+        }
+        self.reveal_waiting();
+        self.dirty.rows = true;
+        self.retry_waiting_jumps();
+        self.try_return();
+        // its batch is in: the room's next page, if one is due, goes now.
+        self.page_where_due();
+    }
+
+    /// A page back of a room is in, or failed. Its messages may come after its answer: the next
+    /// page waits a frame, and a refill for its batch.
+    fn paged(&mut self, index: usize, paged: Result<bool, BackendError>) {
+        if let Some(room) = self.rooms.get_mut(index) {
+            let refilling = room.refilling();
+            room.paged(&paged);
+            self.dirty.refilled |= refilling && !room.refilling();
+            if let Err(error) = paged {
+                // only the user's own paging tells: the opening's ends quietly.
+                if room.older_due > 0 {
+                    self.listener.on_error(error);
+                }
+                if let Unreading::Paging(_) = room.unread {
+                    room.unread = Unreading::Paging(UNREAD_PAGES);
+                }
+            }
+        }
+        self.dirty.rows = true;
+        self.paging = self.paging.saturating_sub(1);
+        self.dirty.state = true;
+        self.try_return();
+    }
+
+    /// Sends the frame's changes: the rows presented anew and diffed against those sent, why
+    /// they changed, and the state if it changed. The first frame sends all the rows, even none.
+    /// While a shown room refills after a reset, its rows stay as they were.
     fn flush(&mut self) {
         if !self.ready() {
             return;
         }
+        self.page_where_due();
         let first = self.sent.is_none();
+        let refilling = !self.is_detached()
+            && self.shown_rooms().any(|index| {
+                matches!(
+                    self.rooms.get(index).map(|room| &room.phase),
+                    Some(Phase::Refilling { .. })
+                )
+            });
         let mut update = ThreadUpdate::default();
-        if self.dirty.rows || first {
+        if refilling && !first {
+            // its batches and its page's answer call for the frame that shows it again.
             self.dirty.rows = false;
+        } else if self.dirty.rows || first {
+            self.dirty.rows = false;
+            // whether the rows switch, or older messages are coming in: no news either way.
+            let switched = self
+                .sent
+                .as_ref()
+                .is_some_and(|sent| sent.is_live == self.is_detached());
+            let paging = self.rooms.iter().any(|room| room.paging || room.older_due > 0);
             let merged = self.rooms.len() > 1;
             self.unfold_landed();
             let apart = self.unread_start();
@@ -447,19 +496,146 @@ impl<B: ThreadBackend> Thread<B> {
             } else {
                 diff::changes(&self.rows, &rows, |row| row.id())
             };
-            self.rows = rows;
+            let before = mem::replace(&mut self.rows, rows);
+            let refilled = mem::take(&mut self.dirty.refilled);
+            if !update.rows.is_empty() {
+                update.cause = self.cause(&before, switched || refilled || paging);
+            }
             self.answer_landed();
             self.after_rows();
         }
-        update.anchor = self.jumps.switched.take();
+        // the jumps answered: with the rows that show them, never before.
+        while let Ok(answer) = self.answered.try_recv() {
+            update.jumped.push(answer);
+        }
         self.dirty.state = false;
         let state = self.state();
         if self.sent.as_ref() != Some(&state) {
             update.state = Some(state.clone());
             self.sent = Some(state);
         }
-        if first || !update.rows.is_empty() || update.state.is_some() || update.anchor.is_some() {
+        if first || !update.rows.is_empty() || update.state.is_some() || !update.jumped.is_empty() {
             self.listener.on_update(update);
+        }
+    }
+
+    /// Why the live rows changed from `before`: the local echo of what the user sent is the
+    /// newest row; or messages arrived after the newest one shown, unless the rows switched,
+    /// refilled or took a page (`quiet`), which bring no news.
+    fn cause(&mut self, before: &[Arc<ThreadRow>], quiet: bool) -> Option<Cause> {
+        if self.is_detached() {
+            return None;
+        }
+        let newest = self.rows.last()?;
+        let latest = newest.latest();
+        let shown_before = |id: &MessageId| before.iter().rev().any(|row| row.shows(id));
+        if self.sending && latest.is_own && !shown_before(&latest.message.id) {
+            self.sending = false;
+            return Some(Cause::Sent(newest.id().clone()));
+        }
+        let was_newest = &before.last()?.latest().message.id;
+        let arrived =
+            !quiet && latest.message.id != *was_newest && self.rows.iter().rev().any(|row| row.shows(was_newest));
+        arrived.then_some(Cause::Arrived)
+    }
+
+    /// Asks for each room's next page back where one is due (its opening fill, its refill after
+    /// a reset, its first unread message), and for the first unread message again once a page
+    /// for it is in.
+    fn page_where_due(&mut self) {
+        for index in 0..self.rooms.len() {
+            let Some(room) = self.rooms.get_mut(index) else {
+                continue;
+            };
+            if !room.paging
+                && let Unreading::Paging(pages) = room.unread
+            {
+                room.unread = Unreading::Asking(pages);
+                self.ask_unread(index);
+            }
+            let Some(room) = self.rooms.get_mut(index) else {
+                continue;
+            };
+            let refilling = room.refilling();
+            let due = room.page_due();
+            if refilling && !room.refilling() {
+                self.dirty.refilled = true;
+                self.dirty.rows = true;
+            }
+            if let Some(count) = due {
+                self.page(index, count);
+            }
+        }
+        self.answer_loaded();
+    }
+
+    /// One page back of the room at `index`, of `count` messages; its answer comes as an event.
+    fn page(&mut self, index: usize, count: usize) {
+        let Some(room) = self.rooms.get_mut(index) else { return };
+        room.paging = true;
+        let id = TimelineId {
+            room: room.room.id.clone(),
+            thread: self.root.clone(),
+            at: None,
+        };
+        self.paging += 1;
+        self.dirty.state = true;
+        let (backend, events) = (Arc::clone(&self.backend), self.events.clone());
+        self.followers.spawn(async move {
+            let paged = backend.timelines().load_older(&id, count).await;
+            events
+                .send(Event::Paged(index, paged))
+                .other_end_may_be_gone("the thread's task");
+        });
+    }
+
+    /// Asks where the room's unread messages start, from what its timeline holds now.
+    fn ask_unread(&mut self, index: usize) {
+        let Some(room) = self.rooms.get(index) else { return };
+        let (backend, events, id) = (
+            Arc::clone(&self.backend),
+            self.events.clone(),
+            self.timeline(&room.room.id),
+        );
+        self.followers.spawn(async move {
+            let unread = backend.timelines().first_unread(&id).await;
+            events
+                .send(Event::Unread(index, unread))
+                .other_end_may_be_gone("the thread's task");
+        });
+    }
+
+    /// Every room's first unread message is found: they decide where the marker goes.
+    fn unread_answered(&mut self) {
+        if self.unread_found.is_some() {
+            return;
+        }
+        let found: Option<Vec<Option<MessageId>>> = self
+            .rooms
+            .iter()
+            .map(|room| match &room.unread {
+                Unreading::Found(first) => Some(first.clone()),
+                _ => None,
+            })
+            .collect();
+        let Some(found) = found else { return };
+        let found: Vec<MessageId> = found.into_iter().flatten().collect();
+        self.reveals.extend(found.iter().cloned());
+        self.unread_found = Some(found);
+        self.reveal_waiting();
+        self.dirty.rows = true;
+    }
+
+    /// Answers those waiting for the opening fill, once every room's is in.
+    fn answer_loaded(&mut self) {
+        if self
+            .rooms
+            .iter()
+            .all(|room| !matches!(room.phase, Phase::Waiting | Phase::Filling))
+        {
+            for waiter in self.loaded_waiters.drain(..) {
+                waiter.send(()).other_end_may_be_gone("the caller");
+            }
         }
     }
 
@@ -547,7 +723,7 @@ impl<B: ThreadBackend> Thread<B> {
         let shown = self.shown;
         let at_start = self.shows_start();
         ThreadState {
-            is_loading: self.filling > 0 || self.paging > 0 || self.jumping > 0,
+            is_loading: self.paging > 0 || self.jumping > 0,
             can_load_older: self.paging == 0 && !self.older_due() && !at_start,
             is_at_start: at_start,
             first_unread: match &self.first_unread {
@@ -614,11 +790,17 @@ impl<B: ThreadBackend> Thread<B> {
     fn intent(&mut self, intent: Intent) {
         match intent {
             Intent::LoadOlder => self.load_older(),
-            Intent::Jump(room, event, answer) => self.jump_to(room, event, answer),
+            Intent::Jump(room, event, jump) => {
+                let answer = jump::Answer::new(jump, self.answers.clone());
+                self.jump_to(room, event, answer);
+            }
             Intent::LoadNewer => self.load_newer(),
             Intent::ReturnToLive => self.leave_detached(),
             Intent::SetAnchor(message) => self.jumps.anchor = Some(message),
-            Intent::JumpToReplied(message, answer) => self.jump_to_replied(&message, answer),
+            Intent::JumpToReplied(message, jump) => {
+                let answer = jump::Answer::new(jump, self.answers.clone());
+                self.jump_to_replied(&message, answer);
+            }
             Intent::FirstUnread(answer) => match &self.first_unread {
                 FirstUnread::Decided(first) => {
                     answer.send(first.clone()).other_end_may_be_gone("the caller");
@@ -629,11 +811,8 @@ impl<B: ThreadBackend> Thread<B> {
                 FirstUnread::Undecided => self.unread_waiters.push(answer),
             },
             Intent::Loaded(answer) => {
-                if self.filling == 0 {
-                    answer.send(()).other_end_may_be_gone("the caller");
-                } else {
-                    self.loaded_waiters.push(answer);
-                }
+                self.loaded_waiters.push(answer);
+                self.answer_loaded();
             }
             Intent::ToggleDetail(message) => {
                 rows::Unfolded::toggle(&mut self.unfolded.details, message);
@@ -830,36 +1009,14 @@ impl<B: ThreadBackend> Thread<B> {
         }
         let shown: Vec<usize> = self.shown_rooms().collect();
         for index in shown {
-            let Some(timeline) = self.rooms.get(index).map(|room| self.timeline(&room.room.id)) else {
-                continue;
-            };
             let Some(room) = self.rooms.get_mut(index) else {
                 continue;
             };
             room.older_due = OLDER;
             let missing = OLDER.saturating_sub(room.held_before());
-            if missing == 0 || room.at_start {
-                continue;
+            if missing > 0 && !room.at_start && !room.paging {
+                self.page(index, missing);
             }
-            room.paging = true;
-            self.paging += 1;
-            let (backend, events, listener, id) = (
-                Arc::clone(&self.backend),
-                self.events.clone(),
-                Arc::clone(&self.listener),
-                timeline,
-            );
-            self.followers.spawn(async move {
-                let timelines = backend.timelines();
-                let paged = match timelines.load_older(&id, missing).await {
-                    Ok(()) => timelines.is_at_start(&id).await,
-                    Err(error) => Err(error),
-                };
-                let at_start = paged.map_err(|error| listener.on_error(error)).ok();
-                events
-                    .send(Event::Paged(index, at_start))
-                    .other_end_may_be_gone("the thread's task");
-            });
         }
         self.dirty.rows = true;
         self.dirty.state = true;
@@ -935,6 +1092,7 @@ impl<B: ThreadBackend> Thread<B> {
                 thread: self.root.clone(),
             };
             self.listener.on_upload(upload);
+            self.sending = true;
             return;
         }
         if text.is_empty() {
@@ -944,6 +1102,8 @@ impl<B: ThreadBackend> Thread<B> {
         self.dirty.state = true;
         self.composer_changed("");
         let text = text.to_owned();
+        // a new message comes back as the newest row, its local echo; an edit changes its row.
+        self.sending |= !matches!(mode, ComposerMode::Edit { .. });
         match mode {
             ComposerMode::Message => {
                 let room = via.unwrap_or_else(|| self.send_room.clone());

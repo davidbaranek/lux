@@ -12,8 +12,8 @@ use lux_core::message::Separator;
 use lux_core::network::Network;
 use lux_core::ports::BackendError;
 use lux_core::thread::{
-    Anchor, ComposerMode, JumpFailure, Jumped, ReadReceipts, ThreadListener, ThreadRow, ThreadSpec, ThreadState,
-    ThreadUpdate, ThreadViewModel, Upload,
+    Cause, ComposerMode, JumpAnswer, JumpFailure, Jumped, ReadReceipts, ThreadListener, ThreadRow, ThreadSpec,
+    ThreadState, ThreadUpdate, ThreadViewModel, Upload,
 };
 
 use crate::account::{CoreAccount, CoreAccountError, with_account};
@@ -309,7 +309,7 @@ impl From<ThreadState> for CoreThreadState {
     }
 }
 
-/// Where a jump landed (`lux_core::thread::Jumped`).
+/// Where a jump landed (`lux_core::thread::Jumped`), or why not.
 #[derive(uniffi::Enum)]
 pub enum CoreJumped {
     /// In this thread, at this row.
@@ -326,61 +326,83 @@ pub enum CoreJumped {
         /// The message's event id.
         event_id: String,
     },
+    /// Nowhere: the apps word why in the user's language.
+    Failed {
+        /// Why.
+        failure: CoreJumpFailure,
+    },
 }
 
-impl From<Jumped> for CoreJumped {
-    fn from(jumped: Jumped) -> Self {
-        match jumped {
-            Jumped::Here(row) => Self::Here {
+impl From<Result<Jumped, JumpFailure>> for CoreJumped {
+    fn from(landed: Result<Jumped, JumpFailure>) -> Self {
+        match landed {
+            Ok(Jumped::Here(row)) => Self::Here {
                 row_id: row.to_string(),
             },
-            Jumped::InThread { room, root, event } => Self::InThread {
+            Ok(Jumped::InThread { room, root, event }) => Self::InThread {
                 room_id: room.to_string(),
                 root_event_id: root.to_string(),
                 event_id: event.to_string(),
             },
+            Err(failure) => Self::Failed {
+                failure: match failure {
+                    JumpFailure::NotFound => CoreJumpFailure::NotFound,
+                    JumpFailure::NotAllowed => CoreJumpFailure::NotAllowed,
+                    JumpFailure::Failed => CoreJumpFailure::Failed,
+                },
+            },
         }
     }
 }
 
-/// Why a jump did not land. The apps word each case in the user's language.
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-pub enum CoreJumpError {
+/// Why a jump did not land.
+#[derive(uniffi::Enum)]
+pub enum CoreJumpFailure {
     /// The server has no such message.
-    #[error("the message is not found")]
     NotFound,
     /// The account may not see it.
-    #[error("the message may not be seen")]
     NotAllowed,
     /// Anything else.
-    #[error("the message could not be shown")]
     Failed,
 }
 
-impl From<JumpFailure> for CoreJumpError {
-    fn from(failure: JumpFailure) -> Self {
-        match failure {
-            JumpFailure::NotFound => Self::NotFound,
-            JumpFailure::NotAllowed => Self::NotAllowed,
-            JumpFailure::Failed => Self::Failed,
+/// A jump's answer, in the update that shows its rows.
+#[derive(uniffi::Record)]
+pub struct CoreJumpAnswer {
+    /// The jump, as `jump` and `jump_to_replied` numbered it.
+    pub jump: u64,
+    /// Where it landed.
+    pub landed: CoreJumped,
+}
+
+impl From<JumpAnswer> for CoreJumpAnswer {
+    fn from(answer: JumpAnswer) -> Self {
+        Self {
+            jump: answer.jump,
+            landed: answer.landed.into(),
         }
     }
 }
 
-/// The rows switched between a jump's and the live ones: keep `to` where `from` was.
-#[derive(uniffi::Record)]
-pub struct CoreAnchor {
-    /// The row before the switch.
-    pub from: String,
-    /// The row after it.
-    pub to: String,
+/// Why the rows changed, when the app follows it to the newest message.
+#[derive(uniffi::Enum)]
+pub enum CoreThreadCause {
+    /// The user sent a message from here: this row, the newest, shows it.
+    Sent {
+        /// The row.
+        row_id: String,
+    },
+    /// New messages arrived after the newest one shown.
+    Arrived,
 }
 
-impl From<Anchor> for CoreAnchor {
-    fn from(anchor: Anchor) -> Self {
-        Self {
-            from: anchor.from.to_string(),
-            to: anchor.to.to_string(),
+impl From<Cause> for CoreThreadCause {
+    fn from(cause: Cause) -> Self {
+        match cause {
+            Cause::Sent(row) => Self::Sent {
+                row_id: row.to_string(),
+            },
+            Cause::Arrived => Self::Arrived,
         }
     }
 }
@@ -392,8 +414,10 @@ pub struct CoreThreadUpdate {
     pub rows: Vec<CoreThreadRowDiff>,
     /// The state, when it changed.
     pub state: Option<CoreThreadState>,
-    /// The rows switched between a jump's and the live ones.
-    pub anchor: Option<CoreAnchor>,
+    /// Why the rows changed, if it is news.
+    pub cause: Option<CoreThreadCause>,
+    /// The jumps answered: their rows are among these.
+    pub jumped: Vec<CoreJumpAnswer>,
 }
 
 /// Files to send, one message each.
@@ -432,7 +456,8 @@ impl ThreadListener for Listener {
         self.0.on_update(CoreThreadUpdate {
             rows: update.rows.into_iter().map(CoreThreadRowDiff::from).collect(),
             state: update.state.map(CoreThreadState::from),
-            anchor: update.anchor.map(CoreAnchor::from),
+            cause: update.cause.map(CoreThreadCause::from),
+            jumped: update.jumped.into_iter().map(CoreJumpAnswer::from).collect(),
         });
     }
 
@@ -472,19 +497,16 @@ impl CoreThread {
         self.model.load_older();
     }
 
-    /// Brings the message `message_id` answers into the thread.
-    pub async fn jump_to_replied(&self, message_id: String) -> Result<CoreJumped, CoreJumpError> {
-        Ok(self.model.jump_to_replied(message_id.into()).await?.into())
+    /// Brings the message `message_id` answers into the thread; the jump's number, which an
+    /// update's answer names.
+    pub fn jump_to_replied(&self, message_id: String) -> u64 {
+        self.model.jump_to_replied(message_id.into())
     }
 
     /// Brings the message of `event_id` in `room_id` into the thread: among the live rows, or a
-    /// jump's rows around it.
-    pub async fn jump(&self, room_id: String, event_id: String) -> Result<CoreJumped, CoreJumpError> {
-        Ok(self
-            .model
-            .jump(RoomId::from(room_id), EventId::from(event_id))
-            .await?
-            .into())
+    /// jump's rows around it. The jump's number, which an update's answer names.
+    pub fn jump(&self, room_id: String, event_id: String) -> u64 {
+        self.model.jump(RoomId::from(room_id), EventId::from(event_id))
     }
 
     /// Shows newer messages of a jump's rows.
@@ -497,7 +519,8 @@ impl CoreThread {
         self.model.return_to_live();
     }
 
-    /// The row the reader looks at: a switch to the live rows keeps it in place.
+    /// The row the reader looks at among a jump's rows: they switch to the live ones once those
+    /// hold it.
     pub fn set_anchor(&self, message_id: String) {
         self.model.set_anchor(message_id.into());
     }

@@ -28,12 +28,8 @@ final class RustThreadView: ThreadView {
     // MARK: Intents
 
     func loadOlder() { view.loadOlder() }
-    func jumpToReplied(_ messageId: String) async throws(JumpError) -> JumpResult {
-        try await jumped { try await view.jumpToReplied(messageId: messageId) }
-    }
-    func jump(to message: MessageLink) async throws(JumpError) -> JumpResult {
-        try await jumped { try await view.jump(roomId: message.roomId, eventId: message.eventId) }
-    }
+    func jumpToReplied(_ messageId: String) -> UInt64 { view.jumpToReplied(messageId: messageId) }
+    func jump(to message: MessageLink) -> UInt64 { view.jump(roomId: message.roomId, eventId: message.eventId) }
     func loadNewer() { view.loadNewer() }
     func returnToLive() { view.returnToLive() }
     func setAnchor(_ messageId: String) { view.setAnchor(messageId: messageId) }
@@ -92,7 +88,8 @@ private final class Listener: CoreThreadListener {
     func onUpdate(update: CoreThreadUpdate) {
         let state = Signposts.thread.beginInterval("map")
         let batch = ThreadBatch(rows: update.rows.map(ThreadRowChange.init), state: update.state.map(ThreadState.init),
-                                anchor: update.anchor.map { (from: $0.from, to: $0.to) })
+                                cause: update.cause.map(ThreadCause.init),
+                                jumped: update.jumped.map { (jump: $0.jump, landed: landed($0.landed)) })
         Signposts.thread.endInterval("map", state, "\(update.rows.count) changes")
         continuation.yield(.update(batch))
     }
@@ -108,19 +105,23 @@ private final class Listener: CoreThreadListener {
 // MARK: Mappings
 
 /// A jump's answer as the app's, its failure worded by the app.
-private func jumped(_ jump: () async throws -> CoreJumped) async throws(JumpError) -> JumpResult {
-    do {
-        return switch try await jump() {
-        case .here(let rowId): .here(rowId)
-        case .inThread(let roomId, let rootEventId, let eventId):
-            .inThread(MatrixThread(roomId: roomId, rootEventId: rootEventId), MessageLink(roomId: roomId, eventId: eventId))
+private func landed(_ jumped: CoreJumped) -> Result<JumpResult, JumpError> {
+    switch jumped {
+    case .here(let rowId): .success(.here(rowId))
+    case .inThread(let roomId, let rootEventId, let eventId):
+        .success(.inThread(MatrixThread(roomId: roomId, rootEventId: rootEventId), MessageLink(roomId: roomId, eventId: eventId)))
+    case .failed(.notFound): .failure(.notFound)
+    case .failed(.notAllowed): .failure(.notAllowed)
+    case .failed(.failed): .failure(.failed)
+    }
+}
+
+private extension ThreadCause {
+    init(_ cause: CoreThreadCause) {
+        self = switch cause {
+        case .sent(let rowId): .sent(rowId)
+        case .arrived: .arrived
         }
-    } catch CoreJumpError.NotFound {
-        throw .notFound
-    } catch CoreJumpError.NotAllowed {
-        throw .notAllowed
-    } catch {
-        throw .failed
     }
 }
 

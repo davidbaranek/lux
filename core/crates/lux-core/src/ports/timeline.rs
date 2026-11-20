@@ -5,8 +5,11 @@
 //! used last; the others close. A room's own timeline does not show its threads' replies: their
 //! roots carry a [`ThreadSummary`](crate::timeline::ThreadSummary) instead.
 //!
-//! What is done to a message names its room alone: its id is unique among all timelines, and
-//! the backend finds the open timeline that shows it.
+//! A message's id is its event's in its room (its send's while the account's message is on its
+//! way, kept once it is sent): the same in every timeline of the room, through a reset. What is
+//! done to a message names its room alone, and the backend finds the open timeline that shows it.
+//! Only a hold, or a call that reads a timeline ([`ChatTimelines::messages`],
+//! [`ChatTimelines::prefetch`]), opens one.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -19,7 +22,7 @@ use futures_core::Stream;
 use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
 use crate::message::SendState;
 use crate::timeline::{
-    Draft, Focused, ImageSource, IndexHistory, OutgoingAttachment, Pins, Receipt, TimelineMessage, Typist,
+    Draft, Focused, ImageSource, IndexHistory, OutgoingAttachment, Pins, Receipt, TimelineMessage, Typist, Unread,
 };
 
 use super::{BackendError, DiffStream};
@@ -79,7 +82,9 @@ pub trait ChatTimelines: Send + Sync {
     fn hold(&self, timeline: &TimelineId) -> TimelineHold;
 
     /// The timeline's messages, oldest first, as they change: a `Reset` with those it has, then
-    /// each batch. No two messages share an id, in this timeline or any other.
+    /// each batch. No two of its messages share an id; another timeline of the room gives the
+    /// same message the same id. A limited sync resets a live timeline to its newest messages:
+    /// they come as the batch that removes the others, and paging back brings those again.
     ///
     /// A timeline opened around a message ([`TimelineId::at`]) is fetched first: its first batch
     /// holds that message and its neighbours. It shows no new messages (those come to the live
@@ -93,18 +98,21 @@ pub trait ChatTimelines: Send + Sync {
         timeline: &TimelineId,
     ) -> impl Future<Output = Result<DiffStream<Arc<TimelineMessage>>, BackendError>> + Send;
 
-    /// Opens the timeline ahead of time (its first screen from the server if the device has
-    /// none), so the chat opens at once.
+    /// Opens the timeline ahead of time, and the first time a page back of it, so the chat opens
+    /// at once.
     fn prefetch(&self, timeline: &TimelineId) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// Returns once the opened chat's first screen is in, its server pages included.
-    fn wait_until_filled(&self, timeline: &TimelineId) -> impl Future<Output = ()> + Send;
+    /// One page back of an open timeline, of at least `count` events: `true` once it holds its
+    /// first message (a thread's root), nothing older on the server. Its messages come through
+    /// [`messages`](Self::messages), maybe after it returns; which of them show is the thread's
+    /// choice ([`Window`](crate::timeline::Window)).
+    fn load_older(
+        &self,
+        timeline: &TimelineId,
+        count: usize,
+    ) -> impl Future<Output = Result<bool, BackendError>> + Send;
 
-    /// Pages back on the server until the timeline holds `count` more messages than now, or the
-    /// timeline's first one. Which of them show is the thread's choice ([`Window`](crate::timeline::Window)).
-    fn load_older(&self, timeline: &TimelineId, count: usize) -> impl Future<Output = Result<(), BackendError>> + Send;
-
-    /// Pages forward on the server, a timeline opened around a message (a live one is always at
+    /// Pages forward on the server, an open timeline opened around a message (a live one is always at
     /// the newest): `true` once it holds the newest message, nothing newer to ask for.
     fn load_newer(
         &self,
@@ -116,16 +124,9 @@ pub trait ChatTimelines: Send + Sync {
     /// Matrix thread the server put it in (a thread's reply shows among its thread's).
     fn focused(&self, timeline: &TimelineId) -> impl Future<Output = Result<Focused, BackendError>> + Send;
 
-    /// The timeline holds its first message (a thread's root), its first screen in: there is
-    /// nothing older on the server.
-    fn is_at_start(&self, timeline: &TimelineId) -> impl Future<Output = Result<bool, BackendError>> + Send;
-
     /// The first message after the account's read receipt (a thread's own receipt in a thread),
-    /// paging back a little when the timeline does not hold it yet; `None` when it is read.
-    fn first_unread(
-        &self,
-        timeline: &TimelineId,
-    ) -> impl Future<Output = Result<Option<MessageId>, BackendError>> + Send;
+    /// of those the open timeline holds; whether older ones may be unread too.
+    fn first_unread(&self, timeline: &TimelineId) -> impl Future<Output = Result<Unread, BackendError>> + Send;
 
     /// The room's text messages and photos, newest first, back to `since`, the room's start, or
     /// `max_pages` pages from the server: what the search index reads. From the newest, or on

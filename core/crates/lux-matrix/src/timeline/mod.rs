@@ -26,10 +26,11 @@ use futures_util::stream;
 use lux_core::ids::{EventId, MessageId, RoomId, TimelineId};
 use lux_core::organizer::Organized;
 use lux_core::ports::{BackendError, ChatTimelines, DiffStream, PinsStream, RoomChanges, TimelineHold, TypingStream};
-use lux_core::timeline::{Focused, IndexHistory, TimelineMessage};
+use lux_core::timeline::{Focused, IndexHistory, TimelineMessage, Unread};
 use matrix_sdk::ruma::{OwnedEventId, OwnedRoomId};
 use matrix_sdk::{Client, Room};
 use matrix_sdk_ui::RoomListService;
+use matrix_sdk_ui::timeline::EventTimelineItem;
 use tokio::sync::{broadcast, watch};
 
 use self::opened::{Key, Opened};
@@ -44,7 +45,7 @@ pub struct MatrixTimelines {
     client: Client,
     /// What the user organized: a deleted chat's thread starts after its delete.
     cuts: watch::Receiver<Arc<Organized>>,
-    /// The rooms' open timelines, each opened by the first call that names it.
+    /// The rooms' open timelines, each opened by the first read of it.
     opened: Opened,
     changes: broadcast::Sender<RoomId>,
     /// What shared posts' addresses say about them, from the server.
@@ -83,12 +84,20 @@ impl MatrixTimelines {
         self.opened.timeline(key(timeline).ok()?).await
     }
 
+    /// The open timeline: what is done to one nobody opened does not open it.
+    pub(crate) async fn held(&self, timeline: &TimelineId) -> Result<Arc<RoomTimeline>, BackendError> {
+        self.opened(timeline)
+            .await
+            .ok_or_else(|| BackendError::UnknownChat(lux_core::ids::ChatId::Room(timeline.room.clone())))
+    }
+
     /// The joined room `room`.
     fn room(&self, room: &RoomId) -> Result<Room, BackendError> {
         crate::convert::room(&self.client, room)
     }
 
-    /// The live timeline, opened the first time.
+    /// The timeline, opened the first time: only its reads ([`ChatTimelines::messages`],
+    /// [`ChatTimelines::prefetch`]) open it.
     async fn open(&self, timeline: &TimelineId) -> Result<Arc<RoomTimeline>, BackendError> {
         let sdk_room = self.room(&timeline.room)?;
         let key = key(timeline)?;
@@ -118,17 +127,21 @@ impl MatrixTimelines {
         threads::page(&self.room(room)?, from).await
     }
 
-    /// The open timeline of `room` that shows `message` (its own, or a thread's: a message's id is
-    /// unique among all timelines); the room's own, opened, when none does.
-    pub(crate) async fn holding(&self, room: &RoomId, message: &MessageId) -> Result<Arc<RoomTimeline>, BackendError> {
+    /// The open timeline of `room` that holds `message` (its own, a thread's, a jump's: a message
+    /// has the same id in each), with its item.
+    pub(crate) async fn holding(
+        &self,
+        room: &RoomId,
+        message: &MessageId,
+    ) -> Result<(Arc<RoomTimeline>, EventTimelineItem), BackendError> {
         let id = OwnedRoomId::try_from(room.as_str())
             .map_err(|_| BackendError::UnknownChat(lux_core::ids::ChatId::Room(room.clone())))?;
         for timeline in self.opened.of_room(id).await {
-            if timeline.item(message).await.is_some() {
-                return Ok(timeline);
+            if let Some(item) = timeline.item(message).await {
+                return Ok((timeline, item));
             }
         }
-        self.open(&TimelineId::from(room)).await
+        Err(BackendError::UnknownMessage)
     }
 }
 
@@ -171,39 +184,30 @@ impl ChatTimelines for MatrixTimelines {
     }
 
     async fn prefetch(&self, timeline: &TimelineId) -> Result<(), BackendError> {
-        self.open(timeline).await.map(drop)
+        if self.opened(timeline).await.is_some() {
+            return Ok(());
+        }
+        // only a head start: the chat pages for itself once open.
+        if let Err(error) = self.open(timeline).await?.page_back(usize::from(room::PAGE)).await {
+            tracing::warn!(%error, "the chat's first page could not be fetched ahead");
+        }
+        Ok(())
     }
 
-    async fn wait_until_filled(&self, timeline: &TimelineId) {
-        if let Ok(timeline) = self.open(timeline).await {
-            timeline.wait_until_filled().await;
-        }
-    }
-
-    async fn load_older(&self, timeline: &TimelineId, count: usize) -> Result<(), BackendError> {
-        let opened = self.open(timeline).await?;
-        if timeline.at.is_some() {
-            return opened.page_back_around(count).await;
-        }
-        opened.load_older(count).await
+    async fn load_older(&self, timeline: &TimelineId, count: usize) -> Result<bool, BackendError> {
+        self.held(timeline).await?.page_back(count).await
     }
 
     async fn load_newer(&self, timeline: &TimelineId, count: usize) -> Result<bool, BackendError> {
-        self.open(timeline).await?.page_forward(count).await
+        self.held(timeline).await?.page_forward(count).await
     }
 
     async fn focused(&self, timeline: &TimelineId) -> Result<Focused, BackendError> {
-        self.open(timeline).await?.focused().await
+        self.held(timeline).await?.focused().await
     }
 
-    async fn is_at_start(&self, timeline: &TimelineId) -> Result<bool, BackendError> {
-        let timeline = self.open(timeline).await?;
-        timeline.wait_until_filled().await;
-        Ok(timeline.is_at_start().await)
-    }
-
-    async fn first_unread(&self, timeline: &TimelineId) -> Result<Option<MessageId>, BackendError> {
-        self.open(timeline).await?.first_unread().await
+    async fn first_unread(&self, timeline: &TimelineId) -> Result<Unread, BackendError> {
+        Ok(self.held(timeline).await?.first_unread().await)
     }
 
     async fn index_history(

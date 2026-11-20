@@ -381,10 +381,21 @@ pub struct IndexedImage {
     pub is_own: bool,
 }
 
+/// Where a timeline's unread messages start, as far as it holds them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Unread {
+    /// The first message another sent after the account's read receipt, of those the timeline
+    /// holds; `None` when it holds none.
+    pub first: Option<MessageId>,
+    /// The timeline holds the receipt's place (or the room's first message): no older message is
+    /// unread. `false`: older ones may be, and a page back tells.
+    pub complete: bool,
+}
+
 /// The message a timeline was opened around, as that timeline shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Focused {
-    /// Its id in that timeline.
+    /// Its id, the same in every timeline of the room.
     pub message: MessageId,
     /// The Matrix thread it is a reply in, by its root; `None`: the room's own timeline.
     pub thread: Option<EventId>,

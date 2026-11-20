@@ -32,7 +32,7 @@ use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
     Draft, FileKind, Focused, IndexHistory, IndexedFile, IndexedImage, IndexedMessage, Media, MessageKind,
     OutgoingAttachment, OutgoingKind, Participant, Picture, PinnedMessage, Pins, Quote, Reaction, Reader, Receipt,
-    SharedPost, ThreadReply, ThreadSummary, TimelineMessage, Typist, html,
+    SharedPost, ThreadReply, ThreadSummary, TimelineMessage, Typist, Unread, html,
 };
 
 /// The demo account's user.
@@ -71,6 +71,18 @@ pub struct DemoTimelines {
     pub(crate) unread_millis: AtomicU64,
     #[cfg(test)]
     pub(crate) forward_millis: AtomicU64,
+    /// Tests: how long a page back takes, in milliseconds, and whether it fails, as when the
+    /// server refuses it.
+    #[cfg(test)]
+    pub(crate) page_millis: AtomicU64,
+    #[cfg(test)]
+    pub(crate) pages_fail: std::sync::atomic::AtomicBool,
+    /// Tests: a page back answers before its messages come, as the SDK's timeline applies a page
+    /// after it answered; they come with [`land_pages`](Self::land_pages).
+    #[cfg(test)]
+    pub(crate) pages_land_later: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    landing: Mutex<Vec<(TimelineId, usize)>>,
     /// How many of a room's newest messages its live timeline holds at first (0: all), as a
     /// device holds only the latest of a long chat: paging back brings the rest, and an older
     /// message is a jump away.
@@ -121,6 +133,14 @@ impl DemoTimelines {
             unread_millis: AtomicU64::new(0),
             #[cfg(test)]
             forward_millis: AtomicU64::new(0),
+            #[cfg(test)]
+            page_millis: AtomicU64::new(0),
+            #[cfg(test)]
+            pages_fail: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            pages_land_later: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            landing: Mutex::new(Vec::new()),
             live_tail: std::sync::atomic::AtomicUsize::new(0),
         }
     }
@@ -134,6 +154,42 @@ impl DemoTimelines {
     fn state(&self) -> MutexGuard<'_, State> {
         // the state is whole after each change: nothing awaits while it is held.
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Tests: a limited sync resets the live timeline to its newest `kept` messages and a new one
+    /// saying `body`, as one batch (a clear, then those); paging back brings the others again.
+    #[cfg(test)]
+    pub(crate) fn reset_to_newest(&self, timeline: &TimelineId, kept: usize, body: &str) {
+        let message = Arc::new(self.own_message(&timeline.room, body));
+        {
+            let mut state = self.state();
+            let mut whole = self.history(&mut state, timeline);
+            whole.push(message);
+            let start = whole.len().saturating_sub(kept + 1);
+            let newest: Vector<_> = whole.iter().skip(start).cloned().collect();
+            let messages = self.timeline(&mut state, timeline);
+            let mut reset = messages.transaction();
+            reset.clear();
+            reset.append(newest);
+            reset.commit();
+            state.windows.insert(timeline.clone(), start..whole.len());
+            state.histories.insert(timeline.clone(), whole);
+        }
+        self.changes
+            .send(timeline.room.clone())
+            .other_end_may_be_gone("the room's change listeners");
+    }
+
+    /// Tests: the pages answered before their messages came bring them now.
+    #[cfg(test)]
+    pub(crate) fn land_pages(&self) {
+        let landing = std::mem::take(&mut *self.landing.lock().unwrap_or_else(PoisonError::into_inner));
+        for (timeline, count) in landing {
+            self.widen(&timeline, count, true);
+            self.changes
+                .send(timeline.room.clone())
+                .other_end_may_be_gone("the room's change listeners");
+        }
     }
 
     /// Changes the timeline's messages (made first if new) and tells the listeners.
@@ -170,12 +226,7 @@ impl DemoTimelines {
                 .map_or(0..0, |index| {
                     index.saturating_sub(CONTEXT_SIDE)..(index + CONTEXT_SIDE + 1).min(live.len())
                 });
-            let copies: Vec<_> = live
-                .iter()
-                .skip(window.start)
-                .take(window.len())
-                .map(|message| around(message, event))
-                .collect();
+            let copies: Vec<_> = live.iter().skip(window.start).take(window.len()).cloned().collect();
             state.windows.insert(timeline.clone(), window);
             state.timelines.insert(
                 timeline.clone(),
@@ -252,14 +303,27 @@ impl DemoTimelines {
         id: &MessageId,
         edit: impl FnOnce(&mut TimelineMessage),
     ) -> Result<(), BackendError> {
-        let (timeline, index, message) = self.find(room, id)?;
+        let (_, _, message) = self.find(room, id)?;
         let mut changed = (*message).clone();
         edit(&mut changed);
-        self.change(&timeline, |messages| {
-            if index < messages.len() {
-                messages.set(index, Arc::new(changed));
-            }
-        });
+        let changed = Arc::new(changed);
+        // a message has the same id in each timeline of its room that holds it (a jump's too).
+        let holding: Vec<TimelineId> = self
+            .state()
+            .timelines
+            .iter()
+            .filter(|(timeline, messages)| {
+                &timeline.room == room && messages.iter().any(|found| found.message.id == *id)
+            })
+            .map(|(timeline, _)| timeline.clone())
+            .collect();
+        for timeline in holding {
+            self.change(&timeline, |messages| {
+                if let Some(index) = messages.iter().position(|found| found.message.id == *id) {
+                    messages.set(index, Arc::clone(&changed));
+                }
+            });
+        }
         Ok(())
     }
 
@@ -466,14 +530,6 @@ fn shared_items(room: &RoomId, message: &TimelineMessage) -> Vec<SharedItem> {
     items
 }
 
-/// The copy of a live message a timeline opened around `event` shows: its own id, as the
-/// server's timelines number their items each on their own.
-fn around(message: &Arc<TimelineMessage>, event: &EventId) -> Arc<TimelineMessage> {
-    let mut copy = (**message).clone();
-    copy.message.id = MessageId::from(format!("@{event}/{}", message.message.id));
-    Arc::new(copy)
-}
-
 impl DemoTimelines {
     /// The whole history of a live timeline (made first if new).
     fn history(&self, state: &mut State, live: &TimelineId) -> Vec<Arc<TimelineMessage>> {
@@ -505,14 +561,10 @@ impl DemoTimelines {
         let messages = self.timeline(&mut state, timeline);
         for (offset, index) in added.enumerate() {
             let Some(message) = whole.get(index) else { continue };
-            let copy = match &timeline.at {
-                Some(event) => around(message, event),
-                None => Arc::clone(message),
-            };
             if older {
-                messages.insert(offset, copy);
+                messages.insert(offset, Arc::clone(message));
             } else {
-                messages.push_back(copy);
+                messages.push_back(Arc::clone(message));
             }
         }
         reached
@@ -560,11 +612,22 @@ impl ChatTimelines for DemoTimelines {
         Ok(())
     }
 
-    async fn wait_until_filled(&self, _timeline: &TimelineId) {}
-
-    async fn load_older(&self, timeline: &TimelineId, count: usize) -> Result<(), BackendError> {
-        self.widen(timeline, count, true);
-        Ok(())
+    async fn load_older(&self, timeline: &TimelineId, count: usize) -> Result<bool, BackendError> {
+        #[cfg(test)]
+        {
+            tokio::time::sleep(Duration::from_millis(self.page_millis.load(Ordering::Relaxed))).await;
+            if self.pages_fail.load(Ordering::Relaxed) {
+                return Err(BackendError::NotAllowed);
+            }
+            if self.pages_land_later.load(Ordering::Relaxed) {
+                self.landing
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push((timeline.clone(), count));
+                return Ok(false);
+            }
+        }
+        Ok(self.widen(timeline, count, true))
     }
 
     async fn load_newer(&self, timeline: &TimelineId, count: usize) -> Result<bool, BackendError> {
@@ -580,26 +643,16 @@ impl ChatTimelines for DemoTimelines {
         })
     }
 
-    /// The live timelines hold the whole made-up history; one opened around a message, its window.
-    async fn is_at_start(&self, timeline: &TimelineId) -> Result<bool, BackendError> {
-        Ok(self
-            .state()
-            .windows
-            .get(timeline)
-            .is_none_or(|window| window.start == 0))
-    }
-
     /// The demo's chats have their last five messages unread; their threads are read.
-    async fn first_unread(&self, timeline: &TimelineId) -> Result<Option<MessageId>, BackendError> {
+    async fn first_unread(&self, timeline: &TimelineId) -> Result<Unread, BackendError> {
         #[cfg(test)]
         tokio::time::sleep(Duration::from_millis(self.unread_millis.load(Ordering::Relaxed))).await;
-        if timeline.thread.is_some() {
-            return Ok(None);
-        }
-        Ok(self
+        let first = self
             .messages_per_room
             .checked_sub(5)
-            .map(|index| MessageId::from(format!("{}/{index}", timeline.room))))
+            .filter(|_| timeline.thread.is_none())
+            .map(|index| MessageId::from(format!("{}/{index}", timeline.room)));
+        Ok(Unread { first, complete: true })
     }
 
     async fn index_history(
@@ -1387,7 +1440,7 @@ mod tests {
         let (_, _, sent) = demo.find(&room(), &failed.message.id).expect("there");
         assert_eq!(sent.message.state, SendState::Sent);
         assert_eq!(
-            demo.first_unread(&room().into()).await.expect("known"),
+            demo.first_unread(&room().into()).await.expect("known").first,
             Some(MessageId::from("!room1:demo/15"))
         );
     }
