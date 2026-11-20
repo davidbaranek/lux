@@ -71,7 +71,7 @@ final class ComposerReviewBar: NSStackView {
     private static func round(_ symbol: String, label: String, target: AnyObject, action: Selector) -> NSButton {
         let button = NSButton(image: NSImage.symbol(symbol, label: label), target: target, action: action)
         button.bezelStyle = .circular
-        button.controlSize = .large
+        button.controlSize = .regular
         button.toolTip = label
         return button
     }

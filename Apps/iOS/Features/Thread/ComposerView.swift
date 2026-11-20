@@ -419,9 +419,9 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         placeholder.isHidden = !textView.text.isEmpty
         updateButton()
         send.isEnabled = !empty || showsEye || !attachments.isEmpty
-        // grow to five lines, then scroll.
+        // grow to eight lines, then scroll.
         let fitting = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)).height
-        let maximum = (textView.font ?? .preferredFont(forTextStyle: .body)).lineHeight * 5 + 14
+        let maximum = (textView.font ?? .preferredFont(forTextStyle: .body)).lineHeight * 8 + 14
         textView.isScrollEnabled = fitting > maximum
         let new = min(max(fitting, 36), maximum)
         guard new != height.constant else { return }
@@ -524,8 +524,8 @@ private final class ReviewBar: UIView {
             box.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             row.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
             row.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -8),
-            row.topAnchor.constraint(equalTo: box.topAnchor, constant: 8),
-            row.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -8),
+            row.topAnchor.constraint(equalTo: box.topAnchor, constant: 5),
+            row.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -5),
             icon.widthAnchor.constraint(equalToConstant: 22),
         ])
         icon.setContentHuggingPriority(.required, for: .horizontal)
@@ -543,8 +543,8 @@ private final class ReviewBar: UIView {
         let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
         button.accessibilityLabel = label
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 36),
-            button.heightAnchor.constraint(equalToConstant: 36),
+            button.widthAnchor.constraint(equalToConstant: 32),
+            button.heightAnchor.constraint(equalToConstant: 32),
         ])
         return button
     }
