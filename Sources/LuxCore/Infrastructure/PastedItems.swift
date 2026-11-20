@@ -48,26 +48,35 @@ public enum PastedItems {
         }
     }
 
-    /// The file an item provider holds (a pasted or dropped photo, video or file), copied into a
-    /// folder of its own in `directory` before the provider lets it go, named `name` if given,
-    /// else as the provider's file is (a file by its URL keeps its own name). It stays on the
-    /// caller's actor (a provider is not `Sendable`); the provider copies on a queue of its own.
-    public nonisolated(nonsending) static func file(from provider: NSItemProvider, type: UTType, name: String? = nil,
-                                                    in directory: URL) async throws -> URL {
+    /// Starts copying the file an item provider holds (a pasted or dropped photo, video or file)
+    /// into a folder of its own in `directory`, named `name` if given, else as the provider's file
+    /// is (a file by its URL keeps its own name); the task gives the copy. The provider is asked
+    /// at once, before this returns: a pasteboard's item hands its data only right after the
+    /// paste ("Cannot load representation" a moment later), and a drop's only while it is
+    /// performed. The provider copies on a queue of its own.
+    public static func copying(from provider: NSItemProvider, type: UTType, name: String? = nil,
+                               in directory: URL) -> Task<URL, any Error> {
+        let (copied, result) = AsyncThrowingStream<URL, any Error>.makeStream()
         if type == .fileURL {
-            return try await withCheckedThrowingContinuation { continuation in
-                _ = provider.loadObject(ofClass: URL.self) { url, error in
-                    guard let url else { return continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown)) }
-                    continuation.resume(with: Result { try copy(url, named: url.lastPathComponent, into: directory) })
-                }
+            _ = provider.loadObject(ofClass: URL.self) { url, error in
+                result.yield(with: Result {
+                    guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
+                    return try copy(url, named: url.lastPathComponent, into: directory)
+                })
+                result.finish()
+            }
+        } else {
+            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, error in
+                result.yield(with: Result {
+                    guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
+                    return try copy(url, named: name.map { fileName($0, type: type) } ?? url.lastPathComponent, into: directory)
+                })
+                result.finish()
             }
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, error in
-                guard let url else { return continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown)) }
-                let named = name.map { fileName($0, type: type) } ?? url.lastPathComponent
-                continuation.resume(with: Result { try copy(url, named: named, into: directory) })
-            }
+        return Task {
+            for try await file in copied { return file }
+            throw CocoaError(.fileReadUnknown)
         }
     }
 
