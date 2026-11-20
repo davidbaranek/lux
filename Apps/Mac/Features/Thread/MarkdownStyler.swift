@@ -44,15 +44,10 @@ enum MarkdownStyler {
     static func toggle(_ mark: String, in textView: NSTextView) {
         guard let storage = textView.textStorage else { return }
         let selection = ComposerPills.expanded(textView.selectedRange(), in: storage)
-        let old = textView.string, length = (mark as NSString).length
-        let changed = Markdown.toggle(mark, in: old, selection: selection)
-        // the marks' places, the later first: the earlier stays where it is.
-        let edits: [(NSRange, String)] = (changed.text as NSString).length > (old as NSString).length
-            ? [(NSRange(location: NSMaxRange(selection), length: 0), mark), (NSRange(location: selection.location, length: 0), mark)]
-            : [(NSRange(location: NSMaxRange(selection), length: length), ""), (NSRange(location: selection.location - length, length: length), "")]
-        for (range, text) in edits {
-            guard textView.shouldChangeText(in: range, replacementString: text) else { return }
-            textView.replaceCharacters(in: range, with: text)
+        let changed = Markdown.toggleEdits(mark, in: textView.string, selection: selection)
+        for edit in changed.edits {
+            guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
+            textView.replaceCharacters(in: edit.range, with: edit.replacement)
             textView.didChangeText()
         }
         textView.setSelectedRange(changed.selection)

@@ -479,16 +479,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         // a pill is not cut by marks: they go around its whole run, and the text between them
         // (its pills) stays as it is.
         let selection = ComposerPills.expanded(textView.selectedRange, in: textView.textStorage)
-        let before = (textView.text as NSString).length
-        let changed = Markdown.toggle(mark, in: textView.text, selection: selection)
-        let length = (mark as NSString).length
-        if (changed.text as NSString).length > before {
-            replace(NSRange(location: NSMaxRange(selection), length: 0), with: mark)
-            replace(NSRange(location: selection.location, length: 0), with: mark)
-        } else {
-            replace(NSRange(location: NSMaxRange(selection), length: length), with: "")
-            replace(NSRange(location: selection.location - length, length: length), with: "")
-        }
+        let changed = Markdown.toggleEdits(mark, in: textView.text, selection: selection)
+        for edit in changed.edits { replace(edit.range, with: edit.replacement) }
         textView.selectedRange = changed.selection
         textViewDidChange(textView)
     }
