@@ -1,3 +1,4 @@
+import AppIntents
 import AppKit
 import LuxCore
 
@@ -19,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the notification center's delegate before launching ends: a click on a notification
         // that launched the app reaches it.
         notifications = MacNotifications(session: session)
+        // Siri's and Shortcuts' intents reach the session, and open a chat as Handoff does.
+        let host = IntentHost(session: session) { [weak self] chat in self?.open(chat) }
+        AppDependencyManager.shared.add(dependency: host)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -44,8 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, continue userActivity: NSUserActivity,
                      restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
         guard let chat = ChatActivity(userActivity) else { return false }
-        if let split = window?.contentViewController as? MainSplitViewController { open(chat, in: split) } else { chatToOpen = chat }
+        open(chat)
         return true
+    }
+
+    /// Opens `chat`, once the chats show if they do not yet: from Handoff, or an intent.
+    private func open(_ chat: ChatActivity) {
+        if let split = window?.contentViewController as? MainSplitViewController { open(chat, in: split) } else { chatToOpen = chat }
     }
 
     /// A chat continued before the chats showed.
