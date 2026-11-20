@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData, Implementation, ListToolsResult,
-    PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
+    MetaObject, PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
+    ReadResourceResult, ResourceContents, ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, ServiceExt};
@@ -294,10 +295,37 @@ async fn serve_mcp(socket: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+/// The preview of a message to send, an MCP App.
+const SEND_PREVIEW: &str = "ui://lux/send.html";
+const SEND_PREVIEW_HTML: &str = include_str!("send.html");
+/// MCP Apps' extension, as a client that draws them says in its capabilities.
+const APPS_EXTENSION: &str = "io.modelcontextprotocol/ui";
+
+fn meta(value: Value) -> MetaObject {
+    MetaObject(match value {
+        Value::Object(object) => object,
+        _ => serde_json::Map::new(),
+    })
+}
+
+/// The preview's Send: callable by the preview only (MCP Apps' `visibility: ["app"]`), never
+/// listed to the model.
+fn confirm_tool() -> Tool {
+    let input = json!({ "type": "object", "properties": { "token": { "type": "string" } }, "required": ["token"] });
+    Tool::new(
+        "confirm_send",
+        "Sends the message the preview shows: its Send button only.",
+        Arc::new(input.as_object().cloned().unwrap_or_default()),
+    )
+    .with_meta(meta(
+        json!({ "ui": { "resourceUri": SEND_PREVIEW, "visibility": ["app"] } }),
+    ))
+}
+
 fn mcp_tool(spec: &ToolSpec) -> Tool {
     let object = |value: &Value| Arc::new(value.as_object().cloned().unwrap_or_default());
     let read_only = spec.grant == Grant::Read;
-    Tool::new(spec.name, spec.description, object(&spec.input_schema))
+    let tool = Tool::new(spec.name, spec.description, object(&spec.input_schema))
         .with_title(spec.title)
         .with_raw_output_schema(object(&spec.output_schema))
         .with_annotations(
@@ -306,14 +334,19 @@ fn mcp_tool(spec: &ToolSpec) -> Tool {
                 .destructive(false)
                 .idempotent(read_only || spec.name == "draft_reply")
                 .open_world(spec.name == "send_message"),
-        )
+        );
+    if spec.name == "send_message" {
+        tool.with_meta(meta(json!({ "ui": { "resourceUri": SEND_PREVIEW } })))
+    } else {
+        tool
+    }
 }
 
 // the tools' list is the binary's own: nothing to wait for.
 #[allow(clippy::unused_async_trait_impl)]
 impl ServerHandler for McpFront {
     fn get_info(&self) -> ServerConfig {
-        let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build());
+        let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_resources().build());
         info.protocol_version = ProtocolVersion::V_2026_07_28;
         info.server_info = Implementation::new("lux", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(instructions());
@@ -327,7 +360,9 @@ impl ServerHandler for McpFront {
     ) -> Result<ListToolsResult, ErrorData> {
         let mut specs = tools();
         specs.push(request_access_spec());
-        Ok(ListToolsResult::with_all_items(specs.iter().map(mcp_tool).collect()))
+        let mut tools: Vec<Tool> = specs.iter().map(mcp_tool).collect();
+        tools.push(confirm_tool());
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     async fn call_tool(
@@ -357,6 +392,23 @@ impl ServerHandler for McpFront {
             return Ok(CallToolResult::error(vec![ContentBlock::text("no session")]).into());
         };
         let arguments = Value::Object(request.arguments.unwrap_or_default());
+        // a client that draws MCP Apps shows the preview with Send; another, Lux asks.
+        let draws_apps = context
+            .peer
+            .peer_info()
+            .and_then(|info| {
+                info.capabilities
+                    .extensions
+                    .as_ref()
+                    .map(|extensions| extensions.contains_key(APPS_EXTENSION))
+            })
+            .unwrap_or(false);
+        if request.name == "send_message" && draws_apps {
+            return Ok(match open.call("prepare_send", arguments).await {
+                Ok(prepared) => preview(&prepared),
+                Err((code, message)) => failure(code, &message),
+            });
+        }
         let answer = if request.name == "request_access" {
             match serde_json::from_value::<RequestAccess>(arguments) {
                 Ok(asked) => open.request_access(asked.grant, asked.reason).await,
@@ -371,12 +423,51 @@ impl ServerHandler for McpFront {
                 result.is_error = Some(false);
                 result.into()
             }
-            Err((code, message)) => {
-                let code = serde_json::to_value(code).unwrap_or_default();
-                CallToolResult::structured_error(json!({ "code": code, "message": message })).into()
-            }
+            Err((code, message)) => failure(code, &message),
         })
     }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        if request.uri != SEND_PREVIEW {
+            return Err(ErrorData::resource_not_found(
+                format!("no resource {}", request.uri),
+                None,
+            ));
+        }
+        let contents = ResourceContents::TextResourceContents {
+            uri: SEND_PREVIEW.to_owned(),
+            mime_type: Some("text/html;profile=mcp-app".to_owned()),
+            text: SEND_PREVIEW_HTML.to_owned(),
+            meta: None,
+        };
+        Ok(ReadResourceResult::new(vec![contents]).into())
+    }
+}
+
+fn failure(code: ToolErrorCode, message: &str) -> CallToolResponse {
+    let code = serde_json::to_value(code).unwrap_or_default();
+    CallToolResult::structured_error(json!({ "code": code, "message": message })).into()
+}
+
+/// A prepared message as the preview's result: the model reads its status; the token, the chat
+/// and the text go to the preview only, in `_meta`.
+fn preview(prepared: &Value) -> CallToolResponse {
+    let status = prepared.get("status").cloned().unwrap_or_default();
+    let words = if status == "sent" {
+        "Sent: this session may send on its own in this chat."
+    } else {
+        "Shown to the user with a Send button; nothing is sent unless they press it."
+    };
+    let mut result = CallToolResult::success(vec![ContentBlock::text(words)]);
+    result.structured_content = Some(json!({ "status": status }));
+    result.meta = Some(meta(
+        json!({ "token": prepared.get("token"), "chat": prepared.get("chat"), "text": prepared.get("text") }),
+    ));
+    result.into()
 }
 
 // MARK: The skill

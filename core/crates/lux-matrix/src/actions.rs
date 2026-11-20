@@ -434,6 +434,15 @@ impl Organizing for MatrixAccount {
             .await
     }
 
+    async fn set_hidden_from_ai(&self, chat: &ChatId, name: &str, hidden: bool) -> Result<(), BackendError> {
+        let (chat, name) = (chat.to_string(), name.to_owned());
+        self.organizer
+            .change(change_document(formats::AI, move |content| {
+                formats::with_hidden_from_ai(content, &chat, &name, hidden)
+            }))
+            .await
+    }
+
     async fn set_arrangement(&self, arrangement: &Arrangement) -> Result<(), BackendError> {
         let arrangement = arrangement.clone();
         self.organizer

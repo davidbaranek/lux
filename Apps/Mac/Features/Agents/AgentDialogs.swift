@@ -50,6 +50,13 @@ final class AgentDialogs: AgentsPresenter {
         }
     }
 
+    func send(_ text: String, inRoom roomId: String) {
+        Task {
+            guard let thread = await split?.openedChat(roomId: roomId) else { return }
+            thread.model.send(text)
+        }
+    }
+
     func confirmSend(_ text: String, inRoom roomId: String, client: String) async -> Bool {
         guard let thread = await split?.openedChat(roomId: roomId) else { return false }
         let alert = NSAlert()

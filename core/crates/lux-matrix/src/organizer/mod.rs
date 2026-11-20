@@ -94,6 +94,7 @@ impl Documents {
             merges,
             saved: formats::bookmarks(self.content(formats::BOOKMARKS), &self.own),
             arrangement: formats::arrangement(self.content(formats::PLACE_ORDER)),
+            hidden_from_ai: formats::hidden_from_ai(self.content(formats::AI)),
         }
     }
 

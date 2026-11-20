@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff; --bubble: #e9e9eb; --accent: #0a84ff; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #f5f5f7; --muted: #98989d; --bg: #1c1c1e; --bubble: #2c2c2e; } }
+  body { margin: 0; padding: 12px; font: 14px -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  #chat { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  #text { background: var(--bubble); border-radius: 14px; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 6px 16px; background: var(--accent); color: #fff; }
+  button:disabled { opacity: 0.4; }
+  #state { color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="chat"></div>
+<div id="text"></div>
+<div id="row"><button id="send" disabled>Send</button><span id="state"></span></div>
+<script>
+  // Lux's preview of a message an agent asks to send: the user's Send calls the app-only
+  // `confirm_send` with the token from the result's _meta, which the model never sees.
+  const chat = document.getElementById("chat"), text = document.getElementById("text");
+  const send = document.getElementById("send"), state = document.getElementById("state");
+  let next = 0, token = null;
+  const waiting = {};
+  function request(method, params) {
+    return new Promise((resolve, reject) => {
+      const id = ++next;
+      waiting[id] = { resolve, reject };
+      window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+    });
+  }
+  function show(result) {
+    const meta = result._meta || {}, status = (result.structuredContent || {}).status;
+    chat.textContent = meta.chat ? "To " + meta.chat : "";
+    text.textContent = meta.text || "";
+    token = meta.token || null;
+    send.disabled = !token;
+    state.textContent = status === "sent" ? "Sent" : "";
+  }
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (!message || message.jsonrpc !== "2.0") return;
+    if (message.id !== undefined && waiting[message.id]) {
+      const { resolve, reject } = waiting[message.id];
+      delete waiting[message.id];
+      message.error ? reject(message.error) : resolve(message.result);
+    } else if (message.method === "ui/notifications/tool-result") {
+      show(message.params || {});
+    }
+  });
+  send.addEventListener("click", async () => {
+    send.disabled = true;
+    state.textContent = "Sending…";
+    try {
+      const result = await request("tools/call", { name: "confirm_send", arguments: { token } });
+      state.textContent = result && result.isError ? "Not sent" : "Sent";
+    } catch {
+      state.textContent = "Not sent";
+      send.disabled = false;
+    }
+  });
+  request("ui/initialize", { appInfo: { name: "Lux", version: "1" }, appCapabilities: {}, protocolVersion: "2026-01-26" })
+    .then(() => window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*"));
+</script>
+</body>
+</html>

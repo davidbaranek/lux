@@ -53,6 +53,7 @@ fn message(id: &str, room: &str, text: &str, seconds: u64) -> MessageHit {
 #[derive(Default)]
 struct Account {
     drafts: Mutex<Vec<(String, String)>>,
+    sent: Mutex<Vec<(String, String)>>,
     log: Mutex<Vec<LogEntry>>,
 }
 
@@ -60,6 +61,10 @@ struct Account {
 struct Shared(Arc<Account>);
 
 impl AgentBackend for Shared {
+    async fn hidden(&self) -> HashSet<String> {
+        HashSet::from(["!secret".to_owned()])
+    }
+
     async fn chats(&self) -> Result<Vec<ChatSummary>, BackendError> {
         Ok(vec![
             chat("family", &["!a", "!b"], "Family", 2, 5),
@@ -90,6 +95,11 @@ impl AgentBackend for Shared {
 
     async fn show_draft(&self, chat: String, text: String) -> Result<(), BackendError> {
         self.0.drafts.lock().unwrap().push((chat, text));
+        Ok(())
+    }
+
+    async fn send(&self, chat: String, text: String) -> Result<(), BackendError> {
+        self.0.sent.lock().unwrap().push((chat, text));
         Ok(())
     }
 
@@ -165,7 +175,6 @@ async fn session(
     let path = folder.path().join("agents.sock");
     let account = Arc::new(Account::default());
     let agent = Arc::new(Agent::new(Shared(Arc::clone(&account))));
-    agent.set_hidden(HashSet::from(["!secret".to_owned()]));
     let user = Arc::new(user);
     let mut server = tokio::task::JoinSet::new();
     server.spawn(serve(bind(&path).unwrap(), agent, Arc::clone(&user)));
@@ -266,5 +275,56 @@ async fn more_asked_for_and_granted_lets_a_session_draft_and_ask_to_send() {
         .call(3, "send_message", json!({ "chat_id": "family", "text": "On my way" }))
         .await;
     assert_eq!(sent["result"]["value"]["status"], "cancelled");
+    drop(server);
+}
+
+#[tokio::test]
+async fn a_session_that_sends_on_its_own_does_so_only_in_a_chat_it_read() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::AutoSend,
+        more: None,
+        asked: Mutex::default(),
+    })
+    .await;
+    // not read yet: asked in Lux (the fake user cancels).
+    let asked = client
+        .call(1, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+        .await;
+    assert_eq!(asked["result"]["value"]["status"], "cancelled");
+    assert!(account.sent.lock().unwrap().is_empty());
+
+    client.call(2, "read_chat", json!({ "chat_id": "family" })).await;
+    let sent = client
+        .call(3, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+        .await;
+    assert_eq!(sent["result"]["value"]["status"], "sent");
+    assert_eq!(account.sent.lock().unwrap()[0], ("family".to_owned(), "Hi".to_owned()));
+    drop(server);
+}
+
+#[tokio::test]
+async fn a_preview_sends_once_with_its_token() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::Send,
+        more: None,
+        asked: Mutex::default(),
+    })
+    .await;
+    let prepared = client
+        .call(1, "prepare_send", json!({ "chat_id": "work", "text": "Done" }))
+        .await;
+    assert_eq!(prepared["result"]["value"]["status"], "awaiting_user");
+    assert_eq!(prepared["result"]["value"]["chat"], "Work");
+    let token = prepared["result"]["value"]["token"].as_str().unwrap().to_owned();
+    assert_eq!(token.len(), 32);
+    assert!(account.sent.lock().unwrap().is_empty());
+
+    let wrong = client.call(2, "confirm_send", json!({ "token": "nope" })).await;
+    assert_eq!(wrong["error"]["code"], "not_found");
+    let sent = client.call(3, "confirm_send", json!({ "token": token })).await;
+    assert_eq!(sent["result"]["value"]["status"], "sent");
+    let again = client.call(4, "confirm_send", json!({ "token": token })).await;
+    assert_eq!(again["error"]["code"], "not_found");
+    assert_eq!(account.sent.lock().unwrap().len(), 1);
     drop(server);
 }

@@ -15,6 +15,8 @@ final class AgentsSettingsController: NSViewController {
     private lazy var approved = NSPopUpButton(frame: .zero, pullsDown: true)
     private let activity = NSTextField(wrappingLabelWithString: "")
     private var observation: AnyObject?
+    /// The chats kept from AI, as the account last said.
+    private var hiddenChats: [HiddenChat] = []
 
     init(session: Session) {
         self.session = session
@@ -37,6 +39,8 @@ final class AgentsSettingsController: NSViewController {
             [NSTextField(labelWithString: String(localized: "Command:")), copyable(Agents.command)],
             [NSTextField(labelWithString: String(localized: "MCP server:")), copyable(mcp)],
             [NSTextField(labelWithString: String(localized: "Claude Code:")), copyable("claude mcp add lux -- \(mcp)")],
+            [NSTextField(labelWithString: String(localized: "Claude Desktop:")),
+             NSButton(title: String(localized: "Add to Claude Desktop…"), target: self, action: #selector(addToClaudeDesktop))],
             [NSTextField(labelWithString: String(localized: "Skill:")),
              NSButton(title: String(localized: "Install Skill…"), target: self, action: #selector(installSkill))],
             [NSTextField(labelWithString: String(localized: "Hidden from AI:")), hidden],
@@ -45,6 +49,16 @@ final class AgentsSettingsController: NSViewController {
         ])
         observation = agents.changes.observe { [weak self] in self?.update() }
         update()
+        loadHidden()
+    }
+
+    /// The hidden chats from the account: another device may have changed them.
+    private func loadHidden() {
+        Task { [weak self, session] in
+            let hidden = await session.hiddenFromAI()
+            self?.hiddenChats = hidden
+            self?.update()
+        }
     }
 
     /// `text` in a field the user selects and copies, with a Copy button.
@@ -73,7 +87,7 @@ final class AgentsSettingsController: NSViewController {
             String(localized: "Off: no agent reaches your chats.")
         }
         hidden.removeAllItems()
-        let chats = agents.hiddenChats
+        let chats = hiddenChats
         hidden.addItem(withTitle: chats.isEmpty ? String(localized: "No chats") : String(localized: "\(chats.count) chats"))
         hidden.menu?.addItem(NSMenuItem(title: String(localized: "Add a Chat…"), action: #selector(addHidden), keyEquivalent: ""))
         for chat in chats {
@@ -147,14 +161,42 @@ final class AgentsSettingsController: NSViewController {
     @objc private func addHidden() {
         let picker = ChatPickerController(session: session, title: String(localized: "Hide a Chat from AI"),
                                           action: String(localized: "Hide")) { [weak self] row in
-            self?.agents.hide(row)
+            self?.setHidden(HiddenChat(id: row.id, name: row.name), hidden: true)
         }
         presentAsSheet(picker)
     }
 
     @objc private func removeHidden(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        agents.unhide(id)
+        guard let id = sender.representedObject as? String, let chat = hiddenChats.first(where: { $0.id == id }) else { return }
+        setHidden(chat, hidden: false)
+    }
+
+    private func setHidden(_ chat: HiddenChat, hidden: Bool) {
+        Task { [weak self, session] in
+            do {
+                try await session.setHiddenFromAI(chat, hidden: hidden)
+            } catch {
+                self?.show(error, title: String(localized: "The chat could not be changed"))
+            }
+            self?.loadHidden()
+        }
+    }
+
+    private func show(_ error: any Error, title: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = error.localizedDescription
+        if let window = view.window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+    }
+
+    /// Claude Desktop installs Lux as an extension: an MCP Bundle (`.mcpb`) whose server is this
+    /// app's own executable (`agent mcp`), opened with Claude Desktop, which asks the user.
+    @objc private func addToClaudeDesktop() {
+        do {
+            NSWorkspace.shared.open(try MCPBundle.make())
+        } catch {
+            show(error, title: String(localized: "The extension could not be made"))
+        }
     }
 
     @objc private func forget(_ sender: NSMenuItem) {

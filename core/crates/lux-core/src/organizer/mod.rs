@@ -33,6 +33,17 @@ pub struct Organized {
     pub saved: Vec<SavedMessage>,
     /// How the places are arranged.
     pub arrangement: Arrangement,
+    /// The chats no AI in Lux sees, by name.
+    pub hidden_from_ai: Vec<HiddenChat>,
+}
+
+/// A chat the user keeps from every AI in Lux (agents, Siri, a model's tools).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HiddenChat {
+    /// The chat's id, as the list has it (a room's, or a merged chat's).
+    pub chat: ChatId,
+    /// Its name when it was hidden, for Settings to list it by.
+    pub name: String,
 }
 
 impl Organized {

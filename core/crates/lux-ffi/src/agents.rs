@@ -7,16 +7,18 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use futures_util::StreamExt;
 use lux_agent::{
     Agent, AgentBackend, Approval, ApprovalAnswer, Approver, BackendError, ChatSummary, ClientKind, Grant, LogEntry,
     MessageHit, SendOutcome,
 };
-use lux_core::ids::RoomId;
+use lux_core::ids::{ChatId, RoomId};
+use lux_core::ports::Organizing;
 use lux_store::TextSearch;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-use crate::account::CoreAccount;
+use crate::account::{CoreAccount, CoreAccountError, with_account};
 use crate::runtime;
 use crate::store::CoreStore;
 
@@ -29,6 +31,8 @@ pub enum CoreAgentGrant {
     Drafts,
     /// Also ask to send, each message after the user's click.
     Send,
+    /// Also send on its own, in a chat it read, a few an hour.
+    AutoSend,
 }
 
 impl From<Grant> for CoreAgentGrant {
@@ -37,6 +41,7 @@ impl From<Grant> for CoreAgentGrant {
             Grant::Read => Self::Read,
             Grant::Drafts => Self::Drafts,
             Grant::Send => Self::Send,
+            Grant::AutoSend => Self::AutoSend,
         }
     }
 }
@@ -47,6 +52,7 @@ impl From<CoreAgentGrant> for Grant {
             CoreAgentGrant::Read => Self::Read,
             CoreAgentGrant::Drafts => Self::Drafts,
             CoreAgentGrant::Send => Self::Send,
+            CoreAgentGrant::AutoSend => Self::AutoSend,
         }
     }
 }
@@ -174,6 +180,10 @@ pub trait CoreAgentHost: Send + Sync {
     /// Opens the chat of `room_id` with `text` in its composer.
     fn show_draft(&self, room_id: String, text: String);
 
+    /// Sends `text` in the chat of `room_id`, which the user allowed: the chat opens and the
+    /// message goes, as the user's own.
+    fn send(&self, room_id: String, text: String);
+
     /// Opens the chat of `room_id` and shows `text` to send, asked by `client`: the user's Send
     /// or Cancel through `reply`.
     fn confirm_send(&self, room_id: String, text: String, client: String, reply: Arc<CoreAgentSendReply>);
@@ -221,6 +231,14 @@ fn hit(hit: lux_store::Hit) -> MessageHit {
 }
 
 impl AgentBackend for AppBackend {
+    async fn hidden(&self) -> HashSet<String> {
+        hidden(&self.account)
+            .await
+            .into_iter()
+            .map(|chat| chat.chat.to_string())
+            .collect()
+    }
+
     async fn chats(&self) -> Result<Vec<ChatSummary>, BackendError> {
         Ok(self
             .account
@@ -291,6 +309,11 @@ impl AgentBackend for AppBackend {
         Ok(())
     }
 
+    async fn send(&self, chat: String, text: String) -> Result<(), BackendError> {
+        self.host.send(self.room(&chat).await?, text);
+        Ok(())
+    }
+
     async fn confirm_send(&self, chat: String, text: String, client: String) -> Result<SendOutcome, BackendError> {
         let room = self.room(&chat).await?;
         let (reply, sent) = Reply::new();
@@ -352,7 +375,6 @@ pub enum CoreAgentsError {
 /// The agents' socket, open while this lives.
 #[derive(uniffi::Object)]
 pub struct CoreAgents {
-    agent: Arc<Agent<AppBackend>>,
     task: JoinHandle<()>,
 }
 
@@ -387,12 +409,7 @@ impl CoreAgents {
             Arc::clone(&agent),
             Arc::new(AppApprover(host)),
         ));
-        Ok(Arc::new(Self { agent, task }))
-    }
-
-    /// The chats kept from AI from now on, by chat id or room.
-    pub fn set_hidden(&self, chats: Vec<String>) {
-        self.agent.set_hidden(chats.into_iter().collect::<HashSet<_>>());
+        Ok(Arc::new(Self { task }))
     }
 }
 
@@ -400,6 +417,55 @@ impl Drop for CoreAgents {
     fn drop(&mut self) {
         self.task.abort();
     }
+}
+
+/// A chat kept from every AI in Lux.
+#[derive(uniffi::Record)]
+pub struct CoreHiddenChat {
+    /// The chat's id, as the list has it.
+    pub chat_id: String,
+    /// Its name when it was hidden.
+    pub name: String,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl CoreAccount {
+    /// The chats kept from every AI in Lux, on every device.
+    pub async fn hidden_from_ai(&self) -> Vec<CoreHiddenChat> {
+        hidden(self)
+            .await
+            .into_iter()
+            .map(|chat| CoreHiddenChat {
+                chat_id: chat.chat.to_string(),
+                name: chat.name,
+            })
+            .collect()
+    }
+
+    /// Keeps the chat `chat_id` (named `name`) from every AI in Lux, or shows it again.
+    ///
+    /// # Errors
+    /// When the server does not take it.
+    pub async fn set_hidden_from_ai(
+        &self,
+        chat_id: String,
+        name: String,
+        hidden: bool,
+    ) -> Result<(), CoreAccountError> {
+        let chat = ChatId::from(chat_id.as_str());
+        with_account!(self.backend(), account => account.set_hidden_from_ai(&chat, &name, hidden).await)?;
+        Ok(())
+    }
+}
+
+/// The account's hidden chats now.
+async fn hidden(account: &CoreAccount) -> Vec<lux_core::organizer::HiddenChat> {
+    let mut organized = with_account!(account.backend(), account => account.organized());
+    organized
+        .next()
+        .await
+        .map(|organized| organized.hidden_from_ai.clone())
+        .unwrap_or_default()
 }
 
 /// The `lux` binary: the app's executable run as `Lux agent <arguments>`, a CLI or an MCP server

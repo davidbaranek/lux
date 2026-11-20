@@ -91,6 +91,7 @@
 		72807625730B30EA0A646A10 /* PinnedPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1354E450B5443A27B66F812 /* PinnedPane.swift */; };
 		75808F15A930DB91B1F6F42C /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = DFB93559DA0DA8A754916B22 /* LuxCore */; };
 		767711A28284B248ACBB839C /* DownloaderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378931B4C04A8B241BE933C4 /* DownloaderExtension.swift */; };
+		77A7A12017CCEC65BDF6EF4E /* MCPBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90DFE5625E7EA2EBA25AD123 /* MCPBundle.swift */; };
 		780316DD6166F699F95047BE /* UIViewController+Failure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA6FB47F4FED7224573798C /* UIViewController+Failure.swift */; };
 		7848537AB542D826602972C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 70CDAD96292E9567EEE87F30 /* Assets.xcassets */; };
 		7C7427B591EA931155CA4E86 /* LuxIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D9178216D34C7B1E7959B7 /* LuxIntents.swift */; };
@@ -378,6 +379,7 @@
 		86A0879E00055D31BFA4E16B /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		88390BD714EFAF0311AD7B28 /* ScrollBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollBenchmark.swift; sourceTree = "<group>"; };
 		8A9FDD904FB58AA355D5B3CC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		90DFE5625E7EA2EBA25AD123 /* MCPBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPBundle.swift; sourceTree = "<group>"; };
 		9644BAAAE059CA06889DB30A /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
 		977E45B2786136014F3666DB /* NSViewController+Failure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSViewController+Failure.swift"; sourceTree = "<group>"; };
 		97D38CDE5B816C247508144E /* DevicesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesViewController.swift; sourceTree = "<group>"; };
@@ -979,6 +981,7 @@
 			isa = PBXGroup;
 			children = (
 				9AABA870C350A97660A9D625 /* AgentDialogs.swift */,
+				90DFE5625E7EA2EBA25AD123 /* MCPBundle.swift */,
 			);
 			path = Agents;
 			sourceTree = "<group>";
@@ -1407,6 +1410,7 @@
 				E08452C764F062D293602F98 /* InspectorController.swift in Sources */,
 				ED1DBD72CF9220FA4A9C1D3D /* LoadingBubble.swift in Sources */,
 				7C7427B591EA931155CA4E86 /* LuxIntents.swift in Sources */,
+				77A7A12017CCEC65BDF6EF4E /* MCPBundle.swift in Sources */,
 				D0D845E10A264E5B956982F6 /* MainSplitViewController.swift in Sources */,
 				0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */,
 				B7FABBAC58BE66304CF664FE /* MembersPane.swift in Sources */,

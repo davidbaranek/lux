@@ -81,6 +81,20 @@ pub async fn serve<B: AgentBackend, A: Approver>(listener: UnixListener, agent: 
     }
 }
 
+/// A one-time token: 16 random bytes in hex.
+pub(crate) fn token() -> String {
+    let mut bytes = [0_u8; 16];
+    if getrandom::fill(&mut bytes).is_err() {
+        // no randomness: a token nobody can guess is none at all.
+        return String::new();
+    }
+    bytes
+        .iter()
+        .flat_map(|byte| [byte >> 4, byte & 0x0f])
+        .filter_map(|nibble| char::from_digit(u32::from(nibble), 16))
+        .collect()
+}
+
 /// A four-character match code from a set without look-alikes (no 0/O, 1/I), as `K7-Q2`.
 fn code() -> String {
     const LETTERS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

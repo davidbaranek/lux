@@ -97,6 +97,14 @@ pub trait Organizing: Send + Sync {
 
     /// Keeps how the user arranged the places.
     fn set_arrangement(&self, arrangement: &Arrangement) -> impl Future<Output = Result<(), BackendError>> + Send;
+
+    /// Keeps `chat` (named `name`) from every AI in Lux, or shows it again: on every device.
+    fn set_hidden_from_ai(
+        &self,
+        chat: &ChatId,
+        name: &str,
+        hidden: bool,
+    ) -> impl Future<Output = Result<(), BackendError>> + Send;
 }
 
 /// The messages the user saved, across chats; they show in [`Organizing::organized`].

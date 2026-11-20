@@ -9,9 +9,10 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lux_core::chat::{SavedKind, SavedMessage};
+use lux_core::ids::ChatId;
 use lux_core::ids::{EventId, LabelId, RoomId, UserId};
 use lux_core::merge::Merge;
-use lux_core::organizer::{ChatMarks, LabelRecord, Reminder, Reminders, WholeLabel};
+use lux_core::organizer::{ChatMarks, HiddenChat, LabelRecord, Reminder, Reminders, WholeLabel};
 use lux_core::places::{Arrangement, InboxRule, PlaceKey, Theme};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -35,8 +36,11 @@ pub(crate) const LABEL_RECORD_PREFIX: &str = "com.bardav.lux.labels.v2.";
 /// Changed with each change to the labels, so a device that watches it reads them again.
 pub(crate) const LABELS_CHANGED: &str = "com.bardav.lux.labels.changed";
 
+/// AI in Lux: the chats kept from it.
+pub(crate) const AI: &str = "com.bardav.lux.ai";
+
 /// The documents of one type the core reads at launch from the store, by their type.
-pub(crate) const KNOWN: [&str; 6] = [CHATS, REMINDERS, MERGES, BOOKMARKS, PLACE_ORDER, LABELS];
+pub(crate) const KNOWN: [&str; 7] = [CHATS, REMINDERS, MERGES, BOOKMARKS, PLACE_ORDER, LABELS, AI];
 
 /// An event's content: a JSON object.
 pub(crate) type Content = Map<String, Value>;
@@ -224,6 +228,42 @@ pub(crate) struct Bookmark<'a> {
 
 /// The longest text a saved message keeps: the list shows three lines, the chat the rest.
 pub(crate) const BOOKMARK_BODY_LIMIT: usize = 500;
+
+/// `{"hidden": [{"chat", "name"}]}`: the chats kept from AI.
+pub(crate) fn hidden_from_ai(content: &Content) -> Vec<HiddenChat> {
+    content
+        .get("hidden")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let chat = entry.get("chat")?.as_str()?;
+            let name = entry.get("name").and_then(Value::as_str).unwrap_or_default();
+            Some(HiddenChat {
+                chat: ChatId::from(chat),
+                name: name.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// The content with `chat` kept from AI (named `name`) or shown again; the other keys stay.
+pub(crate) fn with_hidden_from_ai(content: &Content, chat: &str, name: &str, hidden: bool) -> Content {
+    let mut entries: Vec<Value> = content
+        .get("hidden")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.get("chat").and_then(Value::as_str) != Some(chat))
+        .cloned()
+        .collect();
+    if hidden {
+        entries.push(json!({ "chat": chat, "name": name }));
+    }
+    let mut content = content.clone();
+    content.insert("hidden".to_owned(), entries.into());
+    content
+}
 
 /// The bookmarks with `added` first (in place of the same message) and without `removed`.
 pub(crate) fn with_bookmark(
@@ -547,6 +587,19 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].default_room, RoomId::from("!a"));
         assert_eq!(merges(&with_merges(&stored, &all)), all);
+    }
+
+    #[test]
+    fn hidden_chats_add_remove_and_read() {
+        let stored = content(json!({"hidden": [{"chat": "!a", "name": "Bank"}], "future": 1}));
+        let added = with_hidden_from_ai(&stored, "merge:x", "Family", true);
+        let read = hidden_from_ai(&added);
+        assert_eq!(read.len(), 2);
+        assert_eq!(read[1].name, "Family");
+        let removed = with_hidden_from_ai(&added, "!a", "", false);
+        assert_eq!(hidden_from_ai(&removed).len(), 1);
+        // another version's keys stay.
+        assert_eq!(removed["future"], json!(1));
     }
 
     #[test]

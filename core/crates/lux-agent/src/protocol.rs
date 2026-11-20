@@ -11,8 +11,12 @@ pub enum Grant {
     Read,
     /// Also put a draft in a chat's composer, where the user sees it.
     Drafts,
-    /// Also ask to send a message; each one waits for the user's click in Lux.
+    /// Also ask to send a message; each one waits for the user's click (in Lux, or on the MCP
+    /// client's preview).
     Send,
+    /// Also send on its own: only in a chat it read in this session, at most a few an hour; any
+    /// other message is asked as with `Send`.
+    AutoSend,
 }
 
 /// How the client reaches the tools.

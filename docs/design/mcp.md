@@ -37,15 +37,26 @@ What the code does now, where it differs from the proposal below:
   its command and folder, and the match code the client prints on stderr; access defaults to read
   only; "Always allow" remembers the client. More access is asked with `request_access`, shown
   again with the agent's reason; three refusals end the session.
-- **Drafts and sending**: a draft opens the chat with the text in its composer; sending opens the
-  chat and asks in Lux (Send / Cancel). Sending on its own under the rules, and the MCP Apps
-  preview, come next.
+- **Drafts and sending**: a draft opens the chat with the text in its composer. Sending, by the
+  session's grant:
+  - *ask to send*: in a client that draws MCP Apps (`io.modelcontextprotocol/ui` in its
+    capabilities), `send_message` shows a preview (`ui://lux/send.html`) with Send; its token is
+    in the result's `_meta`, and Send calls `confirm_send`, an app-only tool
+    (`_meta.ui.visibility: ["app"]`) the host never lists to the model. Checked on Claude Code
+    2.1.310: the app-only tool is not offered to the model, and `_meta` does not reach it, while
+    `structuredContent` does (so the token is never there). Elsewhere (the CLI, a client without
+    MCP Apps), Lux asks Send / Cancel;
+  - *send on its own*: only in a chat the session read (`read_chat`), at most 10 an hour; any
+    other message is asked as above.
 - **Settings › Agents** (Mac): the switch (under AI), the commands to copy (`claude mcp add …`),
   Install Skill… (a short `SKILL.md`: what Lux is and how its permissions work, written to the
-  skills folder the user picks, as the sandbox requires), the chats hidden from every AI (also
-  applied to Siri's search), the clients always allowed, and the latest calls.
-- **Not yet**: the log kept 30 days in the encrypted store (now in memory), hidden chats synced
-  across devices (now per device), `.mcpb`, localhost HTTP.
+  skills folder the user picks, as the sandbox requires), **Add to Claude Desktop…** (an `.mcpb`
+  made on the spot, its server this app's own executable, opened with Claude Desktop), the chats
+  hidden from every AI, the clients always allowed, and the latest calls.
+- **Hidden chats** are account data (`com.bardav.lux.ai`, `{"hidden": [{"chat", "name"}]}`) in the
+  organizer, so every device has them; the agent reads them from the account on each call, and
+  Siri's search leaves them out.
+- **Not yet**: the log kept in the encrypted store (it is in memory), localhost HTTP.
 
 ## 1. The standard today
 
