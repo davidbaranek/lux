@@ -241,6 +241,32 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func thePlusOffersImportFromIPhoneAndWhatItReturnsWaitsInTheComposer() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            pendingFiles(of: model, wake: chat.changes)
+            // the + 's menu: the open panel, and Continuity Camera's item, which AppKit fills in.
+            let menu = try #require(chat.controller.attach.menu)
+            #expect(menu.items.first?.action == #selector(ThreadController.attachFiles(_:)))
+            #expect(menu.items.contains { $0.identifier == NSMenuItem.importFromDeviceIdentifier })
+            // the composer takes what the iPhone returns (a photo, a scan, a sketch), not only text.
+            let field = chat.controller.field
+            for type in [NSPasteboard.PasteboardType.png, .tiff, .pdf, NSPasteboard.PasteboardType(UTType.jpeg.identifier)] {
+                #expect(field.validRequestor(forSendType: nil, returnType: type) as? ComposerTextView === field)
+            }
+
+            // a scan comes back as a PDF on a pasteboard: it waits in the composer as a pasted one does.
+            let pdf = Data("%PDF-1.4\n%%EOF\n".utf8)
+            let scan = pasteboard { $0.setData(pdf, forType: .pdf) }
+            defer { scan.releaseGlobally() }
+            #expect(field.readSelection(from: scan))
+            try await chat.changes.until { model.pendingFiles.count == 1 }
+            #expect(model.pendingFiles.first?.pathExtension == "pdf")
+            #expect(chat.controller.composerField.text.isEmpty)
+        }
+    }
+
     @Test func aPhotosMenuSavesAndCopiesItAndCopyPutsItsFileAndImageOnThePasteboard() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             let chat = try open(try await readChat(in: session), in: session)

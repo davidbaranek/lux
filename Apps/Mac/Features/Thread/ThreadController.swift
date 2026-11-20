@@ -66,14 +66,22 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         button.menu = menu
         return button
     }()
-    /// Attaches files: the open panel (as File > Attach Files… does).
-    private lazy var attach: NSButton = {
-        let button = NSButton(image: NSImage.symbol("plus", label: String(localized: "Attach Files")),
-                              target: self, action: #selector(attachFiles(_:)))
+    /// Attaches files: its menu has the open panel (as File > Attach Files… does) and Continuity
+    /// Camera's Import from iPhone or iPad, which AppKit fills in (take a photo, scan documents,
+    /// add a sketch) for the composer, where the result comes in as a paste.
+    lazy var attach: NSButton = {
+        let button = NSButton(image: NSImage.symbol("plus", label: String(localized: "Attach")),
+                              target: self, action: #selector(showAttachMenu(_:)))
         button.bezelStyle = .glass
         button.controlSize = .extraLarge
         button.borderShape = .circle
-        button.toolTip = String(localized: "Attach Files")
+        button.toolTip = String(localized: "Attach")
+        let menu = NSMenu(title: String(localized: "Attach"))
+        menu.addItem(withTitle: String(localized: "Attach Files…"), action: #selector(attachFiles(_:)), keyEquivalent: "").target = self
+        let device = NSMenuItem(title: String(localized: "Import from iPhone or iPad"), action: nil, keyEquivalent: "")
+        device.identifier = NSMenuItem.importFromDeviceIdentifier
+        menu.addItem(device)
+        button.menu = menu
         return button
     }()
     /// The originals Quick Look shows (an album's every photo), the one it opened at, and where

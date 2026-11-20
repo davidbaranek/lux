@@ -40,6 +40,8 @@ What is done, and what comes next in order. How things work lives in
 - [x] The composer's Markdown formatted as typed, with a format menu; it grows with its text,
       then scrolls
 - [x] Saved messages
+- [x] Insert from iPhone on the Mac (Continuity Camera: a photo, a document scan, a sketch) from
+      the + and the composer's context menu
 - [x] The first unread message marked, the chat opening at it
 - [x] Messages that failed to send retried or discarded
 - [x] Shared posts (reels, posts) as cards: their media, title and caption, folded to four lines
