@@ -1,6 +1,7 @@
 //! A chat's details, as the apps see them: each room's state and networks, the members found as
 //! the user types, what was shared read back page by page, and the details screen's changes.
 
+use lux_core::mention::mention_suggestions;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -15,6 +16,7 @@ use lux_core::ports::{
 use crate::account::{Backend, CoreAccount, CoreAccountError, with_account};
 use crate::chat::CorePreviewKind;
 use crate::chat::path_text;
+use crate::mention::CoreMentionSuggestion;
 use crate::organizing::CoreChatChange;
 use crate::profile::CorePictureFormat;
 use crate::time_span::TimeSpan;
@@ -198,6 +200,16 @@ impl CoreMemberList {
     #[must_use]
     pub fn count(&self) -> u64 {
         u64::try_from(self.members.len()).unwrap_or(u64::MAX)
+    }
+
+    /// The members (and `@room`, where the account may notify the room) a mention's `query`
+    /// offers, the best match first, at most `limit`; never the account.
+    #[must_use]
+    pub fn mention_suggestions(&self, query: &str, limit: u32) -> Vec<CoreMentionSuggestion> {
+        mention_suggestions(&self.members, query, usize::try_from(limit).unwrap_or(usize::MAX))
+            .into_iter()
+            .map(CoreMentionSuggestion::from)
+            .collect()
     }
 
     /// The members whose name or id holds every word of `query` (without case or accents), at

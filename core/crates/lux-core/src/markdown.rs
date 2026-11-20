@@ -165,13 +165,13 @@ impl Found<'_> {
 }
 
 /// Byte offsets of a text in UTF-16 code units.
-struct Utf16Offsets {
+pub(crate) struct Utf16Offsets {
     /// Each character's byte offset and UTF-16 offset, then the text's end.
     starts: Vec<(usize, usize)>,
 }
 
 impl Utf16Offsets {
-    fn new(text: &str) -> Self {
+    pub(crate) fn new(text: &str) -> Self {
         let mut utf16 = 0;
         let mut starts = Vec::with_capacity(text.len() + 1);
         for (byte, character) in text.char_indices() {
@@ -183,10 +183,17 @@ impl Utf16Offsets {
     }
 
     /// The UTF-16 offset of the byte offset `byte` (a character's start, or the end).
-    fn at(&self, byte: usize) -> usize {
+    pub(crate) fn at(&self, byte: usize) -> usize {
         match self.starts.binary_search_by_key(&byte, |(start, _)| *start) {
             Ok(index) | Err(index) => self.starts.get(index).map_or(0, |(_, utf16)| *utf16),
         }
+    }
+
+    /// The byte offset of the UTF-16 offset `utf16`, if a character starts there (or the text
+    /// ends there): none inside a character.
+    pub(crate) fn byte(&self, utf16: usize) -> Option<usize> {
+        let index = self.starts.binary_search_by_key(&utf16, |(_, offset)| *offset).ok()?;
+        self.starts.get(index).map(|(byte, _)| *byte)
     }
 }
 

@@ -2276,6 +2276,7 @@ dependencies = [
  "linkify",
  "proptest",
  "pulldown-cmark",
+ "ruma-common",
  "ruma-html",
  "thiserror 2.0.21",
  "tokio",

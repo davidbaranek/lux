@@ -208,7 +208,10 @@ async fn a_thread_shows_its_root_and_replies_and_sends_its_replies() {
     let main = until(&timelines, &room(), |page| page.len() == 2).await;
     assert_eq!(main[0].message.id, page[0].message.id);
 
-    timelines.send_text(&thread(), "see you there", None).await.unwrap();
+    timelines
+        .send_text(&thread(), &"see you there".into(), None)
+        .await
+        .unwrap();
     let page = until(&timelines, &thread(), |page| {
         page.last()
             .is_some_and(|message| message.message.body == "see you there" && message.event_id.is_some())

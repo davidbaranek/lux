@@ -16,6 +16,7 @@ mod security;
 mod seeded;
 mod timeline;
 
+use crate::mention::ComposedText;
 pub use security::{DEMO_RECOVERY_KEY, DemoEncryption, DemoVerification};
 pub use timeline::DemoTimelines;
 
@@ -792,7 +793,7 @@ impl Scheduling for DemoAccount {
     async fn send_later(
         &self,
         room: &RoomId,
-        text: &str,
+        text: &ComposedText,
         _reply_to: Option<&EventId>,
         at: SystemTime,
     ) -> Result<ScheduledId, BackendError> {
@@ -804,7 +805,7 @@ impl Scheduling for DemoAccount {
         inner.scheduled.push(ScheduledMessage {
             id: id.clone(),
             room: room.clone(),
-            body: text.to_owned(),
+            body: text.text.clone(),
             send_at: at,
         });
         inner.scheduled.sort_by_key(|message| message.send_at);
@@ -922,7 +923,7 @@ mod tests {
         assert_ne!(rows[0].id, ChatId::Room(room.clone()));
 
         demo.timelines()
-            .send_text(&room.clone().into(), "on my way", None)
+            .send_text(&room.clone().into(), &"on my way".into(), None)
             .await
             .unwrap();
 
@@ -986,7 +987,10 @@ mod tests {
         demo.unmerge(&merged).await.unwrap();
         assert!(!demo.snapshot().chats.iter().any(|chat| chat.id == merged));
         let later = SystemTime::now() + Duration::from_secs(3_600);
-        let id = demo.send_later(&"!room1:demo".into(), "hi", None, later).await.unwrap();
+        let id = demo
+            .send_later(&"!room1:demo".into(), &"hi".into(), None, later)
+            .await
+            .unwrap();
         assert_eq!(demo.scheduled().await.unwrap().len(), 1);
         demo.cancel_scheduled(&id).await.unwrap();
         assert!(demo.cancel_scheduled(&id).await.is_err());

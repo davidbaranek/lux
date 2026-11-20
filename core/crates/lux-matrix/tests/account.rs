@@ -752,7 +752,7 @@ async fn a_send_that_failed_for_a_moment_goes_out_by_itself_while_the_sync_runs(
     let mut messages = timelines.messages(&room.clone().into()).await.unwrap();
 
     timelines
-        .send_text(&room.clone().into(), "are you there?", None)
+        .send_text(&room.clone().into(), &"are you there?".into(), None)
         .await
         .unwrap();
     let mut rows = eyeball_im::Vector::new();
@@ -847,7 +847,7 @@ async fn a_send_that_failed_offline_waits_for_the_server_and_goes_out_once_it_is
     unreachable.0.store(true, Ordering::SeqCst);
     checks.another().await;
     timelines
-        .send_text(&room.clone().into(), "are you there?", None)
+        .send_text(&room.clone().into(), &"are you there?".into(), None)
         .await
         .unwrap();
     until_state(&mut messages, &mut rows, "are you there?", SendState::Failed).await;

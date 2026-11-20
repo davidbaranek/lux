@@ -3,16 +3,18 @@
 //! events and the like map to nothing.
 
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use lux_core::ids::{EventId, MediaId, MessageId, RoomId, UserId};
+use lux_core::mention::{self, MentionTarget};
 use lux_core::message::{self, Attachment, Message, SendState};
 use lux_core::ports::BackendError;
 use lux_core::preview::{PreviewKind, PreviewSource as QuotedKind};
 use lux_core::timeline::{
-    FileKind, Media, MessageKind, Participant, Picture, Quote, Reaction, Reader, SharedPost, TextStyle, ThreadReply,
-    ThreadSummary, TimelineMessage, html,
+    FileKind, Media, MessageKind, Participant, Picture, Quote, Reaction, Reader, SharedPost, StyleKind, TextStyle,
+    ThreadReply, ThreadSummary, TimelineMessage, html,
 };
 use matrix_sdk::Room;
 use matrix_sdk::ruma::events::AnySyncTimelineEvent;
@@ -152,6 +154,19 @@ impl ItemMapper {
             let url = post.url.clone();
             post.shared(&mut shown, || previews.get(&url))
         });
+        // a message that mentions the room shows `@room` as a pill; a member's pill their name
+        // in the room now, as Element shows it (a bridged ghost's: its network's name).
+        if content
+            .as_message()
+            .is_some_and(|message| message.mentions().is_some_and(|mentions| mentions.room))
+        {
+            shown.styles = mention::room_pills(&shown.body, mem::take(&mut shown.styles));
+        }
+        let names = self.pill_names(&shown.styles).await;
+        (shown.body, shown.styles) =
+            mention::named_pills(mem::take(&mut shown.body), mem::take(&mut shown.styles), |user| {
+                names.get(user).cloned()
+            });
         let sender_name = self.sender_name(event);
         let mut fetch_quote_of = None;
         let reply = content.in_reply_to.as_ref().map(|details| {
@@ -197,6 +212,8 @@ impl ItemMapper {
             sender_avatar: profile_avatar(event.sender_profile()),
             is_own: event.is_own(),
             is_editable: event.is_editable(),
+            // the push rules' highlight (a mention of the account, its name, `@room`).
+            mentions_me: event.is_highlighted(),
             kind: shown.kind,
             media: shown.media,
             styles: shown.styles,
@@ -288,6 +305,32 @@ impl ItemMapper {
             name,
             avatar,
         }
+    }
+
+    /// The names in the room now of the members `styles`' pills name, those the room knows.
+    async fn pill_names(&mut self, styles: &[TextStyle]) -> HashMap<UserId, String> {
+        let mut names = HashMap::new();
+        for style in styles {
+            let StyleKind::Mention(MentionTarget::User(user)) = &style.kind else {
+                continue;
+            };
+            let Ok(id) = OwnedUserId::try_from(user.as_str()) else {
+                continue;
+            };
+            let name = match self.names.get(&id) {
+                Some(name) => Some(name.clone()),
+                None => match self.room.get_member_no_sync(&id).await {
+                    Ok(Some(member)) => member.display_name().map(str::to_owned).inspect(|name| {
+                        self.names.insert(id.clone(), name.clone());
+                    }),
+                    _ => None,
+                },
+            };
+            if let Some(name) = name {
+                names.insert(user.clone(), name);
+            }
+        }
+        names
     }
 
     /// A member's name, from the people met or the room's members.
@@ -736,7 +779,7 @@ mod tests {
             "<b>hi</b> there",
         )));
         assert_eq!(shown.body, "hi there");
-        assert_eq!(shown.styles[0].kind, lux_core::timeline::StyleKind::Bold);
+        assert_eq!(shown.styles[0].kind, StyleKind::Bold);
         assert_eq!(shown.styles[0].range, 0..2);
         // html with no formatting keeps the plain body.
         let plain = message_shown(&MessageType::Text(TextMessageEventContent::html(

@@ -551,6 +551,7 @@ pub(crate) mod tests {
             sender_avatar: None,
             is_own: own,
             is_editable: own,
+            mentions_me: false,
             kind: MessageKind::Message,
             media: None,
             styles: Vec::new(),

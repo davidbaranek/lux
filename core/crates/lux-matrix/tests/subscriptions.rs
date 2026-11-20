@@ -169,7 +169,7 @@ async fn a_send_in_an_open_chat_and_an_answer_in_one_sync_keep_the_chats_message
     .await
     .expect("the chat shows its messages");
 
-    timelines.send_text(&chat, "hello", None).await.unwrap();
+    timelines.send_text(&chat, &"hello".into(), None).await.unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
         while !shown
             .iter()

@@ -19,6 +19,7 @@ use lux_core::timeline::{
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, CoreListenerHandle, with_account};
 use crate::chat::{CorePreviewKind, path_text, position};
+use crate::mention::CoreMentionTarget;
 use crate::message::CoreSendState;
 use crate::runtime;
 use crate::time_span::TimeSpan;
@@ -122,6 +123,11 @@ pub enum CoreStyleKind {
         /// Where to.
         url: String,
     },
+    /// A pill.
+    Mention {
+        /// Who it names.
+        target: CoreMentionTarget,
+    },
 }
 
 /// A run of formatting, in UTF-16 units.
@@ -178,6 +184,7 @@ impl From<&Reader> for CoreReader {
 }
 
 /// One message of a chat (`lux_core::timeline::TimelineMessage`).
+#[allow(clippy::struct_excessive_bools, reason = "flags the apps read one by one")]
 #[derive(uniffi::Record)]
 pub struct CoreMessage {
     /// Its id in the chat.
@@ -196,6 +203,8 @@ pub struct CoreMessage {
     pub is_own: bool,
     /// It can be edited.
     pub is_editable: bool,
+    /// It mentions the account: the thread sets it apart.
+    pub mentions_me: bool,
     /// Where it is on its way.
     pub state: CoreSendState,
     /// It was edited.
@@ -518,6 +527,7 @@ impl From<&TimelineMessage> for CoreMessage {
             date: core.date,
             is_own: message.is_own,
             is_editable: message.is_editable,
+            mentions_me: message.mentions_me,
             state: send_state(core.state),
             is_edited: core.is_edited,
             body: core.body.clone(),
@@ -569,6 +579,9 @@ impl From<&TimelineMessage> for CoreMessage {
                         StyleKind::CodeBlock => CoreStyleKind::CodeBlock,
                         StyleKind::Quote => CoreStyleKind::Quote,
                         StyleKind::Link(url) => CoreStyleKind::Link { url: url.clone() },
+                        StyleKind::Mention(target) => CoreStyleKind::Mention {
+                            target: CoreMentionTarget::from(target),
+                        },
                     },
                     start: position(style.range.start),
                     length: position(style.range.len()),

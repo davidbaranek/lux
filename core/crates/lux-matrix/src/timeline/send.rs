@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use lux_core::ids::{ChatId, MessageId, MessageRef, RoomId, TimelineId};
+use lux_core::mention::ComposedText;
 use lux_core::ports::{BackendError, ChatSending, UploadStream};
 use lux_core::timeline::{Draft, OutgoingAttachment, OutgoingKind, Quote, Receipt};
 use matrix_sdk::Room;
@@ -18,12 +19,15 @@ use matrix_sdk::room::edit::EditedContent;
 use matrix_sdk::room::reply::{EnforceThread, Reply, ReplyError};
 use matrix_sdk::ruma::OwnedEventId;
 use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+use matrix_sdk::ruma::events::Mentions;
 use matrix_sdk::ruma::events::receipt::ReceiptThread;
 use matrix_sdk::ruma::events::room::message::{
-    AddMentions, ReplyWithinThread, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+    AddMentions, FormattedBody, ReplyWithinThread, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
     TextMessageEventContent,
 };
-use matrix_sdk::ruma::{EventId as SdkEventId, OwnedTransactionId, TransactionId, UInt};
+use matrix_sdk::ruma::{
+    EventId as SdkEventId, OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId as SdkUserId,
+};
 use matrix_sdk::serde_helpers::extract_thread_root;
 use matrix_sdk::store::{ComposerDraft, ComposerDraftType};
 use matrix_sdk_ui::timeline::{SendTarget, TimelineEventItemId};
@@ -35,32 +39,36 @@ use super::upload;
 use crate::errors::from_sdk;
 
 impl ChatSending for MatrixTimelines {
-    async fn send_text(&self, to: &TimelineId, text: &str, reply: Option<&MessageRef>) -> Result<(), BackendError> {
+    async fn send_text(
+        &self,
+        to: &TimelineId,
+        text: &ComposedText,
+        reply: Option<&MessageRef>,
+    ) -> Result<(), BackendError> {
         let room = self.room(&to.room)?;
         let thread = thread_root(to)?;
+        let message = text_content(text, room.own_user_id());
+        // a reply mentions the sender it answers too (the sdk's `AddMentions`), never the account.
         let content = match self.reply(to, thread.clone(), reply).await? {
-            Some(reply) => room
-                .make_reply_event(RoomMessageEventContentWithoutRelation::text_markdown(text), reply)
-                .await
-                .map_err(from_reply)?,
-            None => RoomMessageEventContent::text_markdown(text),
+            Some(reply) => room.make_reply_event(message, reply).await.map_err(from_reply)?,
+            None => message.with_relation(None),
         };
         room.send_queue().send(content.into()).await.map_err(from_send_queue)?;
         // the text went: a relaunch does not offer it again.
         room.clear_composer_draft(thread.as_deref()).await.map_err(from_sdk)
     }
 
-    async fn edit(&self, room: &RoomId, message: &MessageId, text: &str) -> Result<(), BackendError> {
+    /// The sdk's edit keeps the spec's rule for mentions: the new content mentions everyone its
+    /// pills name, the edit itself notifies only those the message did not mention before.
+    async fn edit(&self, room: &RoomId, message: &MessageId, text: &ComposedText) -> Result<(), BackendError> {
         let (timeline, item) = self.holding(room, message).await?;
         if !item.is_editable() {
             return Err(BackendError::NotAllowed);
         }
+        let content = text_content(text, timeline.room.own_user_id());
         timeline
             .timeline
-            .edit(
-                &item.identifier(),
-                EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_markdown(text)),
-            )
+            .edit(&item.identifier(), EditedContent::RoomMessage(content))
             .await
             .map_err(from_timeline)
     }
@@ -158,12 +166,17 @@ impl ChatSending for MatrixTimelines {
             ComposerDraftType::NewMessage | ComposerDraftType::Edit { .. } => None,
         };
         Ok(Some(Draft {
-            text: draft.plain_text,
+            text: ComposedText::from_draft(&draft.plain_text),
             reply,
         }))
     }
 
-    async fn save_draft(&self, of: &TimelineId, text: &str, reply: Option<&MessageRef>) -> Result<(), BackendError> {
+    async fn save_draft(
+        &self,
+        of: &TimelineId,
+        text: &ComposedText,
+        reply: Option<&MessageRef>,
+    ) -> Result<(), BackendError> {
         let sdk_room = self.room(&of.room)?;
         let thread = thread_root(of)?;
         let draft_type = match reply {
@@ -174,15 +187,16 @@ impl ChatSending for MatrixTimelines {
             Some(reply) => ComposerDraftType::Reply {
                 event_id: self.held(of).await?.event_id(reply).await?,
             },
-            None if text.is_empty() => {
+            None if text.text.is_empty() => {
                 return sdk_room.clear_composer_draft(thread.as_deref()).await.map_err(from_sdk);
             }
             None => ComposerDraftType::NewMessage,
         };
         sdk_room
             .save_composer_draft(
+                // its pills as their links, read back into pills (`ComposedText::from_draft`).
                 ComposerDraft {
-                    plain_text: text.to_owned(),
+                    plain_text: text.draft_text(),
                     html_text: None,
                     draft_type,
                     attachments: Vec::new(),
@@ -220,6 +234,28 @@ impl ChatSending for MatrixTimelines {
     async fn set_typing(&self, room: &RoomId, typing: bool) -> Result<(), BackendError> {
         self.room(room)?.typing_notice(typing).await.map_err(from_sdk)
     }
+}
+
+/// A text message as the spec writes one with mentions: the plain body has the pills' names, the
+/// HTML body (from the Markdown, as ruma's `text_markdown` reads it) a `matrix.to` link for each
+/// member, and `m.mentions` those members and the room, never the account. `m.mentions` is always
+/// there: a message without it falls back to the legacy push rules, which notify anyone whose name
+/// it holds.
+pub(crate) fn text_content(text: &ComposedText, own: &SdkUserId) -> RoomMessageEventContentWithoutRelation {
+    let outgoing = text.outgoing();
+    let content = match FormattedBody::markdown(&outgoing.markdown) {
+        Some(html) => RoomMessageEventContentWithoutRelation::text_html(outgoing.body, html.body),
+        None => RoomMessageEventContentWithoutRelation::text_plain(outgoing.body),
+    };
+    let mut mentions = Mentions::with_user_ids(
+        outgoing
+            .users
+            .iter()
+            .filter_map(|user| OwnedUserId::try_from(user.as_str()).ok())
+            .filter(|user| user != own),
+    );
+    mentions.room = outgoing.room;
+    content.add_mentions(mentions)
 }
 
 /// The newest event of a room's own timeline, out of its threads: where a receipt for the whole

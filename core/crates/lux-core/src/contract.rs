@@ -127,7 +127,7 @@ async fn sent(backend: &impl ContractBackend, messages: &mut Messages, text: &st
     backend
         .account()
         .timelines()
-        .send_text(&TimelineId::from(backend.room()), text, None)
+        .send_text(&TimelineId::from(backend.room()), &text.into(), None)
         .await
         .expect("the text is queued");
     messages
@@ -144,7 +144,7 @@ pub async fn a_sent_text_shows_at_once_as_sending_then_sent(backend: &impl Contr
     backend
         .account()
         .timelines()
-        .send_text(&TimelineId::from(backend.room()), "on my way", None)
+        .send_text(&TimelineId::from(backend.room()), &"on my way".into(), None)
         .await
         .expect("the text is queued");
 
@@ -176,7 +176,7 @@ pub async fn the_accounts_message_is_edited_in_place_and_anothers_is_not(backend
     assert!(mine.is_editable);
 
     timelines
-        .edit(&room, &mine.message.id, "see you at 9")
+        .edit(&room, &mine.message.id, &"see you at 9".into())
         .await
         .expect("the account's message is edited");
 
@@ -192,7 +192,7 @@ pub async fn the_accounts_message_is_edited_in_place_and_anothers_is_not(backend
     );
     let theirs = anothers(messages.rows()).expect("the room holds another's message");
     assert!(!theirs.is_editable);
-    let refused = timelines.edit(&room, &theirs.message.id, "not mine").await;
+    let refused = timelines.edit(&room, &theirs.message.id, &"not mine".into()).await;
     assert!(matches!(refused, Err(BackendError::NotAllowed)), "{refused:?}");
 }
 

@@ -566,13 +566,16 @@ async fn a_message_is_sent_later_by_the_server() {
     let room = RoomId::from(ROOM);
     assert!(account.can_send_later(&room).await);
     let at = std::time::SystemTime::now() + Duration::from_secs(3600);
-    assert_eq!(account.send_later(&room, "later", None, at).await.unwrap(), "D1".into());
+    assert_eq!(
+        account.send_later(&room, &"later".into(), None, at).await.unwrap(),
+        "D1".into()
+    );
     let waiting = account.scheduled().await.unwrap();
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].body, "later");
     assert!(matches!(
         account
-            .send_later(&room, "past", None, std::time::SystemTime::UNIX_EPOCH)
+            .send_later(&room, &"past".into(), None, std::time::SystemTime::UNIX_EPOCH)
             .await,
         Err(lux_core::ports::BackendError::TimePassed)
     ));

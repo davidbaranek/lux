@@ -18,6 +18,7 @@ pub use filtered::Filtered;
 pub(crate) use window::Window;
 
 use crate::ids::{EventId, MediaId, MessageId, RoomId, UserId};
+use crate::mention::{ComposedText, MentionTarget};
 use crate::message::Message;
 use crate::preview::PreviewKind;
 
@@ -36,6 +37,8 @@ pub struct TimelineMessage {
     pub is_own: bool,
     /// The account's own text message: it can be edited.
     pub is_editable: bool,
+    /// It mentions the account (the push rules highlight it): the thread sets it apart.
+    pub mentions_me: bool,
     /// What it is, besides a message to show as it came.
     pub kind: MessageKind,
     /// Its photo, video, file or sound.
@@ -185,7 +188,7 @@ pub enum Media {
 /// How a run of a message's text is formatted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StyleKind {
-    /// Bold (a mention too).
+    /// Bold.
     Bold,
     /// Italic.
     Italic,
@@ -201,6 +204,8 @@ pub enum StyleKind {
     Quote,
     /// A link, to this address.
     Link(String),
+    /// A pill: a member (their link, showing their name) or `@room`.
+    Mention(MentionTarget),
 }
 
 /// A run of formatting in a text, in UTF-16 offsets (as the apps' text views count).
@@ -260,8 +265,8 @@ pub struct Typist {
 /// What the composer holds for a chat between visits.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Draft {
-    /// Its text.
-    pub text: String,
+    /// Its text, with its pills.
+    pub text: ComposedText,
     /// The message it answers.
     pub reply: Option<Quote>,
 }

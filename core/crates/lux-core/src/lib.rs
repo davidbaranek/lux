@@ -19,6 +19,7 @@ pub mod hex;
 pub mod ids;
 pub mod list;
 pub mod markdown;
+pub mod mention;
 pub mod merge;
 pub mod message;
 pub mod network;

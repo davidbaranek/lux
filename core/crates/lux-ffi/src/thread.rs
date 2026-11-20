@@ -18,6 +18,7 @@ use lux_core::thread::{
 
 use crate::account::{CoreAccount, CoreAccountError, with_account};
 use crate::chat::{CorePreviewKind, path_text};
+use crate::mention::CoreComposedText;
 use crate::message::{CoreFooter, CoreLink, CoreSeparator, zone};
 use crate::runtime;
 use crate::timeline::{CoreMessage, CoreParticipant, CoreReader, CoreTypist};
@@ -196,8 +197,8 @@ pub enum CoreComposerMode {
     Edit {
         /// The message.
         message_id: String,
-        /// Its text now.
-        original: String,
+        /// Its text now, with its pills.
+        original: CoreComposedText,
     },
 }
 
@@ -215,7 +216,7 @@ impl From<ComposerMode> for CoreComposerMode {
             },
             ComposerMode::Edit { message, original } => Self::Edit {
                 message_id: message.to_string(),
-                original,
+                original: original.into(),
             },
         }
     }
@@ -572,16 +573,16 @@ impl CoreThread {
     }
 
     /// Sends the composer's text, `via` a room of a merged chat if given.
-    pub fn send(&self, text: String, via_room_id: Option<String>) {
-        self.model.send_text(text, via_room_id.map(RoomId::from));
+    pub fn send(&self, text: CoreComposedText, via_room_id: Option<String>) {
+        self.model.send_text(text.into(), via_room_id.map(RoomId::from));
     }
 
     /// Has the server send the composer's text at `at`.
     ///
     /// # Errors
     /// When the server refuses.
-    pub async fn send_later(&self, text: String, at: SystemTime) -> Result<(), CoreAccountError> {
-        Ok(self.model.send_later(text, at).await?)
+    pub async fn send_later(&self, text: CoreComposedText, at: SystemTime) -> Result<(), CoreAccountError> {
+        Ok(self.model.send_later(text.into(), at).await?)
     }
 
     /// Puts files in the composer.
@@ -674,14 +675,14 @@ impl CoreThread {
         self.model.composer_changed(text);
     }
 
-    /// The text the composer had.
-    pub async fn load_draft(&self) -> String {
-        self.model.load_draft().await
+    /// The text the composer had, with its pills.
+    pub async fn load_draft(&self) -> CoreComposedText {
+        self.model.load_draft().await.into()
     }
 
-    /// Keeps the composer's text for the next visit.
-    pub fn save_draft(&self, text: String) {
-        self.model.save_draft(text);
+    /// Keeps the composer's text and its pills for the next visit.
+    pub fn save_draft(&self, text: CoreComposedText) {
+        self.model.save_draft(text.into());
     }
 }
 

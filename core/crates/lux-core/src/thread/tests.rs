@@ -198,7 +198,7 @@ async fn it_opens_on_the_first_screen_with_the_first_unread_message() {
 async fn changes_within_a_frame_go_as_one_batch_of_row_diffs() {
     let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
     for text in ["one", "two", "three"] {
-        thread.model.send_text(text.to_owned(), None);
+        thread.model.send_text(text.to_owned().into(), None);
     }
     let update = thread.frame().await;
     // three new rows, and the rows before whose run they continue: no reset.
@@ -214,7 +214,7 @@ async fn changes_within_a_frame_go_as_one_batch_of_row_diffs() {
 #[tokio::test(start_paused = true)]
 async fn a_message_sent_from_here_says_so_with_its_row_and_others_arrive() {
     let mut thread = open(vec![chat_room("!r:demo", "matrix")], 30, ReadReceipts::Automatic).await;
-    thread.model.send_text("on my way".to_owned(), None);
+    thread.model.send_text("on my way".to_owned().into(), None);
     let update = thread.frame().await;
     let newest = thread.rows.last().expect("rows").clone();
     assert_eq!(newest.message.message.body, "on my way");
@@ -223,7 +223,11 @@ async fn a_message_sent_from_here_says_so_with_its_row_and_others_arrive() {
     // the same chat open elsewhere sends: news, but not this view's own.
     thread
         .demo()
-        .send_text(&TimelineId::from(&RoomId::from("!r:demo")), "from elsewhere", None)
+        .send_text(
+            &TimelineId::from(&RoomId::from("!r:demo")),
+            &"from elsewhere".into(),
+            None,
+        )
         .await
         .expect("sent");
     assert_eq!(thread.frame().await.cause, Some(Cause::Arrived));
@@ -481,7 +485,7 @@ async fn a_merged_chat_writes_where_the_conversation_is_or_to_the_room_shown() {
     );
     thread
         .demo()
-        .send_text(&RoomId::from("!a:demo").into(), "news", None)
+        .send_text(&RoomId::from("!a:demo").into(), &"news".into(), None)
         .await
         .expect("sends");
     thread.frame().await;
@@ -506,7 +510,7 @@ async fn an_answer_goes_to_its_message_and_files_go_with_the_text_as_caption() {
         .model
         .attach(vec![PathBuf::from("/tmp/a.jpg"), PathBuf::from("/tmp/b.jpg")]);
     thread.model.attach(vec![PathBuf::from("/tmp/a.jpg")]);
-    thread.model.send_text("  look  ".to_owned(), None);
+    thread.model.send_text("  look  ".to_owned().into(), None);
     tokio::time::sleep(FRAME * 3).await;
     let mut upload = None;
     while let Ok(heard) = thread.heard.try_recv() {
@@ -544,7 +548,7 @@ async fn an_unread_chat_needs_a_receipt_which_goes_by_itself_only_where_the_chat
         }
         assert!(!thread.state().needs_read_receipt);
         // the user's own message needs none either.
-        thread.model.send_text("ok".to_owned(), None);
+        thread.model.send_text("ok".to_owned().into(), None);
         thread.frame().await;
         assert!(!thread.state().needs_read_receipt);
     }
@@ -739,7 +743,7 @@ async fn a_thread_opens_on_its_root_and_replies_and_what_is_sent_goes_there() {
     assert!(ids[1..].iter().all(|id| id.starts_with("!r:demo/22/thread/")));
     // nothing is sent later in a thread: the server's message would go to the room.
     assert!(!thread.state().can_send_later);
-    thread.model.send_text("in the thread".to_owned(), None);
+    thread.model.send_text("in the thread".to_owned().into(), None);
     thread.frame().await;
     assert_eq!(
         thread.rows.last().map(|row| row.message.message.body.as_str()),
@@ -775,7 +779,7 @@ async fn files_sent_in_a_thread_go_to_it() {
     )
     .await;
     thread.model.attach(vec![PathBuf::from("/tmp/a.jpg")]);
-    thread.model.send_text(String::new(), None);
+    thread.model.send_text(String::new().into(), None);
     tokio::time::sleep(FRAME * 3).await;
     let mut upload = None;
     while let Ok(heard) = thread.heard.try_recv() {
@@ -960,7 +964,7 @@ async fn sending_from_a_jumps_rows_returns_to_the_live_ones_first() {
     let mut thread = open_long(vec![chat_room("!r:demo", "matrix")], 300, 60).await;
     here(thread.jump("!r:demo".into(), EventId::from("!r:demo/40")).await);
     until_live(&mut thread, false).await;
-    thread.model.send_text("back to now".to_owned(), None);
+    thread.model.send_text("back to now".to_owned().into(), None);
     until_live(&mut thread, true).await;
     let last = thread.rows.last().expect("rows");
     assert_eq!(last.message.message.body, "back to now");

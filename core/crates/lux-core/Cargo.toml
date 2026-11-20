@@ -17,6 +17,8 @@ linkify.workspace = true
 pulldown-cmark = { version = "0.13.0", default-features = false }
 # a message's HTML body read as a browser reads it, kept to the Matrix subset.
 ruma-html.workspace = true
+# a mention's matrix.to address, as the sdk writes and reads it.
+ruma-common.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 # chats found by name without their accents.
