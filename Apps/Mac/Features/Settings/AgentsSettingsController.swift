@@ -1,7 +1,7 @@
 import AppKit
 import LuxCore
 
-/// Agents: AI agents on this Mac (Claude Code, Codex, Claude, Cursor) reach the chats through the
+/// Agents, in the AI pane: AI agents on this Mac (Claude Code, Codex, Claude, Cursor) reach the chats through the
 /// `Lux agent` command or its MCP server, each session approved in Lux. Here: the switch, the
 /// commands to set them up with, the skill that tells an agent what Lux is, the chats kept from
 /// every AI, the clients approved for always, and what they did lately.
@@ -78,7 +78,7 @@ final class AgentsSettingsController: NSViewController {
         toggle.state = agents.isOn ? .on : .off
         toggle.isEnabled = session.textActions.isOn
         status.stringValue = if !session.textActions.isOn {
-            String(localized: "Turn on AI features in the AI pane first.")
+            String(localized: "Turn on AI features above first.")
         } else if agents.isServing {
             String(localized: "Agents can connect. Each session asks you here first, with a code it shows too; it reads only, unless you allow more.")
         } else if agents.isWaiting {
