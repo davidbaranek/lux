@@ -372,6 +372,12 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             strip.isHidden = files.isEmpty
             updateEye()
         }
+        // a video goes smaller unless the user chooses Original in its tile.
+        model.pendingVideos.onChange = { [weak self] in
+            guard let self else { return }
+            strip.videos = model.pendingVideos.videos
+        }
+        strip.onVideoQuality = { [weak self] file, quality in self?.model.pendingVideos.setQuality(quality, of: file) }
         model.onShownRoom = { [weak self] _ in self?.onShownRoom?() }
         model.onReadState = { [weak self] _ in self?.updateEye() }
         model.onTyping = { [weak self] names in self?.showTyping(names) }

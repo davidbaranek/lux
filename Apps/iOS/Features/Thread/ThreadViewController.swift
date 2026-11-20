@@ -203,6 +203,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         view.addInteraction(UIDropInteraction(delegate: attachments))
         composer.onRemoveAttachment = { [weak self] file in self?.model.removePending(file) }
         model.onPendingFiles = { [weak self] files in self?.composer.attachments = files }
+        // a video goes smaller unless the user chooses Original in its tile.
+        model.pendingVideos.onChange = { [weak self] in
+            guard let self else { return }
+            composer.videos = model.pendingVideos.videos
+        }
+        composer.onVideoQuality = { [weak self] file, quality in self?.model.pendingVideos.setQuality(quality, of: file) }
         // holding Send: send later, and in a merged chat, send through another network.
         composer.sendLaterMenu = UIMenu(children: [
             UIDeferredMenuElement.uncached { [weak self] completion in completion(self?.sendChoices() ?? []) },

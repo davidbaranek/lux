@@ -35,6 +35,13 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
     private let strip = AttachmentStrip()
     /// A file waiting in the composer was taken out.
     var onRemoveAttachment: ((URL) -> Void)?
+    /// A waiting video's quality was chosen.
+    var onVideoQuality: ((URL, VideoQuality) -> Void)?
+    /// The waiting videos with a choice of quality.
+    var videos: [URL: PendingVideo] {
+        get { strip.videos }
+        set { strip.videos = newValue }
+    }
     /// The files waiting to go with the message; the composer can send with them alone.
     var attachments: [URL] = [] {
         didSet {
@@ -107,6 +114,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
         stack.axis = .vertical
         strip.isHidden = true
         strip.onRemove = { [weak self] file in self?.onRemoveAttachment?(file) }
+        strip.onVideoQuality = { [weak self] file, quality in self?.onVideoQuality?(file, quality) }
         stack.addArrangedSubview(modeBar)
         stack.addArrangedSubview(strip)
         stack.addArrangedSubview(textView)

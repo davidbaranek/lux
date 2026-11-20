@@ -1,3 +1,4 @@
+import LuxCore
 import QuickLookThumbnailing
 import UIKit
 
@@ -6,6 +7,8 @@ import UIKit
 final class AttachmentStrip: UIView {
     static let side: CGFloat = 64
     var onRemove: ((URL) -> Void)?
+    /// A video's quality was chosen in its tile.
+    var onVideoQuality: ((URL, VideoQuality) -> Void)?
     private let scroll = UIScrollView()
     private let row = UIStackView()
     private var tiles: [URL: AttachmentTile] = [:]
@@ -34,6 +37,14 @@ final class AttachmentStrip: UIView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    /// The videos with a choice of quality, and how far their smaller copies are.
+    var videos: [URL: PendingVideo] = [:] {
+        didSet {
+            guard videos != oldValue else { return }
+            for (file, tile) in tiles { tile.show(videos[file]) { [weak self] quality in self?.onVideoQuality?(file, quality) } }
+        }
+    }
+
     /// Shows these files, keeping the tiles of those that stay.
     func show(_ files: [URL]) {
         var kept: [URL: AttachmentTile] = [:]
@@ -42,6 +53,7 @@ final class AttachmentStrip: UIView {
         }
         tiles = kept
         let views = files.compactMap { kept[$0] }
+        for (file, tile) in kept { tile.show(videos[file]) { [weak self] quality in self?.onVideoQuality?(file, quality) } }
         if row.arrangedSubviews != views {
             row.arrangedSubviews.forEach { $0.removeFromSuperview() }
             views.forEach(row.addArrangedSubview)
@@ -52,6 +64,21 @@ final class AttachmentStrip: UIView {
 private final class AttachmentTile: UIView {
     private let picture = UIImageView()
     private let remove: UIButton
+    /// A video's quality, Optimized or Original, and how far its smaller copy is.
+    private let quality: UIButton = {
+        var configuration = UIButton.Configuration.filled()
+        configuration.baseBackgroundColor = .black.withAlphaComponent(0.6)
+        configuration.baseForegroundColor = .white
+        configuration.cornerStyle = .capsule
+        configuration.buttonSize = .mini
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+        let button = UIButton(configuration: configuration)
+        button.showsMenuAsPrimaryAction = true
+        button.isHidden = true
+        return button
+    }()
+    private let progress = UIProgressView(progressViewStyle: .bar)
+    private var video: PendingVideo?
 
     init(file: URL, remove: @escaping () -> Void) {
         self.remove = UIButton(primaryAction: UIAction { _ in remove() })
@@ -64,7 +91,9 @@ private final class AttachmentTile: UIView {
         self.remove.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(paletteColors: [.white, .black.withAlphaComponent(0.6)])),
                              for: .normal)
         self.remove.accessibilityLabel = String(localized: "Remove \(file.lastPathComponent)")
-        for view in [picture, self.remove] as [UIView] {
+        progress.isHidden = true
+        progress.trackTintColor = .black.withAlphaComponent(0.4)
+        for view in [picture, quality, progress, self.remove] as [UIView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -76,6 +105,12 @@ private final class AttachmentTile: UIView {
             picture.bottomAnchor.constraint(equalTo: bottomAnchor),
             self.remove.topAnchor.constraint(equalTo: topAnchor, constant: -4),
             self.remove.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 4),
+            quality.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            quality.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -3),
+            quality.bottomAnchor.constraint(equalTo: progress.topAnchor, constant: -2),
+            progress.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            progress.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            progress.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
         isAccessibilityElement = false
         let scale = UITraitCollection.current.displayScale
@@ -88,4 +123,24 @@ private final class AttachmentTile: UIView {
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    /// A video with a choice: its quality, with a menu to change it, and the smaller copy's progress.
+    func show(_ video: PendingVideo?, choose: @escaping (VideoQuality) -> Void) {
+        guard video != self.video else { return }
+        self.video = video
+        quality.isHidden = video == nil
+        progress.isHidden = video?.progress == nil
+        progress.progress = Float(video?.progress ?? 0)
+        guard let video else { return }
+        let title = video.quality == .optimized ? String(localized: "Optimized") : String(localized: "Original")
+        quality.configuration?.attributedTitle = AttributedString(title, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .caption2).bold]))
+        quality.accessibilityLabel = String(localized: "Video quality, \(title)")
+        let optimized = UIAction(title: String(localized: "Optimized"), subtitle: String(localized: "Smaller, sent sooner"),
+                                 state: video.quality == .optimized ? .on : .off) { _ in choose(.optimized) }
+        let original = UIAction(title: String(localized: "Original"),
+                                subtitle: video.canSendOriginal ? String(localized: "As it is") : String(localized: "Larger than the server takes"),
+                                attributes: video.canSendOriginal ? [] : .disabled,
+                                state: video.quality == .original ? .on : .off) { _ in choose(.original) }
+        quality.menu = UIMenu(title: String(localized: "Video Quality"), children: [optimized, original])
+    }
 }

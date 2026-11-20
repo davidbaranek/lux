@@ -35,6 +35,8 @@ What is done, and what comes next in order. How things work lives in
 - [x] Photos, albums, videos, files: sent, opened in Quick Look (Space on the Mac, the arrows through
       the chat's media), dragged and dropped, pasted; saved, copied and dragged out
 - [x] Uploads that go on in the background (iPhone, with a live activity)
+- [x] Videos sent as an optimized 1080p copy, made while they wait, or as they are; one over the
+      server's limit offered smaller instead of refused
 - [x] The composer's Markdown formatted as typed, with a format menu; it grows with its text,
       then scrolls
 - [x] Saved messages
