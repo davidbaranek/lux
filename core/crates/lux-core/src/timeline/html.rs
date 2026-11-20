@@ -24,6 +24,14 @@ pub fn parse(html: &str) -> (String, Vec<TextStyle>) {
     writer.finish()
 }
 
+/// A Matrix link's run: a member's is their pill, a room's or an event's its text in bold.
+fn linked(id: &MatrixId) -> StyleKind {
+    match id {
+        MatrixId::User(user) => StyleKind::Mention(MentionTarget::User(UserId::from(user.as_str()))),
+        _ => StyleKind::Bold,
+    }
+}
+
 /// How an element shows.
 enum Shape {
     /// Inside a line: a space before it belongs before its run, not in it.
@@ -161,16 +169,9 @@ impl Writer {
             MatrixElement::Pre => Some(StyleKind::CodeBlock),
             MatrixElement::Blockquote => Some(StyleKind::Quote),
             MatrixElement::A(anchor) => match anchor.href {
-                // a member's link to matrix.to (or a matrix: address) is a pill; a room's or an
-                // event's, its text in bold.
-                Some(AnchorUri::MatrixTo(uri)) => Some(match uri.id() {
-                    MatrixId::User(user) => StyleKind::Mention(MentionTarget::User(UserId::from(user.as_str()))),
-                    _ => StyleKind::Bold,
-                }),
-                Some(AnchorUri::Matrix(uri)) => Some(match uri.id() {
-                    MatrixId::User(user) => StyleKind::Mention(MentionTarget::User(UserId::from(user.as_str()))),
-                    _ => StyleKind::Bold,
-                }),
+                // a link to matrix.to, or a matrix: address.
+                Some(AnchorUri::MatrixTo(uri)) => Some(linked(uri.id())),
+                Some(AnchorUri::Matrix(uri)) => Some(linked(uri.id())),
                 Some(AnchorUri::Other(href)) => Some(StyleKind::Link(href.to_string())),
                 _ => None,
             },
