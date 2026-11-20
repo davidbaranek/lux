@@ -221,6 +221,33 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func thePlusOpensItsPanelInTheKeyboardsPlaceAndItsXClosesIt() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            // in a window: the text view becomes the first responder.
+            let chat = try open(try await readChat(in: session), in: session, inWindow: true)
+            let controller = chat.controller
+            // the library's permission, as given: the newest photos' row.
+            controller.attachments.libraryAccess = { .authorized }
+            let plus = try #require(controller.view.descendant { $0.accessibilityLabel == String(localized: "Attach") } as? UIButton)
+            let text = try #require(controller.view.descendant(where: { $0.accessibilityIdentifier == "composer" }) as? UITextView)
+            #expect(text.inputView == nil)
+
+            let began = NotificationCenter.default.notifications(named: UITextView.textDidBeginEditingNotification, object: text)
+            plus.sendActions(for: .primaryActionTriggered)
+            for await _ in began { break }
+            let panel = try #require(text.inputView as? AttachPanel)
+            #expect(panel.descendant { $0.accessibilityIdentifier == "recent photos" } != nil)
+            #expect(plus.accessibilityLabel == String(localized: "Close"))
+
+            // the ×: the panel goes down, and the + is a + again.
+            let ended = NotificationCenter.default.notifications(named: UITextView.textDidEndEditingNotification, object: text)
+            plus.sendActions(for: .primaryActionTriggered)
+            for await _ in ended { break }
+            #expect(text.inputView == nil)
+            #expect(plus.accessibilityLabel == String(localized: "Attach"))
+        }
+    }
+
     private func readChat(in session: Session) async throws -> ChatRow {
         let list = ChatListModel(session: session)
         let changes = list.changes()

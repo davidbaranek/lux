@@ -34,6 +34,8 @@ What is done, and what comes next in order. How things work lives in
 - [x] Read receipts, typing with the typists' pictures
 - [x] Photos, albums, videos, files: sent, opened in Quick Look (Space on the Mac, the arrows through
       the chat's media), dragged and dropped, pasted; saved, copied and dragged out
+- [x] The iPhone's + : a panel in the keyboard's place with the camera, the newest photos (a tap
+      puts one in the composer, numbered; limited access too), all photos, files, and a scan to a PDF
 - [x] Uploads that go on in the background (iPhone, with a live activity)
 - [x] Videos sent as an optimized 1080p copy, made while they wait, or as they are; one over the
       server's limit offered smaller instead of refused

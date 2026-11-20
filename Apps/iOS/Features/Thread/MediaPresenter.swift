@@ -1,8 +1,6 @@
 import LuxCore
-import PhotosUI
 import QuickLook
 import UIKit
-import UniformTypeIdentifiers
 
 /// Opens a message's photo, video or file in Quick Look, which zooms photos, plays videos, shows
 /// documents and shares any of them; it grows from the bubble and shrinks back into it. The
@@ -62,109 +60,6 @@ final class MediaPresenter: NSObject, @MainActor QLPreviewControllerDataSource, 
     /// The zoom from the tile and back into it, for the item it opened at.
     func previewController(_ controller: QLPreviewController, transitionViewFor item: any QLPreviewItem) -> UIView? {
         (item as? URL) == files[safe: opened] ? source : nil
-    }
-}
-
-/// The composer's + : photos and videos from the library (no permission needed: the picker runs
-/// out of process and hands over only what is chosen), or any file; or what is pasted or dropped.
-@MainActor
-final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegate, @MainActor UIDocumentPickerDelegate,
-    @MainActor UIDropInteractionDelegate {
-    private weak var host: UIViewController?
-    private let picked: ([URL]) -> Void
-    /// Copying the picked photos out of the picker: it ends with the screen.
-    private let copying = TaskBag()
-    private var copies: URL { FileManager.default.temporaryDirectory.appendingPathComponent("picked", isDirectory: true) }
-
-    init(host: UIViewController, picked: @escaping ([URL]) -> Void) {
-        self.host = host
-        self.picked = picked
-    }
-
-    var menu: UIMenu {
-        UIMenu(children: [
-            UIAction(title: String(localized: "Photos"), image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in self?.pickPhotos() },
-            UIAction(title: String(localized: "Files"), image: UIImage(systemName: "folder")) { [weak self] _ in self?.pickFiles() },
-        ])
-    }
-
-    private func pickPhotos() {
-        var configuration = PHPickerConfiguration()
-        configuration.selectionLimit = 10
-        configuration.filter = .any(of: [.images, .videos])
-        // the original files as they are (HEIC, MOV): AttachmentMaker makes them ready.
-        configuration.preferredAssetRepresentationMode = .current
-        configuration.selection = .ordered
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        host?.present(picker, animated: true)
-    }
-
-    private func pickFiles() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
-        picker.allowsMultipleSelection = true
-        picker.delegate = self
-        host?.present(picker, animated: true)
-    }
-
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        copy(results.compactMap { result in
-            let provider = result.itemProvider
-            return [UTType.movie, .image].first { provider.hasItemConformingToTypeIdentifier($0.identifier) }.map { (provider, $0, nil) }
-        })
-    }
-
-    /// Photos, videos and files pasted into the composer or dropped on the chat: they wait in it as
-    /// picked ones do. Text among them is not theirs (the text view pastes it).
-    func take(_ providers: [NSItemProvider]) {
-        // a screenshot has no name: it is named for what it is ("Pasted Image.png").
-        copy(providers.compactMap { provider in
-            PastedItems.attachableType(of: provider.registeredTypeIdentifiers).map { type in
-                (provider, type, PastedItems.fileName(provider.suggestedName, type: type))
-            }
-        })
-    }
-
-    /// Each copied out of its provider's temporary file before its callback ends, in order.
-    private func copy(_ items: [(provider: NSItemProvider, type: UTType, name: String?)]) {
-        guard !items.isEmpty else { return }
-        let copies = copies
-        copying.run { [weak self] in
-            var files: [URL] = []
-            for item in items {
-                // the others still go; the log says why this one did not.
-                if let file = await bestEffort("attached item: copy", {
-                    try await PastedItems.file(from: item.provider, type: item.type, name: item.name, in: copies)
-                }) {
-                    files.append(file)
-                }
-            }
-            try Task.checkCancellation()
-            self?.picked(files)
-        }
-    }
-
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        picked(urls)
-    }
-
-    // MARK: Dropped on the chat
-
-    private func attachable(_ session: any UIDropSession) -> [NSItemProvider] {
-        session.items.map(\.itemProvider).filter { PastedItems.attachableType(of: $0.registeredTypeIdentifiers) != nil }
-    }
-
-    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: any UIDropSession) -> Bool {
-        !attachable(session).isEmpty
-    }
-
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: any UIDropSession) -> UIDropProposal {
-        UIDropProposal(operation: .copy)
-    }
-
-    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: any UIDropSession) {
-        take(attachable(session))
     }
 }
 

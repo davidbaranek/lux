@@ -93,6 +93,14 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # a chat's photo or video saved to the library (adding only: nothing in it is read).
         NSPhotoLibraryAddUsageDescription: Lux saves the photos and videos you choose from a chat to your library.
+        # the newest photos under the composer's + (asked when the user opens them; without it the
+        # system's picker, which needs none, takes their place). Lux shows its own way to share
+        # more with limited access, so the system does not ask again at each launch.
+        NSPhotoLibraryUsageDescription: Lux shows your newest photos and videos under the + so you can send them.
+        PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
+        # the + 's Camera and Scan Document; a video's sound.
+        NSCameraUsageDescription: Lux uses the camera for the photos, videos and document scans you send.
+        NSMicrophoneUsageDescription: Lux records sound with the videos you take to send.
   # downloads photo search's model (an Apple-hosted asset pack) when the system schedules it.
   Lux-iOS-Assets:
     type: extensionkit-extension
