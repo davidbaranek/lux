@@ -88,38 +88,35 @@ final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionView
     private static let tile: CGFloat = 120
     private static let buttonHeight: CGFloat = 80
 
-    /// As tall as its row and buttons over the home indicator's band (`bottom`); only as tall as
-    /// its buttons without the library.
-    init(access: RecentPhotos.Access, bottom: CGFloat) {
+    /// `height` tall, the keyboard's (with the home indicator's band): the row and the buttons
+    /// in its middle; only the buttons without the library.
+    init(access: RecentPhotos.Access, height: CGFloat) {
         self.access = access
-        let showsLibrary = access != .picker
-        let height = 16 + (showsLibrary ? Self.tile + 14 : 0) + Self.buttonHeight + 8 + bottom
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: height), inputViewStyle: .keyboard)
         let buttons = UIStackView(arrangedSubviews: AttachChoice.allCases.filter { $0 != .camera && $0.isAvailable }.map(button))
         buttons.distribution = .fillEqually
         buttons.spacing = 10
-        buttons.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(buttons)
+        buttons.isLayoutMarginsRelativeArrangement = true
+        buttons.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+        buttons.heightAnchor.constraint(equalToConstant: Self.buttonHeight).isActive = true
+        let content = UIStackView(arrangedSubviews: [buttons])
+        content.axis = .vertical
+        content.spacing = 14
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
         NSLayoutConstraint.activate([
-            buttons.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            buttons.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            buttons.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -8),
-            buttons.heightAnchor.constraint(equalToConstant: Self.buttonHeight),
+            content.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            content.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor),
         ])
-        guard showsLibrary else { return }
+        guard access != .picker else { return }
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.accessibilityIdentifier = "recent photos"
-        collectionView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(collectionView)
-        NSLayoutConstraint.activate([
-            collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            collectionView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
-            collectionView.bottomAnchor.constraint(equalTo: buttons.topAnchor, constant: -14),
-        ])
+        collectionView.heightAnchor.constraint(equalToConstant: Self.tile).isActive = true
+        content.insertArrangedSubview(collectionView, at: 0)
         PHPhotoLibrary.shared().register(self)
         assets = RecentPhotos.fetch()
         showTiles()

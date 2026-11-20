@@ -69,7 +69,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         var configuration = UIButton.Configuration.glass()
         configuration.image = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(weight: .semibold))
         configuration.cornerStyle = .capsule
-        configuration.symbolContentTransition = UISymbolContentTransition(.replace)
+        // + to × and back at twice the system's pace: it answers the tap at once.
+        configuration.symbolContentTransition = UISymbolContentTransition(.replace, options: .speed(2))
         let button = UIButton(configuration: configuration)
         button.accessibilityLabel = String(localized: "Attach")
         return button
@@ -87,6 +88,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
         glass.cornerConfiguration = .uniformCorners(radius: 22)
         textView.font = .preferredFont(forTextStyle: .body)
         textView.adjustsFontForContentSizeCategory = true
@@ -221,9 +223,22 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         }
     }
 
-    /// The ×: the panel goes down, and the keyboard with it.
+    /// The ×: the keyboard takes the panel's place again.
     func closePanel() {
-        textView.resignFirstResponder()
+        inputPanel = nil
+    }
+
+    /// The last keyboard's height (with the home indicator's band): the panel takes it, so the
+    /// switch between them does not move the composer. Before any keyboard showed, an iPhone's
+    /// portrait keyboard with its suggestions bar.
+    private(set) static var keyboardHeight: CGFloat = 336
+
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        // the panel's own showing is not the keyboard's.
+        guard textView.isFirstResponder, textView.inputView == nil,
+              let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, frame.height > 0
+        else { return }
+        Self.keyboardHeight = frame.height
     }
 
     @objc private func showKeyboard() {

@@ -221,7 +221,7 @@ struct ThreadViewTests {
         }
     }
 
-    @Test func thePlusOpensItsPanelInTheKeyboardsPlaceAndItsXClosesIt() async throws {
+    @Test func thePlusOpensItsPanelInTheKeyboardsPlaceAndItsXGivesTheKeyboardBack() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             // in a window: the text view becomes the first responder.
             let chat = try open(try await readChat(in: session), in: session, inWindow: true)
@@ -236,14 +236,14 @@ struct ThreadViewTests {
             plus.sendActions(for: .primaryActionTriggered)
             for await _ in began { break }
             let panel = try #require(text.inputView as? AttachPanel)
+            #expect(panel.frame.height == ComposerView.keyboardHeight)
             #expect(panel.descendant { $0.accessibilityIdentifier == "recent photos" } != nil)
             #expect(plus.accessibilityLabel == String(localized: "Close"))
 
-            // the ×: the panel goes down, and the + is a + again.
-            let ended = NotificationCenter.default.notifications(named: UITextView.textDidEndEditingNotification, object: text)
+            // the ×: the keyboard takes the panel's place, and the + is a + again.
             plus.sendActions(for: .primaryActionTriggered)
-            for await _ in ended { break }
             #expect(text.inputView == nil)
+            #expect(text.isFirstResponder)
             #expect(plus.accessibilityLabel == String(localized: "Attach"))
         }
     }

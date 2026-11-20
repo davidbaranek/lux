@@ -47,12 +47,13 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
 
     // MARK: The panel
 
-    /// The + : opens the panel in the keyboard's place; the × closes it.
+    /// The + : opens the panel in the keyboard's place, as tall as the keyboard; the × gives the
+    /// keyboard back.
     func togglePanel(in composer: ComposerView) {
         guard composer.inputPanel == nil else { return composer.closePanel() }
         copying.run("library access") { [weak self, weak composer] in
             guard let status = await self?.libraryAccess(), let self, let composer else { return }
-            let panel = AttachPanel(access: RecentPhotos.Access(status), bottom: composer.window?.safeAreaInsets.bottom ?? 0)
+            let panel = AttachPanel(access: RecentPhotos.Access(status), height: ComposerView.keyboardHeight)
             panel.picked = selection.ids
             panel.onToggle = { [weak self] asset in self?.toggle(asset) }
             panel.onChoice = { [weak self] choice in self?.choose(choice) }
