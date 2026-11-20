@@ -50,6 +50,7 @@ impl Mapper {
             .map(crate::convert::system_time);
         let preview = self.preview_line(room, &latest, own, is_group).await;
         let network = self.network(room, own, &members).await;
+        let unread = Unread::of(room);
         let avatar = picture.map(|url| MediaId::from(url.as_str()));
         let member_avatars = member_pictures.iter().map(|url| MediaId::from(url.as_str())).collect();
         let pinned = if room.is_favourite() {
@@ -63,8 +64,8 @@ impl Mapper {
             name: display_name(room),
             preview,
             date,
-            unread_count: u32::try_from(room.num_unread_messages()).unwrap_or(u32::MAX),
-            unread_mentions: u32::try_from(room.num_unread_mentions()).unwrap_or(u32::MAX),
+            unread_count: unread.messages,
+            unread_mentions: unread.mentions,
             is_marked_unread: room.is_marked_unread(),
             // the room list's push rules decide it (`ChatRows`): muted or mentions only.
             is_muted: false,
@@ -155,6 +156,33 @@ impl Mapper {
                     None
                 }
             },
+        }
+    }
+}
+
+/// A room's unread messages and mentions. The device counts them from the events it holds
+/// (`Room::num_unread_messages`), which miss those a sync left out: the room list brings each
+/// room's latest event only, so a busy room's count is short until its chat loads its history. The
+/// server counts every message it notifies of, whatever the device holds; in an encrypted room it
+/// cannot read what an event is (an edit, a reaction), so the device's count alone is right there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Unread {
+    messages: u32,
+    mentions: u32,
+}
+
+impl Unread {
+    fn of(room: &Room) -> Self {
+        let server = room.unread_notification_counts();
+        let (server_messages, server_mentions) = if room.encryption_state().is_encrypted() {
+            (0, 0)
+        } else {
+            (server.notification_count, server.highlight_count)
+        };
+        let count = |device: u64, server: u64| u32::try_from(device.max(server)).unwrap_or(u32::MAX);
+        Self {
+            messages: count(room.num_unread_messages(), server_messages),
+            mentions: count(room.num_unread_mentions(), server_mentions),
         }
     }
 }
