@@ -209,7 +209,8 @@ extension ThreadController {
         return model.canSendLater && written
     }
 
-    /// Return sends; Option-Return adds a line; Tab moves on, as from a text field. While members
+    /// Return sends; Shift-Return, Option-Return and Control-Return add a line (`insertLineBreak:`,
+    /// `insertNewlineIgnoringFieldEditor:`); Tab moves on, as from a text field. While members
     /// are offered for a mention, the arrows choose one, Return or Tab picks it and Escape closes
     /// the list.
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -226,7 +227,7 @@ extension ThreadController {
             default: break
             }
         }
-        if selector == #selector(NSResponder.insertNewline(_:)), !(NSApp.currentEvent?.modifierFlags.contains(.option) ?? false) {
+        if selector == #selector(NSResponder.insertNewline(_:)) {
             send()
             return true
         }
@@ -236,7 +237,7 @@ extension ThreadController {
             model.cancelMode()
             return true
         }
-        if selector == #selector(NSResponder.insertNewline(_:)) || selector == #selector(NSResponder.insertLineBreak(_:)) {
+        if selector == #selector(NSResponder.insertLineBreak(_:)) {
             textView.insertNewlineIgnoringFieldEditor(nil)
             return true
         }

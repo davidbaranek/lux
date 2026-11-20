@@ -165,6 +165,20 @@ final class ComposerTextView: NSTextView {
         }
     }
 
+    /// Shift-Return adds a line, as in Messages. AppKit's key bindings give it no command of its
+    /// own (StandardKeyBinding.dict binds Return to `insertNewline:`, Control-Return to
+    /// `insertLineBreak:`, Option-Return to `insertNewlineIgnoringFieldEditor:`; Shift falls
+    /// through to Return's): here it is Control-Return's `insertLineBreak:`, which the delegate
+    /// takes as a line, never as Send.
+    override func keyDown(with event: NSEvent) {
+        if !hasMarkedText(), event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift,
+           event.charactersIgnoringModifiers == "\r" {
+            doCommand(by: #selector(NSResponder.insertLineBreak(_:)))
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard string.isEmpty, !placeholder.isEmpty else { return }

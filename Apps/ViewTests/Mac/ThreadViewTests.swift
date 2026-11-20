@@ -239,6 +239,31 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func returnSendsAndShiftOrOptionReturnAddsALine() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let controller = chat.controller, field = controller.field
+            try await chat.changes.until { chat.isShown(chat.newest) && !controller.model.isLoading }
+            field.insertText("first", replacementRange: NSRange(location: NSNotFound, length: 0))
+            // Shift-Return, as the key comes: a line, nothing sent.
+            field.keyDown(with: try returnKey(.shift))
+            field.insertText("second", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(field.string == "first\nsecond")
+            // Option-Return, as AppKit's key bindings name it: a line too.
+            #expect(!controller.textView(field, doCommandBy: #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))))
+            // Return sends the lines.
+            #expect(controller.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+            try await chat.changes.until { chat.shows("first\nsecond") }
+            #expect(field.string.isEmpty)
+        }
+    }
+
+    /// Return pressed with `modifiers`, as the text view gets it.
+    private func returnKey(_ modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0,
+                                      context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+    }
+
     @Test func aFilePastedIntoTheComposerWaitsInItAsAPickedOneDoes() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             let chat = try open(try await readChat(in: session), in: session)
