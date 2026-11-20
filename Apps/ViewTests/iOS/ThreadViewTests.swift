@@ -157,6 +157,30 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func pasteIsOfferedForAFileAloneAndPutsItInTheComposer() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            let shown = model.onPendingFiles
+            model.onPendingFiles = { shown?($0); chat.changes.send() }
+            let composer = try #require(chat.controller.view.descendant(where: { $0.accessibilityIdentifier == "composer" }) as? ComposerTextView)
+            // a PDF copied in Files: no text on the pasteboard, only the file.
+            let pasteboard = try #require(UIPasteboard(name: UIPasteboard.Name(UUID().uuidString), create: true))
+            defer { UIPasteboard.remove(withName: pasteboard.name) }
+            composer.pasteboard = pasteboard
+            let pdf = Data("%PDF-1.4\n%%EOF\n".utf8)
+            pasteboard.setData(pdf, forPasteboardType: UTType.pdf.identifier)
+
+            // the menu and ⌘V offer Paste, as they do for text; pasted at once, as a person does
+            // (a pasteboard's item hands its data only right after the paste).
+            #expect(composer.canPerformAction(#selector(UIResponderStandardEditActions.paste(_:)), withSender: nil))
+            composer.paste(nil)
+            try await chat.changes.until { model.pendingFiles.count == 1 }
+            let pasted = try #require(model.pendingFiles.first)
+            #expect(pasted.pathExtension == "pdf")
+            #expect(try Data(contentsOf: pasted) == pdf)
+        }
+    }
 
     @Test func aSentPhotoDragsOutAsItsFileLoadedWhenDroppedAndTextStays() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in

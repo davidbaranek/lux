@@ -63,7 +63,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
             refresh()
         }
     }
-    private let textView = UITextView()
+    private let textView = ComposerTextView()
     private lazy var backToKeyboard = UITapGestureRecognizer(target: self, action: #selector(showKeyboard))
     /// In a merged chat, the network a message goes through: a badge on the send button.
     private let network = UIImageView()
@@ -110,6 +110,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         // pictures, videos and files paste too, beside the text the view takes as it would; the
         // system asks the user before a paste reads another app's pasteboard.
         textView.pasteDelegate = self
+        textView.onPasteItems = { [weak self] providers in self?.onPasteItems?(providers) }
         textView.pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers:
             (textView.pasteConfiguration?.acceptableTypeIdentifiers ?? [UTType.text.identifier])
                 + [UTType.image, .movie, .fileURL, .data].map(\.identifier))
@@ -422,5 +423,30 @@ private final class ModeBar: UIView {
         self.title.text = title
         self.detail.text = detail
         accessibilityLabel = "\(title), \(detail)"
+    }
+}
+
+/// The composer's text: Paste (the menu's and ⌘V) is offered, and pastes, also when the pasteboard
+/// holds only a picture, a video or a file. A plain text view offers it for text alone, whatever
+/// its `pasteConfiguration` takes, so they never reached its paste delegate; with text among them,
+/// the text view pastes as it does and its delegate takes the rest.
+final class ComposerTextView: UITextView {
+    /// The pasteboard pastes come from: the system's, or one of a test's.
+    var pasteboard = UIPasteboard.general
+    var onPasteItems: (([NSItemProvider]) -> Void)?
+
+    /// Only the pasteboard's types are read, which asks the user nothing.
+    private var hasOnlyAttachables: Bool {
+        !pasteboard.hasStrings && PastedItems.attachableType(of: pasteboard.types) != nil
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)), isEditable, hasOnlyAttachables { return true }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func paste(_ sender: Any?) {
+        guard hasOnlyAttachables else { return super.paste(sender) }
+        onPasteItems?(pasteboard.itemProviders)
     }
 }

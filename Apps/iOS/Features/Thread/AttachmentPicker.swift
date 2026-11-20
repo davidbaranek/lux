@@ -260,17 +260,18 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
         })
     }
 
-    /// Each copied out of its provider's temporary file before its callback ends, in order.
+    /// Each copied out of its provider's temporary file before its callback ends, all asked at
+    /// once (a pasteboard's items hand their data only right after the paste), put in the
+    /// composer in order.
     private func copy(_ items: [(provider: NSItemProvider, type: UTType, name: String?)]) {
         guard !items.isEmpty else { return }
         let copies = copies
+        let copied = items.map { PastedItems.copying(from: $0.provider, type: $0.type, name: $0.name, in: copies) }
         copying.run { [weak self] in
             var files: [URL] = []
-            for item in items {
+            for copy in copied {
                 // the others still go; the log says why this one did not.
-                if let file = await bestEffort("attached item: copy", {
-                    try await PastedItems.file(from: item.provider, type: item.type, name: item.name, in: copies)
-                }) {
+                if let file = await bestEffort("attached item: copy", { try await copy.value }) {
                     files.append(file)
                 }
             }

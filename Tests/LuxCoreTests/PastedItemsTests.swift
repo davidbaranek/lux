@@ -83,7 +83,7 @@ import UniformTypeIdentifiers
         }
         provider.suggestedName = "Screenshot"
         let type = try #require(PastedItems.attachableType(of: provider.registeredTypeIdentifiers))
-        let file = try await PastedItems.file(from: provider, type: type, name: provider.suggestedName, in: folder)
+        let file = try await PastedItems.copying(from: provider, type: type, name: provider.suggestedName, in: folder).value
         #expect(file.lastPathComponent == "Screenshot.png")
         #expect(try Data(contentsOf: file) == bytes)
     }
