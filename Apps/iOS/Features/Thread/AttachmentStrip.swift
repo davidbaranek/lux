@@ -48,6 +48,22 @@ final class AttachmentStrip: UIView {
         }
     }
 
+    /// The files still on their way to the disk, and how far each has come.
+    var arriving: [URL: Double] = [:] {
+        didSet {
+            guard arriving != oldValue else { return }
+            for (file, tile) in tiles { tile.show(arriving: arriving[file]) }
+        }
+    }
+    /// The pictures of files not on disk yet, from where they come (the library): Quick Look has
+    /// nothing to draw for them.
+    private var previews: [URL: UIImage] = [:]
+
+    func showPreview(_ image: UIImage, of file: URL) {
+        previews[file] = image
+        tiles[file]?.showPreview(image)
+    }
+
     /// Shows these files, keeping the tiles of those that stay.
     func show(_ files: [URL]) {
         var kept: [URL: AttachmentTile] = [:]
@@ -57,8 +73,13 @@ final class AttachmentStrip: UIView {
             }
         }
         tiles = kept
+        previews = previews.filter { kept[$0.key] != nil || arriving[$0.key] != nil }
         let views = files.compactMap { kept[$0] }
-        for (file, tile) in kept { tile.show(videos[file]) { [weak self] quality in self?.onVideoQuality?(file, quality) } }
+        for (file, tile) in kept {
+            tile.show(videos[file]) { [weak self] quality in self?.onVideoQuality?(file, quality) }
+            tile.show(arriving: arriving[file])
+            if let preview = previews[file] { tile.showPreview(preview) }
+        }
         if row.arrangedSubviews != views {
             row.arrangedSubviews.forEach { $0.removeFromSuperview() }
             views.forEach(row.addArrangedSubview)
@@ -69,21 +90,31 @@ final class AttachmentStrip: UIView {
 private final class AttachmentTile: UIView {
     private let picture = UIImageView()
     private let remove: UIButton
-    /// A video's quality, Optimized or Original, and how far its smaller copy is.
+    /// A video's quality, Optimized or Original: a symbol, as the tile is too small for its
+    /// word in any language; the word is in its menu, its accessibility label and, held at the
+    /// largest text sizes, the large content viewer.
     private let quality: UIButton = {
         var configuration = UIButton.Configuration.filled()
         configuration.baseBackgroundColor = .black.withAlphaComponent(0.6)
         configuration.baseForegroundColor = .white
         configuration.cornerStyle = .capsule
         configuration.buttonSize = .mini
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(textStyle: .caption2, scale: .small)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 5, bottom: 3, trailing: 5)
         let button = UIButton(configuration: configuration)
         button.showsMenuAsPrimaryAction = true
+        // the tile does not grow with the text: the symbol stops at a size that fits it.
+        button.maximumContentSizeCategory = .extraExtraLarge
+        button.showsLargeContentViewer = true
+        button.addInteraction(UILargeContentViewerInteraction())
         button.isHidden = true
         return button
     }()
     private let progress = UIProgressView(progressViewStyle: .bar)
     private var video: PendingVideo?
+    private var choose: ((VideoQuality) -> Void)?
+    /// How far the file has come to the disk; nil once it is there.
+    private var arriving: Double?
 
     init(file: URL, remove: @escaping () -> Void, markUp: @escaping (UIView) -> Void) {
         self.remove = UIButton(primaryAction: UIAction { _ in remove() })
@@ -133,6 +164,9 @@ private final class AttachmentTile: UIView {
             progress.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
         isAccessibilityElement = false
+        quality.menu = UIMenu(title: String(localized: "Video Quality"), children: [
+            UIDeferredMenuElement.uncached { [weak self] completion in completion(self?.qualityChoices() ?? []) },
+        ])
         let scale = UITraitCollection.current.displayScale
         let request = QLThumbnailGenerator.Request(fileAt: file, size: CGSize(width: AttachmentStrip.side, height: AttachmentStrip.side),
                                                    scale: scale, representationTypes: .all)
@@ -142,25 +176,56 @@ private final class AttachmentTile: UIView {
         }
     }
 
+    /// The picture of a file not on disk yet (Quick Look has nothing to draw).
+    func showPreview(_ image: UIImage) {
+        if picture.image == nil { picture.image = image }
+    }
+
+    /// A file on its way to the disk: dimmed, with how far it has come.
+    func show(arriving: Double?) {
+        guard arriving != self.arriving else { return }
+        self.arriving = arriving
+        picture.alpha = arriving == nil ? 1 : 0.6
+        accessibilityValue = arriving.map { String(localized: "Loading, \($0.formatted(.percent.precision(.fractionLength(0))))") }
+        showProgress()
+    }
+
+    /// The bar shows the file coming, then its smaller copy being made.
+    private func showProgress() {
+        let share = arriving ?? video?.progress
+        progress.isHidden = share == nil
+        progress.progress = Float(share ?? 0)
+    }
+
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     /// A video with a choice: its quality, with a menu to change it, and the smaller copy's progress.
     func show(_ video: PendingVideo?, choose: @escaping (VideoQuality) -> Void) {
         guard video != self.video else { return }
+        let quality = video?.quality
+        let changed = quality != self.video?.quality
         self.video = video
-        quality.isHidden = video == nil
-        progress.isHidden = video?.progress == nil
-        progress.progress = Float(video?.progress ?? 0)
-        guard let video else { return }
-        let title = video.quality == .optimized ? String(localized: "Optimized") : String(localized: "Original")
-        quality.configuration?.attributedTitle = AttributedString(title, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .caption2).bold]))
-        quality.accessibilityLabel = String(localized: "Video quality, \(title)")
-        let optimized = UIAction(title: String(localized: "Optimized"), subtitle: String(localized: "Smaller, sent sooner"),
+        self.choose = choose
+        self.quality.isHidden = video == nil
+        showProgress()
+        guard let quality, changed else { return }
+        let title = quality == .optimized ? String(localized: "Optimized") : String(localized: "Original")
+        let symbol = UIImage(systemName: quality == .optimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+        self.quality.configuration?.image = symbol
+        self.quality.accessibilityLabel = String(localized: "Video quality, \(title)")
+        self.quality.largeContentTitle = title
+        self.quality.largeContentImage = symbol
+    }
+
+    /// The menu's choices, made as it opens (not on each step of the copy's progress): what each
+    /// sends, its lines and bytes, and how much smaller the copy is.
+    private func qualityChoices() -> [UIMenuElement] {
+        guard let video, let choose else { return [] }
+        let optimized = UIAction(title: String(localized: "Optimized"), subtitle: video.optimizedDetail,
                                  state: video.quality == .optimized ? .on : .off) { _ in choose(.optimized) }
-        let original = UIAction(title: String(localized: "Original"),
-                                subtitle: video.canSendOriginal ? String(localized: "As it is") : String(localized: "Larger than the server takes"),
+        let original = UIAction(title: String(localized: "Original"), subtitle: video.originalDetail,
                                 attributes: video.canSendOriginal ? [] : .disabled,
                                 state: video.quality == .original ? .on : .off) { _ in choose(.original) }
-        quality.menu = UIMenu(title: String(localized: "Video Quality"), children: [optimized, original])
+        return [optimized, original]
     }
 }

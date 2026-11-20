@@ -90,6 +90,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     private lazy var media = MediaPresenter(host: self)
     lazy var attachments = AttachmentPicker(host: self, picked: { [weak self] files in self?.model.attach(files) },
+                                            arriving: { [weak self] file, write in self?.model.attach(file, writing: write) },
                                             removed: { [weak self] file in self?.model.removePending(file) })
     private lazy var markup = PendingMarkup(host: self) { [weak self] original, copy in self?.model.replacePending(original, with: copy) }
 
@@ -207,7 +208,15 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         // photos, videos and files dropped anywhere on the chat wait in the composer too.
         view.addInteraction(UIDropInteraction(delegate: attachments))
         composer.onRemoveAttachment = { [weak self] file in self?.model.removePending(file) }
-        composer.onMarkUpAttachment = { [weak self] file, tile in self?.markup.open(file, from: tile) }
+        // a file still coming from the library opens in Markup once it is there.
+        composer.onMarkUpAttachment = { [weak self] file, tile in
+            guard let self, model.arriving.progress[file] == nil else { return }
+            markup.open(file, from: tile)
+        }
+        model.arriving.onChange = { [weak self] in
+            guard let self else { return }
+            composer.arriving = model.arriving.progress
+        }
         model.onPendingFiles = { [weak self] files in
             self?.composer.attachments = files
             self?.attachments.pendingChanged(files)

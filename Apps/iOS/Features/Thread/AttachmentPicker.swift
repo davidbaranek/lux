@@ -18,16 +18,16 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
     @MainActor VNDocumentCameraViewControllerDelegate {
     private weak var host: UIViewController?
     private let picked: ([URL]) -> Void
+    /// A file put in the composer at once, before `write` has written it.
+    private let arriving: (URL, _ write: @escaping @MainActor (_ progress: @escaping @Sendable (Double) -> Void) async throws -> Void) -> Void
     private let removed: (URL) -> Void
     private weak var panel: AttachPanel?
+    private weak var composer: ComposerView?
     /// The newest photos picked in the panel, in order, and each one's file once written.
     private var selection = RecentPhotoSelection()
     private var written: [String: URL] = [:]
     /// Files handed to the composer that it has not listed yet.
     private var handed: Set<URL> = []
-    /// The last photo being written: each waits for the one before, so they go into the
-    /// composer in the order picked, as their numbers say.
-    private var writing: Task<Void, Never>?
     /// Copying the picked photos out of the picker: it ends with the screen.
     private let copying = TaskBag()
     private var copies: URL { FileManager.default.temporaryDirectory.appendingPathComponent("picked", isDirectory: true) }
@@ -37,22 +37,24 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
         return status == .notDetermined ? await PHPhotoLibrary.requestAuthorization(for: .readWrite) : status
     }
 
-    init(host: UIViewController, picked: @escaping ([URL]) -> Void, removed: @escaping (URL) -> Void) {
+    init(host: UIViewController, picked: @escaping ([URL]) -> Void,
+         arriving: @escaping (URL, _ write: @escaping @MainActor (_ progress: @escaping @Sendable (Double) -> Void) async throws -> Void) -> Void,
+         removed: @escaping (URL) -> Void) {
         self.host = host
         self.picked = picked
+        self.arriving = arriving
         self.removed = removed
     }
 
-    isolated deinit { writing?.cancel() }
-
     // MARK: The panel
 
-    /// The + : opens the panel in the keyboard's place; the × closes it.
+    /// The + : opens the panel in the keyboard's place, as tall as the keyboard; the × gives the
+    /// keyboard back.
     func togglePanel(in composer: ComposerView) {
         guard composer.inputPanel == nil else { return composer.closePanel() }
         copying.run("library access") { [weak self, weak composer] in
             guard let status = await self?.libraryAccess(), let self, let composer else { return }
-            let panel = AttachPanel(access: RecentPhotos.Access(status), bottom: composer.window?.safeAreaInsets.bottom ?? 0)
+            let panel = AttachPanel(access: RecentPhotos.Access(status), height: ComposerView.keyboardHeight)
             panel.picked = selection.ids
             panel.onToggle = { [weak self] asset in self?.toggle(asset) }
             panel.onChoice = { [weak self] choice in self?.choose(choice) }
@@ -61,6 +63,7 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
                 PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: host)
             }
             self.panel = panel
+            self.composer = composer
             composer.inputPanel = panel
         }
     }
@@ -80,23 +83,38 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
         guard selection.toggle(id) else { return }
         panel?.picked = selection.ids
         if !selection.ids.contains(id) {
-            // one still being written is left out when it is done.
+            // taken out while it is still coming: its download stops.
             if let file = written.removeValue(forKey: id) { removed(file) }
             return
         }
-        let copies = copies
-        let previous = writing
-        writing = Task { [weak self] in
-            await previous?.value
-            // taken out again before its turn: nothing to write.
-            guard self?.selection.ids.contains(id) == true, !Task.isCancelled,
-                  let file = await RecentPhotos.files(of: [asset], in: copies).first,
-                  let self, selection.ids.contains(id) else { return }
-            written[id] = file
-            handed.insert(file)
-            picked([file])
+        guard let file = RecentPhotos.destination(of: asset, in: copies) else {
+            selection.toggle(id)
+            panel?.picked = selection.ids
+            return
+        }
+        // in the composer at once, in the order picked, with the library's picture of it; the
+        // file follows (from iCloud if it is only there), and sending waits for it.
+        written[id] = file
+        handed.insert(file)
+        arriving(file) { progress in try await RecentPhotos.write(asset, to: file, progress: progress) }
+        let side = AttachmentStrip.side * (composer?.traitCollection.displayScale ?? 3)
+        PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: side, height: side), contentMode: .aspectFill,
+                                              options: Self.previewOptions) { [weak self] image, _ in
+            MainActor.assumeIsolated {
+                guard let image else { return }
+                self?.composer?.showPreview(image, of: file)
+            }
         }
     }
+
+    /// A picked photo's picture in the composer, decoded off the main thread at the tile's size.
+    private static let previewOptions: PHImageRequestOptions = {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+        return options
+    }()
 
     /// The composer's files changed: a photo taken out there or sent is no longer picked here.
     func pendingChanged(_ files: [URL]) {

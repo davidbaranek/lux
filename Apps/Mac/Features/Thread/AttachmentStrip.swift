@@ -128,10 +128,11 @@ private final class AttachmentTile: NSView {
         // a pull-down's first item is its title.
         menu.addItem(withTitle: video.quality == .optimized ? String(localized: "Optimized") : String(localized: "Original"), action: nil, keyEquivalent: "")
         let optimized = NSMenuItem(title: String(localized: "Optimized"), action: #selector(chooseOptimized), keyEquivalent: "")
-        optimized.subtitle = String(localized: "Smaller, sent sooner")
+        // what each sends: its lines and bytes, and how much smaller the copy is.
+        optimized.subtitle = video.optimizedDetail
         optimized.state = video.quality == .optimized ? .on : .off
         let original = NSMenuItem(title: String(localized: "Original"), action: video.canSendOriginal ? #selector(chooseOriginal) : nil, keyEquivalent: "")
-        original.subtitle = video.canSendOriginal ? String(localized: "As it is") : String(localized: "Larger than the server takes")
+        original.subtitle = video.originalDetail
         original.state = video.quality == .original ? .on : .off
         for item in [optimized, original] {
             item.target = self
