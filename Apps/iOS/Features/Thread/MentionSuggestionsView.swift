@@ -1,9 +1,10 @@
 import LuxCore
 import UIKit
 
-/// The members a mention's word offers, above the composer on Liquid Glass: their picture, name
-/// and user id, the best match first, at most four rows tall (the rest scroll). A tap puts the
-/// member's pill in the composer.
+/// The members a mention's word offers, above the composer on Liquid Glass of the composer's
+/// radius: their picture, name and user id, the best match first, at most four rows tall (the
+/// rest scroll). A touched row is a fill concentric with the glass, `gap` in from its edges. A tap
+/// puts the member's pill in the composer.
 final class MentionSuggestionsView: UIView, UICollectionViewDelegate {
     var onPick: ((MentionSuggestion) -> Void)?
     var images: ImagePipeline?
@@ -11,6 +12,10 @@ final class MentionSuggestionsView: UIView, UICollectionViewDelegate {
     private(set) var suggestions: [MentionSuggestion] = []
     private static let row: CGFloat = 52
     private static let picture: CGFloat = 32
+    /// The composer glass' corner radius, which the list's own glass takes.
+    private static let radius: CGFloat = 22
+    /// A touched row's gap from the glass' edges, the same all round.
+    private static let gap: CGFloat = 6
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
     private lazy var list: UICollectionView = {
         var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
@@ -27,7 +32,7 @@ final class MentionSuggestionsView: UIView, UICollectionViewDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isHidden = true
-        glass.cornerConfiguration = .uniformCorners(radius: 22)
+        glass.cornerConfiguration = .uniformCorners(radius: .fixed(Self.radius))
         glass.clipsToBounds = true
         for view in [glass, list] as [UIView] { view.translatesAutoresizingMaskIntoConstraints = false }
         addSubview(glass)
@@ -39,8 +44,8 @@ final class MentionSuggestionsView: UIView, UICollectionViewDelegate {
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             list.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
             list.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
-            list.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: 4),
-            list.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -4),
+            list.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
+            list.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
             height,
         ])
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, MentionSuggestion> { [weak self] cell, _, suggestion in
@@ -63,7 +68,10 @@ final class MentionSuggestionsView: UIView, UICollectionViewDelegate {
                     content.imageProperties.tintColor = .tintColor
                 }
                 cell.contentConfiguration = content
+                // concentric with the glass: the same gap from its edges all round.
                 var background = UIBackgroundConfiguration.clear()
+                background.backgroundInsets = NSDirectionalEdgeInsets(top: Self.gap, leading: Self.gap, bottom: Self.gap, trailing: Self.gap)
+                background.cornerRadius = Self.radius - Self.gap
                 if state.isHighlighted || state.isSelected { background.backgroundColor = .tertiarySystemFill }
                 cell.backgroundConfiguration = background
             }
@@ -84,7 +92,7 @@ final class MentionSuggestionsView: UIView, UICollectionViewDelegate {
         snapshot.appendSections([0])
         snapshot.appendItems(suggestions)
         dataSource?.apply(snapshot, animatingDifferences: false)
-        height.constant = CGFloat(min(suggestions.count, 4)) * Self.row + 8
+        height.constant = CGFloat(min(suggestions.count, 4)) * Self.row
         isHidden = suggestions.isEmpty
         if !suggestions.isEmpty { list.scrollToItem(at: IndexPath(item: 0, section: 0), at: .top, animated: false) }
     }

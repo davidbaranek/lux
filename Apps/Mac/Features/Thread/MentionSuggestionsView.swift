@@ -1,8 +1,10 @@
 import AppKit
 import LuxCore
 
-/// The members a mention's word offers, above the composer on glass: their picture, name and user
-/// id, the best match first, at most five rows tall (the rest scroll). The first is selected; the
+/// The members a mention's word offers, above the composer on glass of the composer's radius:
+/// their picture, name and user id, the best match first, at most five rows tall (the rest
+/// scroll). The selected row is a fill concentric with the glass, `gap` in from its edges. The
+/// first is selected; the
 /// arrow keys move the selection (`move(by:)`) and Return or Tab picks it, as the composer's text
 /// view asks; a click picks a row.
 final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
@@ -11,6 +13,10 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
     /// What shows, in order.
     private(set) var suggestions: [MentionSuggestion] = []
     private static let row: CGFloat = 40
+    /// The composer glass' corner radius, which the list's own glass takes.
+    static let radius: CGFloat = 18
+    /// The selected row's gap from the glass' edges, the same all round.
+    static let gap: CGFloat = 6
     private let table = NSTableView()
     private let scroll = NSScrollView()
     private var dataSource: NSTableViewDiffableDataSource<Int, MentionSuggestion>?
@@ -18,7 +24,7 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        cornerRadius = 14
+        cornerRadius = Self.radius
         isHidden = true
         table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("member")))
         table.headerView = nil
@@ -26,6 +32,7 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
         table.backgroundColor = .clear
         table.style = .plain
         table.intercellSpacing = .zero
+        table.selectionHighlightStyle = .regular
         table.delegate = self
         table.target = self
         table.action = #selector(clicked)
@@ -38,10 +45,10 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
         let content = NSView()
         content.addSubview(scroll)
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 4),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -4),
-            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 4),
-            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -4),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.gap),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.gap),
+            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.gap),
+            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.gap),
         ])
         contentView = content
         height.isActive = true
@@ -62,7 +69,7 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
         snapshot.appendSections([0])
         snapshot.appendItems(suggestions)
         dataSource?.apply(snapshot, animatingDifferences: false)
-        height.constant = CGFloat(min(suggestions.count, 5)) * Self.row + 8
+        height.constant = CGFloat(min(suggestions.count, 5)) * Self.row + 2 * Self.gap
         isHidden = suggestions.isEmpty
         if !suggestions.isEmpty {
             table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
@@ -83,10 +90,51 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
         table.scrollRowToVisible(row)
     }
 
+    /// The selected row's fill, concentric with the glass.
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        SuggestionRowView(radius: Self.radius - Self.gap)
+    }
+
     @objc private func clicked() {
         guard suggestions.indices.contains(table.clickedRow) else { return }
         onPick?(suggestions[table.clickedRow])
     }
+}
+
+/// A row whose selection is a rounded fill of its bounds (`radius`, continuous corners) in
+/// `tertiarySystemFill`, not the system's selection colour. A layer draws it, as AppKit's paths
+/// have no continuous corners: `drawSelection(in:)` draws nothing of its own.
+private final class SuggestionRowView: NSTableRowView {
+    private let fill = CALayer()
+
+    init(radius: CGFloat) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        fill.cornerRadius = radius
+        fill.cornerCurve = .continuous
+        fill.isHidden = true
+        layer?.addSublayer(fill)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override var isSelected: Bool {
+        didSet { fill.isHidden = !isSelected }
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {}
+
+    override func layout() {
+        super.layout()
+        fill.frame = bounds
+    }
+
+    override func updateLayer() {
+        super.updateLayer()
+        fill.backgroundColor = NSColor.tertiarySystemFill.cgColor
+    }
+
+    override var wantsUpdateLayer: Bool { true }
 }
 
 /// A suggestion's row: the picture (a megaphone for `@room`), the name, the user id under it.
