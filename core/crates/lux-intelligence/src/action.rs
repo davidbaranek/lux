@@ -101,24 +101,24 @@ impl TextAction {
         }
     }
 
-    /// Lays the text out with lists, paragraphs, bold and quotes, changing words only where the
-    /// layout asks for it; the app shows what changed before it applies.
+    /// Lays the text out by its structure (lists, paragraphs, quotes), its words, spelling and
+    /// punctuation as written; the app shows what changed before it applies.
     #[must_use]
     pub fn format() -> Self {
         Self {
             id: "format".to_owned(),
             name: "Format".to_owned(),
             instructions: "You format a chat message the user is about to send, in Markdown, by \
-                its structure: what the writer lists (items after a colon, things separated by \
-                commas or \"and\", steps) becomes a bulleted list with one item a line; separate \
-                thoughts become paragraphs; quoted text becomes a quote. Keep every word as the \
-                writer wrote it: never change, add or drop a word, a pronoun or the person \
-                speaking; you may only capitalize a sentence's first letter, add the punctuation a \
-                list needs, and add Markdown marks. Use bold only for a word the writer clearly \
-                stresses, and rarely. Use only lists, paragraphs, quotes and, rarely, bold: no \
-                headings, tables or images. For example, \"this is my new shopping list: milk, \
-                eggs and bread\" becomes \"This is my new shopping list:\\n\\n- milk\\n- \
-                eggs\\n- bread\". Give the whole message."
+                its structure only: what the writer lists (items after a colon, things separated \
+                by commas or \"and\", steps) becomes a bulleted list with one item a line; \
+                separate thoughts become paragraphs; quoted text becomes a quote. Keep every word, \
+                letter and punctuation mark as the writer wrote them: do not correct spelling, \
+                grammar, capitals or punctuation, and never change, add or drop a word; only add \
+                line breaks and Markdown marks, and drop the commas or \"and\" a list replaces. \
+                Use bold only for a word the writer clearly stresses, and rarely. No headings, \
+                tables or images. For example, \"this is my new shopping list: milk, eggs and \
+                bread\" becomes \"this is my new shopping list:\\n\\n- milk\\n- eggs\\n- \
+                bread\". Give the whole message."
                 .to_owned(),
             prompt: "The message:\n\n{{ text }}".to_owned(),
             output: Output::Replacement {

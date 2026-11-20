@@ -71,6 +71,7 @@ extension ThreadController {
         reviewBar.onReject = { [weak self] in self?.endReview(applying: nil) }
         reviewBar.showWorking(symbol: action.symbol, title: action.title)
         reviewBar.isHidden = false
+        composerContent?.edgeInsets.top = ComposerReviewBar.gap
     }
 
     private func showReview(_ result: TextActionResult, of text: String) {
@@ -79,6 +80,8 @@ extension ThreadController {
         reviewBar.onAccept = { [weak self] in self?.endReview(applying: applied) }
         if applied != nil, let font = field.font {
             field.textStorage?.setAttributedString(Self.review(result.preview(of: text), font: font))
+            // the field takes the result's height, as when the user types.
+            _ = composerField.textChanged()
         }
         let note = result.note(over: text)
         reviewBar.showResult(note: note, canApply: applied != nil)
@@ -91,7 +94,9 @@ extension ThreadController {
         field.isEditable = true
         field.string = original
         if let font = field.font { MarkdownStyler.style(field, font: font) }
+        _ = composerField.textChanged()
         reviewBar.isHidden = true
+        composerContent?.edgeInsets.top = 9
         if let new { replaceComposerText(with: new) }
         view.window?.makeFirstResponder(field)
     }

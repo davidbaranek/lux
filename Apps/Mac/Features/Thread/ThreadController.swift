@@ -95,6 +95,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     let reviewBar = ComposerReviewBar()
     /// The text as written while an AI action's result shows over it; nil otherwise.
     var reviewed: String?
+    /// The composer's rows in its glass: the review's box changes its top gap.
+    var composerContent: NSStackView?
     /// A merged chat's network a message goes through, at the field's end.
     private let sendNetwork = NSImageView()
     /// Back to the newest message, when the reader is a screen or more above it.
@@ -246,10 +248,13 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         reviewBar.isHidden = true
         let content = NSStackView(views: [reviewBar, modeBar, strip, fieldRow])
         content.orientation = .vertical
-        content.alignment = .leading
+        // each row has its width: centred, the field's rows keep 14 from the edges, the review's
+        // box the same small gap all round (`ComposerReviewBar.gap`).
+        content.alignment = .centerX
         content.spacing = 4
         content.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
         glass.contentView = content
+        composerContent = content
 
         let container = FileDropView()
         // dropped files wait in the composer, as picked ones do.
@@ -289,7 +294,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             eye.widthAnchor.constraint(equalToConstant: 37),
             eye.heightAnchor.constraint(equalToConstant: 37),
             modeBar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            reviewBar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+            reviewBar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -2 * ComposerReviewBar.gap),
             strip.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             // in line with the bubbles' edge, not their text.
             typingAvatar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: BubbleMetrics().sideMargin),

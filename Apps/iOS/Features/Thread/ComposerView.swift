@@ -462,6 +462,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
 /// An AI action above the composer's text: its name, working (a spinner), then its result's ✓
 /// and ✕ on the right, all in one plain box.
 private final class ReviewBar: UIView {
+    /// Its gap from the composer's glass, the same all round.
+    static let gap: CGFloat = 6
     var onAccept: (() -> Void)?
     var onReject: (() -> Void)?
     private let icon = UIImageView()
@@ -487,7 +489,7 @@ private final class ReviewBar: UIView {
         note.numberOfLines = 0
         spinner.hidesWhenStopped = true
         let buttons = UIStackView(arrangedSubviews: [accept, reject])
-        buttons.spacing = 2
+        buttons.spacing = 8
         buttons.translatesAutoresizingMaskIntoConstraints = false
         capsule.addSubview(buttons)
         NSLayoutConstraint.activate([
@@ -508,19 +510,22 @@ private final class ReviewBar: UIView {
         // the name and its buttons in one box: a plain fill, as the composer around it is glass.
         let box = UIView()
         box.backgroundColor = .tertiarySystemFill
-        box.cornerConfiguration = .uniformCorners(radius: 14)
+        // concentric with the composer's glass, the same gap all round: the system takes the
+        // radius from the container. The composer's rows sit 10 in and 2 down; the box reaches
+        // out to the gap.
+        box.cornerConfiguration = .uniformCorners(radius: .containerConcentric(minimum: 12))
         box.translatesAutoresizingMaskIntoConstraints = false
         addSubview(box)
         box.addSubview(row)
         NSLayoutConstraint.activate([
-            box.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            box.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            box.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            box.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.gap - 10),
+            box.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 10 - Self.gap),
+            box.topAnchor.constraint(equalTo: topAnchor, constant: Self.gap - 2),
             box.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-            row.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 10),
-            row.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -2),
-            row.topAnchor.constraint(equalTo: box.topAnchor, constant: 2),
-            row.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -2),
+            row.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -8),
+            row.topAnchor.constraint(equalTo: box.topAnchor, constant: 8),
+            row.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -8),
             icon.widthAnchor.constraint(equalToConstant: 22),
         ])
         icon.setContentHuggingPriority(.required, for: .horizontal)
@@ -530,13 +535,17 @@ private final class ReviewBar: UIView {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     private static func button(_ symbol: String, label: String, color: UIColor, action: @escaping () -> Void) -> UIButton {
-        var configuration = UIButton.Configuration.plain()
-        configuration.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .body, scale: .medium).applying(UIImage.SymbolConfiguration(weight: .semibold)))
+        var configuration = UIButton.Configuration.gray()
+        configuration.cornerStyle = .capsule
+        configuration.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .subheadline, scale: .medium).applying(UIImage.SymbolConfiguration(weight: .semibold)))
         configuration.baseForegroundColor = color
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
+        configuration.contentInsets = .zero
         let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
         button.accessibilityLabel = label
-        button.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 36),
+            button.heightAnchor.constraint(equalToConstant: 36),
+        ])
         return button
     }
 
