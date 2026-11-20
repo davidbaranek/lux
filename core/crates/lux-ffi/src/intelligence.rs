@@ -1,7 +1,9 @@
 //! The AI actions over the composer's text (`lux-intelligence`), with the platform's model and
 //! the open chat given by the apps.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+use tokio::sync::oneshot;
 
 use lux_intelligence::{
     ActionContext, ActionResult, Availability, ChangeKind, ChatContext, ContextError, ContextMessage, ContextSource,
@@ -112,10 +114,50 @@ impl From<CoreModelError> for ModelError {
     }
 }
 
+/// Where the platform's model gives its answer to one request: once, from any thread.
+#[derive(uniffi::Object)]
+pub struct CoreModelReply {
+    sender: Mutex<Option<oneshot::Sender<Result<String, CoreModelError>>>>,
+}
+
+impl CoreModelReply {
+    fn new() -> (Arc<Self>, oneshot::Receiver<Result<String, CoreModelError>>) {
+        let (sender, receiver) = oneshot::channel();
+        (
+            Arc::new(Self {
+                sender: Mutex::new(Some(sender)),
+            }),
+            receiver,
+        )
+    }
+
+    fn send(&self, result: Result<String, CoreModelError>) {
+        let sender = self.sender.lock().ok().and_then(|mut sender| sender.take());
+        // a second answer goes nowhere, as does one after the core stopped waiting.
+        if let Some(sender) = sender
+            && sender.send(result).is_err()
+        {
+            tracing::debug!("the model answered after the action was dropped");
+        }
+    }
+}
+
+#[uniffi::export]
+impl CoreModelReply {
+    /// The answer: JSON in the request's schema.
+    pub fn answer(&self, json: String) {
+        self.send(Ok(json));
+    }
+
+    /// No answer, and why.
+    pub fn fail(&self, error: CoreModelError) {
+        self.send(Err(error));
+    }
+}
+
 /// A language model the platform gives: Apple Intelligence through Foundation Models, on Apple's
 /// systems. It holds no rule of the app: no prompts, no checks.
 #[uniffi::export(with_foreign)]
-#[async_trait::async_trait]
 pub trait CoreLanguageModel: Send + Sync {
     /// Whether it can answer now.
     fn availability(&self) -> CoreModelAvailability;
@@ -126,11 +168,9 @@ pub trait CoreLanguageModel: Send + Sync {
     /// Whether it reads and writes `language`, a BCP 47 tag.
     fn supports(&self, language: String) -> bool;
 
-    /// Its answer to `request`: JSON in the request's schema.
-    ///
-    /// # Errors
-    /// When it gives no answer.
-    async fn respond(&self, request: CoreModelRequest) -> Result<String, CoreModelError>;
+    /// Answers `request` through `reply`, at once or later, from any thread: JSON in the
+    /// request's schema, or why there is none.
+    fn respond(&self, request: CoreModelRequest, reply: Arc<CoreModelReply>);
 }
 
 /// The platform's model as the actions' port.
@@ -155,7 +195,11 @@ impl LanguageModel for ForeignModel {
             prompt: request.prompt,
             output_schema: request.output_schema.to_string(),
         };
-        let answer = self.0.respond(request).await?;
+        let (reply, answer) = CoreModelReply::new();
+        self.0.respond(request, reply);
+        let answer = answer.await.map_err(|_| ModelError::Failed {
+            reason: "the model gave no answer".to_owned(),
+        })??;
         serde_json::from_str(&answer).map_err(|error| ModelError::Failed {
             reason: error.to_string(),
         })
@@ -215,10 +259,9 @@ impl From<CoreActionContextError> for ContextError {
     }
 }
 
-/// Where an action's variables come from: the open chat. Asked only for what the action's
-/// templates use.
+/// Where an action's variables come from: what the open chat shows. Asked only for what the
+/// action's templates use.
 #[uniffi::export(with_foreign)]
-#[async_trait::async_trait]
 pub trait CoreActionContext: Send + Sync {
     /// Today in the user's calendar and time zone, as `2026-11-20`.
     fn today(&self) -> String;
@@ -227,31 +270,33 @@ pub trait CoreActionContext: Send + Sync {
     ///
     /// # Errors
     /// When it cannot be read, or the chat is hidden from AI.
-    async fn chat(&self) -> Result<Option<CoreActionChat>, CoreActionContextError>;
+    fn chat(&self) -> Result<Option<CoreActionChat>, CoreActionContextError>;
 
     /// The user's name.
     ///
     /// # Errors
     /// When it cannot be read.
-    async fn my_name(&self) -> Result<Option<String>, CoreActionContextError>;
+    fn my_name(&self) -> Result<Option<String>, CoreActionContextError>;
 
     /// The chat's last `count` messages, oldest first.
     ///
     /// # Errors
     /// When they cannot be read, or the chat is hidden from AI.
-    async fn recent_messages(&self, count: u32) -> Result<Vec<CoreActionMessage>, CoreActionContextError>;
+    fn recent_messages(&self, count: u32) -> Result<Vec<CoreActionMessage>, CoreActionContextError>;
 }
 
 /// The app's context as the actions'.
 struct ForeignContext(Arc<dyn CoreActionContext>);
 
+// the app's context is a snapshot: it has nothing to wait for.
+#[allow(clippy::unused_async_trait_impl)]
 impl ContextSource for ForeignContext {
     fn today(&self) -> String {
         self.0.today()
     }
 
     async fn chat(&self) -> Result<Option<ChatContext>, ContextError> {
-        let chat = self.0.chat().await?;
+        let chat = self.0.chat()?;
         Ok(chat.map(|chat| ChatContext {
             name: chat.name,
             network: chat.network,
@@ -260,11 +305,11 @@ impl ContextSource for ForeignContext {
     }
 
     async fn me(&self) -> Result<Option<Person>, ContextError> {
-        Ok(self.0.my_name().await?.map(|name| Person { name }))
+        Ok(self.0.my_name()?.map(|name| Person { name }))
     }
 
     async fn recent_messages(&self, count: u32) -> Result<Vec<ContextMessage>, ContextError> {
-        let messages = self.0.recent_messages(count).await?;
+        let messages = self.0.recent_messages(count)?;
         Ok(messages
             .into_iter()
             .map(|message| ContextMessage {
