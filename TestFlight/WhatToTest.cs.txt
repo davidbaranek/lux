@@ -1,6 +1,10 @@
 Novinky
-- Nové + v chatu na iPhonu: místo klávesnice se otevře panel s nejnovějšími fotkami a videi, fotoaparátem a tlačítky Fotky, Soubory a Skenovat. Klepnutí na fotku ji hned přidá ke zprávě s pořadovým číslem, další klepnutí ji odebere. Klepnutí do pole vrátí klávesnici, × panel zavře.
-- Skenování dokumentu: naskenované stránky se pošlou jako jedno PDF.
-- Při omezeném přístupu k fotkám je na konci řady dlaždice pro výběr dalších fotek.
+- Panel pod + v chatu na iPhonu je stejně vysoký jako klávesnice, takže se při přepínání nic neposouvá. × panel zavře a vrátí klávesnici. Ikona + se mění na × rychleji.
+- Vybraná fotka nebo video se ve zprávě objeví hned. Pokud se ještě stahuje z iCloudu, dlaždice je ztlumená a ukazuje průběh. Odeslání na ni počká, odebrání stahování zastaví.
+- Menu kvality videa (Optimalizované / Originál) ukazuje rozlišení a velikost obou variant a o kolik je optimalizované menší.
 
-Vyzkoušejte prosím: otevřít + v chatu, vybrat několik fotek a poslat je, odebrat jednu fotku ze zprávy, vyfotit fotku a naskenovat dokument.
+Opravy
+- Kvalita videa na dlaždici už se nezalamuje: je to ikona, celý popis je v jejím menu.
+- Panel pod + se vejde i při největší velikosti písma.
+
+Vyzkoušejte prosím: vybrat v panelu video, které je jen v iCloudu, a hned ho poslat; otevřít menu kvality u videa; přepínat mezi klávesnicí a panelem.
