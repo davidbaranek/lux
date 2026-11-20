@@ -39,6 +39,16 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         get { strip.videos }
         set { strip.videos = newValue }
     }
+    /// The files still on their way to the disk (from the library, iCloud), and how far each is.
+    var arriving: [URL: Double] {
+        get { strip.arriving }
+        set { strip.arriving = newValue }
+    }
+
+    /// The picture of a file not on disk yet, from where it comes.
+    func showPreview(_ image: UIImage, of file: URL) {
+        strip.showPreview(image, of: file)
+    }
     /// A photo or a PDF waiting in the composer was tapped, in its tile: it opens in Markup.
     var onMarkUpAttachment: ((URL, UIView) -> Void)?
     /// The files waiting to go with the message; the composer can send with them alone.

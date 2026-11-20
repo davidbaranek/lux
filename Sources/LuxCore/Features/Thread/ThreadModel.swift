@@ -94,6 +94,11 @@ public final class ThreadModel {
                 return nil
             }
         }
+        arriving.onArrived = { [weak self] file, arrived in
+            guard let self else { return }
+            // one that could not come leaves the composer; one that came gets its video choice.
+            if arrived { followVideos() } else { removePending(file) }
+        }
     }
 
     isolated deinit {
@@ -130,7 +135,14 @@ public final class ThreadModel {
         case .update(let batch): apply(batch)
         case .upload(let files, let roomId, let threadRoot, let caption, let replyTo):
             // what cannot go shows here, in the chat that sent it.
-            let smaller = pendingVideos.take(files)
+            var smaller = pendingVideos.take(files)
+            // one still coming: the upload waits for it, then makes it smaller if it goes so.
+            for (file, arrival) in arriving.take(files) {
+                smaller[file] = Task { [pendingVideos] in
+                    try await arrival.value
+                    return try await pendingVideos.readyToSend(file)
+                }
+            }
             session?.uploads?.send(files, to: roomId, threadRoot: threadRoot, caption: caption, replyTo: replyTo,
                                    smaller: smaller) { [weak self] error in
                 self?.onError?(error)
@@ -418,12 +430,19 @@ public final class ThreadModel {
     public private(set) var pendingFiles: [URL] = [] {
         didSet {
             guard pendingFiles != oldValue else { return }
-            pendingVideos.follow(pendingFiles)
+            followVideos()
             onPendingFiles?(pendingFiles)
         }
     }
     /// The videos among them that go smaller unless the user chooses Original.
     public let pendingVideos: PendingVideos
+    /// Those among them still on their way to the disk (from the library, iCloud).
+    public let arriving = ArrivingFiles()
+
+    /// The videos on disk get their choice; one still coming gets it once it is there.
+    private func followVideos() {
+        pendingVideos.follow(pendingFiles.filter { !arriving.contains($0) })
+    }
     public var onPendingFiles: (([URL]) -> Void)?
 
     /// Puts files in the composer; they go with the next message.
@@ -431,7 +450,15 @@ public final class ThreadModel {
         withCore { $0.attach(files) }
     }
 
+    /// Puts a file in the composer at once, before `write` has written it: it shows how far it
+    /// has come, and sending waits for it.
+    public func attach(_ file: URL, writing write: @escaping @MainActor (_ progress: @escaping @Sendable (Double) -> Void) async throws -> Void) {
+        arriving.expect(file, write: write)
+        attach([file])
+    }
+
     public func removePending(_ file: URL) {
+        arriving.remove(file)
         pendingVideos.remove(file)
         withCore { $0.removePending(file) }
     }

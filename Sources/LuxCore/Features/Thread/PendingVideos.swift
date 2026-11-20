@@ -64,6 +64,16 @@ public final class PendingVideos {
         }
     }
 
+    /// A file that came only as it was sent: a video is made smaller then, if it would go so.
+    func readyToSend(_ file: URL) async throws -> URL {
+        guard Self.isVideo(file) else { return file }
+        let size = try await VideoExport.measure(file)
+        let limit = await limit()
+        guard let preset = VideoExport.preset(width: size.width, height: size.height, bytes: size.bytes, limit: limit, quality: .optimized)
+        else { return file }
+        return try await VideoExport.export(file, preset: preset, in: directory) { _ in }
+    }
+
     /// The video was taken out of the composer: its copy is no longer made.
     func remove(_ file: URL) {
         stop(file)

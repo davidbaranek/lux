@@ -48,6 +48,22 @@ final class AttachmentStrip: UIView {
         }
     }
 
+    /// The files still on their way to the disk, and how far each has come.
+    var arriving: [URL: Double] = [:] {
+        didSet {
+            guard arriving != oldValue else { return }
+            for (file, tile) in tiles { tile.show(arriving: arriving[file]) }
+        }
+    }
+    /// The pictures of files not on disk yet, from where they come (the library): Quick Look has
+    /// nothing to draw for them.
+    private var previews: [URL: UIImage] = [:]
+
+    func showPreview(_ image: UIImage, of file: URL) {
+        previews[file] = image
+        tiles[file]?.showPreview(image)
+    }
+
     /// Shows these files, keeping the tiles of those that stay.
     func show(_ files: [URL]) {
         var kept: [URL: AttachmentTile] = [:]
@@ -57,8 +73,13 @@ final class AttachmentStrip: UIView {
             }
         }
         tiles = kept
+        previews = previews.filter { kept[$0.key] != nil || arriving[$0.key] != nil }
         let views = files.compactMap { kept[$0] }
-        for (file, tile) in kept { tile.show(videos[file]) { [weak self] quality in self?.onVideoQuality?(file, quality) } }
+        for (file, tile) in kept {
+            tile.show(videos[file]) { [weak self] quality in self?.onVideoQuality?(file, quality) }
+            tile.show(arriving: arriving[file])
+            if let preview = previews[file] { tile.showPreview(preview) }
+        }
         if row.arrangedSubviews != views {
             row.arrangedSubviews.forEach { $0.removeFromSuperview() }
             views.forEach(row.addArrangedSubview)
@@ -84,6 +105,8 @@ private final class AttachmentTile: UIView {
     }()
     private let progress = UIProgressView(progressViewStyle: .bar)
     private var video: PendingVideo?
+    /// How far the file has come to the disk; nil once it is there.
+    private var arriving: Double?
 
     init(file: URL, remove: @escaping () -> Void, markUp: @escaping (UIView) -> Void) {
         self.remove = UIButton(primaryAction: UIAction { _ in remove() })
@@ -142,6 +165,27 @@ private final class AttachmentTile: UIView {
         }
     }
 
+    /// The picture of a file not on disk yet (Quick Look has nothing to draw).
+    func showPreview(_ image: UIImage) {
+        if picture.image == nil { picture.image = image }
+    }
+
+    /// A file on its way to the disk: dimmed, with how far it has come.
+    func show(arriving: Double?) {
+        guard arriving != self.arriving else { return }
+        self.arriving = arriving
+        picture.alpha = arriving == nil ? 1 : 0.6
+        accessibilityValue = arriving.map { String(localized: "Loading, \($0.formatted(.percent.precision(.fractionLength(0))))") }
+        showProgress()
+    }
+
+    /// The bar shows the file coming, then its smaller copy being made.
+    private func showProgress() {
+        let share = arriving ?? video?.progress
+        progress.isHidden = share == nil
+        progress.progress = Float(share ?? 0)
+    }
+
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     /// A video with a choice: its quality, with a menu to change it, and the smaller copy's progress.
@@ -149,8 +193,7 @@ private final class AttachmentTile: UIView {
         guard video != self.video else { return }
         self.video = video
         quality.isHidden = video == nil
-        progress.isHidden = video?.progress == nil
-        progress.progress = Float(video?.progress ?? 0)
+        showProgress()
         guard let video else { return }
         let title = video.quality == .optimized ? String(localized: "Optimized") : String(localized: "Original")
         quality.configuration?.attributedTitle = AttributedString(title, attributes: AttributeContainer([.font: UIFont.preferredFont(forTextStyle: .caption2).bold]))

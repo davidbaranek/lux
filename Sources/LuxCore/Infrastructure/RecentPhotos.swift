@@ -1,5 +1,6 @@
 import Foundation
 import Photos
+import Synchronization
 
 /// The newest photos and videos of the library, offered under the composer's + as Photos and
 /// ChatGPT offer them: picked with a tap, they wait in the composer as ones from the system's
@@ -47,31 +48,47 @@ public enum RecentPhotos {
         return nil
     }
 
-    /// Writes each asset's picture or video to a file of its own in `directory`, named as the
-    /// library names it, in their order; from iCloud if it is only there. An asset that cannot be
-    /// read is left out (the log says why), the others still go. It stays on the caller's actor
-    /// (an asset is not `Sendable`); Photos writes on a queue of its own.
-    public nonisolated(nonsending) static func files(of assets: [PHAsset], in directory: URL) async -> [URL] {
-        var files: [URL] = []
-        for asset in assets {
-            if let file = await bestEffort("recent photo: write", { try await file(of: asset, in: directory) }) {
-                files.append(file)
-            }
-        }
-        return files
+    /// Where an asset's picture or video goes in `directory`, a folder of its own, named as the
+    /// library names it: known at once, before it is written (`write`).
+    public static func destination(of asset: PHAsset, in directory: URL) -> URL? {
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard let index = original(among: resources.map(\.type)) else { return nil }
+        return directory.appendingPathComponent(UUID().uuidString, isDirectory: true).appendingPathComponent(resources[index].originalFilename)
     }
 
-    private nonisolated(nonsending) static func file(of asset: PHAsset, in directory: URL) async throws -> URL {
+    /// Writes an asset's picture or video to `file`, from iCloud if it is only there, telling
+    /// `progress` how far it has come (0 to 1). Cancelling stops it. It stays on the caller's
+    /// actor (an asset is not `Sendable`); Photos hands the data over on a queue of its own.
+    public nonisolated(nonsending) static func write(_ asset: PHAsset, to file: URL,
+                                                     progress: @escaping @Sendable (Double) -> Void) async throws {
         let resources = PHAssetResource.assetResources(for: asset)
         guard let index = original(among: resources.map(\.type)) else { throw CocoaError(.fileReadUnknown) }
-        let resource = resources[index]
-        let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appendingPathComponent(resource.originalFilename)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard FileManager.default.createFile(atPath: file.path, contents: nil) else { throw CocoaError(.fileWriteUnknown) }
+        let handle = try FileHandle(forWritingTo: file)
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
-        try await PHAssetResourceManager.default().writeData(for: resource, toFile: file, options: options)
-        return file
+        options.progressHandler = { share in progress(share) }
+        let request = Mutex<PHAssetResourceDataRequestID?>(nil)
+        let failure = Mutex<(any Error)?>(nil)
+        do {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+                    let id = PHAssetResourceManager.default().requestData(for: resources[index], options: options) { data in
+                        do { try handle.write(contentsOf: data) } catch { failure.withLock { $0 = $0 ?? error } }
+                    } completionHandler: { error in
+                        if let error = error ?? failure.withLock({ $0 }) { done.resume(throwing: error) } else { done.resume() }
+                    }
+                    request.withLock { $0 = id }
+                }
+            } onCancel: {
+                if let id = request.withLock({ $0 }) { PHAssetResourceManager.default().cancelDataRequest(id) }
+            }
+            try handle.close()
+        } catch {
+            bestEffort("recent photo: close") { try handle.close() }
+            throw error
+        }
     }
 }
 
