@@ -115,7 +115,7 @@ private final class StackedScreen: ThreadScreen {
     var intents: [ScrollIntent] = []
     var order: [String] = []
     var heights: [String: CGFloat] = [:]
-    var draft: String?
+    var draft: ComposedText?
     var offset: CGFloat = 0
     var glides: [CGFloat] = []
     var flashed: [String] = []
@@ -160,7 +160,7 @@ private final class StackedScreen: ThreadScreen {
         changes.send()
     }
 
-    func showDraft(_ text: String) {
+    func showDraft(_ text: ComposedText) {
         draft = text
         changes.send()
     }

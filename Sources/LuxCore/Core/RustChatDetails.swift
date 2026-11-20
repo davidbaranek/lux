@@ -90,6 +90,15 @@ final class RustMemberList: MemberList {
     func find(_ query: String, limit: Int) -> [ChatMember] {
         list.find(query: query, limit: UInt32(clamping: limit)).map(ChatMember.init)
     }
+
+    func mentionSuggestions(_ query: String, limit: Int) -> [MentionSuggestion] {
+        list.mentionSuggestions(query: query, limit: UInt32(clamping: limit)).map { suggestion in
+            switch suggestion {
+            case .member(let member): .member(ChatMember(member))
+            case .room: .room
+            }
+        }
+    }
 }
 
 /// What a chat shared, of one kind, read back the newest first.

@@ -44,11 +44,18 @@ final class ComposerField: NSScrollView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    /// The text being written; set by the app (a draft, an edit, sending), it is not the user's change.
-    var text: String {
-        get { textView.string }
+    /// The text being written.
+    var text: String { textView.string }
+
+    /// The text being written, with its pills; set by the app (a draft, an edit, sending), it is
+    /// not the user's change.
+    var composed: ComposedText {
+        get { textView.textStorage.map(ComposerPills.composed) ?? "" }
         set {
-            textView.string = newValue
+            let font = textView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+            textView.textStorage?.setAttributedString(
+                ComposerPills.attributed(newValue, attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
+            MarkdownStyler.style(textView, font: font)
             textChanged()
         }
     }

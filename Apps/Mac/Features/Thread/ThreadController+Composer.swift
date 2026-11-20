@@ -6,7 +6,7 @@ extension ThreadController {
     /// Message › Send Through: sends what is written through that network (the item's room).
     @objc func sendThrough(_ sender: NSMenuItem) {
         guard reviewed == nil, let room = sender.representedObject as? String else { return }
-        model.send(composerField.text, via: room)
+        model.send(composerField.composed, via: room)
         clearComposer()
     }
 
@@ -40,12 +40,78 @@ extension ThreadController {
         // the two move as one, never the composer over the newest message.
         composerField.textChanged()
         model.composerChanged(composerField.text)
+        updateMentionQuery()
     }
 
     /// Sent: the composer empties and goes back to one line.
     private func clearComposer() {
-        composerField.text = ""
+        composerField.composed = ""
         updateEye()
+        updateMentionQuery()
+    }
+
+    // MARK: Mentions
+
+    /// The `@` and the word before the caret (unless a pill holds the `@`): the members it offers
+    /// show above the composer, once the room's are loaded; a newer word's answer replaces an
+    /// older one's.
+    func updateMentionQuery() {
+        let selection = field.selectedRange()
+        var query: MentionQuery?
+        if selection.length == 0, !field.hasMarkedText(), let storage = field.textStorage,
+           let found = ComposedText.mentionQuery(in: field.string, cursor: selection.location),
+           !ComposerPills.ranges(in: storage).contains(where: { NSIntersectionRange($0, found.range).length > 0 }) {
+            query = found
+        }
+        guard query != mentionQuery else { return }
+        mentionQuery = query
+        guard let query else { return mentions.show([]) }
+        tasks.run("mention suggestions") { [weak self] in
+            guard let self else { return }
+            let found = await model.mentionSuggestions(query.text)
+            guard mentionQuery == query else { return }
+            mentions.show(found)
+        }
+    }
+
+    /// Puts the pill of `suggestion` in the place of the `@` and its word, as an undoable change.
+    func pickMention(_ suggestion: MentionSuggestion) {
+        guard let query = mentionQuery, let storage = field.textStorage, NSMaxRange(query.range) <= storage.length else { return }
+        let (_, name) = suggestion.pill
+        guard field.shouldChangeText(in: query.range, replacementString: name + " ") else { return }
+        let caret = ComposerPills.insert(suggestion, replacing: query.range, in: storage, attributes: field.typingAttributes)
+        field.didChangeText()
+        field.setSelectedRange(NSRange(location: caret, length: 0))
+        updateMentionQuery()
+    }
+
+    /// An edit that cuts into a pill takes the whole pill: it is replaced over the pill's run.
+    func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
+        guard let storage = textView.textStorage, let text else { return true }
+        let whole = ComposerPills.expanded(range, in: storage)
+        guard whole != range else { return true }
+        if textView.shouldChangeText(in: whole, replacementString: text) {
+            textView.replaceCharacters(in: whole, with: text)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: whole.location + (text as NSString).length, length: 0))
+        }
+        return false
+    }
+
+    /// The caret never rests inside a pill.
+    func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange old: NSRange,
+                  toCharacterRange new: NSRange) -> NSRange {
+        guard new.length == 0, let storage = textView.textStorage else { return new }
+        return ComposerPills.expanded(new, in: storage)
+    }
+
+    /// What is typed after a pill is plain text; the mention being typed follows the caret.
+    func textViewDidChangeSelection(_ notification: Notification) {
+        if field.typingAttributes[.mention] != nil {
+            field.typingAttributes.removeValue(forKey: .mention)
+            if let font = field.font { field.typingAttributes = [.font: font, .foregroundColor: NSColor.labelColor] }
+        }
+        updateMentionQuery()
     }
 
     /// Pictures, videos and files pasted or dropped into the text: those only on the pasteboard
@@ -95,7 +161,7 @@ extension ThreadController {
     /// first).
     @objc func send() {
         guard reviewed == nil else { return }
-        model.send(composerField.text)
+        model.send(composerField.composed)
         clearComposer()
     }
 
@@ -128,7 +194,7 @@ extension ThreadController {
     /// Sends what is written at the item's time (its `representedObject`).
     @objc func sendLater(_ sender: NSMenuItem) {
         guard reviewed == nil, let date = sender.representedObject as? Date else { return }
-        model.sendLater(composerField.text, at: date)
+        model.sendLater(composerField.composed, at: date)
         clearComposer()
     }
 
@@ -143,8 +209,23 @@ extension ThreadController {
         return model.canSendLater && written
     }
 
-    /// Return sends; Option-Return adds a line; Tab moves on, as from a text field.
+    /// Return sends; Option-Return adds a line; Tab moves on, as from a text field. While members
+    /// are offered for a mention, the arrows choose one, Return or Tab picks it and Escape closes
+    /// the list.
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if !mentions.isHidden {
+            switch selector {
+            case #selector(NSResponder.moveUp(_:)): mentions.move(by: -1); return true
+            case #selector(NSResponder.moveDown(_:)): mentions.move(by: 1); return true
+            case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+                if let selected = mentions.selected { pickMention(selected) }
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                mentions.show([])
+                return true
+            default: break
+            }
+        }
         if selector == #selector(NSResponder.insertNewline(_:)), !(NSApp.currentEvent?.modifierFlags.contains(.option) ?? false) {
             send()
             return true

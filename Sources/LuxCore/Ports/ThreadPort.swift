@@ -8,6 +8,10 @@ protocol ThreadPort: Sendable {
     func openThread(row: ChatRow, thread: MatrixThread?, readReceipts: ReadReceipts) -> any ThreadView
     /// Downloads a message's media into `directory`; the file.
     func mediaFile(roomId: String, messageId: String, directory: URL) async throws -> URL
+    /// A room's members, loaded once: the composer's mentions offer them.
+    func members(roomId: String) async throws -> any MemberList
+    /// Opens (or finds) the direct chat with `contact` (a pill's member); its room's id.
+    func startConversation(with contact: Contact) async throws -> String
 }
 
 /// A chat's thread as the core presents it: its rows and state as they change, and what the
@@ -39,8 +43,8 @@ protocol ThreadView: Sendable {
     func reply(to messageId: String)
     func edit(_ messageId: String)
     func cancelMode()
-    func send(_ text: String, via room: String?)
-    func sendLater(_ text: String, at date: Date) async throws
+    func send(_ text: ComposedText, via room: String?)
+    func sendLater(_ text: ComposedText, at date: Date) async throws
     func attach(_ files: [URL])
     func removePending(_ file: URL)
     func toggleReaction(_ key: String, on messageId: String)
@@ -62,8 +66,8 @@ protocol ThreadView: Sendable {
     func watchTyping()
     func stopWatchingTyping()
     func composerChanged(_ text: String)
-    func loadDraft() async -> String
-    func saveDraft(_ text: String)
+    func loadDraft() async -> ComposedText
+    func saveDraft(_ text: ComposedText)
 }
 
 enum ThreadEvent: Sendable {

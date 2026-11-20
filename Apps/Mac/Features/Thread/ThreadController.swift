@@ -24,6 +24,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     private var dataSource: NSTableViewDiffableDataSource<Int, String>!
     /// The composer's text, as tall as what is written up to a few lines.
     let composerField = ComposerField(font: .systemFont(ofSize: NSFont.systemFontSize + 1))
+    /// The members an `@` and its word offer, above the composer.
+    let mentions = MentionSuggestionsView()
+    /// The `@` and the word the suggestions are for.
+    var mentionQuery: MentionQuery?
     /// The text view the user writes in (the window's first responder while the chat has the keyboard).
     var field: ComposerTextView { composerField.textView }
     /// Called once the first messages (or "No messages") are drawn.
@@ -32,6 +36,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     var onShownRoom: (() -> Void)?
     /// A thread's summary or "Reply in Thread" asks for the Matrix thread a message starts.
     var onOpenThread: ((MatrixThread, MessageLink?) -> Void)?
+    /// A member's pill asks for the direct chat with them: its room.
+    var onOpenChat: ((String) -> Void)?
     var rooms: [ChatRoom] { model.rooms }
     var shownRoom: String? { model.shownRoom }
     var sendRoom: String { model.sendRoom }
@@ -274,7 +280,9 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             view.alphaValue = 0
             view.isHidden = true
         }
-        for view in [scroll, attach, glass, eye, jumpToBottom, jumpToUnread, typingGlass, typing, typingAvatar, newPinBar] as [NSView] {
+        mentions.images = session.images
+        mentions.onPick = { [weak self] suggestion in self?.pickMention(suggestion) }
+        for view in [scroll, attach, glass, eye, jumpToBottom, jumpToUnread, typingGlass, typing, typingAvatar, newPinBar, mentions] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -322,6 +330,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             newPinBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             newPinBar.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
             newPinBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            // over the messages, just above the field it fills.
+            mentions.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+            mentions.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+            mentions.bottomAnchor.constraint(equalTo: glass.topAnchor, constant: -8),
         ])
         glassBesideEye = glass.trailingAnchor.constraint(equalTo: eye.leadingAnchor, constant: -8)
         glassToEdge = glass.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16)
@@ -357,6 +369,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             // the jump's message flashes, also when its row shows later.
             cell.isJumpTarget = self?.highlighted == id
             cell.onLink = { NSWorkspace.shared.open($0) }
+            cell.onMention = { [weak self, weak cell] user in
+                guard let cell else { return }
+                self?.showMember(user, from: cell)
+            }
             cell.onBubbleTap = { [weak self] in
                 guard let self, let message = messages[id] else { return }
                 model.tap(message)
@@ -423,7 +439,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        presenter.disappeared(draft: composerField.text)
+        presenter.disappeared(draft: composerField.composed)
     }
 
     /// The composer's bar says what sending does; an edit puts the message's text in the field.
@@ -435,9 +451,9 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             modeBar.show(symbol: "arrowshape.turn.up.left", title: String(localized: "Replying to \(preview.senderName)"), detail: preview.body)
             modeBar.isHidden = false
         case .edit(_, let original):
-            modeBar.show(symbol: "pencil", title: String(localized: "Editing"), detail: original)
+            modeBar.show(symbol: "pencil", title: String(localized: "Editing"), detail: original.text)
             modeBar.isHidden = false
-            composerField.text = original
+            composerField.composed = original
         }
         view.window?.makeFirstResponder(field)
     }
@@ -677,7 +693,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             try await ThreadBenchmark(scroll).run(
                 jump: { presenter.jump(toMessage: MessageLink(roomId: room, eventId: "\(room)/1000")) },
                 back: { scrollToNewest() },
-                send: { model.send($0) })
+                send: { model.send(ComposedText($0)) })
         }
     }
 
@@ -695,7 +711,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
 }
 
 extension ThreadController: ThreadScreen {
-    func showDraft(_ text: String) { composerField.text = text }
+    func showDraft(_ text: ComposedText) { composerField.composed = text }
 
     var scrollGeometry: ScrollGeometry {
         let clip = scroll.contentView.bounds
@@ -752,6 +768,43 @@ extension ThreadController: ThreadScreen {
     }
 
     var readingRow: String? { readingAnchor(in: order)?.id }
+
+    /// A member's pill was clicked: who it is, and the chat with them (a bridged network's ghost
+    /// too, through its bridge), in a menu at the pointer.
+    func showMember(_ userId: String, from cell: NSView) {
+        let menu = NSMenu()
+        let title = NSMenuItem(title: userId, action: nil, keyEquivalent: "")
+        title.isEnabled = false
+        menu.addItem(title)
+        menu.addItem(.separator())
+        let message = NSMenuItem(title: String(localized: "Message"), action: #selector(messageMember(_:)), keyEquivalent: "")
+        let copy = NSMenuItem(title: String(localized: "Copy User ID"), action: #selector(copyMemberId(_:)), keyEquivalent: "")
+        for item in [message, copy] {
+            item.target = self
+            item.representedObject = userId
+            menu.addItem(item)
+        }
+        let point = cell.window.map { cell.convert($0.mouseLocationOutsideOfEventStream, from: nil) } ?? .zero
+        menu.popUp(positioning: nil, at: point, in: cell)
+    }
+
+    @objc private func messageMember(_ sender: NSMenuItem) {
+        guard let userId = sender.representedObject as? String else { return }
+        tasks.run("mention: direct chat") { [weak self] in
+            guard let self else { return }
+            do {
+                onOpenChat?(try await model.directChat(with: userId))
+            } catch {
+                report(error, of: "mention: direct chat")
+            }
+        }
+    }
+
+    @objc private func copyMemberId(_ sender: NSMenuItem) {
+        guard let userId = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(userId, forType: .string)
+    }
 
     func openThread(_ thread: MatrixThread, at message: MessageLink?) {
         onOpenThread?(thread, message)

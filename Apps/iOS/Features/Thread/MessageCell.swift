@@ -54,6 +54,8 @@ final class MessageCell: UICollectionViewCell {
     var onQuoteTap: (() -> Void)?
     /// A link in the text was tapped.
     var onLink: ((URL) -> Void)?
+    /// A member's pill in the text was tapped: their user id.
+    var onMention: ((String) -> Void)?
     /// The bubble was tapped (not a link, a quote or media): its details show or hide.
     var onBubbleTap: (() -> Void)?
     /// "Show more" (or "Show less") under a shared post's caption was tapped.
@@ -197,14 +199,21 @@ final class MessageCell: UICollectionViewCell {
         replyArrow.transform = CGAffineTransform(scaleX: scale, y: scale)
     }
 
-    /// A tap on a link opens it; elsewhere in the text it does nothing.
+    /// A tap on a link opens it, on a member's pill opens the chat with them; elsewhere in the
+    /// text it does nothing.
     @objc private func bodyTapped(_ tap: UITapGestureRecognizer) {
-        guard let message = shown?.0, !message.links.isEmpty, let text = body.attributedText else {
+        guard let message = shown?.0, !message.links.isEmpty || !message.styles.isEmpty, let text = body.attributedText else {
             onBubbleTap?()
             return
         }
         let index = LinkHit.characterIndex(at: tap.location(in: body), in: text, size: body.bounds.size)
-        if let link = message.links.first(where: { NSLocationInRange(index, $0.range) }) { onLink?(link.url) } else { onBubbleTap?() }
+        if let link = message.links.first(where: { NSLocationInRange(index, $0.range) }) {
+            onLink?(link.url)
+        } else if let user = MessageStyling.mentionedUser(at: index, in: message) {
+            onMention?(user)
+        } else {
+            onBubbleTap?()
+        }
     }
 
     /// Draws the eye to the bubble after a jump to it: the bubble takes the accent colour, then
@@ -459,14 +468,17 @@ final class MessageCell: UICollectionViewCell {
             band.backgroundColor = .clear
             return
         }
+        // a message that mentions the account stands out, as in Element and Slack.
+        let mention = MessageStyling.mentionTint.withAlphaComponent(message.showsDetail ? 0.32 : 0.22)
         if shown?.1.style == .plain {
             bubble.backgroundColor = .clear
-            band.backgroundColor = message.showsDetail ? .tertiarySystemFill : .clear
+            band.backgroundColor = message.mentionsMe ? mention : message.showsDetail ? .tertiarySystemFill : .clear
             return
         }
         let own = ownFill
         bubble.backgroundColor = message.isMediaOnly ? .clear
             : message.isOwn ? (message.showsDetail ? UIColor { own.resolvedColor(with: $0).darkened(by: 0.22) } : own)
+            : message.mentionsMe ? mention
             : (message.showsDetail ? .systemGray4 : .systemGray5)
     }
 

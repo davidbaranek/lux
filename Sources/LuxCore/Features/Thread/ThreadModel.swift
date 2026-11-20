@@ -370,8 +370,8 @@ public final class ThreadModel {
     public private(set) var canSendLater = false
 
     /// Puts the composer's text on the server to go at `date`, answering what the composer answers.
-    public func sendLater(_ text: String, at date: Date) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    public func sendLater(_ text: ComposedText, at date: Date) {
+        guard !text.isBlank else { return }
         preferences.setHasDraft(false, in: chatId)
         Task {
             do {
@@ -387,7 +387,8 @@ public final class ThreadModel {
     public enum ComposerMode: Equatable, Sendable {
         case message
         case reply(ReplyPreview)
-        case edit(messageId: String, original: String)
+        /// `original`: the message's text now, with its pills.
+        case edit(messageId: String, original: ComposedText)
     }
 
     public private(set) var mode = ComposerMode.message {
@@ -406,6 +407,37 @@ public final class ThreadModel {
 
     public func cancelMode() {
         withCore { $0.cancelMode() }
+    }
+
+    // MARK: Mentions
+
+    /// The members of the room a new message goes to, loaded on the first `@` typed (from the
+    /// server once, if the device does not have them all); again when that room changes.
+    private var mentionable: (room: String, members: Task<(any MemberList)?, Never>)?
+
+    /// What a mention's word (after the `@`) offers in the room a new message goes to, the best
+    /// match first: its members, and `@room` where the account may notify the room.
+    public func mentionSuggestions(_ query: String, limit: Int = 20) async -> [MentionSuggestion] {
+        let room = sendRoom
+        if mentionable?.room != room {
+            let account = account
+            mentionable = (room, Task { await bestEffort("mentions: the room's members") { try await account.value.members(roomId: room) } })
+        }
+        guard let members = await mentionable?.members.value else { return [] }
+        return await Self.suggestions(in: members, query, limit: limit)
+    }
+
+    /// The direct chat with the member a pill names (`userId`, a bridged network's ghost too),
+    /// made if there is none: its room's id.
+    public func directChat(with userId: String) async throws -> String {
+        try await account.value.startConversation(with: Contact(id: userId, accountId: "matrix", name: userId, identifier: userId,
+                                                                network: "matrix", avatar: nil))
+    }
+
+    /// Ranking folds every member's name: off the main actor, for a room of thousands.
+    @concurrent
+    nonisolated private static func suggestions(in members: any MemberList, _ query: String, limit: Int) async -> [MentionSuggestion] {
+        members.mentionSuggestions(query, limit: limit)
     }
 
     // MARK: Media
@@ -475,32 +507,32 @@ public final class ThreadModel {
     }
 
     /// The composer can send: text, or files waiting.
-    public func canSend(_ text: String) -> Bool {
-        !pendingFiles.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    public func canSend(_ text: ComposedText) -> Bool {
+        !pendingFiles.isEmpty || !text.isBlank
     }
 
     /// Sends the composer's text as the mode says, and returns to a plain message; files waiting
     /// go first, the text as their caption. A new message goes `via` that room, if given (holding
     /// Send), else to `sendRoom`.
-    public func send(_ text: String, via room: String? = nil) {
+    public func send(_ text: ComposedText, via room: String? = nil) {
         // sending clears the chat's kept draft (a Matrix thread's is its own).
         if canSend(text), thread == nil { preferences.setHasDraft(false, in: chatId) }
         withCore { $0.send(text, via: room) }
     }
 
-    /// The text and reply the composer had when the chat was left.
-    public func loadDraft() async -> String {
+    /// The text (with its pills) and reply the composer had when the chat was left.
+    public func loadDraft() async -> ComposedText {
         await openedCore()?.loadDraft() ?? ""
     }
 
     /// Keeps the composer for the next visit (an edit in progress is not a draft).
-    public func saveDraft(_ text: String) {
+    public func saveDraft(_ text: ComposedText) {
         if case .edit = mode { return }
         var hasReply = false
         if case .reply = mode { hasReply = true }
         // the chat list says "Draft" of the chat's own composer, not a thread's.
         if thread == nil {
-            preferences.setHasDraft(!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasReply, in: chatId)
+            preferences.setHasDraft(!text.isBlank || hasReply, in: chatId)
         }
         withCore { $0.saveDraft(text) }
     }

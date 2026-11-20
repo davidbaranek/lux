@@ -94,6 +94,8 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
             thread.onShownRoom = { [weak self] in self?.updateNetworks() }
             // its Matrix threads open in the inspector beside it.
             thread.onOpenThread = { [weak self] matrixThread, message in self?.showThread(matrixThread, at: message) }
+            // a member's pill opens the chat with them.
+            thread.onOpenChat = { [weak self] room in self?.openChat(roomId: room) }
             // the chat's details beside it list its pinned messages.
             thread.onPinned = { [weak self] pinned in (self?.inspector.shown as? ChatDetailsController)?.show(pinned: pinned) }
             openThread = thread

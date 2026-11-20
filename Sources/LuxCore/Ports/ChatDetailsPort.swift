@@ -28,6 +28,9 @@ protocol ChatDetailsPort: Sendable {
 protocol MemberList: Sendable {
     var count: Int { get }
     func find(_ query: String, limit: Int) -> [ChatMember]
+    /// What a mention's word offers, the best match first: members (never the account), and
+    /// `@room` where the account may notify the room.
+    func mentionSuggestions(_ query: String, limit: Int) -> [MentionSuggestion]
 }
 
 /// What a chat shared, of one kind, read back the newest first.

@@ -42,8 +42,10 @@ final class RustThreadView: ThreadView {
     func reply(to messageId: String) { view.reply(messageId: messageId) }
     func edit(_ messageId: String) { view.edit(messageId: messageId) }
     func cancelMode() { view.cancelMode() }
-    func send(_ text: String, via room: String?) { view.send(text: text, viaRoomId: room) }
-    func sendLater(_ text: String, at date: Date) async throws { try await worded { try await view.sendLater(text: text, at: date) } }
+    func send(_ text: ComposedText, via room: String?) { view.send(text: CoreComposedText(text), viaRoomId: room) }
+    func sendLater(_ text: ComposedText, at date: Date) async throws {
+        try await worded { try await view.sendLater(text: CoreComposedText(text), at: date) }
+    }
     func attach(_ files: [URL]) { view.attach(files: files.map(\.path)) }
     func removePending(_ file: URL) { view.removePending(file: file.path) }
     func toggleReaction(_ key: String, on messageId: String) { view.toggleReaction(messageId: messageId, key: key) }
@@ -62,8 +64,8 @@ final class RustThreadView: ThreadView {
     func watchTyping() { view.watchTyping() }
     func stopWatchingTyping() { view.stopWatchingTyping() }
     func composerChanged(_ text: String) { view.composerChanged(text: text) }
-    func loadDraft() async -> String { await view.loadDraft() }
-    func saveDraft(_ text: String) { view.saveDraft(text: text) }
+    func loadDraft() async -> ComposedText { ComposedText(await view.loadDraft()) }
+    func saveDraft(_ text: ComposedText) { view.saveDraft(text: CoreComposedText(text)) }
 }
 
 extension RustAccount: ThreadPort {
@@ -73,6 +75,49 @@ extension RustAccount: ThreadPort {
     /// there.
     func openThread(row: ChatRow, thread: MatrixThread?, readReceipts: ReadReceipts) -> any ThreadView {
         RustThreadView(row: row, thread: thread, readReceipts: readReceipts) { account.openThread(opening: $0, listener: $1) }
+    }
+}
+
+// MARK: Mentions
+
+extension MentionTarget {
+    init(_ target: CoreMentionTarget) {
+        switch target {
+        case .user(let userId): self = .user(userId)
+        case .room: self = .room
+        }
+    }
+}
+
+extension CoreMentionTarget {
+    init(_ target: MentionTarget) {
+        switch target {
+        case .user(let userId): self = .user(userId: userId)
+        case .room: self = .room
+        }
+    }
+}
+
+extension ComposedText {
+    init(_ composed: CoreComposedText) {
+        self.init(composed.text, mentions: composed.mentions.map {
+            Mention(MentionTarget($0.target), NSRange(location: Int($0.start), length: Int($0.length)))
+        })
+    }
+
+    /// The `@` and the word typed right before `cursor` (a UTF-16 offset), if any.
+    public static func mentionQuery(in text: String, cursor: Int) -> MentionQuery? {
+        guard cursor >= 0, let query = LuxBindings.mentionQuery(text: text, cursor: UInt32(clamping: cursor)) else { return nil }
+        return MentionQuery(range: NSRange(location: Int(query.start), length: Int(query.length)), text: query.text)
+    }
+}
+
+extension CoreComposedText {
+    init(_ composed: ComposedText) {
+        self.init(text: composed.text, mentions: composed.mentions.map {
+            CoreMention(target: CoreMentionTarget($0.target), start: UInt32(clamping: $0.range.location),
+                        length: UInt32(clamping: $0.range.length))
+        })
     }
 }
 
@@ -159,7 +204,7 @@ private extension ThreadState {
         case .reply(let target):
             .reply(ReplyPreview(messageId: target.messageId, senderName: target.isOwn ? String(localized: "You") : target.senderName,
                                 body: target.kind.map(PreviewLine.body) ?? ""))
-        case .edit(let messageId, let original): .edit(messageId: messageId, original: original)
+        case .edit(let messageId, let original): .edit(messageId: messageId, original: ComposedText(original))
         }
         self.init(isLoading: state.isLoading, canLoadOlder: state.canLoadOlder, isAtStart: state.isAtStart, firstUnread: state.firstUnread,
                   needsReadReceipt: state.needsReadReceipt,
@@ -244,6 +289,7 @@ private extension MessageItem {
         self.video = video
         self.file = file
         isEditable = message.isEditable
+        mentionsMe = message.mentionsMe
         eventId = message.eventId ?? ""
         self.roomId = roomId
         isDeleted = message.kind == .deleted
@@ -285,6 +331,7 @@ private extension TextStyle {
         case .link(let url):
             guard let url = URL(string: url) else { return nil }
             kind = .link(url)
+        case .mention(let target): kind = .mention(MentionTarget(target))
         }
         self.init(kind, NSRange(location: Int(style.start), length: Int(style.length)))
     }
