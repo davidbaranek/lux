@@ -1,8 +1,9 @@
 import AppKit
 
 /// An AI action above the composer's field: its name, working (a spinner), then its result's ✓
-/// and ✕ on the right, all in one plain box.
-final class ComposerReviewBar: NSStackView {
+/// and ✕ on the right, all in one plain box. The box is a view of its own, its row pinned inside it
+/// with fixed insets, so nothing in the composer's stack squeezes the box under its buttons.
+final class ComposerReviewBar: NSView {
     /// Its gap from the composer's edges, the same all round.
     static let gap: CGFloat = 6
     /// The composer's glass' corner radius, which its own follows (concentric).
@@ -35,12 +36,26 @@ final class ComposerReviewBar: NSStackView {
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 0
-        setViews([icon, labels, NSView(), spinner, accept, reject], in: .leading)
-        spacing = 8
-        setCustomSpacing(6, after: accept)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let row = NSStackView(views: [icon, labels, spacer, spinner, accept, reject])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        row.setCustomSpacing(6, after: accept)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
         // the name and its buttons in one box: a plain fill, as the composer around it is glass.
         // The buttons keep the same inset from the box's top, bottom and end.
-        edgeInsets = NSEdgeInsets(top: Self.inset, left: 12, bottom: Self.inset, right: Self.inset)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.inset),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: Self.inset),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.inset),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: RoundButton.size + 2 * Self.inset),
+        ])
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
         wantsLayer = true
         layer?.cornerRadius = Self.composerRadius - Self.gap
         layer?.cornerCurve = .continuous
@@ -66,7 +81,6 @@ final class ComposerReviewBar: NSStackView {
     }
 
     override func updateLayer() {
-        super.updateLayer()
         layer?.backgroundColor = NSColor.tertiarySystemFill.cgColor
     }
 
