@@ -186,6 +186,8 @@ struct Connection {
     lines: Lines<BufReader<OwnedReadHalf>>,
     write: OwnedWriteHalf,
     next: u64,
+    /// The socket broke (Lux quit or restarted): the next call opens a new session.
+    closed: bool,
 }
 
 impl Connection {
@@ -200,6 +202,7 @@ impl Connection {
             lines: BufReader::new(read).lines(),
             write,
             next: 1,
+            closed: false,
         };
         connection.send(&ClientMessage::Hello(hello)).await?;
         loop {
@@ -217,16 +220,17 @@ impl Connection {
     async fn send(&mut self, message: &ClientMessage) -> Result<(), String> {
         let mut line = serde_json::to_vec(message).map_err(|error| error.to_string())?;
         line.push(b'\n');
-        self.write.write_all(&line).await.map_err(|error| error.to_string())
+        let written = self.write.write_all(&line).await;
+        self.closed |= written.is_err();
+        written.map_err(|_| Self::CLOSED.to_owned())
     }
 
+    const CLOSED: &str = "Lux closed the session (it quit or restarted): call again for a new one";
+
     async fn receive(&mut self) -> Result<ServerMessage, String> {
-        let line = self
-            .lines
-            .next_line()
-            .await
-            .map_err(|error| error.to_string())?
-            .ok_or("Lux closed the session")?;
+        let line = self.lines.next_line().await.ok().flatten();
+        self.closed |= line.is_none();
+        let line = line.ok_or(Self::CLOSED)?;
         serde_json::from_str(&line).map_err(|error| error.to_string())
     }
 
@@ -403,13 +407,10 @@ impl ServerHandler for McpFront {
                     .map(|extensions| extensions.contains_key(APPS_EXTENSION))
             })
             .unwrap_or(false);
-        if request.name == "send_message" && draws_apps {
-            return Ok(match open.call("prepare_send", arguments).await {
-                Ok(prepared) => preview(&prepared),
-                Err((code, message)) => failure(code, &message),
-            });
-        }
-        let answer = if request.name == "request_access" {
+        let prepares = request.name == "send_message" && draws_apps;
+        let answer = if prepares {
+            open.call("prepare_send", arguments).await
+        } else if request.name == "request_access" {
             match serde_json::from_value::<RequestAccess>(arguments) {
                 Ok(asked) => open.request_access(asked.grant, asked.reason).await,
                 Err(error) => Err((ToolErrorCode::InvalidArguments, error.to_string())),
@@ -417,7 +418,11 @@ impl ServerHandler for McpFront {
         } else {
             open.call(&request.name, arguments).await
         };
+        if open.closed {
+            *connection = None;
+        }
         Ok(match answer {
+            Ok(waiting) if prepares => preview(&waiting),
             Ok(value) => {
                 let mut result = CallToolResult::structured(value);
                 result.is_error = Some(false);

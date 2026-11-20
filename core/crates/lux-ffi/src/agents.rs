@@ -18,7 +18,7 @@ use lux_store::TextSearch;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-use crate::account::{CoreAccount, CoreAccountError, with_account};
+use crate::account::{CoreAccount, CoreAccountError, CoreChat, with_account};
 use crate::runtime;
 use crate::store::CoreStore;
 
@@ -200,16 +200,23 @@ struct AppBackend {
 }
 
 impl AppBackend {
-    /// The room the app opens the chat `id` by: its default, or its first.
+    /// The room the app opens the chat `id` by: a merged chat's default, or its first; any
+    /// other chat's own.
     async fn room(&self, id: &str) -> Result<String, BackendError> {
         let chat = self.account.chats().await.into_iter().find(|chat| chat.id == id);
-        chat.and_then(|chat| {
-            chat.default_room
-                .or_else(|| chat.rooms.first().map(|room| room.id.clone()))
-        })
-        .ok_or_else(|| BackendError {
-            reason: format!("no chat `{id}`"),
-        })
+        chat.and_then(|chat| chat.default_room.clone().or_else(|| rooms(&chat).into_iter().next()))
+            .ok_or_else(|| BackendError {
+                reason: format!("no chat `{id}`"),
+            })
+    }
+}
+
+/// A chat's rooms: a merged chat's, or any other chat's own (whose id is its room's).
+fn rooms(chat: &CoreChat) -> Vec<String> {
+    if chat.rooms.is_empty() {
+        vec![chat.id.clone()]
+    } else {
+        chat.rooms.iter().map(|room| room.id.clone()).collect()
     }
 }
 
@@ -246,7 +253,7 @@ impl AgentBackend for AppBackend {
             .await
             .into_iter()
             .map(|chat| ChatSummary {
-                rooms: chat.rooms.iter().map(|room| room.id.clone()).collect(),
+                rooms: rooms(&chat),
                 network: self.host.network_name(chat.network.clone()),
                 id: chat.id,
                 name: chat.name,
