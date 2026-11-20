@@ -764,3 +764,24 @@ async fn a_closed_store_has_closed_its_file_and_refuses_later_calls() {
     let again = Store::open(file(&folder), key()).await.unwrap();
     assert_eq!(found(&again, "kept").await, ["$1"]);
 }
+
+#[tokio::test]
+async fn a_chats_recent_messages_come_oldest_first_and_page_back() {
+    let folder = TempDir::new().unwrap();
+    let store = Store::open(file(&folder), key()).await.unwrap();
+    store
+        .add(vec![
+            message("$1", "first", "!a", 1),
+            message("$2", "second", "!a", 2),
+            message("$3", "other chat", "!b", 3),
+            message("$4", "third", "!a", 4),
+        ])
+        .await
+        .unwrap();
+    let ids = |hits: Vec<lux_store::Hit>| hits.into_iter().map(|hit| hit.event_id.to_string()).collect::<Vec<_>>();
+    let newest = store.recent(RoomId::from("!a"), None, 2).await.unwrap();
+    assert_eq!(newest[1].excerpt, "third");
+    assert_eq!(ids(newest), ["$2", "$4"]);
+    let older = store.recent(RoomId::from("!a"), Some(at(2)), 10).await.unwrap();
+    assert_eq!(ids(older), ["$1"]);
+}

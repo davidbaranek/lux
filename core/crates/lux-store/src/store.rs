@@ -816,6 +816,30 @@ impl Store {
             .await
     }
 
+    /// A chat's messages as the index holds them, before `before` (the newest when none), at
+    /// most `limit`, the oldest first: what an agent reads of a chat, with no timeline opened and
+    /// nothing asked of the server. Each hit's excerpt is the whole message.
+    ///
+    /// # Errors
+    /// SQLite's, or [`Error::Closed`].
+    pub async fn recent(&self, room_id: RoomId, before: Option<SystemTime>, limit: u32) -> Result<Vec<Hit>> {
+        self.worker
+            .run(move |connection| {
+                let mut statement = connection.prepare_cached(
+                    "SELECT event_id, room_id, sender, body, ts, own FROM messages \
+                     WHERE room_id = ?1 AND (?2 IS NULL OR ts < ?2) ORDER BY ts DESC LIMIT ?3",
+                )?;
+                let rows = statement.query_map(params![room_id.as_str(), before.map(to_millis), limit], |row| {
+                    let body: String = row.get(3)?;
+                    hit(row, body, Vec::new())
+                })?;
+                let mut hits = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+                hits.reverse();
+                Ok(hits)
+            })
+            .await
+    }
+
     /// Messages the index has not read the meaning of, the newest first, at most `limit`: each
     /// with its text and the messages before it, which it is read with
     /// ([`MessageToEmbed::context`]). A message shorter than `min_chars` is left (too little to

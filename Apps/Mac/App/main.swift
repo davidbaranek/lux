@@ -2,6 +2,12 @@ import AppIntents
 import AppKit
 import LuxCore
 
+// `Lux agent …`: the app's executable as the agents' CLI, or their MCP server over stdio. It reaches
+// the running app's socket and opens no window.
+if CommandLine.arguments.dropFirst().first == "agent" {
+    exit(Agents.runClient(arguments: Array(CommandLine.arguments.dropFirst(2))))
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
@@ -14,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let session = LaunchOptions.isDemo ? Session.demo(preferences: .shared) : Session(preferences: .shared)
     private var window: NSWindow!
     private var settings: SettingsWindowController?
+    private var agentDialogs: AgentDialogs?
     private var notifications: MacNotifications?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -103,6 +110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notifications?.isShowing = { [weak self, session] room, thread in
                 self?.window.isKeyWindow == true && session.showsMessage(of: room, thread: thread)
             }
+            // agents' approvals, drafts and messages to send come to this window.
+            agentDialogs = AgentDialogs(window: window, split: split)
+            session.agents.presenter = agentDialogs
             // the demo has no server: nothing to notify.
             if !LaunchOptions.isDemo { notifications?.start() }
             // another of the account's devices asks to verify: a sheet on the window.

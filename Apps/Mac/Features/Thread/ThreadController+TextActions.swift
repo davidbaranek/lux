@@ -68,7 +68,7 @@ extension ThreadController {
     }
 
     /// `new` in place of the composer's text, as the user's own edit.
-    private func replaceComposerText(with new: String) {
+    func replaceComposerText(with new: String) {
         let all = NSRange(location: 0, length: (field.string as NSString).length)
         guard field.shouldChangeText(in: all, replacementString: new) else { return }
         field.replaceCharacters(in: all, with: new)

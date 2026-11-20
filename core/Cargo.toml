@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lux-core", "crates/lux-ffi", "crates/lux-intelligence", "crates/lux-matrix", "crates/lux-store", "xtask"]
+members = ["crates/lux-agent", "crates/lux-core", "crates/lux-ffi", "crates/lux-intelligence", "crates/lux-matrix", "crates/lux-store", "xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -9,6 +9,7 @@ license = "GPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
+lux-agent = { path = "crates/lux-agent" }
 lux-core = { path = "crates/lux-core" }
 lux-intelligence = { path = "crates/lux-intelligence" }
 lux-store = { path = "crates/lux-store" }

@@ -53,6 +53,10 @@ public final class Session {
     public let preferences: Preferences
     /// The AI actions over the composer's text, behind Settings › AI's switch.
     public private(set) lazy var textActions = TextActions(preferences: preferences)
+    #if os(macOS)
+    /// Agents on this Mac (the CLI and MCP), behind Settings › AI.
+    public private(set) lazy var agents = Agents(session: self)
+    #endif
     /// Where the app keeps its files.
     private let paths: AppPaths
     /// The signed-in account and all that is its own; nil when signed out.

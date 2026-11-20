@@ -18,6 +18,7 @@
 		08B199F4C47F89EEA44BF366 /* ProfileViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7AE0A9E340C58E1A40417BD /* ProfileViewController.swift */; };
 		0A17346FFD7AB019238AE170 /* MarkdownStyler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0506303EA2A161FB930E67 /* MarkdownStyler.swift */; };
 		0A691855DC38F4118E696C65 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1019436DD5B08FB56BEDB051 /* NotificationService.swift */; };
+		0A9F295EAB526986DCA0F94E /* AgentsSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A00663392E915E273CDC3F /* AgentsSettingsController.swift */; };
 		0BCF753EFAFAE2E02791361D /* FileDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B078C1F708797864150311C6 /* FileDropView.swift */; };
 		0EB1E2C25071B08EA917D05A /* MessageText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D204CD16F57C75829F8BF1 /* MessageText.swift */; };
 		110619B8D09442F40E7A03C2 /* PhotoGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B20AF00D700E184F762839 /* PhotoGridView.swift */; };
@@ -168,6 +169,7 @@
 		E8A45A652599924BC566F603 /* FilledTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D889010E1B2AC08BF46E266 /* FilledTextField.swift */; };
 		EA5D02631FE7BFF04D17AAFC /* ComposerModeBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7C64CCAFB2B23EBFBBF6A9 /* ComposerModeBar.swift */; };
 		EAA215B7DC7259486BC719F0 /* ChatPickerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EC833400271142BD4015641 /* ChatPickerController.swift */; };
+		EB4A68A411471D9C8305A3D9 /* AgentDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AABA870C350A97660A9D625 /* AgentDialogs.swift */; };
 		EC8EFD4F7CBB2A9C34399C72 /* AppIcon.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B3F9F303512F73FF420E0869 /* AppIcon.xcassets */; };
 		ED1DBD72CF9220FA4A9C1D3D /* LoadingBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55ECACEB4D6B6207F111193F /* LoadingBubble.swift */; };
 		EE44DA391BE58726EB47AAAC /* NSViewController+Failure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 977E45B2786136014F3666DB /* NSViewController+Failure.swift */; };
@@ -383,6 +385,7 @@
 		9883A2F4910A77B1AA2FCEAB /* Changes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Changes.swift; sourceTree = "<group>"; };
 		9AA1C19BCC5C987F9DB15E5D /* ThemeMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeMenu.swift; sourceTree = "<group>"; };
 		9AA6FB47F4FED7224573798C /* UIViewController+Failure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIViewController+Failure.swift"; sourceTree = "<group>"; };
+		9AABA870C350A97660A9D625 /* AgentDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDialogs.swift; sourceTree = "<group>"; };
 		9AC9E7CDBFC3557241A8B83D /* VerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViewController.swift; sourceTree = "<group>"; };
 		9B0506303EA2A161FB930E67 /* MarkdownStyler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownStyler.swift; sourceTree = "<group>"; };
 		9C368AB0F18BE00F9EFF03D7 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
@@ -410,6 +413,7 @@
 		B487AA2CB13F54C7555A8DDF /* SearchListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchListViewController.swift; sourceTree = "<group>"; };
 		B6B8C9E1BC81A5D35C0C13AC /* ConfirmIdentityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmIdentityController.swift; sourceTree = "<group>"; };
 		B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
+		B8A00663392E915E273CDC3F /* AgentsSettingsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsSettingsController.swift; sourceTree = "<group>"; };
 		BA00C1C1E42BD7DDE10ABC76 /* AttachMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachMenu.swift; sourceTree = "<group>"; };
 		BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkImage.swift; sourceTree = "<group>"; };
 		BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
@@ -660,6 +664,7 @@
 		37B4F8157526AD123F445F75 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				D60BC22367E13468DF4AF517 /* Agents */,
 				520BA988C10EA361BC936182 /* ChatDetails */,
 				29582B4235ACDB6E35204751 /* ChatList */,
 				348AF6D218FBD128B329648E /* ChatPicker */,
@@ -898,6 +903,7 @@
 			isa = PBXGroup;
 			children = (
 				4E12BEF6929D3632673C59AF /* AccountSettingsController.swift */,
+				B8A00663392E915E273CDC3F /* AgentsSettingsController.swift */,
 				B2362AD6651B9CE93E9DEDCD /* AISettingsController.swift */,
 				0D98930FAB5212EFBE46E3F0 /* AppearanceSettingsController.swift */,
 				77CAAA103DF399F24DF658ED /* ChatStylePicker.swift */,
@@ -967,6 +973,14 @@
 				0EC71AE3DBF5977DA99DC7E8 /* NewConversationController.swift */,
 			);
 			path = NewConversation;
+			sourceTree = "<group>";
+		};
+		D60BC22367E13468DF4AF517 /* Agents */ = {
+			isa = PBXGroup;
+			children = (
+				9AABA870C350A97660A9D625 /* AgentDialogs.swift */,
+			);
+			path = Agents;
 			sourceTree = "<group>";
 		};
 		DC93430DB5458DAF85591C76 /* Packages */ = {
@@ -1366,6 +1380,8 @@
 			files = (
 				D1F82C10B9356C23A317E5F8 /* AISettingsController.swift in Sources */,
 				6CED0114453863479F5508B4 /* AccountSettingsController.swift in Sources */,
+				EB4A68A411471D9C8305A3D9 /* AgentDialogs.swift in Sources */,
+				0A9F295EAB526986DCA0F94E /* AgentsSettingsController.swift in Sources */,
 				E87A984B2C06178BAE83ED09 /* AlbumView.swift in Sources */,
 				1322779071799623AC019A4A /* AppearanceSettingsController.swift in Sources */,
 				869F52C8F8781C272562C2C4 /* AttachmentStrip.swift in Sources */,
