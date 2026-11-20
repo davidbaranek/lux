@@ -96,7 +96,7 @@ extension ThreadController {
         view.window?.makeFirstResponder(field)
     }
 
-    /// The runs as text: kept as it is, removed struck through in red, added marked in green.
+    /// The runs as text: kept as it is, removed struck through in grey, added softly marked.
     private static func review(_ runs: [TextActionChange], font: NSFont) -> NSAttributedString {
         let text = NSMutableAttributedString()
         for run in runs {
@@ -104,11 +104,10 @@ extension ThreadController {
             switch run.kind {
             case .kept: break
             case .removed:
-                attributes[.foregroundColor] = NSColor.systemRed
+                attributes[.foregroundColor] = NSColor.secondaryLabelColor
                 attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             case .added:
-                attributes[.foregroundColor] = NSColor.systemGreen
-                attributes[.backgroundColor] = NSColor.systemGreen.withAlphaComponent(0.15)
+                attributes[.backgroundColor] = NSColor.controlAccentColor.withAlphaComponent(0.16)
             }
             text.append(NSAttributedString(string: run.text, attributes: attributes))
         }

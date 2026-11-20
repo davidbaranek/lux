@@ -253,7 +253,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         }
     }
 
-    /// The runs as text: kept as it is, removed struck through in red, added marked in green.
+    /// The runs as text: kept as it is, removed struck through in grey, added softly marked.
     private static func review(_ runs: [TextActionChange], font: UIFont) -> NSAttributedString {
         let text = NSMutableAttributedString()
         for run in runs {
@@ -261,11 +261,10 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
             switch run.kind {
             case .kept: break
             case .removed:
-                attributes[.foregroundColor] = UIColor.systemRed
+                attributes[.foregroundColor] = UIColor.secondaryLabel
                 attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             case .added:
-                attributes[.foregroundColor] = UIColor.systemGreen
-                attributes[.backgroundColor] = UIColor.systemGreen.withAlphaComponent(0.15)
+                attributes[.backgroundColor] = UIColor.tintColor.withAlphaComponent(0.14)
             }
             text.append(NSAttributedString(string: run.text, attributes: attributes))
         }
@@ -460,7 +459,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
 }
 
 /// "Replying to Anna — hi there" / "Editing — old text", with a button that cancels.
-/// An AI action above the composer's text: working (a spinner), then its result's ✓ and ✕.
+/// An AI action above the composer's text: its name, working (a spinner), then its result's ✓
+/// and ✕ on the right, all in one plain box.
 private final class ReviewBar: UIView {
     var onAccept: (() -> Void)?
     var onReject: (() -> Void)?
@@ -468,42 +468,77 @@ private final class ReviewBar: UIView {
     private let title = UILabel()
     private let note = UILabel()
     private let spinner = UIActivityIndicatorView(style: .medium)
-    private lazy var accept = UIButton(primaryAction: UIAction { [weak self] _ in self?.onAccept?() })
-    private lazy var reject = UIButton(primaryAction: UIAction { [weak self] _ in self?.onReject?() })
+    private lazy var accept = Self.button("checkmark", label: String(localized: "Apply"), color: .label) { [weak self] in self?.onAccept?() }
+    private lazy var reject = Self.button("xmark", label: String(localized: "Cancel"), color: .secondaryLabel) { [weak self] in self?.onReject?() }
+    /// The two side by side.
+    private let capsule = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        icon.tintColor = .tintColor
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(font: font)
+        icon.tintColor = .secondaryLabel
         icon.contentMode = .scaleAspectFit
-        title.font = .preferredFont(forTextStyle: .caption1).bold
-        title.textColor = .tintColor
-        note.font = .preferredFont(forTextStyle: .caption1)
+        title.font = font.bold
+        title.textColor = .label
+        title.adjustsFontForContentSizeCategory = true
+        note.font = .preferredFont(forTextStyle: .footnote)
         note.textColor = .secondaryLabel
         note.numberOfLines = 0
-        accept.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .title2)), for: .normal)
-        accept.tintColor = .systemGreen
-        accept.accessibilityLabel = String(localized: "Apply")
-        reject.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .title2)), for: .normal)
-        reject.tintColor = .tertiaryLabel
-        reject.accessibilityLabel = String(localized: "Cancel")
         spinner.hidesWhenStopped = true
+        let buttons = UIStackView(arrangedSubviews: [accept, reject])
+        buttons.spacing = 2
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+        capsule.addSubview(buttons)
+        NSLayoutConstraint.activate([
+            buttons.leadingAnchor.constraint(equalTo: capsule.leadingAnchor, constant: 4),
+            buttons.trailingAnchor.constraint(equalTo: capsule.trailingAnchor, constant: -4),
+            buttons.topAnchor.constraint(equalTo: capsule.topAnchor),
+            buttons.bottomAnchor.constraint(equalTo: capsule.bottomAnchor),
+        ])
         let labels = UIStackView(arrangedSubviews: [title, note])
         labels.axis = .vertical
-        let row = UIStackView(arrangedSubviews: [icon, labels, spinner, accept, reject])
+        labels.spacing = 1
+        // the name takes the room; the capsule keeps to the right.
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = UIStackView(arrangedSubviews: [icon, labels, spinner, capsule])
         row.spacing = 8
         row.alignment = .center
         row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
+        // the name and its buttons in one box: a plain fill, as the composer around it is glass.
+        let box = UIView()
+        box.backgroundColor = .tertiarySystemFill
+        box.cornerConfiguration = .uniformCorners(radius: 14)
+        box.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(box)
+        box.addSubview(row)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor),
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-            icon.widthAnchor.constraint(equalToConstant: 18),
+            box.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            box.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            box.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            box.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            row.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 10),
+            row.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -2),
+            row.topAnchor.constraint(equalTo: box.topAnchor, constant: 2),
+            row.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -2),
+            icon.widthAnchor.constraint(equalToConstant: 22),
         ])
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        capsule.setContentHuggingPriority(.required, for: .horizontal)
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    private static func button(_ symbol: String, label: String, color: UIColor, action: @escaping () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .body, scale: .medium).applying(UIImage.SymbolConfiguration(weight: .semibold)))
+        configuration.baseForegroundColor = color
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
+        let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
+        button.accessibilityLabel = label
+        button.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        return button
+    }
 
     func showWorking(symbol: String, title: String) {
         icon.image = UIImage(systemName: symbol)

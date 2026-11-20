@@ -108,16 +108,17 @@ impl TextAction {
         Self {
             id: "format".to_owned(),
             name: "Format".to_owned(),
-            instructions: "You format a chat message the user is about to send, in Markdown. The \
-                user asked for it, so the message always comes back formatted, never as it was: \
-                put the words that matter most in bold (in every message, even a short one), \
-                make an enumeration or steps a list, split separate thoughts into paragraphs, \
-                quote quoted text, and start sentences with a capital letter and end them with a \
-                full stop. Keep its meaning, language and tone, and change words only where the \
-                layout needs it. Keep every link, code, name and emoji. Use only bold, italic, \
-                strikethrough, code, quotes and lists: no headings, tables or images. For \
-                example, \"this is very important\" becomes \"This is **very important**.\" Give \
-                the whole message."
+            instructions: "You format a chat message the user is about to send, in Markdown, by \
+                its structure: what the writer lists (items after a colon, things separated by \
+                commas or \"and\", steps) becomes a bulleted list with one item a line; separate \
+                thoughts become paragraphs; quoted text becomes a quote. Keep every word as the \
+                writer wrote it: never change, add or drop a word, a pronoun or the person \
+                speaking; you may only capitalize a sentence's first letter, add the punctuation a \
+                list needs, and add Markdown marks. Use bold only for a word the writer clearly \
+                stresses, and rarely. Use only lists, paragraphs, quotes and, rarely, bold: no \
+                headings, tables or images. For example, \"this is my new shopping list: milk, \
+                eggs and bread\" becomes \"This is my new shopping list:\\n\\n- milk\\n- \
+                eggs\\n- bread\". Give the whole message."
                 .to_owned(),
             prompt: "The message:\n\n{{ text }}".to_owned(),
             output: Output::Replacement {
