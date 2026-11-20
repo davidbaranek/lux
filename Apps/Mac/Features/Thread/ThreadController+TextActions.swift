@@ -46,25 +46,77 @@ extension ThreadController {
         return reason == nil
     }
 
-    /// Runs the item's action over the text written: its sheet works while the model answers,
-    /// then shows the result over the text, and Apply puts it in the composer as an edit Undo
-    /// takes back.
+    /// Runs the item's action over the text written, in place: the field shows it working, then
+    /// the result over the text with ✓ (applied as one edit Undo takes back) and ✕.
     @objc func runTextAction(_ sender: NSMenuItem) {
-        guard let action = (sender.representedObject as? TextActionBox)?.action else { return }
+        guard let action = (sender.representedObject as? TextActionBox)?.action, reviewed == nil else { return }
         let text = composerField.text
-        let panel = TextActionPanel(action: action, original: text) { [weak self] new in self?.replaceComposerText(with: new) }
-        presentAsSheet(panel)
+        beginReview(action)
         let chat = TextActionChat(name: row.name, network: Networks.name(row.network), isGroup: row.isGroup,
                                   myName: session.profile?.profile?.name, messages: model.messages)
-        Task { [weak self, weak panel] in
+        Task { [weak self] in
             guard let actions = self?.session.textActions else { return }
             do {
                 let result = try await actions.run(action, on: text, in: chat)
-                panel?.show(result)
+                self?.showReview(result, of: text)
             } catch {
-                panel?.show(message: error.localizedDescription)
+                self?.reviewBar.showResult(note: error.localizedDescription, canApply: false)
             }
         }
+    }
+
+    private func beginReview(_ action: TextAction) {
+        reviewed = composerField.text
+        field.isEditable = false
+        reviewBar.onReject = { [weak self] in self?.endReview(applying: nil) }
+        reviewBar.showWorking(symbol: action.symbol, title: action.title)
+        reviewBar.isHidden = false
+    }
+
+    private func showReview(_ result: TextActionResult, of text: String) {
+        guard reviewed != nil else { return }
+        let applied = result.applied(to: text)
+        reviewBar.onAccept = { [weak self] in self?.endReview(applying: applied) }
+        if applied != nil, let font = field.font {
+            field.textStorage?.setAttributedString(Self.review(result.preview(of: text), font: font))
+        }
+        let note: String? = switch result {
+        case .note(let text): text
+        case .corrections(let corrections) where corrections.isEmpty: String(localized: "No mistakes found.")
+        case .corrections, .replacement: nil
+        }
+        reviewBar.showResult(note: note, canApply: applied != nil)
+    }
+
+    /// Ends the review: the text as written (✕), or `new` in its place (✓).
+    private func endReview(applying new: String?) {
+        guard let original = reviewed else { return }
+        reviewed = nil
+        field.isEditable = true
+        field.string = original
+        if let font = field.font { MarkdownStyler.style(field, font: font) }
+        reviewBar.isHidden = true
+        if let new { replaceComposerText(with: new) }
+        view.window?.makeFirstResponder(field)
+    }
+
+    /// The runs as text: kept as it is, removed struck through in red, added marked in green.
+    private static func review(_ runs: [TextActionChange], font: NSFont) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        for run in runs {
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
+            switch run.kind {
+            case .kept: break
+            case .removed:
+                attributes[.foregroundColor] = NSColor.systemRed
+                attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            case .added:
+                attributes[.foregroundColor] = NSColor.systemGreen
+                attributes[.backgroundColor] = NSColor.systemGreen.withAlphaComponent(0.15)
+            }
+            text.append(NSAttributedString(string: run.text, attributes: attributes))
+        }
+        return text
     }
 
     /// `new` in place of the composer's text, as the user's own edit.

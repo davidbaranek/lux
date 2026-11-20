@@ -29,6 +29,12 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
     private let stack = UIStackView()
     private let modeBar = ModeBar()
+    /// An AI action's result over the text, with ✓ and ✕.
+    private let reviewBar = ReviewBar()
+    /// The text as written while an AI action's result shows over it; nil otherwise.
+    private var reviewed: String?
+    /// ✓ on an AI action's result: put it in the composer.
+    var onAcceptReview: (() -> Void)?
     private let strip = AttachmentStrip()
     /// A file waiting in the composer was taken out.
     var onRemoveAttachment: ((URL) -> Void)?
@@ -137,6 +143,10 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         strip.onRemove = { [weak self] file in self?.onRemoveAttachment?(file) }
         strip.onVideoQuality = { [weak self] file, quality in self?.onVideoQuality?(file, quality) }
         strip.onMarkUp = { [weak self] file, tile in self?.onMarkUpAttachment?(file, tile) }
+        reviewBar.isHidden = true
+        reviewBar.onReject = { [weak self] in self?.endReview(applying: nil) }
+        reviewBar.onAccept = { [weak self] in self?.onAcceptReview?() }
+        stack.addArrangedSubview(reviewBar)
         stack.addArrangedSubview(modeBar)
         stack.addArrangedSubview(strip)
         stack.addArrangedSubview(textView)
@@ -201,6 +211,65 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
             self.modeBar.isHidden = false
             self.superview?.layoutIfNeeded()
         }
+    }
+
+    // MARK: An AI action's result, in place
+
+    /// An AI action works on the text: the bar says so, the text waits as it is and cannot be
+    /// changed meanwhile.
+    func beginReview(symbol: String, title: String) {
+        reviewed = textView.text
+        textView.isEditable = false
+        reviewBar.showWorking(symbol: symbol, title: title)
+        send.isEnabled = false
+        UIView.animate(withDuration: 0.2) {
+            self.reviewBar.isHidden = false
+            self.superview?.layoutIfNeeded()
+        }
+    }
+
+    /// The result over the text (`runs`: removed struck through, added marked), ✓ when there is
+    /// something to apply; or `note` in the bar (a note, no mistakes, why there is none).
+    func showReview(_ runs: [TextActionChange], canApply: Bool, note: String?) {
+        guard reviewed != nil else { return }
+        if canApply, let font = textView.font { textView.attributedText = Self.review(runs, font: font) }
+        reviewBar.showResult(note: note, canApply: canApply)
+        refresh()
+        send.isEnabled = false
+    }
+
+    /// Ends the review: the text as written (✕), or `new` in its place as one edit Undo takes
+    /// back (✓).
+    func endReview(applying new: String?) {
+        guard let original = reviewed else { return }
+        reviewed = nil
+        textView.isEditable = true
+        textView.text = original
+        restyle()
+        if let new { replaceText(with: new) } else { refresh() }
+        UIView.animate(withDuration: 0.2) {
+            self.reviewBar.isHidden = true
+            self.superview?.layoutIfNeeded()
+        }
+    }
+
+    /// The runs as text: kept as it is, removed struck through in red, added marked in green.
+    private static func review(_ runs: [TextActionChange], font: UIFont) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        for run in runs {
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
+            switch run.kind {
+            case .kept: break
+            case .removed:
+                attributes[.foregroundColor] = UIColor.systemRed
+                attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            case .added:
+                attributes[.foregroundColor] = UIColor.systemGreen
+                attributes[.backgroundColor] = UIColor.systemGreen.withAlphaComponent(0.15)
+            }
+            text.append(NSAttributedString(string: run.text, attributes: attributes))
+        }
+        return text
     }
 
     func clearMode() {
@@ -391,6 +460,69 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
 }
 
 /// "Replying to Anna — hi there" / "Editing — old text", with a button that cancels.
+/// An AI action above the composer's text: working (a spinner), then its result's ✓ and ✕.
+private final class ReviewBar: UIView {
+    var onAccept: (() -> Void)?
+    var onReject: (() -> Void)?
+    private let icon = UIImageView()
+    private let title = UILabel()
+    private let note = UILabel()
+    private let spinner = UIActivityIndicatorView(style: .medium)
+    private lazy var accept = UIButton(primaryAction: UIAction { [weak self] _ in self?.onAccept?() })
+    private lazy var reject = UIButton(primaryAction: UIAction { [weak self] _ in self?.onReject?() })
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        icon.tintColor = .tintColor
+        icon.contentMode = .scaleAspectFit
+        title.font = .preferredFont(forTextStyle: .caption1).bold
+        title.textColor = .tintColor
+        note.font = .preferredFont(forTextStyle: .caption1)
+        note.textColor = .secondaryLabel
+        note.numberOfLines = 0
+        accept.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .title2)), for: .normal)
+        accept.tintColor = .systemGreen
+        accept.accessibilityLabel = String(localized: "Apply")
+        reject.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .title2)), for: .normal)
+        reject.tintColor = .tertiaryLabel
+        reject.accessibilityLabel = String(localized: "Cancel")
+        spinner.hidesWhenStopped = true
+        let labels = UIStackView(arrangedSubviews: [title, note])
+        labels.axis = .vertical
+        let row = UIStackView(arrangedSubviews: [icon, labels, spinner, accept, reject])
+        row.spacing = 8
+        row.alignment = .center
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            icon.widthAnchor.constraint(equalToConstant: 18),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    func showWorking(symbol: String, title: String) {
+        icon.image = UIImage(systemName: symbol)
+        self.title.text = title
+        note.text = nil
+        note.isHidden = true
+        spinner.startAnimating()
+        accept.isHidden = true
+        accessibilityLabel = title
+    }
+
+    func showResult(note text: String?, canApply: Bool) {
+        spinner.stopAnimating()
+        note.text = text
+        note.isHidden = text == nil
+        accept.isHidden = !canApply
+    }
+}
+
 private final class ModeBar: UIView {
     var onCancel: (() -> Void)?
     private let icon = UIImageView()

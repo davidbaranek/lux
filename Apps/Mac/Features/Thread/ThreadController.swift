@@ -91,6 +91,10 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     /// Files waiting to go with the message.
     private let strip = AttachmentStrip()
     private let modeBar = ComposerModeBar()
+    /// An AI action's result over the field, with ✓ and ✕.
+    let reviewBar = ComposerReviewBar()
+    /// The text as written while an AI action's result shows over it; nil otherwise.
+    var reviewed: String?
     /// A merged chat's network a message goes through, at the field's end.
     private let sendNetwork = NSImageView()
     /// Back to the newest message, when the reader is a screen or more above it.
@@ -239,7 +243,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         fieldRow.orientation = .horizontal
         fieldRow.alignment = .centerY
         fieldRow.spacing = 6
-        let content = NSStackView(views: [modeBar, strip, fieldRow])
+        reviewBar.isHidden = true
+        let content = NSStackView(views: [reviewBar, modeBar, strip, fieldRow])
         content.orientation = .vertical
         content.alignment = .leading
         content.spacing = 4
@@ -284,6 +289,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             eye.widthAnchor.constraint(equalToConstant: 37),
             eye.heightAnchor.constraint(equalToConstant: 37),
             modeBar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+            reviewBar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             strip.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             // in line with the bubbles' edge, not their text.
             typingAvatar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: BubbleMetrics().sideMargin),
