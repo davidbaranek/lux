@@ -39,6 +39,7 @@ What is done, and what comes next in order. How things work lives in
       server's limit offered smaller instead of refused
 - [x] The composer's Markdown formatted as typed, with a format menu; it grows with its text,
       then scrolls
+- [x] Markup on a photo or PDF waiting in the iPhone's composer, its edited copy sent in its place
 - [x] Saved messages
 - [x] Insert from iPhone on the Mac (Continuity Camera: a photo, a document scan, a sketch) from
       the + and the composer's context menu

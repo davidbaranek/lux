@@ -115,6 +115,7 @@
 		9F87181A802E80C0EC926625 /* ThreadViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BE29EDF6C9AE9C1DDB4E38 /* ThreadViewTests.swift */; };
 		9FFF5BA4BC18335532D67927 /* ThreadSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8CEDE7F2FF46DA53A4C8D0C /* ThreadSummaryView.swift */; };
 		A159AD2F5FD5649235134D50 /* MembersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D737288FA31CA350724D718 /* MembersViewController.swift */; };
+		A2CA473EE9B4C45CB4A20385 /* PendingMarkup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E57A2090D14A73307AB1BB /* PendingMarkup.swift */; };
 		A314EA5D3F5EDC3E9A3A9C33 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7951C22F09432CD0944ED1 /* SettingsViewController.swift */; };
 		A59AD2EDEA21CCE88DEBBE3E /* ThreadController+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7542CC4F0D7F86F0D38C112A /* ThreadController+Menu.swift */; };
 		A5A6DC777A0A6BB0CC734E9E /* NetworkImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */; };
@@ -271,6 +272,7 @@
 /* Begin PBXFileReference section */
 		0424D3218B18987B7AEDF49E /* LoadingBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingBubble.swift; sourceTree = "<group>"; };
 		045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
+		04E57A2090D14A73307AB1BB /* PendingMarkup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingMarkup.swift; sourceTree = "<group>"; };
 		05956B7632D91F0739F96D43 /* Lux-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Lux-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		06C63259781CAA212711C097 /* ChatListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListViewController.swift; sourceTree = "<group>"; };
 		0AD2A43CC3D6B685EA440146 /* Lux-iOS-UITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "Lux-iOS-UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -997,6 +999,7 @@
 				6A3A3C976B72208FEFA37889 /* MessageCell.swift */,
 				F6D204CD16F57C75829F8BF1 /* MessageText.swift */,
 				DC1F5B41E55B51EC24083785 /* NewPinBar.swift */,
+				04E57A2090D14A73307AB1BB /* PendingMarkup.swift */,
 				9C47DC5EAA22F689C85CC104 /* SwipeToReply.swift */,
 				983A7FB6373C3D608A0E8418 /* ThreadSummaryView.swift */,
 				B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */,
@@ -1472,6 +1475,7 @@
 				5D704AF1A337A6AE235114DA /* NewPinBar.swift in Sources */,
 				50126D1969796B2F94B31CF0 /* NotificationMenu.swift in Sources */,
 				B7AEA23C2F785A725402F3AF /* Notifications.swift in Sources */,
+				A2CA473EE9B4C45CB4A20385 /* PendingMarkup.swift in Sources */,
 				2C6C61D1739FD5E41B33D6E0 /* PinnedChatCell.swift in Sources */,
 				99746989F9BF6DCCE165A6AD /* PlacesSheetViewController.swift in Sources */,
 				08B199F4C47F89EEA44BF366 /* ProfileViewController.swift in Sources */,

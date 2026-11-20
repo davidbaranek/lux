@@ -82,6 +82,8 @@ extension ThreadModel {
         onLive = { live?($0); changes.send() }
         let pinned = onPinned
         onPinned = { pinned?($0); changes.send() }
+        let pending = onPendingFiles
+        onPendingFiles = { pending?($0); changes.send() }
         return changes
     }
 }
