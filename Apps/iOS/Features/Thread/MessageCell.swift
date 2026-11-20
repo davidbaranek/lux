@@ -237,6 +237,13 @@ final class MessageCell: UICollectionViewCell {
         band.layer.add(pulse, forKey: "flash")
     }
 
+    /// The bubble's outline in the cell: a drag out of the chat lifts the bubble alone.
+    var dragPreview: UIDragPreviewParameters {
+        let parameters = UIDragPreviewParameters()
+        parameters.visiblePath = UIBezierPath(roundedRect: bubble.convert(bubble.bounds, to: self), cornerRadius: bubble.layer.cornerRadius)
+        return parameters
+    }
+
     /// What lifts for the menu: a bubble in its own shape, a plain row's band across the row.
     var menuPreview: UITargetedPreview {
         let parameters = UIPreviewParameters()

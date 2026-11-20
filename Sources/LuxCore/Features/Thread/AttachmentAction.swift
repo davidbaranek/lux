@@ -32,6 +32,12 @@ public enum AttachmentAction: Hashable, Sendable {
         }
     }
 
+    /// A row's media can be dragged out of the chat (to Finder, Files, another app): one file
+    /// once it is on the server; an album's photos are kept from the menu.
+    public static func canDrag(_ message: MessageItem) -> Bool {
+        !available(for: message, on: .phone).isEmpty && message.mediaMessageIds.count == 1
+    }
+
     /// A photo, a video or an album of them: the photo library takes it.
     static func isPhotoOrVideo(_ message: MessageItem) -> Bool {
         message.file == nil && (message.photo != nil || message.video != nil || !message.album.isEmpty)

@@ -157,6 +157,34 @@ struct ThreadViewTests {
         }
     }
 
+
+    @Test func aSentPhotoDragsOutAsItsFileLoadedWhenDroppedAndTextStays() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let model = chat.controller.model
+            try await chat.changes.until { chat.isShown(chat.newest) && !model.isLoading }
+            #expect(chat.collectionView.dragInteractionEnabled)
+            let drag = try #require(chat.collectionView.dragDelegate)
+            let photo = try #require(model.messages.first { $0.photo != nil && $0.album.isEmpty && $0.video == nil && $0.state == .sent })
+            let items = drag.collectionView(chat.collectionView, itemsForBeginning: NoDragSession(),
+                                            at: IndexPath(item: try #require(chat.row(of: photo.id)), section: 0))
+            let provider = try #require(items.first?.itemProvider)
+            #expect(items.count == 1)
+            #expect(provider.suggestedName == SavedFiles.promisedName(for: photo))
+            #expect(provider.registeredContentTypes == [SavedFiles.promisedType(for: photo)])
+            // dropped: the original comes, downloaded then.
+            let size = try await withCheckedThrowingContinuation { (loaded: CheckedContinuation<Int, any Error>) in
+                _ = provider.loadFileRepresentation(for: SavedFiles.promisedType(for: photo), openInPlace: false) { file, _, error in
+                    guard let file else { return loaded.resume(throwing: error ?? CocoaError(.fileNoSuchFile)) }
+                    loaded.resume(with: Result { try Data(contentsOf: file).count })
+                }
+            }
+            #expect(size > 0)
+            let text = try #require(model.messages.first { !$0.hasMedia && $0.deletedRun == 0 })
+            #expect(drag.collectionView(chat.collectionView, itemsForBeginning: NoDragSession(),
+                                        at: IndexPath(item: try #require(chat.row(of: text.id)), section: 0)).isEmpty)
+        }
+    }
     /// A chat of the demo with no unread message: it opens at its newest.
     @Test func deletedMessagesOneAfterAnotherShowAsOneRowThatGrowsInPlaceAndUnfoldsWhenActivated() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
@@ -336,4 +364,15 @@ private extension UIView {
         }
         return nil
     }
+}
+
+/// A drag that has only begun: the list is asked for its items before any of this is read.
+private final class NoDragSession: NSObject, UIDragSession {
+    var localContext: Any?
+    var items: [UIDragItem] { [] }
+    func location(in view: UIView) -> CGPoint { .zero }
+    var allowsMoveOperation: Bool { false }
+    var isRestrictedToDraggingApplication: Bool { false }
+    func hasItemsConforming(toTypeIdentifiers typeIdentifiers: [String]) -> Bool { false }
+    func canLoadObjects(ofClass aClass: any NSItemProviderReading.Type) -> Bool { false }
 }

@@ -59,6 +59,12 @@ public enum SavedFiles {
         return PastedItems.fileName(body, type: named)
     }
 
+    /// The type a file of `message` will have before it is downloaded, as its promised name says
+    /// (a drag out of the chat registers it); data when the name says none.
+    public static func promisedType(for message: MessageItem) -> UTType {
+        UTType(filenameExtension: (promisedName(for: message) as NSString).pathExtension) ?? .data
+    }
+
     /// The bytes of a picture, for the pasteboard beside its file (an app that takes pictures, not
     /// files, pastes these); nil for anything else. Off the main thread: a photo is megabytes.
     @concurrent

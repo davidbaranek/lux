@@ -104,6 +104,25 @@ import UniformTypeIdentifiers
         #expect(SavedFiles.promisedName(for: message(video: true)) == "Video.mp4")
     }
 
+    @Test func aDraggedFileIsOfTheTypeItsNameSays() {
+        #expect(SavedFiles.promisedType(for: message(file: .init(name: "Trip plan.pdf", size: 5, mimetype: "application/pdf"))) == .pdf)
+        #expect(SavedFiles.promisedType(for: message(body: "IMG_0042.HEIC", photo: true)) == .heic)
+        #expect(SavedFiles.promisedType(for: message(photo: true)) == .jpeg)
+        #expect(SavedFiles.promisedType(for: message(video: true)) == .mpeg4Movie)
+        #expect(SavedFiles.promisedType(for: message(file: .init(name: "notes", size: 5, mimetype: "text/plain"))) == .data)
+    }
+
+    @Test func oneSentPhotoVideoOrFileDragsOutButNotAnAlbumOrOneStillGoing() {
+        #expect(AttachmentAction.canDrag(message(photo: true)))
+        #expect(AttachmentAction.canDrag(message(video: true)))
+        #expect(AttachmentAction.canDrag(message(file: .init(name: "Trip plan.pdf", size: 5, mimetype: "application/pdf"))))
+        #expect(!AttachmentAction.canDrag(message(body: "hi")))
+        #expect(!AttachmentAction.canDrag(message(photo: true, state: .sending)))
+        var album = message(photo: true)
+        album.album = (0..<2).map { MessageItem.AlbumItem(messageId: "m\($0)", photo: MessageItem.Photo(ref: .photo(roomId: "!r", messageId: "m\($0)", name: "p"), width: 4, height: 3)) }
+        #expect(!AttachmentAction.canDrag(album))
+    }
+
     @Test func aPictureGoesToThePasteboardWithItsBytesAndAnythingElseAsAFileAlone() async throws {
         let picture = try original("shot.png", "png bytes")
         let image = try #require(try await SavedFiles.image(in: picture))
