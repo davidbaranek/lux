@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// button is an eye that sends a read receipt; holding it shows `readReceiptsMenu`. The text is
 /// Markdown, shown formatted as it is typed (the marks dimmed); a selection's menu has Format.
 /// A pasted or dropped photo, video or file waits in it as one picked with the + does.
-final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
+final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGestureRecognizerDelegate {
     /// The round buttons beside the field, and the field's one-line height: as Messages has them.
     static let button: CGFloat = 40
 
@@ -22,11 +22,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
     var readReceiptsMenu: UIMenu?
     /// What holding Send offers: send later.
     var sendLaterMenu: UIMenu?
-    /// What the + before the text offers: photos, files.
-    var attachMenu: UIMenu? {
-        get { attach.menu }
-        set { attach.menu = newValue }
-    }
+    /// The + before the text was tapped: its panel opens in the keyboard's place, or (×) closes.
+    var onAttach: (() -> Void)?
     private var needsReadReceipt = false
     private var showsEye = false
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
@@ -57,6 +54,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
         }
     }
     private let textView = UITextView()
+    private lazy var backToKeyboard = UITapGestureRecognizer(target: self, action: #selector(showKeyboard))
     /// In a merged chat, the network a message goes through: a badge on the send button.
     private let network = UIImageView()
     private let placeholder = UILabel()
@@ -71,8 +69,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
         var configuration = UIButton.Configuration.glass()
         configuration.image = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(weight: .semibold))
         configuration.cornerStyle = .capsule
+        configuration.symbolContentTransition = UISymbolContentTransition(.replace)
         let button = UIButton(configuration: configuration)
-        button.showsMenuAsPrimaryAction = true
         button.accessibilityLabel = String(localized: "Attach")
         return button
     }()
@@ -111,6 +109,14 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
         send.accessibilityLabel = String(localized: "Send")
         send.isEnabled = false
         updateButton()
+        attach.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            onAttach?()
+        }, for: .primaryActionTriggered)
+        // a tap in the text while the panel shows brings the keyboard back.
+        backToKeyboard.delegate = self
+        backToKeyboard.isEnabled = false
+        textView.addGestureRecognizer(backToKeyboard)
         modeBar.isHidden = true
         modeBar.onCancel = { [weak self] in self?.onCancelMode?() }
         stack.axis = .vertical
@@ -193,6 +199,46 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate {
     }
 
     func focus() { textView.becomeFirstResponder() }
+
+    // MARK: The +'s panel
+
+    /// What shows in the keyboard's place: the +'s panel, or nil for the keyboard. The + is a ×
+    /// while it shows.
+    var inputPanel: UIView? {
+        get { textView.inputView }
+        set {
+            guard newValue !== textView.inputView else { return }
+            textView.inputView = newValue
+            let open = newValue != nil
+            backToKeyboard.isEnabled = open
+            attach.configuration?.image = UIImage(systemName: open ? "xmark" : "plus", withConfiguration: UIImage.SymbolConfiguration(weight: .semibold))
+            attach.accessibilityLabel = open ? String(localized: "Close") : String(localized: "Attach")
+            if textView.isFirstResponder {
+                textView.reloadInputViews()
+            } else if open {
+                textView.becomeFirstResponder()
+            }
+        }
+    }
+
+    /// The ×: the panel goes down, and the keyboard with it.
+    func closePanel() {
+        textView.resignFirstResponder()
+    }
+
+    @objc private func showKeyboard() {
+        inputPanel = nil
+    }
+
+    /// The tap that brings the keyboard back is the text view's only one: no edit menu with it.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        otherGestureRecognizer.view === textView
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        inputPanel = nil
+    }
 
     func textViewDidChange(_ textView: UITextView) {
         restyle()

@@ -40,13 +40,21 @@
 	<string>$(LUX_OAUTH_CLIENT_URI)</string>
 	<key>LuxPushGateway</key>
 	<string>$(LUX_PUSH_GATEWAY)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Lux uses the camera for the photos, videos and document scans you send.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lux records sound with the videos you take to send.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Lux saves the photos and videos you choose from a chat to your library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Lux shows your newest photos and videos under the + so you can send them.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>
 		<string>$(LUX_BUNDLE_ID).chat</string>
 	</array>
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

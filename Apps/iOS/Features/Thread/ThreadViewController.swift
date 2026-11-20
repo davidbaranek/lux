@@ -89,7 +89,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private lazy var chatTitle = ChatTitleView(row: row, images: session.images)
 
     private lazy var media = MediaPresenter(host: self)
-    private lazy var attachments = AttachmentPicker(host: self) { [weak self] files in self?.model.attach(files) }
+    lazy var attachments = AttachmentPicker(host: self, picked: { [weak self] files in self?.model.attach(files) },
+                                            removed: { [weak self] file in self?.model.removePending(file) })
     private lazy var markup = PendingMarkup(host: self) { [weak self] original, copy in self?.model.replacePending(original, with: copy) }
 
     /// One's own bubbles: the place's colour, else the system's blue.
@@ -197,14 +198,20 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             self?.model.send(text)
             self?.donateSent()
         }
-        // holding Send: send later, in a chat that is not end-to-end encrypted.
-        composer.attachMenu = attachments.menu
+        // the +: a panel in the keyboard's place with the camera, the newest photos, files, a scan.
+        composer.onAttach = { [weak self] in
+            guard let self else { return }
+            attachments.togglePanel(in: composer)
+        }
         composer.onPasteItems = { [weak self] providers in self?.attachments.take(providers) }
         // photos, videos and files dropped anywhere on the chat wait in the composer too.
         view.addInteraction(UIDropInteraction(delegate: attachments))
         composer.onRemoveAttachment = { [weak self] file in self?.model.removePending(file) }
         composer.onMarkUpAttachment = { [weak self] file, tile in self?.markup.open(file, from: tile) }
-        model.onPendingFiles = { [weak self] files in self?.composer.attachments = files }
+        model.onPendingFiles = { [weak self] files in
+            self?.composer.attachments = files
+            self?.attachments.pendingChanged(files)
+        }
         // a video goes smaller unless the user chooses Original in its tile.
         model.pendingVideos.onChange = { [weak self] in
             guard let self else { return }

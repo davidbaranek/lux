@@ -12,6 +12,7 @@
 		01C3E40E77DF50004F0F91BC /* ThemeBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3486FEA9B7E75C0C0CF63B7 /* ThemeBand.swift */; };
 		021F6DBF98DDDA0F9D892CE5 /* SignInController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3129E33F5CAAED4C0B82EB92 /* SignInController.swift */; };
 		02A6600AB83B5B16B1B38D90 /* TypingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC0D1B214F00F8C6A3313FD /* TypingView.swift */; };
+		03F60C609C54C468D3469DB3 /* AttachmentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FBAE38F2ED9E7DDF6E73DC /* AttachmentPicker.swift */; };
 		042345998078B252CFE0863D /* ThreadViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C33364386DB1F6A8C6115F /* ThreadViewController.swift */; };
 		04DDB2D9D29BC65964566554 /* InboxMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F2C98214DB4409B4C68E2DF /* InboxMenu.swift */; };
 		08B199F4C47F89EEA44BF366 /* ProfileViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7AE0A9E340C58E1A40417BD /* ProfileViewController.swift */; };
@@ -131,6 +132,7 @@
 		B19DE83C6A3884374DB7613D /* ThreadsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4C9FF0F97F7DDE576EC682 /* ThreadsPane.swift */; };
 		B1FA151DF3B7DE373AE4F34F /* MessageText.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED44BAF9870039CBBE2D09 /* MessageText.swift */; };
 		B3901929070B9794BDF2ECE1 /* ChatListController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2180360AB5C0E986ABBBF07D /* ChatListController.swift */; };
+		B5DE3B6E80FDC3A2CF34839C /* AttachMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA00C1C1E42BD7DDE10ABC76 /* AttachMenu.swift */; };
 		B653F26A44AE4D274DB849D7 /* UIFont+Bold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8169DF1385579A66C2BD0D67 /* UIFont+Bold.swift */; };
 		B7AEA23C2F785A725402F3AF /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E4FC640AD4BBC4E431346A /* Notifications.swift */; };
 		B7FABBAC58BE66304CF664FE /* MembersPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4131CD8140B7AEF0964D274B /* MembersPane.swift */; };
@@ -270,6 +272,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		00FBAE38F2ED9E7DDF6E73DC /* AttachmentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentPicker.swift; sourceTree = "<group>"; };
 		0424D3218B18987B7AEDF49E /* LoadingBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingBubble.swift; sourceTree = "<group>"; };
 		045C0342A18D88C49B6D5048 /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
 		04E57A2090D14A73307AB1BB /* PendingMarkup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingMarkup.swift; sourceTree = "<group>"; };
@@ -395,6 +398,7 @@
 		B487AA2CB13F54C7555A8DDF /* SearchListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchListViewController.swift; sourceTree = "<group>"; };
 		B6B8C9E1BC81A5D35C0C13AC /* ConfirmIdentityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmIdentityController.swift; sourceTree = "<group>"; };
 		B702E5CF5E1DEDCA4C34EE4F /* EmojiImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiImage.swift; sourceTree = "<group>"; };
+		BA00C1C1E42BD7DDE10ABC76 /* AttachMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachMenu.swift; sourceTree = "<group>"; };
 		BA01BFEDFD32933AC78093A2 /* NetworkImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkImage.swift; sourceTree = "<group>"; };
 		BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		BAB1888448FCBA297255D8F4 /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
@@ -991,7 +995,9 @@
 			isa = PBXGroup;
 			children = (
 				FF01EEA04AB3C27BFD91EAED /* AlbumView.swift */,
+				00FBAE38F2ED9E7DDF6E73DC /* AttachmentPicker.swift */,
 				7BAB63D411C36BC8C1FC2A0B /* AttachmentStrip.swift */,
+				BA00C1C1E42BD7DDE10ABC76 /* AttachMenu.swift */,
 				15301CE9D8CDC009F178CF79 /* ChatTitleView.swift */,
 				BAB1888448FCBA297255D8F4 /* ComposerView.swift */,
 				E1237884D199F603C323809F /* FileRowView.swift */,
@@ -1440,6 +1446,8 @@
 				3A45E99BEAFBE536670D9162 /* AlbumView.swift in Sources */,
 				AB9DD50F903CEDC7BD2C38FB /* AppDelegate.swift in Sources */,
 				6439352C6D26B72CA4498C01 /* AppearanceViewController.swift in Sources */,
+				B5DE3B6E80FDC3A2CF34839C /* AttachMenu.swift in Sources */,
+				03F60C609C54C468D3469DB3 /* AttachmentPicker.swift in Sources */,
 				3070AFA29798B0CD0AE87E10 /* AttachmentStrip.swift in Sources */,
 				E147D495AC39B7A968B095E8 /* AvatarView.swift in Sources */,
 				6B251BC0D10032002FAB5EE0 /* BackgroundRefresh.swift in Sources */,
