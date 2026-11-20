@@ -68,6 +68,17 @@ public enum TextActionResult: Sendable, Equatable {
         }
     }
 
+    /// What the composer says of the result over `text`, when there is nothing to apply: a
+    /// note's text, no mistakes found, already formatted; nil when it shows a change.
+    public func note(over text: String) -> String? {
+        switch self {
+        case .note(let note): note
+        case .corrections(let corrections) where corrections.isEmpty: String(localized: "No mistakes found.")
+        case .replacement(let new, _) where new == text: String(localized: "The message is already formatted.")
+        case .corrections, .replacement: nil
+        }
+    }
+
     /// How the result shows over `text`, for its preview: the runs kept, removed and added, in
     /// order. Both apps draw these runs; neither knows which action gave them.
     public func preview(of text: String) -> [TextActionChange] {

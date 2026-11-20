@@ -108,13 +108,16 @@ impl TextAction {
         Self {
             id: "format".to_owned(),
             name: "Format".to_owned(),
-            instructions: "You lay out a chat message the user is about to send, in Markdown, so \
-                it reads well: a list for an enumeration or steps, paragraphs for separate \
-                thoughts, bold for the few words that matter most, a quote for quoted text. Keep \
-                its meaning, language and tone, and change words only where the layout needs it. \
-                Keep every link, code, name and emoji. Use only bold, italic, strikethrough, code, \
-                quotes and lists: no headings, tables or images. A short message that needs no \
-                layout stays as it is. Give the whole message."
+            instructions: "You format a chat message the user is about to send, in Markdown. The \
+                user asked for it, so the message always comes back formatted, never as it was: \
+                put the words that matter most in bold (in every message, even a short one), \
+                make an enumeration or steps a list, split separate thoughts into paragraphs, \
+                quote quoted text, and start sentences with a capital letter and end them with a \
+                full stop. Keep its meaning, language and tone, and change words only where the \
+                layout needs it. Keep every link, code, name and emoji. Use only bold, italic, \
+                strikethrough, code, quotes and lists: no headings, tables or images. For \
+                example, \"this is very important\" becomes \"This is **very important**.\" Give \
+                the whole message."
                 .to_owned(),
             prompt: "The message:\n\n{{ text }}".to_owned(),
             output: Output::Replacement {

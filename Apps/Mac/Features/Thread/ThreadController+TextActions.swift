@@ -80,11 +80,7 @@ extension ThreadController {
         if applied != nil, let font = field.font {
             field.textStorage?.setAttributedString(Self.review(result.preview(of: text), font: font))
         }
-        let note: String? = switch result {
-        case .note(let text): text
-        case .corrections(let corrections) where corrections.isEmpty: String(localized: "No mistakes found.")
-        case .corrections, .replacement: nil
-        }
+        let note = result.note(over: text)
         reviewBar.showResult(note: note, canApply: applied != nil)
     }
 

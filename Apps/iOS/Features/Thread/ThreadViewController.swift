@@ -731,19 +731,10 @@ extension ThreadViewController: ThreadScreen {
                 let result = try await actions.run(action, on: text, in: chat)
                 let applied = result.applied(to: text)
                 self?.composer.onAcceptReview = { [weak self] in self?.composer.endReview(applying: applied) }
-                self?.composer.showReview(result.preview(of: text), canApply: applied != nil, note: Self.note(result))
+                self?.composer.showReview(result.preview(of: text), canApply: applied != nil, note: result.note(over: text))
             } catch {
                 self?.composer.showReview([], canApply: false, note: error.localizedDescription)
             }
-        }
-    }
-
-    /// What the bar says of a result: a note's text, or that there was nothing to correct.
-    private static func note(_ result: TextActionResult) -> String? {
-        switch result {
-        case .note(let text): text
-        case .corrections(let corrections) where corrections.isEmpty: String(localized: "No mistakes found.")
-        case .corrections, .replacement: nil
         }
     }
 
