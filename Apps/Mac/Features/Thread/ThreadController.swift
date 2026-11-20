@@ -248,6 +248,7 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         reviewBar.isHidden = true
         let content = NSStackView(views: [reviewBar, modeBar, strip, fieldRow])
         content.orientation = .vertical
+        content.setCustomSpacing(8, after: reviewBar)
         // each row has its width: centred, the field's rows keep 14 from the edges, the review's
         // box the same small gap all round (`ComposerReviewBar.gap`).
         content.alignment = .centerX
@@ -286,8 +287,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             glass.leadingAnchor.constraint(equalTo: attach.trailingAnchor, constant: 8),
             glass.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
             fieldRow.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            // at most a third of the chat: past it, the text scrolls inside.
-            composerField.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor, multiplier: 1 / 3),
+            // at most half the chat: past it, the text scrolls inside.
+            composerField.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor, multiplier: 1 / 2),
             eye.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
             eye.centerYAnchor.constraint(equalTo: glass.bottomAnchor, constant: -18.5),
             // a circle as tall as the one-line composer.

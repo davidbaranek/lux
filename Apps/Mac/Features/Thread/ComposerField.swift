@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// inside. Its height is the text's layout (TextKit 2), measured as the text or the width changes
 /// and given to auto layout as the scroll view's intrinsic size.
 final class ComposerField: NSScrollView {
-    static let maxLines = 8
+    static let maxLines = 14
     let textView = ComposerTextView(usingTextLayoutManager: true)
     /// The text's height the field last measured, and the width it measured it at.
     private var textHeight: CGFloat = 0

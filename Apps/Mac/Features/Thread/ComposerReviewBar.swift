@@ -7,6 +7,8 @@ final class ComposerReviewBar: NSStackView {
     static let gap: CGFloat = 6
     /// The composer's glass' corner radius, which its own follows (concentric).
     static let composerRadius: CGFloat = 18
+    /// The buttons' inset from the box's edges.
+    static let inset: CGFloat = 6
     var onAccept: (() -> Void)?
     var onReject: (() -> Void)?
     private let icon = NSImageView()
@@ -35,8 +37,10 @@ final class ComposerReviewBar: NSStackView {
         labels.spacing = 0
         setViews([icon, labels, NSView(), spinner, accept, reject], in: .leading)
         spacing = 8
+        setCustomSpacing(6, after: accept)
         // the name and its buttons in one box: a plain fill, as the composer around it is glass.
-        edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 10)
+        // The buttons keep the same inset from the box's top, bottom and end.
+        edgeInsets = NSEdgeInsets(top: Self.inset, left: 12, bottom: Self.inset, right: Self.inset)
         wantsLayer = true
         layer?.cornerRadius = Self.composerRadius - Self.gap
         layer?.cornerCurve = .continuous
@@ -63,19 +67,51 @@ final class ComposerReviewBar: NSStackView {
 
     override func updateLayer() {
         super.updateLayer()
-        layer?.backgroundColor = NSColor.secondarySystemFill.cgColor
+        layer?.backgroundColor = NSColor.tertiarySystemFill.cgColor
     }
 
     override var wantsUpdateLayer: Bool { true }
 
     private static func round(_ symbol: String, label: String, target: AnyObject, action: Selector) -> NSButton {
-        let button = NSButton(image: NSImage.symbol(symbol, label: label), target: target, action: action)
-        button.bezelStyle = .circular
-        button.controlSize = .regular
+        let button = RoundButton(image: NSImage.symbol(symbol, label: label), target: target, action: action)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        button.contentTintColor = symbol == "checkmark" ? .labelColor : .secondaryLabelColor
         button.toolTip = label
         return button
     }
 
     @objc private func accepted() { onAccept?() }
     @objc private func rejected() { onReject?() }
+}
+
+/// A round button with a plain fill, a size of its own: no bezel, whose frame is larger than what
+/// it draws, so the box's insets hold.
+private final class RoundButton: NSButton {
+    static let size: CGFloat = 28
+
+    convenience init(image: NSImage, target: AnyObject, action: Selector) {
+        self.init(frame: NSRect(x: 0, y: 0, width: Self.size, height: Self.size))
+        self.image = image
+        self.target = target
+        self.action = action
+        isBordered = false
+        imagePosition = .imageOnly
+        wantsLayer = true
+        layer?.cornerRadius = Self.size / 2
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Self.size),
+            heightAnchor.constraint(equalToConstant: Self.size),
+        ])
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override var isHighlighted: Bool {
+        didSet { needsDisplay = true }
+    }
+
+    override func updateLayer() {
+        layer?.backgroundColor = (isHighlighted ? NSColor.tertiaryLabelColor : NSColor.secondarySystemFill).cgColor
+    }
 }
