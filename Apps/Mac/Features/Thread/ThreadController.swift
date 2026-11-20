@@ -122,6 +122,8 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     private var layouts: [String: MessageLayout] = [:]
     /// The scrolls the presenter asked for: only the last one's glide tells its end.
     private var scrolls = 0
+    /// The reader scrolls the list (a drag, a swipe and its momentum): `NSScrollView`'s live scroll.
+    private var isLiveScrolling = false
     /// The message a jump brought into view: its row flashes (`MessageCellView.isJumpTarget`).
     private var highlighted: String?
     private let text = MessageText()
@@ -366,6 +368,9 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         // the scroller dragged (the wheel and the trackpad come through the table).
         NotificationCenter.default.addObserver(self, selector: #selector(userStartedScrolling),
                                                name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        // a live scroll ends after its momentum: until then the list is the reader's.
+        NotificationCenter.default.addObserver(self, selector: #selector(userEndedScrolling),
+                                               name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         scroll.contentView.postsBoundsChangedNotifications = true
         presenter.onLoading = { [weak self] loading in
             self?.loading.set(visible: loading)
@@ -592,7 +597,12 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     }
 
     @objc private func userStartedScrolling() {
+        isLiveScrolling = true
         presenter.userStartedScrolling()
+    }
+
+    @objc private func userEndedScrolling() {
+        isLiveScrolling = false
     }
 
     /// The first row whose top half is on screen, and how far below the clip's top it starts.
@@ -685,10 +695,22 @@ extension ThreadController: ThreadScreen {
     }
 
     /// Puts the list where `intent` says, at once: the table follows new messages to the newest
-    /// unanimated, as `scrollRowToVisible(_:)` did (only a jump glides).
+    /// unanimated, as `scrollRowToVisible(_:)` did (only a jump glides). Nothing moves when it is
+    /// there; while the reader scrolls, the content shifts under them.
     func place(_ intent: ScrollIntent) {
-        guard let offset = scrollGeometry.offset(for: intent, rowSpan: rowSpan) else { return }
+        let current = scroll.contentView.bounds.minY
+        guard let offset = scrollGeometry.offset(for: intent, rowSpan: rowSpan), abs(offset - current) > 0.5 else { return }
+        if isUserScrolling { return shiftList(by: offset - current) }
         scrollList(to: offset, animated: false)
+    }
+
+    var isUserScrolling: Bool { isLiveScrolling }
+
+    /// The clip moves with the content: the momentum's next events go on from there.
+    func shiftList(by delta: CGFloat) {
+        let clip = scroll.contentView
+        clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + delta))
+        scroll.reflectScrolledClipView(clip)
     }
 
     func scrollList(to offset: CGFloat, animated: Bool) {

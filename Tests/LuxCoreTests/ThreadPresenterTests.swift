@@ -177,7 +177,22 @@ private final class StackedScreen: ThreadScreen {
     }
 
     func scrollList(to offset: CGFloat, animated: Bool) {
-        if animated { glides.append(offset) } else { self.offset = offset }
+        if animated { glides.append(offset) } else {
+            self.offset = offset
+            scrolls.append(offset)
+        }
+    }
+
+    /// The reader's finger is on the list, or its fling glides on.
+    var isUserScrolling = false
+    /// The unanimated scrolls asked for: each would stop a fling.
+    var scrolls: [CGFloat] = []
+    /// The shifts of the content under the reader.
+    var shifts: [CGFloat] = []
+
+    func shiftList(by delta: CGFloat) {
+        offset += delta
+        shifts.append(delta)
     }
 
     func highlight(_ id: String?) {
@@ -402,6 +417,55 @@ struct ThreadPresenterTests {
         #expect(screen.intents.allSatisfy { !$0.isAnimated })
         #expect(screen.glides.isEmpty)
         #expect(screen.scrollGeometry.isAtBottom)
+    }
+
+    @Test func anUpdateThatLeavesTheReadersRowInPlaceMovesNothing() async throws {
+        let (presenter, screen) = try await opened()
+        try await screen.changes.until { (screen.shown.last ?? []).count > 20 && !presenter.model.isLoading }
+        presenter.didShowFirst()
+        screen.offset = 200
+        screen.scrolls = []
+        let count = screen.shown.count
+        // the same rows again: a message changed, not its size.
+        presenter.show(presenter.model.messages)
+        try await screen.changes.until { screen.shown.count > count }
+        #expect(screen.scrolls.isEmpty)
+        #expect(screen.shifts.isEmpty)
+        #expect(screen.offset == 200)
+    }
+
+    @Test func rowsChangingAboveTheReaderWhileTheyScrollShiftTheContentAndNeverScrollTheList() async throws {
+        let (presenter, screen) = try await opened()
+        try await screen.changes.until { (screen.shown.last ?? []).count > 20 && !presenter.model.isLoading }
+        presenter.didShowFirst()
+        presenter.userStartedScrolling()
+        screen.isUserScrolling = true
+        screen.offset = 300
+        screen.scrolls = []
+        let reading = try #require(screen.readingRow)
+        let top = try #require(screen.rowSpan(of: reading)).minY - screen.offset
+        let all = presenter.model.messages
+        let at = try #require(all.firstIndex { $0.id == reading })
+        try #require(at > 1)
+        let count = screen.shown.count
+        // rows above the reader go, as rows above them growing or a page coming in moves them.
+        presenter.show(Array(all[(at / 2)...]))
+        try await screen.changes.until { screen.shown.count > count }
+        #expect(screen.scrolls.isEmpty)
+        #expect(!screen.shifts.isEmpty)
+        #expect(try #require(screen.rowSpan(of: reading)).minY - screen.offset == top)
+    }
+
+    @Test func aReaderScrollingAtTheNewestIsNotPulledBackThereByAnUpdate() async throws {
+        let (presenter, screen) = try await opened()
+        try await screen.changes.until { (screen.shown.last ?? []).count > 20 && !presenter.model.isLoading }
+        presenter.didShowFirst()
+        screen.offset = screen.scrollGeometry.bottomOffset
+        presenter.userStartedScrolling()
+        screen.isUserScrolling = true
+        #expect(presenter.standingIntent() != .bottom(animated: false))
+        screen.isUserScrolling = false
+        #expect(presenter.standingIntent() == .bottom(animated: false))
     }
 
     @Test func aMessageTheUserSendsTakesTheChatToItsNewest() async throws {
