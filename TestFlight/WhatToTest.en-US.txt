@@ -1,9 +1,4 @@
-New
-- Mac: Settings look like System Settings, with a sidebar and search (Cmd-F).
-- Mac: AI agents can organize chats: mark read, move to Low Priority or Archive, pin, mute, set notifications and style, many chats at once.
-
 Fixed
-- Reactions and bot notices in encrypted chats no longer show a loud "New message" notification.
-- Mac: the @ suggestions' selected row is rounded, as on iPhone.
+- Format no longer loads forever on a long message: it now answers in a few seconds.
 
-Please try: Settings on the Mac and its search; ask an agent to mark your unread chats as read.
+Please try: Format and Proofread on a long message with emoji and bullets.
