@@ -2,10 +2,10 @@ import LuxCore
 import UIKit
 
 /// Settings: the account, its networks, the appearance (`AppearanceViewController`), encryption (the
-/// key backup), privacy, search, and signing out, as an inset-grouped list.
+/// key backup), privacy, search, AI, and signing out, as an inset-grouped list.
 final class SettingsViewController: UIViewController, UICollectionViewDelegate {
-    private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, session }
-    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, searchHistory, photoLooks, photoModel, downloadModel, photoStatus, photoAction, signOut }
+    private enum Section: Int, CaseIterable { case account, networks, appearance, encryption, privacy, search, ai, session }
+    private enum Item: Hashable { case profile, networks, appearance, verify, devices, recovery, readReceipts, searchIndex, searchHistory, photoLooks, photoModel, downloadModel, photoStatus, photoAction, aiFeatures, aiStatus, signOut }
 
     private let model: SettingsModel
     private let session: Session
@@ -29,6 +29,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     /// The model's download or preparation under way.
     private let modelWork = UIActivityIndicatorView(style: .medium)
     private lazy var photoLooksSwitch = makeSwitch { [weak self] on in Task { await self?.model.setSearchesPhotosByLook(on) } }
+    private lazy var aiSwitch = makeSwitch { [weak self] on in self?.session.textActions.isOn = on }
+    private var aiObservation: AnyObject?
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
 
@@ -80,6 +82,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
         snapshot.appendItems([.verify, .devices, .recovery], toSection: .encryption)
         snapshot.appendItems([.readReceipts], toSection: .privacy)
         snapshot.appendItems(searchItems, toSection: .search)
+        snapshot.appendItems([.aiFeatures, .aiStatus], toSection: .ai)
         snapshot.appendItems([.signOut], toSection: .session)
         dataSource.apply(snapshot, animatingDifferences: false)
 
@@ -88,6 +91,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             self?.refresh()
         }
         networksObservation = session.networks?.changes.observe { [weak self] in self?.refresh() }
+        aiObservation = session.textActions.changes.observe { [weak self] in self?.refresh() }
         Task { await session.networks?.load() }
         Task { await model.load() }
     }
@@ -226,7 +230,7 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
     private struct Row: Hashable {
         enum Style: Hashable { case value, subtitle, plain, profile }
         enum Tone: Hashable { case normal, action, destructive }
-        enum Accessory: Hashable { case none, disclosure, readReceipts(isOn: Bool), photoLooks(isOn: Bool), historyMenu(SearchHistory), spinner, modelSpinner }
+        enum Accessory: Hashable { case none, disclosure, readReceipts(isOn: Bool), photoLooks(isOn: Bool), ai(isOn: Bool), historyMenu(SearchHistory), spinner, modelSpinner }
         var style = Style.value
         var text: String?
         var detail: String?
@@ -287,6 +291,13 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             Row(style: .plain,
                 text: model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now"),
                 tone: .action)
+        case .aiFeatures:
+            Row(style: .plain, text: String(localized: "AI Features"),
+                detail: String(localized: "Proofread and format a message from the + in a chat."),
+                accessory: .ai(isOn: session.textActions.isOn))
+        case .aiStatus:
+            Row(style: .subtitle, text: String(localized: "Apple Intelligence"), detail: session.textActions.status,
+                symbol: "apple.intelligence")
         case .signOut:
             Row(style: .plain, text: String(localized: "Sign Out"), tone: .destructive)
         }
@@ -337,6 +348,8 @@ final class SettingsViewController: UIViewController, UICollectionViewDelegate {
             return [switchAccessory(readReceiptsSwitch, isOn: isOn)]
         case .photoLooks(let isOn):
             return [switchAccessory(photoLooksSwitch, isOn: isOn)]
+        case .ai(let isOn):
+            return [switchAccessory(aiSwitch, isOn: isOn)]
         case .historyMenu:
             return [.popUpMenu(historyMenu, displayed: .always)]
         case .spinner:

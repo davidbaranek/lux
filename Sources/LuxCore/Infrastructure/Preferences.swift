@@ -27,6 +27,13 @@ public final class Preferences {
         set { defaults.set(newValue, forKey: "searchesPhotosByLook") }
     }
 
+    /// AI in Lux, all of it, behind one switch: the composer's actions over Apple Intelligence.
+    /// Off by default.
+    public var aiFeatures: Bool {
+        get { defaults.bool(forKey: "aiFeatures") }
+        set { defaults.set(newValue, forKey: "aiFeatures") }
+    }
+
     /// How far back search reads each chat. Three months until the user changes it.
     public var searchHistory: SearchHistory {
         get { defaults.string(forKey: "searchHistory").flatMap(SearchHistory.init(rawValue:)) ?? .threeMonths }

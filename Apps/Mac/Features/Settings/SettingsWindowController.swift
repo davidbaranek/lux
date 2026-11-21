@@ -19,6 +19,7 @@ final class SettingsWindowController: NSWindowController {
         }
         panes.append((EncryptionSettingsController(session: session, model: model), String(localized: "Encryption"), "lock"))
         panes.append((SearchSettingsController(model: model), String(localized: "Search"), "magnifyingglass"))
+        panes.append((AISettingsController(actions: session.textActions), String(localized: "AI"), "apple.intelligence"))
         for (controller, title, symbol) in panes {
             let item = NSTabViewItem(viewController: controller)
             item.label = title

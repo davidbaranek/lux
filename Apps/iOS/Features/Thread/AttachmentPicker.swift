@@ -23,6 +23,10 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
     private let removed: (URL) -> Void
     private weak var panel: AttachPanel?
     private weak var composer: ComposerView?
+    /// The AI actions the panel offers for the text written now; none with AI off.
+    var textActions: () -> [AttachPanel.ActionButton] = { [] }
+    /// An AI action was tapped in the panel.
+    var onTextAction: ((TextAction) -> Void)?
     /// The newest photos picked in the panel, in order, and each one's file once written.
     private var selection = RecentPhotoSelection()
     private var written: [String: URL] = [:]
@@ -54,7 +58,9 @@ final class AttachmentPicker: NSObject, @MainActor PHPickerViewControllerDelegat
         guard composer.inputPanel == nil else { return composer.closePanel() }
         copying.run("library access") { [weak self, weak composer] in
             guard let status = await self?.libraryAccess(), let self, let composer else { return }
-            let panel = AttachPanel(access: RecentPhotos.Access(status), height: ComposerView.keyboardHeight)
+            let panel = AttachPanel(access: RecentPhotos.Access(status), actions: textActions(),
+                                    height: ComposerView.keyboardHeight)
+            panel.onTextAction = { [weak self] action in self?.onTextAction?(action) }
             panel.picked = selection.ids
             panel.onToggle = { [weak self] asset in self?.toggle(asset) }
             panel.onChoice = { [weak self] choice in self?.choose(choice) }

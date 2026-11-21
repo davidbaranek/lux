@@ -266,6 +266,15 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         inputPanel = nil
     }
 
+    /// Puts `new` in place of the whole text as the user's own edit: Undo takes it back, and it
+    /// is kept as the draft (`onTextChange`).
+    func replaceText(with new: String) {
+        guard let all = textView.textRange(from: textView.beginningOfDocument, to: textView.endOfDocument) else { return }
+        textView.replace(all, withText: new)
+        // `replace` says nothing to the delegate when the view is not editing.
+        if !textView.isFirstResponder { textViewDidChange(textView) }
+    }
+
     func textViewDidChange(_ textView: UITextView) {
         restyle()
         refresh()

@@ -37,8 +37,8 @@ enum AttachChoice: CaseIterable {
 }
 
 /// What the composer's + opens in the keyboard's place: the camera
-/// and the library's newest photos and videos in a row, and buttons for all photos, files and a
-/// scan. A tap on a photo puts it in the composer at once, numbered in the order picked; another
+/// and the library's newest photos and videos in a row, buttons for all photos, files and a
+/// scan, and, with AI on, a row of the AI actions over the text written. A tap on a photo puts it in the composer at once, numbered in the order picked; another
 /// tap takes it out. Without the library's permission the row is left out.
 final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching, PHPhotoLibraryChangeObserver {
     enum Tile: Hashable {
@@ -50,6 +50,8 @@ final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionView
 
     var onToggle: ((PHAsset) -> Void)?
     var onChoice: ((AttachChoice) -> Void)?
+    /// An AI action was tapped.
+    var onTextAction: ((TextAction) -> Void)?
     var onManage: (() -> Void)?
     /// The photos in the composer, in their order: their tiles show their number.
     var picked: [String] = [] {
@@ -87,10 +89,17 @@ final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionView
     /// The row's tiles and the buttons' height.
     private static let tile: CGFloat = 120
     private static let buttonHeight: CGFloat = 80
+    private static let actionHeight: CGFloat = 40
 
-    /// `height` tall, the keyboard's (with the home indicator's band): the row and the buttons
-    /// in its middle; only the buttons without the library.
-    init(access: RecentPhotos.Access, height: CGFloat) {
+    /// An AI action as the panel offers it: why it cannot work on the text now, or nil.
+    struct ActionButton {
+        var action: TextAction
+        var unavailability: String?
+    }
+
+    /// `height` tall, the keyboard's (with the home indicator's band): the AI actions, the row
+    /// and the buttons in its middle; only the actions and the buttons without the library.
+    init(access: RecentPhotos.Access, actions: [ActionButton], height: CGFloat) {
         self.access = access
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: height), inputViewStyle: .keyboard)
         // as tall as the keyboard, which does not grow with the text either: its words stop at a
@@ -112,6 +121,13 @@ final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionView
             content.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             content.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor),
         ])
+        if !actions.isEmpty {
+            // the actions' row, and under it why they cannot work now (one line, the first reason).
+            let row = actionRow(actions, reason: actions.lazy.compactMap(\.unavailability).first)
+            row.isLayoutMarginsRelativeArrangement = true
+            row.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+            content.insertArrangedSubview(row, at: 0)
+        }
         guard access != .picker else { return }
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
@@ -128,6 +144,36 @@ final class AttachPanel: UIInputView, UICollectionViewDelegate, UICollectionView
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
     isolated deinit { PHPhotoLibrary.shared().unregisterChangeObserver(self) }
+
+    /// The AI actions as glass capsules in a row, and why they cannot work now under them.
+    private func actionRow(_ actions: [ActionButton], reason: String?) -> UIStackView {
+        let capsules = UIStackView(arrangedSubviews: actions.map { button in
+            var configuration = UIButton.Configuration.glass()
+            configuration.image = UIImage(systemName: button.action.symbol)
+            configuration.imagePadding = 6
+            configuration.title = button.action.title
+            configuration.cornerStyle = .capsule
+            let capsule = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
+                self?.onTextAction?(button.action)
+            })
+            capsule.isEnabled = button.unavailability == nil
+            capsule.heightAnchor.constraint(equalToConstant: Self.actionHeight).isActive = true
+            return capsule
+        })
+        capsules.spacing = 10
+        let row = UIStackView(arrangedSubviews: [capsules])
+        row.axis = .vertical
+        row.alignment = .leading
+        row.spacing = 4
+        if let reason {
+            let note = UILabel()
+            note.text = reason
+            note.font = .preferredFont(forTextStyle: .footnote)
+            note.textColor = .secondaryLabel
+            row.addArrangedSubview(note)
+        }
+        return row
+    }
 
     /// A large glass button, its symbol over its title.
     private func button(_ choice: AttachChoice) -> UIButton {

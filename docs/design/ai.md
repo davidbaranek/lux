@@ -218,9 +218,10 @@ The sheet from #139 (`AttachPanel`, `AttachChoice`) gets a second row under the 
   text.
 - A new action needs no new UI: its `Output` decides how its result shows. On the Mac the same
   actions sit in the + menu and the composer's context menu.
-- Tapping closes the sheet back to the keyboard and runs the action on the composer's text; the
-  result shows in place (corrections marked in the text, a replacement's preview with Apply, a
-  note).
+- Tapping brings the keyboard back and opens the action's sheet: working while the model answers,
+  then any result drawn alike from the core's runs (`TextActionResult.preview`): kept text as it
+  is, removed struck through, added marked, or a note; Apply puts the new text in the composer as
+  one edit Undo takes back. Corrections marked inline in the composer can come later.
 
 ## Settings › AI
 
@@ -280,7 +281,7 @@ flowchart LR
 | Model port, `Intelligence`, actions as data, outputs with their checks, context variables; tests with a fake model | `core/crates/lux-intelligence` | M |
 | UniFFI: the foreign `LanguageModel`, `CoreIntelligence` with typed results | `core/crates/lux-ffi/src/intelligence.rs` | S |
 | Apple's adapter over Foundation Models (schema mapping, availability, languages) | `Sources/LuxCore/Intelligence/AppleIntelligenceModel.swift` | S–M |
-| The AI row, Proofread's marks, Format's preview (iPhone); + menu and context menu (Mac) | `Apps/iOS/Features/Thread/`, `Apps/Mac/Features/Thread/` | M |
+| The AI row and the result sheet (iPhone); + menu, context menu and sheet (Mac) | `Apps/iOS/Features/Thread/`, `Apps/Mac/Features/Thread/` | M |
 | Settings › AI (both) and the account-data keys for the switch and hidden chats | `Apps/*/Features/Settings/`, `lux-matrix/src/organizer/` | S–M |
 | Capabilities with policy (`lux-agent`), shared with mcp.md | `core/crates/lux-agent` | M |
 | App Intents and entities | `Apps/Shared/Intents/` | M |
@@ -294,7 +295,7 @@ ship on their own); then capabilities with App Intents; then agents on the Mac.
 
 1. Does the one switch also hide plain Shortcuts actions that use no model (Open Chat, Search)?
    Proposed: yes, one switch means everything; the system's intents for Lux simply vanish.
-2. Proofread's result as marks in the text (proposed) or a preview sheet with the corrected text?
+2. Corrections shown in a preview sheet (built), or later marked inline in the composer?
 3. When a second provider comes for Czech: Private Cloud Compute (needs Apple's entitlement and
    its languages), or a server provider with the user's own key?
 
