@@ -181,7 +181,7 @@ struct SearchMessagesIntent: AppIntent {
 /// Corrects a text's spelling, grammar and punctuation with Apple Intelligence on this device.
 struct ProofreadTextIntent: AppIntent {
     static let title: LocalizedStringResource = "Proofread Text"
-    static let description = IntentDescription("Corrects the spelling, grammar and punctuation of a text, with Apple Intelligence on this device.")
+    static let description = IntentDescription("Corrects the spelling, grammar and punctuation of a text, on this device.")
 
     @Parameter(title: "Text", inputOptions: String.IntentInputOptions(multiline: true)) var text: String
     @Dependency private var host: IntentHost
@@ -194,7 +194,7 @@ struct ProofreadTextIntent: AppIntent {
 /// Lays a text out with lists, paragraphs and bold, with Apple Intelligence on this device.
 struct FormatTextIntent: AppIntent {
     static let title: LocalizedStringResource = "Format Text"
-    static let description = IntentDescription("Lays a text out in Markdown with lists, paragraphs and bold, with Apple Intelligence on this device.")
+    static let description = IntentDescription("Lays a text out in Markdown with lists, paragraphs and bold, on this device.")
 
     @Parameter(title: "Text", inputOptions: String.IntentInputOptions(multiline: true)) var text: String
     @Dependency private var host: IntentHost
