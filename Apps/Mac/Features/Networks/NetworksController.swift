@@ -1,16 +1,12 @@
 import AppKit
 import LuxCore
 
-/// The networks the account's server bridges, one row each: its logo, whether the account is
-/// signed in there, and a button to sign in or out. A tab of Settings; after signing in, the
-/// welcome sheet, where the user ticks the networks to bring and signs in to each in turn. A
-/// server that offers none, or a bridge that does not answer, says so, with the guide for its
-/// admin.
+/// The welcome sheet after signing in: the networks the account's server bridges, one row each
+/// with its logo and whether the account is signed in there, where the user ticks the networks to
+/// bring and signs in to each in turn. A server that offers none, or a bridge that does not
+/// answer, says so, with the guide for its admin. (Settings lists them in its Networks pane.)
 final class NetworksController: NSViewController {
-    enum Mode { case settings, welcome }
-
     private let model: NetworksModel
-    private let mode: Mode
     private var observation: AnyObject?
     private let rows = NSStackView()
     private var picked: Set<NetworkOffer> = []
@@ -19,9 +15,8 @@ final class NetworksController: NSViewController {
     /// The welcome is done (closed, or every sign-in went).
     var onDone: (() -> Void)?
 
-    init(model: NetworksModel, mode: Mode) {
+    init(model: NetworksModel) {
         self.model = model
-        self.mode = mode
         super.init(nibName: nil, bundle: nil)
         title = String(localized: "Networks")
     }
@@ -37,27 +32,21 @@ final class NetworksController: NSViewController {
         stack.alignment = .leading
         stack.spacing = 18
         stack.edgeInsets = NSEdgeInsets(top: 24, left: 28, bottom: 24, right: 28)
-        if mode == .welcome {
-            let heading = NSTextField(labelWithString: String(localized: "Your Networks"))
-            heading.font = .systemFont(ofSize: 22, weight: .bold)
-            stack.addArrangedSubview(heading)
-        }
-        let intro = NSTextField(wrappingLabelWithString: mode == .welcome
-            ? String(localized: "Pick the networks whose chats Lux should show. You sign in to each on its own website or with its app; your server keeps the connection.")
-            : String(localized: "Your server's bridges connect these networks. Signing out here disconnects the network from your account, on every device."))
+        let heading = NSTextField(labelWithString: String(localized: "Your Networks"))
+        heading.font = .systemFont(ofSize: 22, weight: .bold)
+        stack.addArrangedSubview(heading)
+        let intro = NSTextField(wrappingLabelWithString: String(localized: "Pick the networks whose chats Lux should show. You sign in to each on its own website or with its app; your server keeps the connection."))
         intro.textColor = .secondaryLabelColor
         intro.preferredMaxLayoutWidth = 464
         stack.addArrangedSubview(intro)
         stack.addArrangedSubview(rows)
-        if mode == .welcome {
-            connect.keyEquivalent = "\r"
-            connect.bezelStyle = .push
-            let later = NSButton(title: String(localized: "Not Now"), target: self, action: #selector(close))
-            later.keyEquivalent = "\u{1b}"
-            let buttons = NSStackView(views: [later, connect])
-            stack.addArrangedSubview(buttons)
-            buttons.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -28).isActive = true
-        }
+        connect.keyEquivalent = "\r"
+        connect.bezelStyle = .push
+        let later = NSButton(title: String(localized: "Not Now"), target: self, action: #selector(close))
+        later.keyEquivalent = "\u{1b}"
+        let buttons = NSStackView(views: [later, connect])
+        stack.addArrangedSubview(buttons)
+        buttons.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -28).isActive = true
         stack.widthAnchor.constraint(equalToConstant: 520).isActive = true
         view = stack
         observation = model.changes.observe { [weak self] in self?.update() }
@@ -115,7 +104,7 @@ final class NetworksController: NSViewController {
             } else {
                 status.stringValue = String(localized: "Not connected")
             }
-            if mode == .welcome, account.logins.isEmpty {
+            if account.logins.isEmpty {
                 let tick = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggled(_:)))
                 tick.state = picked.contains(offer) ? .on : .off
                 tick.identifier = NSUserInterfaceItemIdentifier(offer.network)
@@ -124,7 +113,8 @@ final class NetworksController: NSViewController {
                 trailing = action(String(localized: "Connect…"), offer) { [weak self] in self?.signIn(to: offer) }
             } else {
                 trailing = action(String(localized: "Sign Out…"), offer) { [weak self] in
-                    if let login = account.logins.first { self?.confirmLogOut(offer, login: login) }
+                    guard let self, let login = account.logins.first, let window = view.window else { return }
+                    Self.confirmLogOut(offer, login: login, model: model, over: window)
                 }
             }
         case .failed(let failure):
@@ -198,7 +188,7 @@ final class NetworksController: NSViewController {
 
     private func signInNext() {
         guard !queue.isEmpty else {
-            if mode == .welcome, !model.hasNoLogins { onDone?() }
+            if !model.hasNoLogins { onDone?() }
             return
         }
         signIn(to: queue.removeFirst()) { [weak self] in self?.signInNext() }
@@ -209,18 +199,18 @@ final class NetworksController: NSViewController {
         NetworkSignInController.present(model.signIn(to: offer), over: window) { next?() }
     }
 
-    private func confirmLogOut(_ offer: NetworkOffer, login: NetworkAccount.Login) {
-        guard let window = view.window else { return }
+    /// Asks before signing out of `offer`'s network, which its bridge may follow by removing its chats.
+    static func confirmLogOut(_ offer: NetworkOffer, login: NetworkAccount.Login, model: NetworksModel, over window: NSWindow) {
         let alert = NSAlert()
         alert.messageText = String(localized: "Sign out of \(offer.name)?")
         alert.informativeText = String(localized: "Its chats stop updating on every device. Your server's bridge may also remove them, with their history, from your chat list and merged chats; signing in again brings them back as new chats.")
         alert.addButton(withTitle: String(localized: "Sign Out"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.buttons.first?.hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self else { return }
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
             Task {
-                do { try await self.model.logOut(of: offer, login: login.id) } catch {
+                do { try await model.logOut(of: offer, login: login.id) } catch {
                     let failed = NSAlert()
                     failed.messageText = error.localizedDescription
                     failed.beginSheetModal(for: window, completionHandler: nil)

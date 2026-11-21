@@ -699,11 +699,7 @@ struct ChatInfoForm: View {
         Label {
             Text(title)
         } icon: {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(color, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            SymbolTile(symbol: symbol, color: color)
         }
     }
 }
