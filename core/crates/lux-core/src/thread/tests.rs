@@ -63,7 +63,7 @@ fn chat_room(id: &str, network: &str) -> ChatRoom {
 fn demo_config(messages: usize) -> DemoConfig {
     DemoConfig {
         messages_per_room: messages,
-        start: SystemTime::UNIX_EPOCH + Duration::from_secs(1_763_726_400),
+        start: SystemTime::UNIX_EPOCH + Duration::from_hours(489_924),
         ..DemoConfig::new(30)
     }
 }
