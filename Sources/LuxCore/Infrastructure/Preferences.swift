@@ -34,6 +34,26 @@ public final class Preferences {
         set { defaults.set(newValue, forKey: "aiFeatures") }
     }
 
+    /// Agents on the Mac (the `Lux agent` CLI and MCP), under the AI switch. Off by default.
+    public var aiAgents: Bool {
+        get { defaults.bool(forKey: "aiAgents") }
+        set { defaults.set(newValue, forKey: "aiAgents") }
+    }
+
+    /// The chats no AI in Lux sees: their names by chat id, as Settings lists them. None until
+    /// the user adds them.
+    public var hiddenFromAI: [String: String] {
+        get { defaults.dictionary(forKey: "hiddenFromAI") as? [String: String] ?? [:] }
+        set { defaults.set(newValue, forKey: "hiddenFromAI") }
+    }
+
+    /// The agents the user approved for always, by client name, and what each may do
+    /// (`read`, `drafts`, `send`).
+    public var approvedAgents: [String: String] {
+        get { defaults.dictionary(forKey: "approvedAgents") as? [String: String] ?? [:] }
+        set { defaults.set(newValue, forKey: "approvedAgents") }
+    }
+
     /// How far back search reads each chat. Three months until the user changes it.
     public var searchHistory: SearchHistory {
         get { defaults.string(forKey: "searchHistory").flatMap(SearchHistory.init(rawValue:)) ?? .threeMonths }

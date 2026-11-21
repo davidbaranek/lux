@@ -196,6 +196,17 @@ public final class MessageSearch {
         return hits
     }
 
+    /// The index on this device, for the agents' socket (macOS).
+    var index: LocalStore { store }
+
+    /// The embedding of a search's `text` in the messages' space and the least cosine a message
+    /// found by its meaning has; nil while the model is not there (search by words only).
+    func meaningOfQuery(_ text: String) async -> (embedding: [Float], minSimilarity: Float)? {
+        let embedding = await photos.embedding(of: text)
+        guard let meant = await meaning.query(embedding), let minSimilarity = await meaning.minSimilarity else { return nil }
+        return (meant, minSimilarity)
+    }
+
     /// The chats whose name has every word of `text`, as search finds them (Siri and Shortcuts
     /// pick a chat by its name).
     public func chats(named text: String, limit: Int) async -> [ChatRow] {

@@ -205,6 +205,14 @@ final class MainSplitViewController: NSSplitViewController, NSToolbarDelegate, N
         }
     }
 
+    /// Opens the chat that shows `roomId` and gives its thread, once the chats show (an agent's
+    /// draft, or message to send, goes in it); nil when no chat shows the room.
+    func openedChat(roomId: String) async -> ThreadController? {
+        guard session.isSignedIn, let row = await listModel.chat(ofRoom: roomId) else { return nil }
+        if openRow?.id != row.id { open(row) }
+        return openThread
+    }
+
     private static func emptyState() -> NSViewController {
         let controller = NSViewController()
         controller.view = EmptyStateView(text: String(localized: "Select a chat"))

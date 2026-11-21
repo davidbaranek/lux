@@ -17,6 +17,36 @@ into a chat's composer. Sending is a button in Lux that the user presses, never 
 gets App Intents, not MCP. A remote server on the homeserver is rejected: it could not read
 encrypted chats without becoming a device that holds the keys.
 
+## Built (first version, 2026-11-20)
+
+What the code does now, where it differs from the proposal below:
+
+- **One binary, no helper.** The `lux` binary is the app's own executable run as
+  `Lux.app/Contents/MacOS/Lux agent <command>` (`agent mcp` for MCP). The same app has the same
+  sandbox container, so the socket sits in the container's `tmp` (`agents.sock`): no App Group,
+  no provisioning profile for a helper, no second signed target (risk 1 below is gone).
+- **`lux-agent` crate**: the tools (`list_chats`, `search_messages`, `read_chat`, `draft_reply`,
+  `send_message`, and `request_access` over MCP), their JSON Schemas (schemars), grants
+  (read < drafts < send), the hidden chats, 60 calls a minute, plain capped text, the log; the
+  socket's server and its CLI and MCP (`rmcp` 3.11, 2026-07-28 with fallback) clients. Tested over
+  a real socket with a fake account and approver.
+- **Reading** comes from the encrypted index on the Mac (`Store::recent`, `Store::search` with the
+  meaning's embedding from the app): no timeline is opened, nothing is asked of the server.
+- **Sessions**: an MCP connection is a session; a CLI command (one per process) reuses an
+  approval for 30 minutes per client and folder. The dialog shows the client's name as it says,
+  its command and folder, and the match code the client prints on stderr; access defaults to read
+  only; "Always allow" remembers the client. More access is asked with `request_access`, shown
+  again with the agent's reason; three refusals end the session.
+- **Drafts and sending**: a draft opens the chat with the text in its composer; sending opens the
+  chat and asks in Lux (Send / Cancel). Sending on its own under the rules, and the MCP Apps
+  preview, come next.
+- **Settings › Agents** (Mac): the switch (under AI), the commands to copy (`claude mcp add …`),
+  Install Skill… (a short `SKILL.md`: what Lux is and how its permissions work, written to the
+  skills folder the user picks, as the sandbox requires), the chats hidden from every AI (also
+  applied to Siri's search), the clients always allowed, and the latest calls.
+- **Not yet**: the log kept 30 days in the encrypted store (now in memory), hidden chats synced
+  across devices (now per device), `.mcpb`, localhost HTTP.
+
 ## 1. The standard today
 
 ### Spec revisions

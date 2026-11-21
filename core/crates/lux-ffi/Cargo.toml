@@ -16,6 +16,7 @@ async-compat = "0.2.5"
 eyeball-im.workspace = true
 futures-util.workspace = true
 jiff.workspace = true
+lux-agent.workspace = true
 lux-core.workspace = true
 lux-intelligence.workspace = true
 lux-matrix.workspace = true
