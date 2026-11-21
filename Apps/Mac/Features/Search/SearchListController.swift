@@ -81,6 +81,12 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
                 if let link = links[id] { cell.show(link) } else if let file = files[id] { cell.show(file) } else if let thread = threads[id] { cell.show(thread) }
                 return cell
             }
+            // the diffable source gives the table its rows (the delegate's `rowViewForRow` is not
+            // asked): the chat list's selection.
+            rows.rowViewProvider = { table, _, _ in
+                table.makeView(withIdentifier: ChatRowView.reuse, owner: nil) as? ChatRowView
+                    ?? { let view = ChatRowView(); view.identifier = ChatRowView.reuse; return view }()
+            }
             let menu = NSMenu()
             menu.delegate = self
             table.menu = menu
@@ -204,11 +210,6 @@ final class SearchListController: NSViewController, NSTableViewDelegate, NSColle
     /// A row near the end of what was found comes on screen: the next page.
     func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
         if row >= hits.count(of: model.kind) - 20 { model.loadMore() }
-    }
-
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        tableView.makeView(withIdentifier: ChatRowView.reuse, owner: nil) as? ChatRowView
-            ?? { let view = ChatRowView(); view.identifier = ChatRowView.reuse; return view }()
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
