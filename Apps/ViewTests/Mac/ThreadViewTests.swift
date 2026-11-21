@@ -242,6 +242,36 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func aChatClosedWithItsMentionListShownIsFreed() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let row = try await groupChat(in: session)
+            /// The chat, its mention list shown and a pill picked, then let go: what it held.
+            @MainActor func shown() async throws -> (controller: ThreadController?, model: ThreadModel?, list: MentionSuggestionsView?) {
+                let chat = try open(row, in: session)
+                let controller = chat.controller, field = controller.field, mentions = controller.mentions
+                try await chat.changes.until { chat.isShown(chat.newest) && !controller.model.isLoading }
+                let shown = mentions.observe(\.isHidden) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
+                defer { shown.invalidate() }
+                field.insertText("@", replacementRange: NSRange(location: NSNotFound, length: 0))
+                try await chat.changes.until { !mentions.isHidden }
+                #expect(controller.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+                field.insertText(" @", replacementRange: NSRange(location: NSNotFound, length: 0))
+                try await chat.changes.until { !mentions.isHidden }
+                return (controller, controller.model, mentions)
+            }
+            weak var controller: ThreadController?
+            weak var model: ThreadModel?
+            weak var list: MentionSuggestionsView?
+            (controller, model, list) = try await shown()
+            // AppKit's autoreleased views go as the main run loop's turn ends.
+            await withCheckedContinuation { done in RunLoop.main.perform { done.resume() } }
+            // nothing it started holds it: the handlers and the suggestions' task hold it weakly.
+            #expect(controller == nil)
+            #expect(model == nil)
+            #expect(list == nil)
+        }
+    }
+
     @Test func returnSendsAndShiftOrOptionReturnAddsALine() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             let chat = try open(try await readChat(in: session), in: session)
