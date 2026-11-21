@@ -1,8 +1,9 @@
 New
-- @mentions: type @ in a group to pick a member; they show as a pill and get notified. Messages that mention you stand out; tap a pill to message that person.
-- Apple Intelligence: Proofread and Format a message from the + or the composer's menu; the result shows marked in the field to apply or cancel. Turn it on in Settings › AI.
-- Siri and Shortcuts can open a chat, search messages, and proofread or format a text.
-- Mac: AI agents (Claude and other MCP apps) can read and search your chats and send with your approval; set it up in Settings › AI.
-- Mac: Shift-Return adds a new line.
+- Mac: Settings look like System Settings, with a sidebar and search (Cmd-F).
+- Mac: AI agents can organize chats: mark read, move to Low Priority or Archive, pin, mute, set notifications and style, many chats at once.
 
-Please try: mentioning someone in a group, with a reply and with a photo; Proofread and Format on a longer message.
+Fixed
+- Reactions and bot notices in encrypted chats no longer show a loud "New message" notification.
+- Mac: the @ suggestions' selected row is rounded, as on iPhone.
+
+Please try: Settings on the Mac and its search; ask an agent to mark your unread chats as read.
