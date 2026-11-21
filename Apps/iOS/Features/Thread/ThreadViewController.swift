@@ -149,7 +149,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             }
             cell.onQuoteTap = message.quote == nil ? nil : { [weak self] in self?.presenter.jump(toRepliedMessageOf: id) }
             cell.onLink = { url in UIApplication.shared.open(url) }
-            cell.onMention = { [weak self] user in self?.showMember(user, from: cell) }
+            // the cell weakly: its own handler holding it would keep it alive.
+            cell.onMention = { [weak self, weak cell] user in
+                guard let cell else { return }
+                self?.showMember(user, from: cell)
+            }
             cell.onBubbleTap = { [weak self] in
                 guard let self, let message = messages[id] else { return }
                 model.tap(message)
@@ -560,9 +564,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     private func mentionQueryChanged(_ query: MentionQuery?) {
         mentionQuery = query
         guard let query else { return mentions.show([]) }
-        Task { [weak self] in
+        // the screen's own task, a newer word's replacing it: none outlives the chat.
+        tasks.run("mention suggestions") { [weak self] in
             guard let self else { return }
-            let found = await model.mentionSuggestions(query.text)
+            let found = await model.mentionSuggestions(for: query)
             guard mentionQuery == query else { return }
             mentions.show(found)
         }
@@ -570,17 +575,23 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     /// A member's pill was tapped: who it is, and the chat with them (a bridged network's ghost
     /// too, through its bridge).
+    /// The account's own pill offers no chat (it would be one with itself).
     private func showMember(_ userId: String, from cell: UIView) {
-        let sheet = UIAlertController(title: nil, message: userId, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: String(localized: "Message"), style: .default) { [weak self] _ in
-            self?.openDirectChat(with: userId)
-        })
-        sheet.addAction(UIAlertAction(title: String(localized: "Copy User ID"), style: .default) { _ in
-            UIPasteboard.general.string = userId
-        })
-        sheet.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
-        sheet.popoverPresentationController?.sourceView = cell
-        present(sheet, animated: true)
+        tasks.run("mention: member") { [weak self, weak cell] in
+            guard let self, let cell else { return }
+            let sheet = UIAlertController(title: nil, message: userId, preferredStyle: .actionSheet)
+            if await !model.isAccount(userId) {
+                sheet.addAction(UIAlertAction(title: String(localized: "Message"), style: .default) { [weak self] _ in
+                    self?.openDirectChat(with: userId)
+                })
+            }
+            sheet.addAction(UIAlertAction(title: String(localized: "Copy User ID"), style: .default) { _ in
+                UIPasteboard.general.string = userId
+            })
+            sheet.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+            sheet.popoverPresentationController?.sourceView = cell
+            present(sheet, animated: true)
+        }
     }
 
     private func openDirectChat(with userId: String) {

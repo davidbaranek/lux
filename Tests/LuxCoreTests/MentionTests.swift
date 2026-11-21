@@ -32,7 +32,7 @@ struct MentionTests {
 
     @Test func aGroupOffersItsMembersBestMatchFirstButNeverTheAccount() async throws {
         let (model, _) = try await group()
-        let everyone = await model.mentionSuggestions("")
+        let everyone = await model.mentionSuggestions(for: MentionQuery(range: NSRange(location: 0, length: 1), text: ""))
         #expect(!everyone.isEmpty)
         #expect(!everyone.contains { if case .member(let member) = $0 { member.isOwn } else { false } })
         guard case .member(let first) = everyone.first else {
@@ -40,8 +40,14 @@ struct MentionTests {
             return
         }
         let word = String(first.name.prefix(3))
-        let found = await model.mentionSuggestions(word)
+        let found = await model.mentionSuggestions(for: MentionQuery(range: NSRange(location: 0, length: 4), text: word))
         #expect(found.first.map { if case .member(let member) = $0 { member.name.hasPrefix(word) } else { false } } == true)
+    }
+
+    @Test func thePillOfTheAccountIsKnownAsItsOwn() async throws {
+        let (model, _) = try await group()
+        #expect(await model.isAccount("@me:demo"))
+        #expect(await !model.isAccount("@friend0:demo"))
     }
 
     @Test func aSentPillShowsAsAPillAndTheNewestFromOthersMentionsTheAccount() async throws {

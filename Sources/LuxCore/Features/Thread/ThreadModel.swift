@@ -411,20 +411,39 @@ public final class ThreadModel {
 
     // MARK: Mentions
 
-    /// The members of the room a new message goes to, loaded on the first `@` typed (from the
-    /// server once, if the device does not have them all); again when that room changes.
-    private var mentionable: (room: String, members: Task<(any MemberList)?, Never>)?
+    /// The members of the room a new message goes to, loaded for each mention begun (an `@` typed
+    /// at a new place: who joined or was renamed since shows), and when that room changes; the
+    /// load of the mention under way, by where its `@` is.
+    private var mentionable: (room: String, at: Int?, members: Task<(any MemberList)?, Never>)?
 
-    /// What a mention's word (after the `@`) offers in the room a new message goes to, the best
+    /// What a mention (the word after its `@`) offers in the room a new message goes to, the best
     /// match first: its members, and `@room` where the account may notify the room.
-    public func mentionSuggestions(_ query: String, limit: Int = 20) async -> [MentionSuggestion] {
+    public func mentionSuggestions(for query: MentionQuery, limit: Int = 20) async -> [MentionSuggestion] {
+        let signpost = Signposts.thread.beginInterval("mention suggestions")
+        defer { Signposts.thread.endInterval("mention suggestions", signpost) }
+        guard let members = await members(forMentionAt: query.range.location) else { return [] }
+        return await Self.suggestions(in: members, query.text, limit: limit)
+    }
+
+    /// Whether `userId` is the account's (a pill of it offers no chat with itself).
+    public func isAccount(_ userId: String) async -> Bool {
+        guard let members = await members(forMentionAt: nil) else { return false }
+        return members.find(userId, limit: 10).contains { $0.id == userId && $0.isOwn }
+    }
+
+    /// The send room's members for the mention whose `@` is at `at` (nil: any loaded): loaded
+    /// anew for a new mention or room; a load that failed is not kept, the next asks again.
+    private func members(forMentionAt at: Int?) async -> (any MemberList)? {
         let room = sendRoom
-        if mentionable?.room != room {
+        let kept = mentionable.map { $0.room == room && (at == nil || $0.at == at) } ?? false
+        if !kept {
             let account = account
-            mentionable = (room, Task { await bestEffort("mentions: the room's members") { try await account.value.members(roomId: room) } })
+            mentionable = (room, at, Task { await bestEffort("mentions: the room's members") { try await account.value.members(roomId: room) } })
         }
-        guard let members = await mentionable?.members.value else { return [] }
-        return await Self.suggestions(in: members, query, limit: limit)
+        guard let load = mentionable?.members else { return nil }
+        let members = await load.value
+        if members == nil, mentionable?.members == load { mentionable = nil }
+        return members
     }
 
     /// The direct chat with the member a pill names (`userId`, a bridged network's ghost too),

@@ -772,6 +772,15 @@ extension ThreadController: ThreadScreen {
     /// A member's pill was clicked: who it is, and the chat with them (a bridged network's ghost
     /// too, through its bridge), in a menu at the pointer.
     func showMember(_ userId: String, from cell: NSView) {
+        let point = cell.window.map { cell.convert($0.mouseLocationOutsideOfEventStream, from: nil) } ?? .zero
+        tasks.run("mention: member") { [weak self, weak cell] in
+            guard let self, let cell else { return }
+            // the account's own pill offers no chat (it would be one with itself).
+            showMember(userId, isAccount: await model.isAccount(userId), at: point, in: cell)
+        }
+    }
+
+    private func showMember(_ userId: String, isAccount: Bool, at point: NSPoint, in cell: NSView) {
         let menu = NSMenu()
         let title = NSMenuItem(title: userId, action: nil, keyEquivalent: "")
         title.isEnabled = false
@@ -779,12 +788,11 @@ extension ThreadController: ThreadScreen {
         menu.addItem(.separator())
         let message = NSMenuItem(title: String(localized: "Message"), action: #selector(messageMember(_:)), keyEquivalent: "")
         let copy = NSMenuItem(title: String(localized: "Copy User ID"), action: #selector(copyMemberId(_:)), keyEquivalent: "")
-        for item in [message, copy] {
+        for item in isAccount ? [copy] : [message, copy] {
             item.target = self
             item.representedObject = userId
             menu.addItem(item)
         }
-        let point = cell.window.map { cell.convert($0.mouseLocationOutsideOfEventStream, from: nil) } ?? .zero
         menu.popUp(positioning: nil, at: point, in: cell)
     }
 
