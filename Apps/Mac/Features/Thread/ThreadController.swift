@@ -95,6 +95,9 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     let reviewBar = ComposerReviewBar()
     /// The text as written while an AI action's result shows over it; nil otherwise.
     var reviewed: String?
+    /// The AI action at work for the review: ended with it, so its result never lands in a later
+    /// one.
+    var reviewTask: Task<Void, Never>?
     /// The composer's rows in its glass: the review's box changes its top gap.
     var composerContent: NSStackView?
     /// A merged chat's network a message goes through, at the field's end.

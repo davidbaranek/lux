@@ -725,14 +725,16 @@ extension ThreadViewController: ThreadScreen {
         composer.beginReview(symbol: action.symbol, title: action.title)
         let chat = TextActionChat(name: row.name, network: Networks.name(row.network), isGroup: row.isGroup,
                                   myName: session.profile?.profile?.name, messages: model.messages)
-        Task { [weak self] in
+        composer.reviewTask = Task { [weak self] in
             guard let actions = self?.session.textActions else { return }
             do {
                 let result = try await actions.run(action, on: text, in: chat)
+                guard !Task.isCancelled else { return }
                 let applied = result.applied(to: text)
                 self?.composer.onAcceptReview = { [weak self] in self?.composer.endReview(applying: applied) }
                 self?.composer.showReview(result.preview(of: text), canApply: applied != nil, note: result.note(over: text))
             } catch {
+                guard !Task.isCancelled else { return }
                 self?.composer.showReview([], canApply: false, note: error.localizedDescription)
             }
         }

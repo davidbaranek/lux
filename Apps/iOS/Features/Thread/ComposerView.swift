@@ -35,6 +35,9 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     private var reviewed: String?
     /// ✓ on an AI action's result: put it in the composer.
     var onAcceptReview: (() -> Void)?
+    /// The AI action at work for this review: ended with it, so its result never lands in a
+    /// later one.
+    var reviewTask: Task<Void, Never>?
     private let strip = AttachmentStrip()
     /// A file waiting in the composer was taken out.
     var onRemoveAttachment: ((URL) -> Void)?
@@ -231,7 +234,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     /// The result over the text (`runs`: removed struck through, added marked), ✓ when there is
     /// something to apply; or `note` in the bar (a note, no mistakes, why there is none).
     func showReview(_ runs: [TextActionChange], canApply: Bool, note: String?) {
-        guard reviewed != nil else { return }
+        guard reviewed != nil, reviewTask?.isCancelled == false else { return }
         if canApply, let font = textView.font { textView.attributedText = Self.review(runs, font: font) }
         reviewBar.showResult(note: note, canApply: canApply)
         refresh()
@@ -243,6 +246,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     func endReview(applying new: String?) {
         guard let original = reviewed else { return }
         reviewed = nil
+        reviewTask?.cancel()
+        reviewTask = nil
         textView.isEditable = true
         textView.text = original
         restyle()

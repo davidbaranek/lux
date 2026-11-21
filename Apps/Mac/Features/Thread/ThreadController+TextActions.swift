@@ -54,12 +54,14 @@ extension ThreadController {
         beginReview(action)
         let chat = TextActionChat(name: row.name, network: Networks.name(row.network), isGroup: row.isGroup,
                                   myName: session.profile?.profile?.name, messages: model.messages)
-        Task { [weak self] in
+        reviewTask = Task { [weak self] in
             guard let actions = self?.session.textActions else { return }
             do {
                 let result = try await actions.run(action, on: text, in: chat)
+                guard !Task.isCancelled else { return }
                 self?.showReview(result, of: text)
             } catch {
+                guard !Task.isCancelled else { return }
                 self?.reviewBar.showResult(note: error.localizedDescription, canApply: false)
             }
         }
@@ -91,6 +93,8 @@ extension ThreadController {
     private func endReview(applying new: String?) {
         guard let original = reviewed else { return }
         reviewed = nil
+        reviewTask?.cancel()
+        reviewTask = nil
         field.isEditable = true
         field.string = original
         if let font = field.font { MarkdownStyler.style(field, font: font) }
