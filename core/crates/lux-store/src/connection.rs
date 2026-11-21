@@ -8,8 +8,9 @@
 //! rather than run on a connection opened again, which would hold the file's locks as iOS
 //! suspends the app; the next job after the resume opens it again.
 //!
-//! [`Worker::close`] ends the thread and awaits it, blocking no thread meanwhile. A handle dropped
-//! without it stops the thread and waits for it there. A process that exits while the thread runs
+//! [`Worker::close`] ends the thread and awaits its connection's close, blocking no thread
+//! meanwhile, and nothing waits for the thread to return after it. A handle dropped without it
+//! stops the thread and waits for it there. A process that exits while the thread runs
 //! waits a moment for its call in SQLite, and the thread then ends at its next message, without
 //! calling SQLite again ([`crate::exit`]).
 //!
@@ -248,7 +249,9 @@ pub(crate) struct Worker {
     /// How many times the thread made a new file in place of a damaged one.
     replacements: watch::Receiver<u64>,
     pause: Arc<Pause>,
-    thread: Option<JoinHandle<()>>,
+    /// The thread, until it is closed: once it has said so, it only returns, and nothing waits for
+    /// it. A handle dropped without closing it waits for it there.
+    thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Worker {
@@ -311,7 +314,7 @@ impl Worker {
             messages,
             replacements,
             pause,
-            thread: Some(thread),
+            thread: Mutex::new(Some(thread)),
         })
     }
 
@@ -347,6 +350,9 @@ impl Worker {
         if self.messages.send(Message::Stop(Some(done))).is_ok() {
             closed.await.other_end_may_be_gone("the store's thread");
         }
+        // the connection has closed, and the thread only returns: the last handle, let go on any
+        // thread (the main one, for a session), does not wait for it to end.
+        drop(self.thread.lock().unwrap_or_else(PoisonError::into_inner).take());
     }
 
     /// Pauses the store: the statement under way is interrupted, the jobs not yet begun fail
@@ -372,7 +378,7 @@ impl Drop for Worker {
         self.messages
             .send(Message::Stop(None))
             .other_end_may_be_gone("the store's thread");
-        if let Some(thread) = self.thread.take() {
+        if let Some(thread) = self.thread.get_mut().unwrap_or_else(PoisonError::into_inner).take() {
             // a panic in a job has already been reported on its thread.
             thread.join().other_end_may_be_gone("the store's thread");
         }
