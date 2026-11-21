@@ -115,10 +115,15 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     }
 
     /// Puts the pill of `suggestion` in the place of the `@` and its word at `range`.
+    /// The name and a space go in through the text input (undo takes them back as one), then the
+    /// name's run is marked as the pill.
     func insertMention(_ suggestion: MentionSuggestion, replacing range: NSRange) {
         guard NSMaxRange(range) <= textView.textStorage.length else { return }
-        let caret = ComposerPills.insert(suggestion, replacing: range, in: textView.textStorage, attributes: baseAttributes)
-        textView.selectedRange = NSRange(location: caret, length: 0)
+        let (target, name) = suggestion.pill
+        let length = (name as NSString).length
+        replace(range, with: name + " ")
+        ComposerPills.mark(textView.textStorage, target, in: NSRange(location: range.location, length: length))
+        textView.selectedRange = NSRange(location: range.location + length + 1, length: 0)
         textViewDidChange(textView)
     }
 
@@ -376,14 +381,17 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         onTextChange?(textView.text)
     }
 
-    /// An edit that cuts into a pill takes the whole pill: it is replaced over the pill's run.
+    /// A deletion that cuts into a pill takes the whole pill; text put into part of one (an
+    /// autocorrection of one of its words) is refused (`ComposerPills.edit`).
     func textView(_ textView: UITextView, shouldChangeTextInRanges ranges: [NSValue], replacementText text: String) -> Bool {
-        let range = ranges.map(\.rangeValue).reduce(ranges.first?.rangeValue ?? NSRange()) { NSUnionRange($0, $1) }
-        let whole = ComposerPills.expanded(range, in: textView.textStorage)
-        guard whole != range else { return true }
-        // through the text input, so undo takes it back as one.
-        replace(whole, with: text)
-        return false
+        switch ComposerPills.edit(ranges.map(\.rangeValue), replacement: text, in: textView.textStorage) {
+        case .asAsked: return true
+        case .refused: return false
+        case .delete(let grown):
+            // through the text input, so undo takes it back.
+            for range in grown { replace(range, with: "") }
+            return false
+        }
     }
 
     /// The caret never rests inside a pill, and what is typed after one is plain text.
@@ -402,6 +410,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
 
     /// The `@` and the word before the caret, unless a pill holds the `@`.
     private func updateMentionQuery() {
+        let signpost = Signposts.thread.beginInterval("mention query")
+        defer { Signposts.thread.endInterval("mention query", signpost) }
         let selection = textView.selectedRange
         var query: MentionQuery?
         if selection.length == 0, textView.markedTextRange == nil,
@@ -428,6 +438,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     /// Only attributes change, so the text, the cursor and undo stay as they are.
     private func restyle() {
         guard let font = textView.font else { return }
+        let signpost = Signposts.thread.beginInterval("composer restyle")
+        defer { Signposts.thread.endInterval("composer restyle", signpost) }
         let storage = textView.textStorage
         let all = NSRange(location: 0, length: storage.length)
         let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]

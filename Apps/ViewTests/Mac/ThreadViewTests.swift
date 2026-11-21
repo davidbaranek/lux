@@ -218,6 +218,9 @@ struct ThreadViewTests {
             #expect(field.string == "hi \(member.name) ")
             #expect(controller.composerField.composed.mentions == [Mention(.user(member.id), NSRange(location: 3, length: name.length))])
 
+            // an autocorrection of a word inside the pill is refused: the pill stays whole.
+            #expect(!controller.textView(field, shouldChangeTextIn: NSRange(location: 4, length: 2), replacementString: "xy"))
+            #expect(field.string == "hi \(member.name) ")
             // a caret put inside the pill goes to its end.
             field.setSelectedRange(NSRange(location: 4, length: 0))
             #expect(field.selectedRange() == NSRange(location: 3 + name.length, length: 0))

@@ -300,6 +300,10 @@ struct ThreadViewTests {
             #expect(ComposerPills.composed(text.attributedText).mentions == [Mention(.user(member.id), NSRange(location: 3, length: name))])
             #expect(suggestions.isHidden)
 
+            // an autocorrection of a word inside the pill is refused: the pill stays whole.
+            #expect(text.delegate?.textView?(text, shouldChangeTextInRanges: [NSValue(range: NSRange(location: 4, length: 2))],
+                                             replacementText: "xy") == false)
+            #expect(text.text == "hi \(member.name) ")
             // Backspace takes the space after the pill, then the whole pill, as one.
             backspace(in: text)
             backspace(in: text)

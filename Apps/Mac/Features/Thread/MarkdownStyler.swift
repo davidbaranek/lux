@@ -8,6 +8,8 @@ import LuxCore
 enum MarkdownStyler {
     static func style(_ textView: NSTextView, font: NSFont) {
         guard let storage = textView.textStorage else { return }
+        let signpost = Signposts.thread.beginInterval("composer restyle")
+        defer { Signposts.thread.endInterval("composer restyle", signpost) }
         let all = NSRange(location: 0, length: storage.length)
         let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
         let pills = ComposerPills.marks(in: storage)

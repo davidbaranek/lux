@@ -56,6 +56,8 @@ extension ThreadController {
     /// show above the composer, once the room's are loaded; a newer word's answer replaces an
     /// older one's.
     func updateMentionQuery() {
+        let signpost = Signposts.thread.beginInterval("mention query")
+        defer { Signposts.thread.endInterval("mention query", signpost) }
         let selection = field.selectedRange()
         var query: MentionQuery?
         if selection.length == 0, !field.hasMarkedText(), let storage = field.textStorage,
@@ -68,7 +70,7 @@ extension ThreadController {
         guard let query else { return mentions.show([]) }
         tasks.run("mention suggestions") { [weak self] in
             guard let self else { return }
-            let found = await model.mentionSuggestions(query.text)
+            let found = await model.mentionSuggestions(for: query)
             guard mentionQuery == query else { return }
             mentions.show(found)
         }
@@ -85,17 +87,21 @@ extension ThreadController {
         updateMentionQuery()
     }
 
-    /// An edit that cuts into a pill takes the whole pill: it is replaced over the pill's run.
+    /// A deletion that cuts into a pill takes the whole pill; text put into part of one (an
+    /// autocorrection or a spelling fix of one of its words) is refused (`ComposerPills.edit`).
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
         guard let storage = textView.textStorage, let text else { return true }
-        let whole = ComposerPills.expanded(range, in: storage)
-        guard whole != range else { return true }
-        if textView.shouldChangeText(in: whole, replacementString: text) {
-            textView.replaceCharacters(in: whole, with: text)
-            textView.didChangeText()
-            textView.setSelectedRange(NSRange(location: whole.location + (text as NSString).length, length: 0))
+        switch ComposerPills.edit([range], replacement: text, in: storage) {
+        case .asAsked: return true
+        case .refused: return false
+        case .delete(let grown):
+            for range in grown where textView.shouldChangeText(in: range, replacementString: "") {
+                textView.replaceCharacters(in: range, with: "")
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: range.location, length: 0))
+            }
+            return false
         }
-        return false
     }
 
     /// The caret never rests inside a pill.
@@ -107,9 +113,11 @@ extension ThreadController {
 
     /// What is typed after a pill is plain text; the mention being typed follows the caret.
     func textViewDidChangeSelection(_ notification: Notification) {
+        // only the pill's own attributes go: its mark and its colours.
         if field.typingAttributes[.mention] != nil {
-            field.typingAttributes.removeValue(forKey: .mention)
-            if let font = field.font { field.typingAttributes = [.font: font, .foregroundColor: NSColor.labelColor] }
+            field.typingAttributes[.mention] = nil
+            field.typingAttributes[.backgroundColor] = nil
+            field.typingAttributes[.foregroundColor] = NSColor.labelColor
         }
         updateMentionQuery()
     }

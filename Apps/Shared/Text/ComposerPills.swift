@@ -12,8 +12,16 @@ extension NSAttributedString.Key {
 }
 
 /// The pills of both apps' composers: runs of the text view's storage with `.mention`, styled as
-/// pills, that an edit takes whole (a pill never holds half a name), read out as the composer's
-/// `ComposedText` and written back from one (a draft, an edit's message).
+/// pills, read out as the composer's `ComposedText` and written back from one (a draft, an edit's
+/// message). A pill is never half a name: a deletion that cuts into one takes it whole, and text
+/// put into part of one (an autocorrection, a spelling fix of one of its words) is refused
+/// (`edit`).
+///
+/// Pills are runs of the name's own text, not `NSTextAttachment`s (Element X's pills are
+/// attachments of its rich text editor, whose model is not text): the composer's text is the
+/// Markdown the core reads and sends, its formatting shown from the core's runs of that text and
+/// its pills' UTF-16 ranges handed over as they are, so an attachment's one character would need
+/// its offsets mapped at each of those boundaries.
 enum ComposerPills {
     private static let room = "@room"
 
@@ -56,6 +64,12 @@ enum ComposerPills {
         return marks
     }
 
+    /// Marks `range` of `storage` as the pill of `target`.
+    static func mark(_ storage: NSMutableAttributedString, _ target: MentionTarget, in range: NSRange) {
+        guard NSMaxRange(range) <= storage.length else { return }
+        storage.addAttribute(.mention, value: value(target), range: range)
+    }
+
     static func mark(_ storage: NSMutableAttributedString, _ marks: [(range: NSRange, value: Any)]) {
         for mark in marks where NSMaxRange(mark.range) <= storage.length {
             storage.addAttribute(.mention, value: mark.value, range: mark.range)
@@ -69,6 +83,35 @@ enum ComposerPills {
             if value != nil { ranges.append(range) }
         }
         return ranges
+    }
+
+    /// What an edit of the text views' `ranges` with `replacement` does to the pills it touches.
+    enum Edit: Equatable {
+        /// It cuts into none: as asked.
+        case asAsked
+        /// A deletion that cuts into pills: these ranges go instead, each grown over the pills it
+        /// cuts, the later first.
+        case delete([NSRange])
+        /// Text put into part of a pill: refused, the pill stays whole.
+        case refused
+    }
+
+    /// What an edit of `ranges` with `replacement` does: each range grown over the pills it cuts
+    /// into on its own (never the text between two ranges).
+    static func edit(_ ranges: [NSRange], replacement: String, in text: NSAttributedString) -> Edit {
+        let grown = ranges.map { expanded($0, in: text) }
+        guard grown != ranges else { return .asAsked }
+        guard replacement.isEmpty else { return .refused }
+        // two ranges grown over one pill are one range.
+        var merged: [NSRange] = []
+        for range in grown.sorted(by: { $0.location < $1.location }) {
+            if let last = merged.last, range.location <= NSMaxRange(last) {
+                merged[merged.count - 1] = NSUnionRange(last, range)
+            } else {
+                merged.append(range)
+            }
+        }
+        return .delete(merged.reversed())
     }
 
     /// The range an edit of `range` really replaces: grown over each pill it cuts into, so a pill
