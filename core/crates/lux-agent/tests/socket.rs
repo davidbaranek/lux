@@ -53,6 +53,7 @@ fn message(id: &str, room: &str, text: &str, seconds: u64) -> MessageHit {
 #[derive(Default)]
 struct Account {
     drafts: Mutex<Vec<(String, String)>>,
+    sent: Mutex<Vec<(String, String)>>,
     log: Mutex<Vec<LogEntry>>,
 }
 
@@ -60,6 +61,10 @@ struct Account {
 struct Shared(Arc<Account>);
 
 impl AgentBackend for Shared {
+    async fn hidden(&self) -> Result<HashSet<String>, BackendError> {
+        Ok(HashSet::from(["!secret".to_owned()]))
+    }
+
     async fn chats(&self) -> Result<Vec<ChatSummary>, BackendError> {
         Ok(vec![
             chat("family", &["!a", "!b"], "Family", 2, 5),
@@ -93,6 +98,11 @@ impl AgentBackend for Shared {
         Ok(())
     }
 
+    async fn send(&self, chat: String, text: String) -> Result<(), BackendError> {
+        self.0.sent.lock().unwrap().push((chat, text));
+        Ok(())
+    }
+
     async fn confirm_send(&self, _chat: String, _text: String, _client: String) -> Result<SendOutcome, BackendError> {
         Ok(SendOutcome::Cancelled)
     }
@@ -107,10 +117,25 @@ struct User {
     first: Grant,
     more: Option<Grant>,
     asked: Mutex<Vec<Approval>>,
+    /// An approval stopped waiting (its client left).
+    dropped: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Notes, when dropped, that the approval stopped waiting.
+struct Waiting(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 impl Approver for User {
     async fn approve(&self, approval: Approval) -> ApprovalAnswer {
+        if approval.hello.client == "never answered" {
+            let _waiting = Waiting(Arc::clone(&self.dropped));
+            std::future::pending::<()>().await;
+        }
         let more = approval.grant.is_some() && approval.reason.is_some();
         self.asked.lock().unwrap().push(approval);
         match (more, self.more) {
@@ -165,7 +190,6 @@ async fn session(
     let path = folder.path().join("agents.sock");
     let account = Arc::new(Account::default());
     let agent = Arc::new(Agent::new(Shared(Arc::clone(&account))));
-    agent.set_hidden(HashSet::from(["!secret".to_owned()]));
     let user = Arc::new(user);
     let mut server = tokio::task::JoinSet::new();
     server.spawn(serve(bind(&path).unwrap(), agent, Arc::clone(&user)));
@@ -183,6 +207,7 @@ async fn a_session_reads_what_it_may_and_never_a_hidden_chat() {
         first: Grant::Read,
         more: None,
         asked: Mutex::default(),
+        dropped: Arc::default(),
     })
     .await;
     assert_eq!(user.asked.lock().unwrap()[0].hello.client, "claude-ai");
@@ -245,6 +270,7 @@ async fn more_asked_for_and_granted_lets_a_session_draft_and_ask_to_send() {
         first: Grant::Read,
         more: Some(Grant::Send),
         asked: Mutex::default(),
+        dropped: Arc::default(),
     })
     .await;
     let more = client
@@ -267,4 +293,142 @@ async fn more_asked_for_and_granted_lets_a_session_draft_and_ask_to_send() {
         .await;
     assert_eq!(sent["result"]["value"]["status"], "cancelled");
     drop(server);
+}
+
+#[tokio::test]
+async fn a_session_that_sends_on_its_own_does_so_only_in_a_chat_it_read() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::AutoSend,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    })
+    .await;
+    // not read yet: asked in Lux (the fake user cancels).
+    let asked = client
+        .call(1, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+        .await;
+    assert_eq!(asked["result"]["value"]["status"], "cancelled");
+    assert!(account.sent.lock().unwrap().is_empty());
+
+    client.call(2, "read_chat", json!({ "chat_id": "family" })).await;
+    let sent = client
+        .call(3, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+        .await;
+    assert_eq!(sent["result"]["value"]["status"], "sent");
+    assert_eq!(account.sent.lock().unwrap()[0], ("family".to_owned(), "Hi".to_owned()));
+    drop(server);
+}
+
+#[tokio::test]
+async fn a_preview_sends_once_with_its_token() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::Send,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    })
+    .await;
+    let prepared = client
+        .call(1, "prepare_send", json!({ "chat_id": "work", "text": "Done" }))
+        .await;
+    assert_eq!(prepared["result"]["value"]["status"], "awaiting_user");
+    assert_eq!(prepared["result"]["value"]["chat"], "Work");
+    let token = prepared["result"]["value"]["token"].as_str().unwrap().to_owned();
+    assert_eq!(token.len(), 32);
+    assert!(account.sent.lock().unwrap().is_empty());
+
+    let wrong = client.call(2, "confirm_send", json!({ "token": "nope" })).await;
+    assert_eq!(wrong["error"]["code"], "not_found");
+    let sent = client.call(3, "confirm_send", json!({ "token": token })).await;
+    assert_eq!(sent["result"]["value"]["status"], "sent");
+    let again = client.call(4, "confirm_send", json!({ "token": token })).await;
+    assert_eq!(again["error"]["code"], "not_found");
+    assert_eq!(account.sent.lock().unwrap().len(), 1);
+    drop(server);
+}
+
+/// The app's side alone, for a client that never gets as far as a session.
+fn app(
+    user: User,
+) -> (
+    Arc<User>,
+    std::path::PathBuf,
+    tempfile::TempDir,
+    tokio::task::JoinSet<()>,
+) {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("agents.sock");
+    let agent = Arc::new(Agent::new(Shared(Arc::new(Account::default()))));
+    let user = Arc::new(user);
+    let mut server = tokio::task::JoinSet::new();
+    server.spawn(serve(bind(&path).unwrap(), agent, Arc::clone(&user)));
+    (user, path, folder, server)
+}
+
+#[tokio::test]
+async fn a_text_longer_than_a_message_is_refused() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::Drafts,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    })
+    .await;
+    let draft = client
+        .call(
+            1,
+            "draft_reply",
+            json!({ "chat_id": "work", "text": "a".repeat(10_001) }),
+        )
+        .await;
+    assert_eq!(draft["error"]["code"], "invalid_arguments");
+    let query = client
+        .call(2, "search_messages", json!({ "query": "a".repeat(1_001) }))
+        .await;
+    assert_eq!(query["error"]["code"], "invalid_arguments");
+    assert!(account.drafts.lock().unwrap().is_empty());
+    drop(server);
+}
+
+#[tokio::test]
+async fn a_line_longer_than_the_most_ends_the_connection_unread() {
+    let (user, path, _folder, _server) = app(User {
+        first: Grant::Read,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    });
+    let mut client = Client::connect(&path).await;
+    // a quarter of a megabyte and more, with no newline: the app stops reading and closes.
+    let chunk = vec![b'a'; 64 * 1024];
+    for _ in 0..5 {
+        if client.write.write_all(&chunk).await.is_err() {
+            break;
+        }
+    }
+    let closed = tokio::time::timeout(Duration::from_secs(5), client.lines.next_line()).await;
+    assert!(matches!(closed, Ok(Ok(None) | Err(_))));
+    assert!(user.asked.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_approval_stops_waiting_when_its_client_leaves() {
+    let (user, path, _folder, _server) = app(User {
+        first: Grant::Read,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    });
+    let mut client = Client::connect(&path).await;
+    let hello = json!({ "hello": { "kind": "mcp", "client": "never answered", "command": null, "folder": null } });
+    assert!(client.send(hello).await["waiting"].is_object());
+    drop(client);
+    for _ in 0..50 {
+        if user.dropped.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the approval still waits for a client that left");
 }

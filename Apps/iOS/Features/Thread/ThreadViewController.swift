@@ -717,26 +717,25 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 extension ThreadViewController: ThreadScreen {
     func showDraft(_ text: String) { composer.text = text }
 
-    /// Runs an AI action over the text written: its sheet works while the model answers, then
-    /// shows the result over the text, and Apply puts it in the composer.
+    /// Runs an AI action over the text written, in place: the composer shows it working, then
+    /// the result over the text with ✓ (applied as one edit Undo takes back) and ✕.
     private func run(_ action: TextAction) {
         let text = composer.text
         composer.inputPanel = nil
-        let sheet = TextActionSheet(action: action, original: text) { [weak self] new in
-            self?.composer.replaceText(with: new)
-        }
-        let navigation = UINavigationController(rootViewController: sheet)
-        navigation.sheetPresentationController?.detents = [.medium(), .large()]
-        present(navigation, animated: true)
+        composer.beginReview(symbol: action.symbol, title: action.title)
         let chat = TextActionChat(name: row.name, network: Networks.name(row.network), isGroup: row.isGroup,
                                   myName: session.profile?.profile?.name, messages: model.messages)
-        Task { [weak self, weak sheet] in
+        composer.reviewTask = Task { [weak self] in
             guard let actions = self?.session.textActions else { return }
             do {
                 let result = try await actions.run(action, on: text, in: chat)
-                sheet?.show(result)
+                guard !Task.isCancelled else { return }
+                let applied = result.applied(to: text)
+                self?.composer.onAcceptReview = { [weak self] in self?.composer.endReview(applying: applied) }
+                self?.composer.showReview(result.preview(of: text), canApply: applied != nil, note: result.note(over: text))
             } catch {
-                sheet?.show(message: error.localizedDescription)
+                guard !Task.isCancelled else { return }
+                self?.composer.showReview([], canApply: false, note: error.localizedDescription)
             }
         }
     }

@@ -1,5 +1,6 @@
 //! The account, as the tools reach it.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::time::SystemTime;
 
@@ -75,6 +76,10 @@ pub struct BackendError {
 
 /// The account as the tools reach it: in the app, its chats and its index on this device.
 pub trait AgentBackend: Send + Sync + 'static {
+    /// The chats kept from AI, by chat id or room: the user's, on every device. An error when
+    /// they cannot be known: no chat is shown then.
+    fn hidden(&self) -> impl Future<Output = Result<HashSet<String>, BackendError>> + Send;
+
     /// Every chat, as the list has them.
     fn chats(&self) -> impl Future<Output = Result<Vec<ChatSummary>, BackendError>> + Send;
 
@@ -98,6 +103,10 @@ pub trait AgentBackend: Send + Sync + 'static {
 
     /// Puts `text` in the chat's composer, where the user sees it.
     fn show_draft(&self, chat: String, text: String) -> impl Future<Output = Result<(), BackendError>> + Send;
+
+    /// Sends `text` in the chat: the user allowed it (their click on a preview, or a session
+    /// that sends on its own).
+    fn send(&self, chat: String, text: String) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// Shows `text` to send in the chat, and waits for the user's Send or Cancel.
     fn confirm_send(

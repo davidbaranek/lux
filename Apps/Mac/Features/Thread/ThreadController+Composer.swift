@@ -5,7 +5,7 @@ import LuxCore
 extension ThreadController {
     /// Message › Send Through: sends what is written through that network (the item's room).
     @objc func sendThrough(_ sender: NSMenuItem) {
-        guard let room = sender.representedObject as? String else { return }
+        guard reviewed == nil, let room = sender.representedObject as? String else { return }
         model.send(composerField.text, via: room)
         clearComposer()
     }
@@ -91,7 +91,10 @@ extension ThreadController {
         }
     }
 
+    /// Sends what is written; nothing while an AI action's result is shown over it (✓ or ✕
+    /// first).
     @objc func send() {
+        guard reviewed == nil else { return }
         model.send(composerField.text)
         clearComposer()
     }
@@ -124,7 +127,7 @@ extension ThreadController {
 
     /// Sends what is written at the item's time (its `representedObject`).
     @objc func sendLater(_ sender: NSMenuItem) {
-        guard let date = sender.representedObject as? Date else { return }
+        guard reviewed == nil, let date = sender.representedObject as? Date else { return }
         model.sendLater(composerField.text, at: date)
         clearComposer()
     }
@@ -132,7 +135,8 @@ extension ThreadController {
     /// Send Later needs words to send and a chat that can hold them; an AI action, text it can
     /// work on.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        let written = !composerField.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // an AI action's result over the text: nothing goes until ✓ or ✕.
+        let written = reviewed == nil && !composerField.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if item.action == #selector(sendThrough(_:)) { return written }
         if item.action == #selector(runTextAction(_:)) { return validateTextAction(item) }
         guard item.action == #selector(sendLater(_:)) else { return true }

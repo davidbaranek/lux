@@ -40,13 +40,6 @@ public final class Preferences {
         set { defaults.set(newValue, forKey: "aiAgents") }
     }
 
-    /// The chats no AI in Lux sees: their names by chat id, as Settings lists them. None until
-    /// the user adds them.
-    public var hiddenFromAI: [String: String] {
-        get { defaults.dictionary(forKey: "hiddenFromAI") as? [String: String] ?? [:] }
-        set { defaults.set(newValue, forKey: "hiddenFromAI") }
-    }
-
     /// The agents the user approved for always, by client name, and what each may do
     /// (`read`, `drafts`, `send`).
     public var approvedAgents: [String: String] {

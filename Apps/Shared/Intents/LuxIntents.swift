@@ -43,8 +43,8 @@ final class IntentHost {
     func messages(_ text: String, limit: Int) async throws -> [MessageEntity] {
         _ = try actions()
         let search = try search()
-        let hidden = session.preferences.hiddenFromAI
-        return await search.search(text).messages.filter { hidden[$0.chat.id] == nil }.prefix(limit).map(MessageEntity.init)
+        let hidden = Set(await session.hiddenFromAI().map(\.id))
+        return await search.search(text).messages.filter { !hidden.contains($0.chat.id) }.prefix(limit).map(MessageEntity.init)
     }
 
     /// `text` with the AI action `id`'s result applied: its corrections, or its new text.

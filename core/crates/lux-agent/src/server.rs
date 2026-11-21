@@ -4,13 +4,13 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::task::JoinSet;
 
-use crate::agent::{Agent, Session};
+use crate::agent::{Agent, Session, check_lengths};
 use crate::backend::AgentBackend;
-use crate::protocol::{ClientHello, ClientMessage, Grant, ServerMessage};
+use crate::protocol::{ClientHello, ClientMessage, Grant, ServerMessage, read_line};
 use crate::tools::{GrantOut, ToolErrorCode};
 
 /// A request for the user's approval, as the dialog shows it.
@@ -70,15 +70,30 @@ pub async fn serve<B: AgentBackend, A: Approver>(listener: UnixListener, agent: 
                         }
                     });
                 }
+                // one connection failed (too many files open, say): the socket goes on.
                 Err(error) => {
                     tracing::warn!("agent socket: {error}");
-                    return;
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
             },
             // an ended connection's task goes.
             Some(_) = connections.join_next(), if !connections.is_empty() => {}
         }
     }
+}
+
+/// A one-time token: 16 random bytes in hex.
+pub(crate) fn token() -> String {
+    let mut bytes = [0_u8; 16];
+    if getrandom::fill(&mut bytes).is_err() {
+        // no randomness: a token nobody can guess is none at all.
+        return String::new();
+    }
+    bytes
+        .iter()
+        .flat_map(|byte| [byte >> 4, byte & 0x0f])
+        .filter_map(|nibble| char::from_digit(u32::from(nibble), 16))
+        .collect()
 }
 
 /// A four-character match code from a set without look-alikes (no 0/O, 1/I), as `K7-Q2`.
@@ -104,8 +119,8 @@ async fn connection<B: AgentBackend, A: Approver>(
     approver: &A,
 ) -> std::io::Result<()> {
     let (read, mut write) = stream.into_split();
-    let mut lines = BufReader::new(read).lines();
-    let Some(first) = lines.next_line().await? else {
+    let mut lines = BufReader::new(read);
+    let Some(first) = read_line(&mut lines).await? else {
         return Ok(());
     };
     let Ok(ClientMessage::Hello(hello)) = serde_json::from_str(&first) else {
@@ -125,14 +140,15 @@ async fn connection<B: AgentBackend, A: Approver>(
         grant: hello.wants,
         reason: None,
     };
-    let grant = match approver.approve(approval).await {
-        ApprovalAnswer::Granted(grant) => grant,
-        ApprovalAnswer::Refused(reason) => return send(&mut write, &ServerMessage::Refused { reason }).await,
+    let grant = match while_open(approver.approve(approval), &mut lines).await {
+        Some(ApprovalAnswer::Granted(grant)) => grant,
+        Some(ApprovalAnswer::Refused(reason)) => return send(&mut write, &ServerMessage::Refused { reason }).await,
+        None => return Ok(()),
     };
     send(&mut write, &ServerMessage::Granted { grant }).await?;
     let session = Session::new(hello.client.clone(), grant);
     let mut refusals = 0;
-    while let Some(line) = lines.next_line().await? {
+    while let Some(line) = read_line(&mut lines).await? {
         let answer = match serde_json::from_str::<ClientMessage>(&line) {
             Ok(ClientMessage::Call { id, tool, arguments }) => match agent.call(&session, &tool, arguments).await {
                 Ok(value) => ServerMessage::Result { id, value },
@@ -153,13 +169,28 @@ async fn connection<B: AgentBackend, A: Approver>(
                     )
                     .await;
                 }
+                if let Err(error) = check_lengths(&serde_json::json!({ "reason": reason })) {
+                    send(
+                        &mut write,
+                        &ServerMessage::Error {
+                            id,
+                            code: error.code,
+                            message: error.message,
+                        },
+                    )
+                    .await?;
+                    continue;
+                }
                 let approval = Approval {
                     hello: hello.clone(),
                     code: code.clone(),
                     grant: Some(grant),
                     reason: Some(reason),
                 };
-                match approver.approve(approval).await {
+                let Some(answer) = while_open(approver.approve(approval), &mut lines).await else {
+                    return Ok(());
+                };
+                match answer {
                     ApprovalAnswer::Granted(grant) => {
                         session.set_grant(grant);
                         ServerMessage::Result {
@@ -186,6 +217,22 @@ async fn connection<B: AgentBackend, A: Approver>(
         send(&mut write, &answer).await?;
     }
     Ok(())
+}
+
+/// `approval`'s answer, or none when the client goes first: the approval stops waiting.
+async fn while_open<R: AsyncBufRead + Unpin>(
+    approval: impl Future<Output = ApprovalAnswer>,
+    lines: &mut R,
+) -> Option<ApprovalAnswer> {
+    tokio::select! {
+        answer = approval => Some(answer),
+        () = gone(lines) => None,
+    }
+}
+
+/// Returns when the client closes the connection: nothing it says while it waits is a call.
+async fn gone<R: AsyncBufRead + Unpin>(lines: &mut R) {
+    while let Ok(Some(_)) = read_line(lines).await {}
 }
 
 async fn send(write: &mut tokio::net::unix::OwnedWriteHalf, message: &ServerMessage) -> std::io::Result<()> {

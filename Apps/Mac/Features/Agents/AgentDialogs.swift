@@ -42,16 +42,15 @@ final class AgentDialogs: AgentsPresenter {
         return .allow(grant, always: always.state == .on)
     }
 
-    func showDraft(_ text: String, inRoom roomId: String) {
-        Task {
-            guard let thread = await split?.openedChat(roomId: roomId) else { return }
-            window?.makeKeyAndOrderFront(nil)
-            thread.replaceComposerText(with: text)
-        }
+    func showDraft(_ text: String, inRoom roomId: String) async -> Bool {
+        guard let thread = await split?.openedChat(roomId: roomId) else { return false }
+        window?.makeKeyAndOrderFront(nil)
+        thread.replaceComposerText(with: text)
+        return true
     }
 
-    func confirmSend(_ text: String, inRoom roomId: String, client: String) async -> Bool {
-        guard let thread = await split?.openedChat(roomId: roomId) else { return false }
+    func allowSend(_ text: String, inRoom roomId: String, client: String) async -> Bool {
+        guard await split?.openedChat(roomId: roomId) != nil else { return false }
         let alert = NSAlert()
         alert.messageText = String(localized: "Send this message for \(client)?")
         alert.informativeText = text
@@ -59,9 +58,7 @@ final class AgentDialogs: AgentsPresenter {
         alert.addButton(withTitle: String(localized: "Cancel"))
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
-        guard await present(alert) == .alertFirstButtonReturn else { return false }
-        thread.model.send(text)
-        return true
+        return await present(alert) == .alertFirstButtonReturn
     }
 
     /// `alert` as a sheet on the window, or on its own without one.

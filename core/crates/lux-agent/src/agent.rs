@@ -1,7 +1,7 @@
 //! The policy every call goes through, then the tool.
 
-use std::collections::{HashSet, VecDeque};
-use std::sync::{Mutex, RwLock};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::de::DeserializeOwned;
@@ -11,12 +11,32 @@ use crate::backend::{AgentBackend, ChatSummary, LogEntry, MessageHit, SendOutcom
 use crate::protocol::Grant;
 use crate::text::plain;
 use crate::tools::{
-    ChatOut, Chats, Compose, ListChats, MessageOut, Messages, ReadChat, SearchMessages, Status, ToolError,
-    ToolErrorCode, tools,
+    ChatOut, Chats, Compose, Confirm, ListChats, MessageOut, Messages, Prepared, ReadChat, SearchMessages, Status,
+    ToolError, ToolErrorCode, tools,
 };
 
 /// Calls a session may make in a minute.
 const CALLS_PER_MINUTE: usize = 60;
+
+/// Messages a session that sends on its own may send in an hour; more are asked.
+const SENT_PER_HOUR: usize = 10;
+
+/// How long a preview's Send stays good.
+const PREPARED_FOR: Duration = Duration::from_mins(10);
+
+/// The longest a call's text may be, in characters: a message's, a search's words, a reason;
+/// any other string argument (an id, a time, a network).
+const MAX_TEXT: usize = 10_000;
+const MAX_QUERY: usize = 1_000;
+const MAX_REASON: usize = 500;
+const MAX_OTHER: usize = 256;
+
+/// A message waiting for the preview's Send.
+struct Pending {
+    chat: String,
+    text: String,
+    at: Instant,
+}
 
 /// An approved connection: who, and what it may do.
 pub struct Session {
@@ -24,6 +44,12 @@ pub struct Session {
     pub client: String,
     grant: Mutex<Grant>,
     calls: Mutex<VecDeque<Instant>>,
+    /// The chats it read (`read_chat`): the only ones it may send in on its own.
+    read: Mutex<HashSet<String>>,
+    /// When it sent on its own, the last hour's.
+    sent: Mutex<VecDeque<Instant>>,
+    /// Messages waiting for the preview's Send, by token.
+    pending: Mutex<HashMap<String, Pending>>,
 }
 
 impl Session {
@@ -34,7 +60,31 @@ impl Session {
             client,
             grant: Mutex::new(grant),
             calls: Mutex::new(VecDeque::new()),
+            read: Mutex::new(HashSet::new()),
+            sent: Mutex::new(VecDeque::new()),
+            pending: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Whether it may send in `chat` on its own now, and counts it if so: allowed to, the chat
+    /// read in this session, and fewer than [`SENT_PER_HOUR`] in the last hour.
+    fn take_auto_send(&self, chat: &str) -> bool {
+        if self.grant() < Grant::AutoSend || !self.read.lock().is_ok_and(|read| read.contains(chat)) {
+            return false;
+        }
+        let Ok(mut sent) = self.sent.lock() else { return false };
+        let now = Instant::now();
+        while sent
+            .front()
+            .is_some_and(|&at| now.duration_since(at) > Duration::from_secs(3600))
+        {
+            sent.pop_front();
+        }
+        if sent.len() >= SENT_PER_HOUR {
+            return false;
+        }
+        sent.push_back(now);
+        true
     }
 
     /// What it may do now.
@@ -69,32 +119,15 @@ impl Session {
 }
 
 /// The tools over the account, with the policy every call goes through.
+/// The chats kept from AI are as if they were not there: the backend says which, on each call.
 pub struct Agent<B> {
     backend: B,
-    /// The chats kept from AI, by chat id or room: as if they were not there.
-    hidden: RwLock<HashSet<String>>,
 }
 
 impl<B: AgentBackend> Agent<B> {
     /// The tools over `backend`.
     pub fn new(backend: B) -> Self {
-        Self {
-            backend,
-            hidden: RwLock::new(HashSet::new()),
-        }
-    }
-
-    /// The chats kept from AI from now on: by chat id or room.
-    pub fn set_hidden(&self, hidden: HashSet<String>) {
-        if let Ok(mut current) = self.hidden.write() {
-            *current = hidden;
-        }
-    }
-
-    fn is_hidden(&self, chat: &ChatSummary) -> bool {
-        self.hidden.read().map_or(true, |hidden| {
-            hidden.contains(&chat.id) || chat.rooms.iter().any(|room| hidden.contains(room))
-        })
+        Self { backend }
     }
 
     /// `tool`'s answer to `arguments` for `session`: refused over the session's grant or its
@@ -125,19 +158,27 @@ impl<B: AgentBackend> Agent<B> {
         arguments: Value,
         entry: &mut LogEntry,
     ) -> Result<Value, ToolError> {
-        let spec = tools()
-            .into_iter()
-            .find(|spec| spec.name == tool)
-            .ok_or_else(|| ToolError::new(ToolErrorCode::InvalidArguments, format!("no tool `{tool}`")))?;
-        if session.grant() < spec.grant {
+        // the MCP front's own two, for its preview: asking to send.
+        let grant = match tool {
+            "prepare_send" | "confirm_send" => Grant::Send,
+            tool => {
+                tools()
+                    .into_iter()
+                    .find(|spec| spec.name == tool)
+                    .ok_or_else(|| ToolError::new(ToolErrorCode::InvalidArguments, format!("no tool `{tool}`")))?
+                    .grant
+            }
+        };
+        if session.grant() < grant {
             return Err(ToolError::new(
                 ToolErrorCode::InsufficientGrant,
                 format!(
                     "this session may not {}: call request_access to ask the user",
-                    spec.title.to_lowercase()
+                    tool.replace('_', " ")
                 ),
             ));
         }
+        check_lengths(&arguments)?;
         if !session.take_call() {
             return Err(ToolError::new(
                 ToolErrorCode::RateLimited,
@@ -150,7 +191,7 @@ impl<B: AgentBackend> Agent<B> {
                 let messages = self.search(parse(arguments)?, entry).await?;
                 serde_json::to_value(messages)
             }
-            "read_chat" => serde_json::to_value(self.read(parse(arguments)?, entry).await?),
+            "read_chat" => serde_json::to_value(self.read(session, parse(arguments)?, entry).await?),
             "draft_reply" => {
                 let compose: Compose = parse(arguments)?;
                 let chat = self.chat(&compose.chat_id).await?;
@@ -158,22 +199,9 @@ impl<B: AgentBackend> Agent<B> {
                 self.backend.show_draft(chat.id, compose.text).await.map_err(failed)?;
                 serde_json::to_value(Status { status: "drafted" })
             }
-            "send_message" => {
-                let compose: Compose = parse(arguments)?;
-                let chat = self.chat(&compose.chat_id).await?;
-                entry.chats.push(chat.id.clone());
-                let outcome = self
-                    .backend
-                    .confirm_send(chat.id, compose.text, session.client.clone())
-                    .await
-                    .map_err(failed)?;
-                serde_json::to_value(Status {
-                    status: match outcome {
-                        SendOutcome::Sent => "sent",
-                        SendOutcome::Cancelled => "cancelled",
-                    },
-                })
-            }
+            "send_message" => serde_json::to_value(self.send_message(session, parse(arguments)?, entry).await?),
+            "prepare_send" => serde_json::to_value(self.prepare_send(session, parse(arguments)?, entry).await?),
+            "confirm_send" => serde_json::to_value(self.confirm_send(session, parse(arguments)?, entry).await?),
             _ => {
                 return Err(ToolError::new(
                     ToolErrorCode::InvalidArguments,
@@ -184,10 +212,102 @@ impl<B: AgentBackend> Agent<B> {
         value.map_err(|error| ToolError::new(ToolErrorCode::Failed, error.to_string()))
     }
 
+    /// Sends on its own where the session may, else asks the user in Lux.
+    async fn send_message(
+        &self,
+        session: &Session,
+        compose: Compose,
+        entry: &mut LogEntry,
+    ) -> Result<Status, ToolError> {
+        let chat = self.chat(&compose.chat_id).await?;
+        entry.chats.push(chat.id.clone());
+        if session.take_auto_send(&chat.id) {
+            self.backend.send(chat.id, compose.text).await.map_err(failed)?;
+            return Ok(Status { status: "sent" });
+        }
+        let outcome = self
+            .backend
+            .confirm_send(chat.id, compose.text, session.client.clone())
+            .await
+            .map_err(failed)?;
+        Ok(Status {
+            status: match outcome {
+                SendOutcome::Sent => "sent",
+                SendOutcome::Cancelled => "cancelled",
+            },
+        })
+    }
+
+    /// The MCP preview's message: sent on its own where the session may, else kept for the
+    /// preview's Send, with a one-time token.
+    async fn prepare_send(
+        &self,
+        session: &Session,
+        compose: Compose,
+        entry: &mut LogEntry,
+    ) -> Result<Prepared, ToolError> {
+        let chat = self.chat(&compose.chat_id).await?;
+        entry.chats.push(chat.id.clone());
+        if session.take_auto_send(&chat.id) {
+            self.backend.send(chat.id, compose.text.clone()).await.map_err(failed)?;
+            return Ok(Prepared {
+                status: "sent",
+                token: None,
+                chat: chat.name,
+                text: compose.text,
+            });
+        }
+        let token = crate::server::token();
+        if token.is_empty() {
+            return Err(ToolError::new(ToolErrorCode::Failed, "no token could be made"));
+        }
+        if let Ok(mut pending) = session.pending.lock() {
+            pending.retain(|_, waiting| waiting.at.elapsed() < PREPARED_FOR);
+            pending.insert(
+                token.clone(),
+                Pending {
+                    chat: chat.id,
+                    text: compose.text.clone(),
+                    at: Instant::now(),
+                },
+            );
+        }
+        Ok(Prepared {
+            status: "awaiting_user",
+            token: Some(token),
+            chat: chat.name,
+            text: compose.text,
+        })
+    }
+
+    /// The preview's Send: its message, once, while it is good.
+    async fn confirm_send(
+        &self,
+        session: &Session,
+        confirm: Confirm,
+        entry: &mut LogEntry,
+    ) -> Result<Status, ToolError> {
+        let waiting = session
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(&confirm.token));
+        let waiting = waiting
+            .filter(|waiting| waiting.at.elapsed() < PREPARED_FOR)
+            .ok_or_else(|| ToolError::new(ToolErrorCode::NotFound, "this message is no longer waiting to be sent"))?;
+        entry.chats.push(waiting.chat.clone());
+        self.backend.send(waiting.chat, waiting.text).await.map_err(failed)?;
+        Ok(Status { status: "sent" })
+    }
+
     /// The chats AI may see.
     async fn chats(&self) -> Result<Vec<ChatSummary>, ToolError> {
+        let hidden = self.backend.hidden().await.map_err(unavailable)?;
         let chats = self.backend.chats().await.map_err(unavailable)?;
-        Ok(chats.into_iter().filter(|chat| !self.is_hidden(chat)).collect())
+        Ok(chats
+            .into_iter()
+            .filter(|chat| !hidden.contains(&chat.id) && !chat.rooms.iter().any(|room| hidden.contains(room)))
+            .collect())
     }
 
     /// The chat of `id` (a chat's id or one of its rooms), unless it is hidden.
@@ -243,7 +363,7 @@ impl<B: AgentBackend> Agent<B> {
         Ok(Messages { messages })
     }
 
-    async fn read(&self, read: ReadChat, entry: &mut LogEntry) -> Result<Messages, ToolError> {
+    async fn read(&self, session: &Session, read: ReadChat, entry: &mut LogEntry) -> Result<Messages, ToolError> {
         let chat = self.chat(&read.chat_id).await?;
         let before = read
             .before
@@ -275,6 +395,9 @@ impl<B: AgentBackend> Agent<B> {
             .filter_map(|hit| message_out(hit, &chats))
             .collect();
         entry.chats = chats.iter().map(|chat| chat.id.clone()).collect();
+        if let Ok(mut read) = session.read.lock() {
+            read.extend(entry.chats.iter().cloned());
+        }
         entry.messages = u32::try_from(messages.len()).unwrap_or(u32::MAX);
         Ok(Messages { messages })
     }
@@ -288,6 +411,30 @@ fn parse<T: DeserializeOwned>(arguments: Value) -> Result<T, ToolError> {
     };
     serde_json::from_value(arguments)
         .map_err(|error| ToolError::new(ToolErrorCode::InvalidArguments, error.to_string()))
+}
+
+/// Refuses a call whose string arguments are longer than such an argument is: a message's
+/// text, a search's words, a reason, an id.
+pub(crate) fn check_lengths(arguments: &Value) -> Result<(), ToolError> {
+    let Some(object) = arguments.as_object() else {
+        return Ok(());
+    };
+    for (name, value) in object {
+        let Some(text) = value.as_str() else { continue };
+        let most = match name.as_str() {
+            "text" => MAX_TEXT,
+            "query" => MAX_QUERY,
+            "reason" => MAX_REASON,
+            _ => MAX_OTHER,
+        };
+        if text.chars().count() > most {
+            return Err(ToolError::new(
+                ToolErrorCode::InvalidArguments,
+                format!("`{name}` is longer than {most} characters"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn limit(asked: Option<u32>, default: usize, most: usize) -> usize {

@@ -32,7 +32,7 @@ use crate::chat::{Chat, Label, Request, SavedKind, SavedMessage, ScheduledMessag
 use crate::diff;
 use crate::ids::{ChatId, DeviceId, EventId, LabelId, MediaId, RoomId, ScheduledId, UserId};
 use crate::merge::{self, Merge};
-use crate::organizer::{LabelError, Organized, checked_name};
+use crate::organizer::{HiddenChat, LabelError, Organized, checked_name};
 use crate::places::Arrangement;
 use crate::ports::{
     AccountProfile, BackendError, ChatAccount, ChatActions, ChatChange, ChatDetails, DeviceSignOut, DiffStream,
@@ -111,6 +111,7 @@ struct Inner {
     scheduled: Vec<ScheduledMessage>,
     answered: HashSet<RoomId>,
     arrangement: Arrangement,
+    hidden_from_ai: Vec<HiddenChat>,
     /// For the ids of what the user makes.
     counter: u64,
     chats: ObservableVector<Arc<Chat>>,
@@ -145,6 +146,7 @@ impl DemoAccount {
             scheduled: Vec::new(),
             answered: HashSet::new(),
             arrangement: Arrangement::default(),
+            hidden_from_ai: Vec::new(),
             counter: 0,
             chats: ObservableVector::new(),
             shown: Vec::new(),
@@ -320,6 +322,7 @@ impl Inner {
             labels: self.labels.clone(),
             saved: self.saved.clone(),
             arrangement: self.arrangement.clone(),
+            hidden_from_ai: self.hidden_from_ai.clone(),
             ..Organized::default()
         }));
     }
@@ -558,6 +561,19 @@ impl Organizing for DemoAccount {
     async fn set_arrangement(&self, arrangement: &Arrangement) -> Result<(), BackendError> {
         let mut inner = self.lock();
         inner.arrangement = arrangement.clone();
+        inner.publish_organized();
+        Ok(())
+    }
+
+    async fn set_hidden_from_ai(&self, chat: &ChatId, name: &str, hidden: bool) -> Result<(), BackendError> {
+        let mut inner = self.lock();
+        inner.hidden_from_ai.retain(|kept| kept.chat != *chat);
+        if hidden {
+            inner.hidden_from_ai.push(HiddenChat {
+                chat: chat.clone(),
+                name: name.to_owned(),
+            });
+        }
         inner.publish_organized();
         Ok(())
     }

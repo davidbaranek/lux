@@ -29,6 +29,15 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     private let glass = UIVisualEffectView(effect: UIGlassEffect())
     private let stack = UIStackView()
     private let modeBar = ModeBar()
+    /// An AI action's result over the text, with ✓ and ✕.
+    private let reviewBar = ReviewBar()
+    /// The text as written while an AI action's result shows over it; nil otherwise.
+    private var reviewed: String?
+    /// ✓ on an AI action's result: put it in the composer.
+    var onAcceptReview: (() -> Void)?
+    /// The AI action at work for this review: ended with it, so its result never lands in a
+    /// later one.
+    var reviewTask: Task<Void, Never>?
     private let strip = AttachmentStrip()
     /// A file waiting in the composer was taken out.
     var onRemoveAttachment: ((URL) -> Void)?
@@ -137,6 +146,10 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         strip.onRemove = { [weak self] file in self?.onRemoveAttachment?(file) }
         strip.onVideoQuality = { [weak self] file, quality in self?.onVideoQuality?(file, quality) }
         strip.onMarkUp = { [weak self] file, tile in self?.onMarkUpAttachment?(file, tile) }
+        reviewBar.isHidden = true
+        reviewBar.onReject = { [weak self] in self?.endReview(applying: nil) }
+        reviewBar.onAccept = { [weak self] in self?.onAcceptReview?() }
+        stack.addArrangedSubview(reviewBar)
         stack.addArrangedSubview(modeBar)
         stack.addArrangedSubview(strip)
         stack.addArrangedSubview(textView)
@@ -201,6 +214,66 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
             self.modeBar.isHidden = false
             self.superview?.layoutIfNeeded()
         }
+    }
+
+    // MARK: An AI action's result, in place
+
+    /// An AI action works on the text: the bar says so, the text waits as it is and cannot be
+    /// changed meanwhile.
+    func beginReview(symbol: String, title: String) {
+        reviewed = textView.text
+        textView.isEditable = false
+        reviewBar.showWorking(symbol: symbol, title: title)
+        send.isEnabled = false
+        UIView.animate(withDuration: 0.2) {
+            self.reviewBar.isHidden = false
+            self.superview?.layoutIfNeeded()
+        }
+    }
+
+    /// The result over the text (`runs`: removed struck through, added marked), ✓ when there is
+    /// something to apply; or `note` in the bar (a note, no mistakes, why there is none).
+    func showReview(_ runs: [TextActionChange], canApply: Bool, note: String?) {
+        guard reviewed != nil, reviewTask?.isCancelled == false else { return }
+        if canApply, let font = textView.font { textView.attributedText = Self.review(runs, font: font) }
+        reviewBar.showResult(note: note, canApply: canApply)
+        refresh()
+        send.isEnabled = false
+    }
+
+    /// Ends the review: the text as written (✕), or `new` in its place as one edit Undo takes
+    /// back (✓).
+    func endReview(applying new: String?) {
+        guard let original = reviewed else { return }
+        reviewed = nil
+        reviewTask?.cancel()
+        reviewTask = nil
+        textView.isEditable = true
+        textView.text = original
+        restyle()
+        if let new { replaceText(with: new) } else { refresh() }
+        UIView.animate(withDuration: 0.2) {
+            self.reviewBar.isHidden = true
+            self.superview?.layoutIfNeeded()
+        }
+    }
+
+    /// The runs as text: kept as it is, removed struck through in grey, added softly marked.
+    private static func review(_ runs: [TextActionChange], font: UIFont) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        for run in runs {
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
+            switch run.kind {
+            case .kept: break
+            case .removed:
+                attributes[.foregroundColor] = UIColor.secondaryLabel
+                attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            case .added:
+                attributes[.backgroundColor] = UIColor.tintColor.withAlphaComponent(0.24)
+            }
+            text.append(NSAttributedString(string: run.text, attributes: attributes))
+        }
+        return text
     }
 
     func clearMode() {
@@ -351,9 +424,9 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         placeholder.isHidden = !textView.text.isEmpty
         updateButton()
         send.isEnabled = !empty || showsEye || !attachments.isEmpty
-        // grow to five lines, then scroll.
+        // grow to eight lines, then scroll.
         let fitting = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)).height
-        let maximum = (textView.font ?? .preferredFont(forTextStyle: .body)).lineHeight * 5 + 14
+        let maximum = (textView.font ?? .preferredFont(forTextStyle: .body)).lineHeight * 8 + 14
         textView.isScrollEnabled = fitting > maximum
         let new = min(max(fitting, 36), maximum)
         guard new != height.constant else { return }
@@ -391,6 +464,114 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
 }
 
 /// "Replying to Anna — hi there" / "Editing — old text", with a button that cancels.
+/// An AI action above the composer's text: its name, working (a spinner), then its result's ✓
+/// and ✕ on the right, all in one plain box.
+private final class ReviewBar: UIView {
+    /// Its gap from the composer's glass, the same all round.
+    static let gap: CGFloat = 6
+    var onAccept: (() -> Void)?
+    var onReject: (() -> Void)?
+    private let icon = UIImageView()
+    private let title = UILabel()
+    private let note = UILabel()
+    private let spinner = UIActivityIndicatorView(style: .medium)
+    private lazy var accept = Self.button("checkmark", label: String(localized: "Apply"), color: .label) { [weak self] in self?.onAccept?() }
+    private lazy var reject = Self.button("xmark", label: String(localized: "Cancel"), color: .secondaryLabel) { [weak self] in self?.onReject?() }
+    /// The two side by side.
+    private let capsule = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(font: font)
+        icon.tintColor = .secondaryLabel
+        icon.contentMode = .scaleAspectFit
+        title.font = font.bold
+        title.textColor = .label
+        title.adjustsFontForContentSizeCategory = true
+        note.font = .preferredFont(forTextStyle: .footnote)
+        note.textColor = .secondaryLabel
+        note.numberOfLines = 0
+        spinner.hidesWhenStopped = true
+        let buttons = UIStackView(arrangedSubviews: [accept, reject])
+        buttons.spacing = 8
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+        capsule.addSubview(buttons)
+        NSLayoutConstraint.activate([
+            buttons.leadingAnchor.constraint(equalTo: capsule.leadingAnchor, constant: 4),
+            buttons.trailingAnchor.constraint(equalTo: capsule.trailingAnchor, constant: -4),
+            buttons.topAnchor.constraint(equalTo: capsule.topAnchor),
+            buttons.bottomAnchor.constraint(equalTo: capsule.bottomAnchor),
+        ])
+        let labels = UIStackView(arrangedSubviews: [title, note])
+        labels.axis = .vertical
+        labels.spacing = 1
+        // the name takes the room; the capsule keeps to the right.
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = UIStackView(arrangedSubviews: [icon, labels, spinner, capsule])
+        row.spacing = 8
+        row.alignment = .center
+        row.translatesAutoresizingMaskIntoConstraints = false
+        // the name and its buttons in one box: a plain fill, as the composer around it is glass.
+        let box = UIView()
+        box.backgroundColor = .secondarySystemFill
+        // concentric with the composer's glass, the same gap all round: the system takes the
+        // radius from the container. The composer's rows sit 10 in and 2 down; the box reaches
+        // out to the gap.
+        box.cornerConfiguration = .uniformCorners(radius: .containerConcentric(minimum: 12))
+        box.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(box)
+        box.addSubview(row)
+        NSLayoutConstraint.activate([
+            box.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.gap - 10),
+            box.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 10 - Self.gap),
+            box.topAnchor.constraint(equalTo: topAnchor, constant: Self.gap - 2),
+            box.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            row.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -8),
+            row.topAnchor.constraint(equalTo: box.topAnchor, constant: 5),
+            row.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -5),
+            icon.widthAnchor.constraint(equalToConstant: 22),
+        ])
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        capsule.setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    private static func button(_ symbol: String, label: String, color: UIColor, action: @escaping () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.gray()
+        configuration.cornerStyle = .capsule
+        configuration.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .subheadline, scale: .medium).applying(UIImage.SymbolConfiguration(weight: .semibold)))
+        configuration.baseForegroundColor = color
+        configuration.contentInsets = .zero
+        let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
+        button.accessibilityLabel = label
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 32),
+            button.heightAnchor.constraint(equalToConstant: 32),
+        ])
+        return button
+    }
+
+    func showWorking(symbol: String, title: String) {
+        icon.image = UIImage(systemName: symbol)
+        self.title.text = title
+        note.text = nil
+        note.isHidden = true
+        spinner.startAnimating()
+        accept.isHidden = true
+        accessibilityLabel = title
+    }
+
+    func showResult(note text: String?, canApply: Bool) {
+        spinner.stopAnimating()
+        note.text = text
+        note.isHidden = text == nil
+        accept.isHidden = !canApply
+    }
+}
+
 private final class ModeBar: UIView {
     var onCancel: (() -> Void)?
     private let icon = UIImageView()

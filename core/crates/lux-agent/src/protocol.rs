@@ -11,8 +11,12 @@ pub enum Grant {
     Read,
     /// Also put a draft in a chat's composer, where the user sees it.
     Drafts,
-    /// Also ask to send a message; each one waits for the user's click in Lux.
+    /// Also ask to send a message; each one waits for the user's click (in Lux, or on the MCP
+    /// client's preview).
     Send,
+    /// Also send on its own: only in a chat it read in this session, at most a few an hour; any
+    /// other message is asked as with `Send`.
+    AutoSend,
 }
 
 /// How the client reaches the tools.
@@ -40,6 +44,35 @@ pub struct ClientHello {
     /// What its command needs (`lux draft`: drafts), so the approval offers it.
     #[serde(default)]
     pub wants: Option<Grant>,
+}
+
+/// The longest line either side reads: a message's text and its JSON fit many times over; more
+/// ends the session.
+pub(crate) const MAX_LINE: usize = 256 * 1024;
+
+/// Reads one line of at most [`MAX_LINE`] bytes, without its newline; none at the end.
+///
+/// # Errors
+/// When reading fails, or the line is longer.
+pub(crate) async fn read_line<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> std::io::Result<Option<String>> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+    let mut line = Vec::new();
+    let limit = u64::try_from(MAX_LINE).unwrap_or(u64::MAX).saturating_add(1);
+    let read = (&mut *reader).take(limit).read_until(b'\n', &mut line).await?;
+    if read == 0 {
+        return Ok(None);
+    }
+    if line.last() == Some(&b'\n') {
+        line.pop();
+    } else if line.len() > MAX_LINE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "a line is too long",
+        ));
+    }
+    String::from_utf8(line)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 /// From the client.

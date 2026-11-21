@@ -91,6 +91,15 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     /// Files waiting to go with the message.
     private let strip = AttachmentStrip()
     private let modeBar = ComposerModeBar()
+    /// An AI action's result over the field, with ✓ and ✕.
+    let reviewBar = ComposerReviewBar()
+    /// The text as written while an AI action's result shows over it; nil otherwise.
+    var reviewed: String?
+    /// The AI action at work for the review: ended with it, so its result never lands in a later
+    /// one.
+    var reviewTask: Task<Void, Never>?
+    /// The composer's rows in its glass: the review's box changes its top gap.
+    var composerContent: NSStackView?
     /// A merged chat's network a message goes through, at the field's end.
     private let sendNetwork = NSImageView()
     /// Back to the newest message, when the reader is a screen or more above it.
@@ -239,12 +248,17 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
         fieldRow.orientation = .horizontal
         fieldRow.alignment = .centerY
         fieldRow.spacing = 6
-        let content = NSStackView(views: [modeBar, strip, fieldRow])
+        reviewBar.isHidden = true
+        let content = NSStackView(views: [reviewBar, modeBar, strip, fieldRow])
         content.orientation = .vertical
-        content.alignment = .leading
+        content.setCustomSpacing(8, after: reviewBar)
+        // each row has its width: centred, the field's rows keep 14 from the edges, the review's
+        // box the same small gap all round (`ComposerReviewBar.gap`).
+        content.alignment = .centerX
         content.spacing = 4
         content.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
         glass.contentView = content
+        composerContent = content
 
         let container = FileDropView()
         // dropped files wait in the composer, as picked ones do.
@@ -276,14 +290,15 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
             glass.leadingAnchor.constraint(equalTo: attach.trailingAnchor, constant: 8),
             glass.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
             fieldRow.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            // at most a third of the chat: past it, the text scrolls inside.
-            composerField.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor, multiplier: 1 / 3),
+            // at most half the chat: past it, the text scrolls inside.
+            composerField.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor, multiplier: 1 / 2),
             eye.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
             eye.centerYAnchor.constraint(equalTo: glass.bottomAnchor, constant: -18.5),
             // a circle as tall as the one-line composer.
             eye.widthAnchor.constraint(equalToConstant: 37),
             eye.heightAnchor.constraint(equalToConstant: 37),
             modeBar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+            reviewBar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -2 * ComposerReviewBar.gap),
             strip.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             // in line with the bubbles' edge, not their text.
             typingAvatar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: BubbleMetrics().sideMargin),

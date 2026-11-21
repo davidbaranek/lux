@@ -156,7 +156,7 @@ struct ThreadViewTests {
         }
     }
 
-    @Test func theComposerGrowsWithItsTextToEightLinesThenScrollsAndIsOneLineAgainOnceSent() async throws {
+    @Test func theComposerGrowsWithItsTextToItsMostLinesThenScrollsAndIsOneLineAgainOnceSent() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             let chat = try open(try await readChat(in: session), in: session)
             try await chat.changes.until { chat.isShown(chat.newest) && !chat.controller.model.isLoading }
@@ -173,18 +173,19 @@ struct ThreadViewTests {
             text.insertText("Packing list:", replacementRange: NSRange(location: NSNotFound, length: 0))
             #expect(shown() == oneLine)
             // a line at a time, as Option-Return adds them.
+            let most = ComposerField.maxLines
             var heights: [CGFloat] = []
-            for item in 1...11 {
+            for item in 1...(most + 3) {
                 text.insertNewlineIgnoringFieldEditor(nil)
                 text.insertText("item \(item)", replacementRange: NSRange(location: NSNotFound, length: 0))
                 heights.append(shown())
                 // the newest message stays all on screen above it.
                 #expect(chat.isShown(chat.newest))
             }
-            // each of the first seven new lines makes it taller; from the eighth line on it holds.
-            #expect(zip(heights.prefix(7), heights.prefix(7).dropFirst()).allSatisfy { $0 < $1 })
-            #expect(heights.dropFirst(7).allSatisfy { $0 == heights[6] })
-            #expect(abs(heights[6] - oneLine * CGFloat(ComposerField.maxLines)) <= CGFloat(ComposerField.maxLines))
+            // each new line up to its most makes it taller; from there on it holds.
+            #expect(zip(heights.prefix(most - 1), heights.prefix(most - 1).dropFirst()).allSatisfy { $0 < $1 })
+            #expect(heights.dropFirst(most - 1).allSatisfy { $0 == heights[most - 2] })
+            #expect(abs(heights[most - 2] - oneLine * CGFloat(most)) <= CGFloat(most))
             // past it the text scrolls inside.
             #expect(text.frame.height > composer.contentView.bounds.height)
 

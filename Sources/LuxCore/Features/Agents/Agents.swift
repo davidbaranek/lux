@@ -4,13 +4,14 @@ import LuxBindings
 
 /// What an agent's session may do, each more than the one before.
 public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
-    case read, drafts, send
+    case read, drafts, send, autoSend
 
     public var title: String {
         switch self {
         case .read: String(localized: "Read only")
         case .drafts: String(localized: "Read and write drafts")
         case .send: String(localized: "Read, write drafts and ask to send")
+        case .autoSend: String(localized: "Read, write drafts and send on its own")
         }
     }
 
@@ -19,6 +20,7 @@ public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
         case .read: 0
         case .drafts: 1
         case .send: 2
+        case .autoSend: 3
         }
     }
 
@@ -29,6 +31,7 @@ public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
         case .read: .read
         case .drafts: .drafts
         case .send: .send
+        case .autoSend: .autoSend
         }
     }
 
@@ -37,6 +40,7 @@ public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
         case .read: .read
         case .drafts: .drafts
         case .send: .send
+        case .autoSend: .autoSend
         }
     }
 }
@@ -79,10 +83,11 @@ public struct AgentActivity: Sendable, Identifiable {
 public protocol AgentsPresenter: AnyObject {
     /// Asks the user, in front, with the match code.
     func approve(_ request: AgentRequest) async -> AgentDecision
-    /// Opens the chat of `roomId` with `text` in its composer.
-    func showDraft(_ text: String, inRoom roomId: String)
-    /// Opens the chat of `roomId` and asks the user to send `text`, asked by `client`.
-    func confirmSend(_ text: String, inRoom roomId: String, client: String) async -> Bool
+    /// Opens the chat of `roomId` with `text` in its composer: whether it could.
+    func showDraft(_ text: String, inRoom roomId: String) async -> Bool
+    /// Opens the chat of `roomId` and asks the user whether `text` may be sent, asked by
+    /// `client`. The core sends it, on its own: nothing of the composer's goes with it.
+    func allowSend(_ text: String, inRoom roomId: String, client: String) async -> Bool
 }
 
 /// Agents on this Mac: the `Lux agent` CLI and MCP server reach the account through a socket in
@@ -154,29 +159,6 @@ public final class Agents {
         changes.send()
     }
 
-    /// The chats no AI sees, by name.
-    public var hiddenChats: [(id: String, name: String)] {
-        session.preferences.hiddenFromAI.map { ($0.key, $0.value) }.sorted { $0.name < $1.name }
-    }
-
-    /// Keeps `chat` from every AI in Lux.
-    public func hide(_ chat: ChatRow) {
-        session.preferences.hiddenFromAI[chat.id] = chat.name
-        running?.setHidden(chats: hidden())
-        changes.send()
-    }
-
-    /// Lets AI see the chat `id` again.
-    public func unhide(_ id: String) {
-        session.preferences.hiddenFromAI[id] = nil
-        running?.setHidden(chats: hidden())
-        changes.send()
-    }
-
-    /// The hidden chats, by chat id, as the core matches them.
-    private func hidden() -> [String] {
-        Array(session.preferences.hiddenFromAI.keys)
-    }
 
     /// Whether the socket is on but cannot open yet (the account or its index not open).
     public var isWaiting: Bool { session.textActions.isOn && isOn && running == nil }
@@ -198,7 +180,6 @@ public final class Agents {
             do {
                 let agents = try CoreAgents.start(socketPath: Self.socket.path, account: core, store: store,
                                                   host: AgentHost(agents: self, search: search))
-                agents.setHidden(chats: hidden())
                 running = agents
             } catch {
                 Log.app.error("agents: \(String(describing: error), privacy: .public)")
@@ -232,12 +213,12 @@ public final class Agents {
         return decision
     }
 
-    fileprivate func showDraft(_ text: String, inRoom room: String) {
-        presenter?.showDraft(text, inRoom: room)
+    fileprivate func showDraft(_ text: String, inRoom room: String) async -> Bool {
+        await presenter?.showDraft(text, inRoom: room) ?? false
     }
 
-    fileprivate func confirmSend(_ text: String, inRoom room: String, client: String) async -> Bool {
-        await presenter?.confirmSend(text, inRoom: room, client: client) ?? false
+    fileprivate func allowSend(_ text: String, inRoom room: String, client: String) async -> Bool {
+        await presenter?.allowSend(text, inRoom: room, client: client) ?? false
     }
 
     fileprivate func record(_ entry: CoreAgentLogEntry) {
@@ -282,13 +263,19 @@ private final class AgentHost: CoreAgentHost {
         Networks.name(network)
     }
 
-    func showDraft(roomId: String, text: String) {
-        Task { @MainActor [agents] in agents.showDraft(text, inRoom: roomId) }
+    func showDraft(roomId: String, text: String, reply: CoreAgentDraftReply) {
+        Task { @MainActor [agents] in
+            if await agents.showDraft(text, inRoom: roomId) {
+                reply.shown()
+            } else {
+                reply.failed(reason: "Lux could not open the chat")
+            }
+        }
     }
 
     func confirmSend(roomId: String, text: String, client: String, reply: CoreAgentSendReply) {
         Task { @MainActor [agents] in
-            reply.answer(sent: await agents.confirmSend(text, inRoom: roomId, client: client))
+            reply.answer(allowed: await agents.allowSend(text, inRoom: roomId, client: client))
         }
     }
 

@@ -166,8 +166,30 @@ pub(crate) struct Messages {
 /// `draft_reply`'s and `send_message`'s answer.
 #[derive(Debug, Serialize, JsonSchema)]
 pub(crate) struct Status {
-    /// `drafted`, `sent` or `cancelled`.
+    /// `drafted`, `sent`, `cancelled`, or `awaiting_user` (shown to the user to send).
     pub status: &'static str,
+}
+
+/// `confirm_send`'s arguments: the MCP preview's Send, never the model's.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Confirm {
+    /// The one-time token `prepare_send` gave the preview.
+    pub token: String,
+}
+
+/// A message prepared for the preview: its token goes to the preview (`_meta`), never to the
+/// model.
+#[derive(Debug, Serialize)]
+pub(crate) struct Prepared {
+    /// `awaiting_user`, or `sent` when the session sends on its own.
+    pub status: &'static str,
+    /// The token the preview's Send gives back; none when it was sent.
+    pub token: Option<String>,
+    /// The chat's name, for the preview.
+    pub chat: String,
+    /// The text, for the preview.
+    pub text: String,
 }
 
 /// `name`'s JSON Schema, inline, without a meta-schema: as MCP lists a tool's.
@@ -225,8 +247,9 @@ pub fn tools() -> Vec<ToolSpec> {
         ToolSpec {
             name: "send_message",
             title: "Send a message",
-            description: "Asks to send a message in a chat: Lux shows it to the user, who sends it or not. Answers \
-                `sent` or `cancelled`.",
+            description: "Sends a message in a chat, as far as the session may: the user sees it first and sends it \
+                or not (`sent`, `cancelled`, or `awaiting_user` while a preview waits for their click); a session \
+                allowed to send on its own sends in a chat it read.",
             input_schema: schema::<Compose>(),
             output_schema: schema::<Status>(),
             grant: Grant::Send,
