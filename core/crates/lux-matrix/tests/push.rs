@@ -53,13 +53,22 @@ fn logs(folder: &std::path::Path) -> Vec<std::path::PathBuf> {
 }
 
 async fn mount_sync(server: &MatrixMockServer) -> Requests {
-    mount_sync_with(server, 1_700_000_000_000, &[]).await
+    mount_sync_with(server, 1_700_000_000_000, &[], &[]).await
 }
 
-/// Every sliding sync answers with one direct chat, its newest message sent at `sent` (ms), one
-/// unread notification, and the account data `account_data`; the syncs that reach `server`.
-async fn mount_sync_with(server: &MatrixMockServer, sent: u64, account_data: &[Value]) -> Requests {
+/// Every sliding sync answers with one direct chat, its message sent at `sent` (ms) and the events
+/// `after` it, one unread notification, and the account data `account_data`; the syncs that reach
+/// `server`.
+async fn mount_sync_with(server: &MatrixMockServer, sent: u64, after: &[Value], account_data: &[Value]) -> Requests {
     let syncs = Requests::default();
+    let mut timeline = vec![json!({
+        "type": "m.room.message",
+        "event_id": "$hello",
+        "sender": "@anna:matrix.org",
+        "origin_server_ts": sent,
+        "content": { "msgtype": "m.text", "body": "hello\nthere" }
+    })];
+    timeline.extend_from_slice(after);
     Mock::given(method("POST"))
         .and(path(SYNC))
         .respond_with(
@@ -88,13 +97,7 @@ async fn mount_sync_with(server: &MatrixMockServer, sent: u64, account_data: &[V
                                     "displayname": "Anna",
                                     "avatar_url": "mxc://matrix.org/anna"
                                 }],
-                                "timeline": [{
-                                    "type": "m.room.message",
-                                    "event_id": "$hello",
-                                    "sender": "@anna:matrix.org",
-                                    "origin_server_ts": sent,
-                                    "content": { "msgtype": "m.text", "body": "hello\nthere" }
-                                }]
+                                "timeline": timeline
                             }
                         },
                         "extensions": { "account_data": { "global": account_data } }
@@ -271,6 +274,52 @@ async fn the_extension_reads_a_pushed_message_from_the_kept_store() {
     assert!(matches!(pushed, PushedEvent::Shown(_)));
 }
 
+/// A reaction is pushed when the server cannot read its type (in an encrypted chat it is
+/// `m.room.encrypted`, which `.m.rule.encrypted` pushes); read on the device, the push rules'
+/// `.m.rule.reaction` filters it out: the extension shows nothing of it (quietly, without Apple's
+/// filtering entitlement), never the reaction as a message.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pushed_reaction_is_not_to_be_shown() {
+    let server = server().await;
+    let reaction = json!({
+        "type": "m.reaction",
+        "event_id": "$like",
+        "sender": "@anna:matrix.org",
+        "origin_server_ts": 1_700_000_001_000_u64,
+        "content": { "m.relates_to": { "rel_type": "m.annotation", "event_id": "$hello", "key": "👍" } }
+    });
+    mount_sync_with(&server, 1_700_000_000_000, &[reaction], &[]).await;
+    server.mock_room_state_encryption().plain().mount().await;
+    let folder = tempfile::tempdir().unwrap();
+    let secrets = Arc::new(MemorySecrets::default());
+    let sign_in = MatrixSignIn::new(StoreFolder::new(folder.path()), secrets.clone());
+    let account = sign_in
+        .sign_in_with_password(&server.uri(), "cheeky_monkey", "secret", "Lux (Test)")
+        .await
+        .unwrap();
+    account.wait_for_first_sync().await;
+    account.pause_sync().await;
+    drop(account);
+
+    let notifications = MatrixNotifications::open(&StoreFolder::new(folder.path()), secrets)
+        .await
+        .unwrap()
+        .expect("the kept session");
+    let room = RoomId::from("!anna:matrix.org");
+    let pushed = tokio::time::timeout(Duration::from_secs(20), notifications.read(&room, &"$like".into()))
+        .await
+        .expect("the event in time")
+        .unwrap();
+    assert_eq!(pushed, PushedEvent::FilteredOut);
+    // the message it reacts to is shown.
+    let pushed = tokio::time::timeout(Duration::from_secs(20), notifications.read(&room, &"$hello".into()))
+        .await
+        .expect("the event in time")
+        .unwrap();
+    assert!(matches!(pushed, PushedEvent::Shown(_)), "{pushed:?}");
+    notifications.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_extension_never_opens_a_session_without_its_store() {
     let folder = tempfile::tempdir().unwrap();
@@ -426,7 +475,7 @@ async fn the_extension_names_the_merged_chat_and_brings_the_pictures() {
             "default": "!other:matrix.org"
         }]}
     });
-    mount_sync_with(&server, 1_700_000_000_000, &[merges]).await;
+    mount_sync_with(&server, 1_700_000_000_000, &[], &[merges]).await;
     server.mock_room_state_encryption().plain().mount().await;
     Mock::given(method("GET"))
         .and(path_regex(r"/thumbnail/matrix\.org/anna$"))
@@ -469,7 +518,7 @@ async fn the_extension_names_the_merged_chat_and_brings_the_pictures() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_picture_the_server_will_not_thumbnail_comes_as_it_is() {
     let server = server().await;
-    mount_sync_with(&server, 1_700_000_000_000, &[]).await;
+    mount_sync_with(&server, 1_700_000_000_000, &[], &[]).await;
     server.mock_room_state_encryption().plain().mount().await;
     // a server that made no thumbnail ahead and makes none on demand.
     Mock::given(method("GET"))
@@ -525,7 +574,7 @@ async fn the_running_app_hears_a_new_message_once() {
     )
     .unwrap();
     // sent a moment from now: after the app follows.
-    mount_sync_with(&server, now + 2_000, &[]).await;
+    mount_sync_with(&server, now + 2_000, &[], &[]).await;
     let (account, _folder) = signed_in(&server).await;
     let mut live = account.live_notifications();
 
