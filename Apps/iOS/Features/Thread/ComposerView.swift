@@ -36,8 +36,11 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     private let modeBar = ModeBar()
     /// An AI action's result over the text, with ✓ and ✕.
     private let reviewBar = ReviewBar()
-    /// The text as written while an AI action's result shows over it; nil otherwise.
-    private var reviewed: String?
+    /// The text as written (with its pills) while an AI action's result shows over it; nil
+    /// otherwise.
+    private var reviewed: ComposedText?
+    /// The result's runs over it: the pills ✓ keeps are those in its kept runs.
+    private var reviewRuns: [TextActionChange] = []
     /// ✓ on an AI action's result: put it in the composer.
     var onAcceptReview: (() -> Void)?
     /// The AI action at work for this review: ended with it, so its result never lands in a
@@ -247,8 +250,11 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     /// An AI action works on the text: the bar says so, the text waits as it is and cannot be
     /// changed meanwhile.
     func beginReview(symbol: String, title: String) {
-        reviewed = textView.text
+        reviewed = composed
+        reviewRuns = []
         textView.isEditable = false
+        // no mention is offered over a review.
+        updateMentionQuery()
         reviewBar.showWorking(symbol: symbol, title: title)
         send.isEnabled = false
         UIView.animate(withDuration: 0.2) {
@@ -261,6 +267,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     /// something to apply; or `note` in the bar (a note, no mistakes, why there is none).
     func showReview(_ runs: [TextActionChange], canApply: Bool, note: String?) {
         guard reviewed != nil, reviewTask?.isCancelled == false else { return }
+        reviewRuns = runs
         if canApply, let font = textView.font { textView.attributedText = Self.review(runs, font: font) }
         reviewBar.showResult(note: note, canApply: canApply)
         refresh()
@@ -275,9 +282,15 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         reviewTask?.cancel()
         reviewTask = nil
         textView.isEditable = true
-        textView.text = original
-        restyle()
-        if let new { replaceText(with: new) } else { refresh() }
+        // the text as written, its pills too; ✓ keeps those the result left as they were.
+        composed = original
+        if let new {
+            replaceText(with: new)
+            for pill in Mention.carried(original.mentions, through: reviewRuns) {
+                ComposerPills.mark(textView.textStorage, pill.target, in: pill.range)
+            }
+            textViewDidChange(textView)
+        }
         UIView.animate(withDuration: 0.2) {
             self.reviewBar.isHidden = true
             self.superview?.layoutIfNeeded()
@@ -414,7 +427,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         defer { Signposts.thread.endInterval("mention query", signpost) }
         let selection = textView.selectedRange
         var query: MentionQuery?
-        if selection.length == 0, textView.markedTextRange == nil,
+        if reviewed == nil, selection.length == 0, textView.markedTextRange == nil,
            let found = ComposedText.mentionQuery(in: textView.text, cursor: selection.location),
            !ComposerPills.ranges(in: textView.textStorage).contains(where: { NSIntersectionRange($0, found.range).length > 0 }) {
             query = found

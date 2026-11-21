@@ -58,3 +58,30 @@ public enum MentionSuggestion: Hashable, Sendable {
         }
     }
 }
+
+extension Mention {
+    /// `mentions` of a text where an AI action's result (`runs`: kept, removed, added) was
+    /// applied: each pill wholly in a kept run, where that run is now; one the result changed goes.
+    public static func carried(_ mentions: [Mention], through runs: [TextActionChange]) -> [Mention] {
+        // each kept run's place in the text before and after.
+        var kept: [(old: NSRange, new: Int)] = []
+        var old = 0, new = 0
+        for run in runs {
+            let length = (run.text as NSString).length
+            switch run.kind {
+            case .kept:
+                kept.append((NSRange(location: old, length: length), new))
+                old += length
+                new += length
+            case .removed: old += length
+            case .added: new += length
+            }
+        }
+        return mentions.compactMap { mention in
+            guard let run = kept.first(where: { NSLocationInRange(mention.range.location, $0.old) }),
+                  NSMaxRange(mention.range) <= NSMaxRange(run.old) else { return nil }
+            return Mention(mention.target, NSRange(location: run.new + mention.range.location - run.old.location,
+                                                   length: mention.range.length))
+        }
+    }
+}

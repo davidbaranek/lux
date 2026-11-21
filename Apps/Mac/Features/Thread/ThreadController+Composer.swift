@@ -60,7 +60,7 @@ extension ThreadController {
         defer { Signposts.thread.endInterval("mention query", signpost) }
         let selection = field.selectedRange()
         var query: MentionQuery?
-        if selection.length == 0, !field.hasMarkedText(), let storage = field.textStorage,
+        if reviewed == nil, selection.length == 0, !field.hasMarkedText(), let storage = field.textStorage,
            let found = ComposedText.mentionQuery(in: field.string, cursor: selection.location),
            !ComposerPills.ranges(in: storage).contains(where: { NSIntersectionRange($0, found.range).length > 0 }) {
             query = found

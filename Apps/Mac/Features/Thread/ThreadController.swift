@@ -99,8 +99,11 @@ final class ThreadController: NSViewController, NSTableViewDelegate, NSTextViewD
     private let modeBar = ComposerModeBar()
     /// An AI action's result over the field, with ✓ and ✕.
     let reviewBar = ComposerReviewBar()
-    /// The text as written while an AI action's result shows over it; nil otherwise.
-    var reviewed: String?
+    /// The text as written (with its pills) while an AI action's result shows over it; nil
+    /// otherwise.
+    var reviewed: ComposedText?
+    /// The result's runs over it: the pills ✓ keeps are those in its kept runs.
+    var reviewRuns: [TextActionChange] = []
     /// The AI action at work for the review: ended with it, so its result never lands in a later
     /// one.
     var reviewTask: Task<Void, Never>?

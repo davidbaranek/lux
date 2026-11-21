@@ -24,6 +24,22 @@ struct MentionTests {
         return (model, changes)
     }
 
+    @Test func anAppliedCorrectionKeepsThePillsItLeftAndDropsThoseItChanged() {
+        // "hi Anna and Petr, see yuo": Petr's name corrected, a typo after Anna fixed.
+        let text = "hi Anna and Petr, see yuo"
+        let anna = Mention(.user("@anna:a.b"), NSRange(location: 3, length: 4))
+        let petr = Mention(.user("@petr:a.b"), NSRange(location: 12, length: 4))
+        let result = TextActionResult.corrections([
+            TextCorrection(range: NSRange(location: 12, length: 4), original: "Petr", replacement: "Peter"),
+            TextCorrection(range: NSRange(location: 22, length: 3), original: "yuo", replacement: "you"),
+        ])
+        #expect(result.applied(to: text) == "hi Anna and Peter, see you")
+        #expect(Mention.carried([anna, petr], through: result.preview(of: text)) == [anna])
+        // a word added before a pill moves it.
+        let moved = TextActionResult.corrections([TextCorrection(range: NSRange(location: 0, length: 2), original: "hi", replacement: "hello")])
+        #expect(Mention.carried([anna], through: moved.preview(of: text)) == [Mention(.user("@anna:a.b"), NSRange(location: 6, length: 4))])
+    }
+
     @Test func theWordAfterAnAtIsTheMentionBeingTyped() {
         #expect(ComposedText.mentionQuery(in: "hi @an", cursor: 6) == MentionQuery(range: NSRange(location: 3, length: 3), text: "an"))
         #expect(ComposedText.mentionQuery(in: "me@example.org", cursor: 14) == nil)
