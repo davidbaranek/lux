@@ -239,16 +239,25 @@ provider and remembered agents are per device):
 
 ## App Intents
 
-App Intents in the shared app code, calling the capabilities in-process (no socket) as the
-`system` caller, and the features for the text ones:
+Built (first version), in `Apps/Shared/Intents/`, for both apps; the app registers an
+`IntentHost` (the session, and its own way to open a chat) with `AppDependencyManager`:
 
 | Intent / entity | What | Notes |
 |---|---|---|
-| `ConversationEntity`, `MessageEntity` (`IndexedEntity`), `ContactEntity` | Chats, messages, people for Siri, Shortcuts and Spotlight | On 27.3 the messages schemas: `@AppEntity(schema: .messages.message)` and the sample's entities (src 6) |
-| `OpenChatIntent` | Opens a chat | Opens the app |
-| `SearchMessagesIntent` | Search by words and meaning, returns messages | Read; hidden chats out |
-| `SendMessageIntent` | `@AppIntent(schema: .messages.sendMessage)` on 27.3, a plain intent before | Always `requestConfirmation` with the exact text and chat: the system's confirmation is the canonical one |
-| `ProofreadTextIntent`, `FormatTextIntent` | Text in, text out, for Shortcuts | Through the core's intelligence; unavailable when the switch is off |
+| `ChatEntity` (`EntityStringQuery`) | A chat by its name, for Siri and Shortcuts | Found as search finds chats; not indexed in Spotlight |
+| `OpenChatIntent` (`OpenIntent`) | Opens a chat in front | Through the app's own path, as Handoff |
+| `SearchMessagesIntent` → `[MessageEntity]` | Messages by words and meaning, from the index on this device | Behind the AI switch |
+| `ProofreadTextIntent`, `FormatTextIntent` | Text in, text out, for Shortcuts | Through the core's actions; behind the AI switch |
+| `LuxShortcuts` (`AppShortcutsProvider`) | Phrases for the four, with no setup | |
+
+They call the app's own models in-process. Next, with the capabilities layer (mcp.md), they call
+the same capabilities agents do, under its policy (hidden chats). Also next:
+
+| Intent / entity | What | Notes |
+|---|---|---|
+| `MessageEntity` as `IndexedEntity`, messages schemas | `@AppEntity(schema: .messages.message)` on 27.3 (src 6) | Spotlight's semantic index: behind the switch, hidden chats out |
+| `DraftMessageIntent` | Puts a text in a chat's composer | Through the capabilities' draft |
+| `SendMessageIntent` | `@AppIntent(schema: .messages.sendMessage)` on 27.3 | Always `requestConfirmation` with the exact text and chat |
 | `.appEntityIdentifier(_:)` on the open chat | Onscreen context for Siri | |
 
 On the iPhone an intent that reads the account opens the stores briefly when the app is not in

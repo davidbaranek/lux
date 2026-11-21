@@ -1,3 +1,4 @@
+import AppIntents
 import LuxCore
 import UIKit
 import UserNotifications
@@ -23,6 +24,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = Self.refresh
         _ = Self.uploads
         _ = Self.reading
+        // Siri's and Shortcuts' intents reach the session, and open a chat as Handoff does.
+        let host = IntentHost(session: Self.session) { chat in
+            let scene = UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive }
+                ?? UIApplication.shared.connectedScenes.first
+            (scene?.delegate as? SceneDelegate)?.open(chat)
+        }
+        AppDependencyManager.shared.add(dependency: host)
         return true
     }
 
@@ -70,6 +78,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// A chat continued from another of the account's devices (Handoff): the same chat opens here.
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         guard let chat = ChatActivity(userActivity) else { return }
+        open(chat)
+    }
+
+    /// Opens `chat`, once the chats show if they do not yet: from Handoff, or an intent.
+    func open(_ chat: ChatActivity) {
         if let list { list.openChat(roomId: chat.roomId, thread: chat.threadRoot) } else { chatToOpen = chat }
     }
 

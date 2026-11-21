@@ -196,6 +196,19 @@ public final class MessageSearch {
         return hits
     }
 
+    /// The chats whose name has every word of `text`, as search finds them (Siri and Shortcuts
+    /// pick a chat by its name).
+    public func chats(named text: String, limit: Int) async -> [ChatRow] {
+        guard let account = await bestEffort("search: chats", { try await account.value }) else { return [] }
+        return await account.findChats(text, limit: limit)
+    }
+
+    /// The chats that show `rooms`, by room.
+    public func chats(ofRooms rooms: [String]) async -> [String: ChatRow] {
+        guard let account = await bestEffort("search: chats of rooms", { try await account.value }) else { return [:] }
+        return await account.chats(ofRooms: rooms)
+    }
+
     /// What chats shared lately, before any words are typed: a few of each kind, the newest first.
     public func lately() async -> SearchHits {
         await shares("", kinds: SearchKind.allCases, offset: 0, limit: SearchKind.photos.preview + 1)
