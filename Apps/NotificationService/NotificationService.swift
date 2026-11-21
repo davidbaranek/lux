@@ -9,7 +9,7 @@ import UserNotifications
 ///
 /// An event that is not to be shown (the push rules say it does not notify, or it was deleted)
 /// can be dropped only with Apple's filtering entitlement; without it the system shows whatever
-/// the extension hands back, so it shows the neutral text, as for a failure.
+/// the extension hands back, so it shows the neutral text, quietly (`PushNotifications.notShown`).
 final class NotificationService: UNNotificationServiceExtension {
     private var delivery: Delivery?
 
@@ -26,6 +26,7 @@ final class NotificationService: UNNotificationServiceExtension {
 
     override func serviceExtensionTimeWillExpire() {
         // out of time: the neutral text, at once.
+        Log.app.error("notification: out of time")
         delivery?.deliverNeutral()
     }
 
@@ -77,12 +78,13 @@ private final class Delivery: @unchecked Sendable {
         do {
             // the account's stores in the App Group are closed again before the notification goes.
             guard case .read(let pushed) = try await Self.events.read(payload) else {
+                Log.app.error("notification: no account is kept")
                 deliverNeutral()
                 return
             }
             guard let message = pushed else {
                 // not to be shown: dropped where the system allows it; the badge stays as it is.
-                deliver(Self.filters ? UNNotificationContent() : neutral, chat: nil)
+                deliver(PushNotifications.notShown(neutral, dropping: Self.filters), chat: nil)
                 return
             }
             guard let content = neutral.mutableCopy() as? UNMutableNotificationContent else {
@@ -97,20 +99,14 @@ private final class Delivery: @unchecked Sendable {
             content.userInfo.merge(message.userInfo) { _, read in read }
             // a merged chat's rooms in one group, as the chat list shows them.
             content.threadIdentifier = message.chatId
-            deliver(Self.quietIfLate(await Self.communication(content, message) ?? content, message), chat: message.chatId)
+            // history a bridge brings in (a message that came late) is quiet. Set last: the intent's
+            // update makes new content.
+            let shown = await Self.communication(content, message) ?? content
+            deliver(message.isLate ? PushNotifications.quiet(shown) : shown, chat: message.chatId)
         } catch {
             Log.app.error("notification: \(String(describing: error), privacy: .public)")
             deliverNeutral()
         }
-    }
-
-    /// History a bridge brings in (a message that came late): in the notification centre, without
-    /// a sound and without lighting the screen. Set last: the intent's update makes new content.
-    private static func quietIfLate(_ content: UNNotificationContent, _ message: PushedMessage) -> UNNotificationContent {
-        guard message.isLate, let quiet = content.mutableCopy() as? UNMutableNotificationContent else { return content }
-        quiet.interruptionLevel = .passive
-        quiet.sound = nil
-        return quiet.copy() as? UNNotificationContent ?? quiet
     }
 
     /// Hands `content` to the system, once: with the badge counting a message of `chat` (nil: the

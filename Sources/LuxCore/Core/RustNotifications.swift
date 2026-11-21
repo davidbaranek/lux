@@ -82,8 +82,16 @@ public final class PushedEvents: Sendable {
     /// rules filter it out, or it was deleted). Throws when it could not be read.
     public func read(_ payload: PushPayload) async throws -> PushedMessage? {
         switch try await reader.read(roomId: payload.roomId, eventId: payload.eventId) {
-        case .shown(let notification): PushedMessage(notification)
-        case .filteredOut, .gone: nil
+        case .shown(let notification):
+            return PushedMessage(notification)
+        case .filteredOut:
+            // what the server could not read (an encrypted chat's reaction or bot notice) and so
+            // pushed, or an ignored sender's.
+            Log.app.info("notification: not to be shown: the push rules filter it out")
+            return nil
+        case .gone:
+            Log.app.info("notification: not to be shown: deleted, or not found")
+            return nil
         }
     }
 
