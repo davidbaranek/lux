@@ -141,7 +141,7 @@ private final class Listener: CoreThreadListener {
 
     func onUpload(upload: CoreUpload) {
         continuation.yield(.upload(files: upload.files.map { URL(fileURLWithPath: $0) }, roomId: upload.roomId,
-                                   threadRoot: upload.threadRoot, caption: upload.caption, replyTo: upload.replyTo))
+                                   threadRoot: upload.threadRoot, caption: upload.caption.map(ComposedText.init), replyTo: upload.replyTo))
     }
 
     func onError(error: CoreAccountError) { continuation.yield(.failed(AccountFailure(error))) }

@@ -939,10 +939,11 @@ impl ChatSending for DemoTimelines {
         &self,
         timeline: &TimelineId,
         attachment: &OutgoingAttachment,
-        caption: Option<&str>,
+        caption: Option<&ComposedText>,
         reply: Option<&MessageRef>,
     ) -> Result<UploadStream, BackendError> {
-        let mut message = self.own_message(&timeline.room, caption.unwrap_or_default());
+        let mut message = self.own_message(&timeline.room, caption.map_or("", |caption| caption.text.as_str()));
+        message.styles = caption.map(pill_styles).unwrap_or_default();
         let picture = |file: &Path, width, height| Picture {
             source: MediaId::from(file.to_string_lossy().into_owned()),
             width,

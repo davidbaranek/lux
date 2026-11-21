@@ -346,7 +346,7 @@ async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
         thumbnail: None,
     };
     let states: Vec<SendState> = timelines
-        .send_attachment(&room().into(), &attachment, Some("Trip"), None)
+        .send_attachment(&room().into(), &attachment, Some(&"Trip".into()), None)
         .await
         .unwrap()
         .collect()
@@ -1269,7 +1269,7 @@ async fn an_upload_goes_on_once_its_chat_is_closed_and_its_timeline_let_go() {
         thumbnail: None,
     };
     let states = timelines
-        .send_attachment(&room().into(), &attachment, Some("Trip"), None)
+        .send_attachment(&room().into(), &attachment, Some(&"Trip".into()), None)
         .await
         .unwrap();
     // the chat closes, and eight others open after it: its timeline is let go.

@@ -523,7 +523,7 @@ async fn an_answer_goes_to_its_message_and_files_go_with_the_text_as_caption() {
         Some(Upload {
             files: vec![PathBuf::from("/tmp/a.jpg"), PathBuf::from("/tmp/b.jpg")],
             room: "!a:demo".into(),
-            caption: Some("look".to_owned()),
+            caption: Some("look".into()),
             reply: Some("!a:demo/18".into()),
             thread: None,
         })

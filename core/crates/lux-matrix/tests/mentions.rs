@@ -22,11 +22,11 @@ use lux_core::ids::{MessageRef, RoomId, UserId};
 use lux_core::mention::{ComposedText, Mention, MentionTarget};
 use lux_core::message::SendState;
 use lux_core::ports::{ChatSending, ChatTimelines};
-use lux_core::timeline::{StyleKind, TimelineMessage};
+use lux_core::timeline::{OutgoingAttachment, OutgoingKind, StyleKind, TimelineMessage};
 use lux_matrix::MatrixTimelines;
 use matrix_sdk::Client;
 use matrix_sdk::ruma::events::Mentions;
-use matrix_sdk::ruma::{event_id, owned_user_id, room_id, user_id};
+use matrix_sdk::ruma::{event_id, mxc_uri, owned_user_id, room_id, user_id};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::JoinedRoomBuilder;
 use matrix_sdk_test::event_factory::EventFactory;
@@ -297,4 +297,51 @@ async fn a_draft_keeps_its_pills() {
         timelines.draft(&room().into()).await.unwrap().map(|draft| draft.text),
         Some(text)
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_photos_caption_mentions_its_pills() {
+    let server = MatrixMockServer::new().await;
+    let client = client(&server).await;
+    server.mock_authenticated_media_config().ok_default().mount().await;
+    server.sync_joined_room(&client, room_id!("!chat:example.org")).await;
+    server
+        .mock_upload()
+        .ok(mxc_uri!("mxc://example.org/photo"))
+        .mount()
+        .await;
+    server.mock_room_send().ok(event_id!("$photo")).mount().await;
+    let timelines = MatrixTimelines::new(client, None);
+
+    let folder = tempfile::tempdir().unwrap();
+    let file = folder.path().join("trip.jpg");
+    std::fs::write(&file, b"not really a jpeg").unwrap();
+    let attachment = OutgoingAttachment {
+        file,
+        name: "trip.jpg".to_owned(),
+        mimetype: "image/jpeg".to_owned(),
+        size: 17,
+        kind: OutgoingKind::Photo { width: 4, height: 3 },
+        thumbnail: None,
+    };
+    let caption = ComposedText {
+        text: "for Anna".to_owned(),
+        mentions: vec![pill("@anna:example.org", 4, 8)],
+    };
+    let states: Vec<SendState> = timelines
+        .send_attachment(&room().into(), &attachment, Some(&caption), None)
+        .await
+        .unwrap()
+        .collect()
+        .await;
+    assert_eq!(states.last(), Some(&SendState::Sent));
+
+    let body = sent(&server).await.pop().expect("the photo");
+    assert_eq!(body["msgtype"], "m.image");
+    assert_eq!(body["body"], "for Anna");
+    assert_eq!(
+        body["formatted_body"],
+        "for <a href=\"https://matrix.to/#/@anna:example.org\">Anna</a>"
+    );
+    assert_eq!(body["m.mentions"], json!({ "user_ids": ["@anna:example.org"] }));
 }

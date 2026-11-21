@@ -165,8 +165,8 @@ pub struct Upload {
     pub files: Vec<PathBuf>,
     /// Where they go.
     pub room: RoomId,
-    /// The first one's text.
-    pub caption: Option<String>,
+    /// The first one's text, with its pills.
+    pub caption: Option<ComposedText>,
     /// The message the first one answers.
     pub reply: Option<MessageRef>,
     /// The Matrix thread they go to, by its root: the thread shown.

@@ -25,12 +25,12 @@ extension RustAccount: UploadsPort {
     /// Puts a photo or a file in the chat's send queue (a reply in the Matrix thread of
     /// `threadRoot`, if given); the chat shows it at once, uploading. Its upload's states, as the
     /// core streams them from the queue; ending the stream stops following it.
-    func send(_ attachment: OutgoingAttachment, roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
+    func send(_ attachment: OutgoingAttachment, roomId: String, threadRoot: String?, caption: ComposedText?, replyTo: String?)
         async throws -> AsyncStream<UploadState> {
         let attachment = CoreOutgoingAttachment(attachment)
         let (states, continuation) = AsyncStream.makeStream(of: UploadState.self)
         let handle = try await worded {
-            try await account.sendAttachment(roomId: roomId, threadRoot: threadRoot, attachment: attachment, caption: caption,
+            try await account.sendAttachment(roomId: roomId, threadRoot: threadRoot, attachment: attachment, caption: caption.map(CoreComposedText.init),
                                              replyTo: replyTo, listener: UploadRelay(continuation: continuation))
         }
         continuation.onTermination = { _ in handle.cancel() }

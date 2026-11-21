@@ -428,8 +428,8 @@ pub struct CoreUpload {
     pub files: Vec<String>,
     /// Where they go.
     pub room_id: String,
-    /// The first one's text.
-    pub caption: Option<String>,
+    /// The first one's text, with its pills.
+    pub caption: Option<CoreComposedText>,
     /// The message the first one answers.
     pub reply_to: Option<String>,
     /// The Matrix thread they go to, by its root's event id.
@@ -466,7 +466,7 @@ impl ThreadListener for Listener {
         self.0.on_upload(CoreUpload {
             files: upload.files.iter().map(|file| path_text(file)).collect(),
             room_id: upload.room.to_string(),
-            caption: upload.caption,
+            caption: upload.caption.map(CoreComposedText::from),
             reply_to: upload.reply.map(|id| id.to_string()),
             thread_root: upload.thread.map(|root| root.to_string()),
         });

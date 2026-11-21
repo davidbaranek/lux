@@ -74,7 +74,7 @@ enum ThreadEvent: Sendable {
     case update(ThreadBatch)
     /// Files the user sent: the platform prepares and uploads them (to the Matrix thread
     /// of `threadRoot`, if any).
-    case upload(files: [URL], roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
+    case upload(files: [URL], roomId: String, threadRoot: String?, caption: ComposedText?, replyTo: String?)
     case failed(AccountFailure)
 }
 

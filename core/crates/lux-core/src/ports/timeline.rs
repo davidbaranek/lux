@@ -212,7 +212,7 @@ pub trait ChatSending: Send + Sync {
         &self,
         timeline: &TimelineId,
         attachment: &OutgoingAttachment,
-        caption: Option<&str>,
+        caption: Option<&ComposedText>,
         reply: Option<&MessageRef>,
     ) -> impl Future<Output = Result<UploadStream, BackendError>> + Send;
 

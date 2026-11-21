@@ -2,6 +2,7 @@
 //! the account's calls beside the thread's view model: opening a chat ahead, the search index's
 //! reading, uploads, media.
 
+use lux_core::mention::ComposedText;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -19,7 +20,7 @@ use lux_core::timeline::{
 
 use crate::account::{Backend, CoreAccount, CoreAccountError, CoreListenerHandle, with_account};
 use crate::chat::{CorePreviewKind, path_text, position};
-use crate::mention::CoreMentionTarget;
+use crate::mention::{CoreComposedText, CoreMentionTarget};
 use crate::message::CoreSendState;
 use crate::runtime;
 use crate::time_span::TimeSpan;
@@ -776,17 +777,18 @@ impl CoreAccount {
         room_id: String,
         thread_root: Option<String>,
         attachment: CoreOutgoingAttachment,
-        caption: Option<String>,
+        caption: Option<CoreComposedText>,
         reply_to: Option<String>,
         listener: Arc<dyn CoreUploadListener>,
     ) -> Result<Arc<CoreListenerHandle>, CoreAccountError> {
-        let (timeline, attachment, reply) = (
+        let (timeline, attachment, reply, caption) = (
             timeline_id(room_id, thread_root),
             attachment.into(),
             reply_to.map(MessageRef::from),
+            caption.map(ComposedText::from),
         );
         let mut states = with_account!(self.backend(), account => {
-            account.timelines().send_attachment(&timeline, &attachment, caption.as_deref(), reply.as_ref()).await
+            account.timelines().send_attachment(&timeline, &attachment, caption.as_ref(), reply.as_ref()).await
         })?;
         let task = runtime::handle().spawn(async move {
             while let Some(state) = states.next().await {

@@ -44,7 +44,7 @@ public final class Uploads {
     /// as its text. A file that cannot go (unreadable, over the server's limit, refused by the
     /// queue) goes to `failure`, in the user's words: the chat that sent it shows it.
     /// A video made smaller before it goes comes in `smaller`: its copy, awaited, goes in its place.
-    public func send(_ urls: [URL], to roomId: String, threadRoot: String? = nil, caption: String? = nil, replyTo: String?,
+    public func send(_ urls: [URL], to roomId: String, threadRoot: String? = nil, caption: ComposedText? = nil, replyTo: String?,
                      smaller: [URL: Task<URL, any Error>] = [:], failure: @escaping @MainActor (any Error) -> Void) {
         guard !urls.isEmpty else { return }
         if !isActive {

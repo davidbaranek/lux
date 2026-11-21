@@ -1088,7 +1088,7 @@ impl<B: ThreadBackend> Thread<B> {
             let upload = Upload {
                 files: mem::take(&mut self.pending_files),
                 room,
-                caption: (!text.text.is_empty()).then(|| text.text.clone()),
+                caption: (!text.text.is_empty()).then(|| text.clone()),
                 reply,
                 thread: self.root.clone(),
             };

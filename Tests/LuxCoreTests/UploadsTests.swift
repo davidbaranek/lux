@@ -11,7 +11,7 @@ struct UploadsTests {
     private actor Server: UploadsPort {
         struct Sent {
             let name: String
-            let caption: String?
+            let caption: ComposedText?
             let replyTo: String?
             let states: AsyncStream<UploadState>.Continuation
         }
@@ -33,7 +33,7 @@ struct UploadsTests {
 
         func maxUploadSize() -> Int { limit }
 
-        func send(_ attachment: OutgoingAttachment, roomId: String, threadRoot: String?, caption: String?, replyTo: String?)
+        func send(_ attachment: OutgoingAttachment, roomId: String, threadRoot: String?, caption: ComposedText?, replyTo: String?)
             throws -> AsyncStream<UploadState> {
             if let refusal { throw refusal }
             let (states, continuation) = AsyncStream.makeStream(of: UploadState.self)

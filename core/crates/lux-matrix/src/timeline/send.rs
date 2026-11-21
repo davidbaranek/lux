@@ -22,8 +22,8 @@ use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
 use matrix_sdk::ruma::events::Mentions;
 use matrix_sdk::ruma::events::receipt::ReceiptThread;
 use matrix_sdk::ruma::events::room::message::{
-    AddMentions, FormattedBody, ReplyWithinThread, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-    TextMessageEventContent,
+    AddMentions, FormattedBody, MessageType, ReplyWithinThread, RoomMessageEventContent,
+    RoomMessageEventContentWithoutRelation, TextMessageEventContent,
 };
 use matrix_sdk::ruma::{
     EventId as SdkEventId, OwnedTransactionId, OwnedUserId, TransactionId, UInt, UserId as SdkUserId,
@@ -119,11 +119,14 @@ impl ChatSending for MatrixTimelines {
         &self,
         to: &TimelineId,
         attachment: &OutgoingAttachment,
-        caption: Option<&str>,
+        caption: Option<&ComposedText>,
         reply: Option<&MessageRef>,
     ) -> Result<UploadStream, BackendError> {
         let room = self.room(&to.room)?;
         let reply = self.reply(to, thread_root(to)?, reply).await?;
+        let caption = caption
+            .filter(|caption| !caption.text.is_empty())
+            .map(|caption| text_parts(caption, room.own_user_id()));
         let (request, transaction) = AttachmentRequest::of(attachment, caption, reply).await?;
         // followed from before it is queued: none of its updates goes by unseen.
         let queue = room.send_queue();
@@ -242,10 +245,16 @@ impl ChatSending for MatrixTimelines {
 /// there: a message without it falls back to the legacy push rules, which notify anyone whose name
 /// it holds.
 pub(crate) fn text_content(text: &ComposedText, own: &SdkUserId) -> RoomMessageEventContentWithoutRelation {
+    let (content, mentions) = text_parts(text, own);
+    RoomMessageEventContentWithoutRelation::new(MessageType::Text(content)).add_mentions(mentions)
+}
+
+/// The text and the mentions of `text_content`, apart: an attachment's caption takes them so.
+pub(crate) fn text_parts(text: &ComposedText, own: &SdkUserId) -> (TextMessageEventContent, Mentions) {
     let outgoing = text.outgoing();
     let content = match FormattedBody::markdown(&outgoing.markdown) {
-        Some(html) => RoomMessageEventContentWithoutRelation::text_html(outgoing.body, html.body),
-        None => RoomMessageEventContentWithoutRelation::text_plain(outgoing.body),
+        Some(html) => TextMessageEventContent::html(outgoing.body, html.body),
+        None => TextMessageEventContent::plain(outgoing.body),
     };
     let mut mentions = Mentions::with_user_ids(
         outgoing
@@ -255,7 +264,7 @@ pub(crate) fn text_content(text: &ComposedText, own: &SdkUserId) -> RoomMessageE
             .filter(|user| user != own),
     );
     mentions.room = outgoing.room;
-    content.add_mentions(mentions)
+    (content, mentions)
 }
 
 /// The newest event of a room's own timeline, out of its threads: where a receipt for the whole
@@ -387,7 +396,7 @@ impl AttachmentRequest {
     /// When a file cannot be read.
     pub(crate) async fn of(
         attachment: &OutgoingAttachment,
-        caption: Option<&str>,
+        caption: Option<(TextMessageEventContent, Mentions)>,
         reply: Option<Reply>,
     ) -> Result<(Self, OwnedTransactionId), BackendError> {
         let mimetype: mime::Mime = attachment.mimetype.parse().unwrap_or(mime::APPLICATION_OCTET_STREAM);
@@ -428,10 +437,8 @@ impl AttachmentRequest {
             txn_id: Some(transaction.clone()),
             info: Some(info),
             thumbnail,
-            caption: caption
-                .filter(|caption| !caption.is_empty())
-                .map(TextMessageEventContent::markdown),
-            mentions: None,
+            mentions: caption.as_ref().map(|(_, mentions)| mentions.clone()),
+            caption: caption.map(|(caption, _)| caption),
             extra_content: None,
             reply,
         };
