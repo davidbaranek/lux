@@ -19,9 +19,7 @@ final class AppearanceSettingsController: NSViewController, SearchablePane {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    func reveal(_ item: SettingsItem) {
-        form.focus.reveal(item)
-    }
+    var focus: SettingsFocus { form.focus }
 
     override func loadView() {
         view = form.view

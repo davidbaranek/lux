@@ -47,7 +47,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 /// under a search field, the chosen one beside it with its title and back and forward in the
 /// toolbar. Search lists the settings that match, by pane, in the sidebar; one picked opens its pane
 /// at its row. One window, reused; it opens on the pane it showed last, at the size it had.
-final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
+final class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSSearchFieldDelegate {
     private let panes: [SettingsPane: NSViewController]
     private let order: [SettingsPane]
     private let defaults: UserDefaults
@@ -103,6 +103,7 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         super.init(window: window)
         sidebar.search.target = self
         sidebar.search.action = #selector(searched(_:))
+        sidebar.search.delegate = self
 
         let toolbar = NSToolbar(identifier: "Settings")
         toolbar.delegate = self
@@ -111,8 +112,14 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         window.toolbar = toolbar
         navigation.isNavigational = true
         navigation.autovalidates = false
-        if !window.setFrameUsingName(Self.frameName) { window.center() }
-        window.setFrameAutosaveName(Self.frameName)
+        // AppKit keeps a window's frame in the standard defaults only: with defaults of their own
+        // (a test's), the window keeps nothing there either.
+        if defaults == .standard, window.setFrameUsingName(Self.frameName) {
+            window.setFrameAutosaveName(Self.frameName)
+        } else {
+            window.center()
+            if defaults == .standard { window.setFrameAutosaveName(Self.frameName) }
+        }
 
         let last = defaults.string(forKey: Self.lastPane).flatMap(SettingsPane.init(rawValue:))
         show(last.flatMap { order.contains($0) ? $0 : nil } ?? order[0])
@@ -138,13 +145,28 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         found = item
         show(item.pane)
         updateSidebar()
-        (panes[item.pane] as? SearchablePane)?.reveal(item)
+        (panes[item.pane] as? SearchablePane)?.focus.reveal(item)
     }
 
     @objc private func searched(_ sender: NSSearchField) {
         query = sender.stringValue.trimmingCharacters(in: .whitespaces)
         found = nil
         updateSidebar()
+    }
+
+    /// Edit > Find > Find… (Cmd-F): the keyboard goes to the search field.
+    @objc func performFindPanelAction(_ sender: Any?) {
+        window?.makeFirstResponder(sidebar.search)
+    }
+
+    /// In the search field, Down goes to what it found, opening the first, and Return opens the
+    /// first, as in System Settings.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.moveDown(_:)) || selector == #selector(NSResponder.insertNewline(_:)),
+              let first = SettingsItem.matching(query, in: order).first else { return false }
+        show(first)
+        if selector == #selector(NSResponder.moveDown(_:)) { window?.makeFirstResponder(sidebar.results) }
+        return true
     }
 
     @objc private func navigate(_ sender: NSToolbarItemGroup) {
@@ -220,6 +242,14 @@ private final class PaneContainer: NSViewController {
 private final class SettingsSidebarController: NSViewController {
     let search = NSSearchField()
     let list = NSHostingController(rootView: SettingsSidebar(panes: [], results: [], selected: nil, select: { _ in }))
+
+    /// The table the list draws in, which takes the keyboard from the field.
+    var results: NSView? {
+        func table(in view: NSView) -> NSView? {
+            view is NSTableView ? view : view.subviews.lazy.compactMap(table).first
+        }
+        return table(in: list.view)
+    }
 
     override func loadView() {
         search.placeholderString = String(localized: "Search")

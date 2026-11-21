@@ -78,6 +78,56 @@ struct SettingsViewTests {
         }
     }
 
+    /// Recovery key is under the account's devices, out of sight until the pane scrolls to it.
+    @Test func aSettingFoundIsScrolledToAndMarked() async throws {
+        try await withSettings { session, defaults in
+            let settings = open(session, defaults)
+            let window = try #require(settings.window)
+            settings.show(.encryption)
+            await settled(window)
+            let pane = try #require(find(NSView.self, in: window.contentView) { $0.identifier?.rawValue == "settings.encryption" })
+            let clip = try #require(find(NSScrollView.self, in: pane) { _ in true }?.contentView)
+            clip.postsBoundsChangedNotifications = true
+            #expect(clip.bounds.minY <= 0, "the pane opens at its top")
+
+            settings.show(SettingsItem.recoveryKey)
+            let focus = try #require((pane.nextResponder as? SearchablePane)?.focus)
+            for await marked in Observations({ focus.marked }) where marked == SettingsItem.recoveryKey.id { break }
+            if clip.bounds.minY <= 0 {
+                for await _ in NotificationCenter.default.notifications(named: NSView.boundsDidChangeNotification, object: clip)
+                where clip.bounds.minY > 0 { break }
+            }
+            #expect(clip.bounds.minY > 0, "the pane did not scroll to the setting")
+        }
+    }
+
+    @Test func findTakesTheKeyboardToSearchAndDownOpensWhatItFound() async throws {
+        try await withSettings { session, defaults in
+            let settings = open(session, defaults)
+            let window = try #require(settings.window)
+            let field = try #require(find(NSSearchField.self, in: window.contentView) { $0.identifier?.rawValue == "settings.search" })
+
+            // Edit > Find > Find…, as the menu sends it to the key window's responders.
+            #expect(window.tryToPerform(#selector(NSTextView.performFindPanelAction(_:)), with: nil))
+            let editor = try #require(field.currentEditor() as? NSTextView, "the field does not have the keyboard")
+
+            editor.insertText("agents", replacementRange: editor.selectedRange())
+            await settled(window)
+            editor.doCommand(by: #selector(NSResponder.moveDown(_:)))
+            await settled(window)
+            #expect(window.title == SettingsPane.ai.title)
+            #expect(window.firstResponder is NSTableView, "Down left the keyboard in the field")
+
+            #expect(window.makeFirstResponder(field))
+            let again = try #require(field.currentEditor() as? NSTextView)
+            again.selectAll(nil)
+            again.insertText("receipts", replacementRange: again.selectedRange())
+            await settled(window)
+            again.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            #expect(window.title == SettingsPane.account.title, "Return did not open what search found")
+        }
+    }
+
     /// SwiftUI has made its views again from what the window controller gave it.
     private func settled(_ window: NSWindow) async {
         for _ in 0..<3 {

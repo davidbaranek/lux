@@ -212,5 +212,6 @@ final class PaneForm<Form: View> {
 /// A pane that search can take to one of its settings.
 @MainActor
 protocol SearchablePane: NSViewController {
-    func reveal(_ item: SettingsItem)
+    /// The setting it is asked to show, and the one it marks.
+    var focus: SettingsFocus { get }
 }
