@@ -57,6 +57,9 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
             cell.show(suggestion, images: self?.images)
             return cell
         }
+        // the diffable source gives the table its rows: the selected one's fill, concentric with
+        // the glass.
+        dataSource?.rowViewProvider = { _, _, _ in SuggestionRowView(radius: Self.radius - Self.gap) }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
@@ -90,51 +93,28 @@ final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
         table.scrollRowToVisible(row)
     }
 
-    /// The selected row's fill, concentric with the glass.
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        SuggestionRowView(radius: Self.radius - Self.gap)
-    }
-
     @objc private func clicked() {
         guard suggestions.indices.contains(table.clickedRow) else { return }
         onPick?(suggestions[table.clickedRow])
     }
 }
 
-/// A row whose selection is a rounded fill of its bounds (`radius`, continuous corners) in
-/// `tertiarySystemFill`, not the system's selection colour. A layer draws it, as AppKit's paths
-/// have no continuous corners: `drawSelection(in:)` draws nothing of its own.
+/// A row whose selection is a rounded fill of its bounds (`radius`) in `tertiarySystemFill`, as the
+/// iPhone's list has it, not the system's selection colour.
 private final class SuggestionRowView: NSTableRowView {
-    private let fill = CALayer()
+    private let radius: CGFloat
 
     init(radius: CGFloat) {
+        self.radius = radius
         super.init(frame: .zero)
-        wantsLayer = true
-        fill.cornerRadius = radius
-        fill.cornerCurve = .continuous
-        fill.isHidden = true
-        layer?.addSublayer(fill)
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    override var isSelected: Bool {
-        didSet { fill.isHidden = !isSelected }
+    override func drawSelection(in dirtyRect: NSRect) {
+        NSColor.tertiarySystemFill.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
     }
-
-    override func drawSelection(in dirtyRect: NSRect) {}
-
-    override func layout() {
-        super.layout()
-        fill.frame = bounds
-    }
-
-    override func updateLayer() {
-        super.updateLayer()
-        fill.backgroundColor = NSColor.tertiarySystemFill.cgColor
-    }
-
-    override var wantsUpdateLayer: Bool { true }
 }
 
 /// A suggestion's row: the picture (a megaphone for `@room`), the name, the user id under it.
