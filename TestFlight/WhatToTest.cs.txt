@@ -1,4 +1,8 @@
-Opravy
-- Vložení fotky, videa nebo souboru do zprávy na iPhonu funguje: když je ve schránce jen obrázek nebo soubor, podržení pole nabídne Vložit (i ⌘V na klávesnici) a vložená věc se objeví ve zprávě.
+Novinky
+- Zmínky: ve skupině napište @ a vyberte člena; zobrazí se jako štítek a dostane upozornění. Zprávy, které zmiňují vás, jsou zvýrazněné; klepnutím na štítek mu napíšete.
+- Apple Intelligence: Opravit a Formátovat zprávu z + nebo z nabídky pole; výsledek se ukáže vyznačený v poli k použití nebo zrušení. Zapíná se v Nastavení › AI.
+- Siri a Zkratky umí otevřít chat, hledat ve zprávách a opravit či zformátovat text.
+- Mac: AI agenti (Claude a další MCP aplikace) mohou číst a hledat ve vašich chatech a s vaším souhlasem odesílat; nastavení v Nastavení › AI.
+- Mac: Shift-Return přidá nový řádek.
 
-Vyzkoušejte prosím: zkopírovat fotku ve Fotkách, PDF v Souborech a obrázek ze Safari a vložit je do zprávy; vložit text i obrázek najednou.
+Vyzkoušejte prosím: zmínit někoho ve skupině, v odpovědi i s fotkou; Opravit a Formátovat delší zprávu.

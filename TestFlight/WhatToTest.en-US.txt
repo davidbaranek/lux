@@ -1,4 +1,8 @@
-Fixed
-- Pasting a photo, video or file into a message on the iPhone works: with only a picture or a file on the pasteboard, holding the field offers Paste (⌘V on a keyboard too), and the pasted item shows in the message.
+New
+- @mentions: type @ in a group to pick a member; they show as a pill and get notified. Messages that mention you stand out; tap a pill to message that person.
+- Apple Intelligence: Proofread and Format a message from the + or the composer's menu; the result shows marked in the field to apply or cancel. Turn it on in Settings › AI.
+- Siri and Shortcuts can open a chat, search messages, and proofread or format a text.
+- Mac: AI agents (Claude and other MCP apps) can read and search your chats and send with your approval; set it up in Settings › AI.
+- Mac: Shift-Return adds a new line.
 
-Please try: copy a photo in Photos, a PDF in Files and a picture in Safari, and paste each into a message; paste text and a picture together.
+Please try: mentioning someone in a group, with a reply and with a photo; Proofread and Format on a longer message.
