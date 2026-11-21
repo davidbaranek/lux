@@ -1,5 +1,5 @@
-//! The apps' boundary: the Rust core's API (`lux-core`, `lux-matrix`, `lux-store`) in one library,
-//! through UniFFI.
+//! The apps' boundary: the Rust core's API (`lux-core`, `lux-intelligence`, `lux-matrix`,
+//! `lux-store`) in one library, through UniFFI.
 //!
 //! Only thin mappings live here: records and enums the bindings copy, and functions that call
 //! straight into `lux-core`. Anything that decides something belongs in `lux-core`.
@@ -12,6 +12,7 @@ mod bridges;
 mod chat;
 mod details;
 mod image_search;
+mod intelligence;
 mod list;
 mod log;
 mod markdown;

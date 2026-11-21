@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lux-core", "crates/lux-ffi", "crates/lux-matrix", "crates/lux-store", "xtask"]
+members = ["crates/lux-core", "crates/lux-ffi", "crates/lux-intelligence", "crates/lux-matrix", "crates/lux-store", "xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 lux-core = { path = "crates/lux-core" }
+lux-intelligence = { path = "crates/lux-intelligence" }
 lux-store = { path = "crates/lux-store" }
 lux-matrix = { path = "crates/lux-matrix" }
 uniffi = { version = "0.32.1", default-features = false, features = ["cargo-metadata", "tokio"] }
