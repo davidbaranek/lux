@@ -1,12 +1,16 @@
 //! A message's HTML body as the text the bubble shows and its runs of formatting. ruma reads the
 //! HTML as a browser does (html5ever: every entity, broken markup mended) and keeps it to the
-//! subset Matrix allows, without a reply's fallback quote; this walks what is left: a mention
-//! shows as its name, in bold, a list item with its bullet or number.
+//! subset Matrix allows, without a reply's fallback quote; this walks what is left: a member's
+//! link is a pill, a list item has its bullet or number.
 
 use ruma_html::matrix::{AnchorUri, MatrixElement};
 use ruma_html::{Html, NodeData, NodeRef};
 
+use ruma_common::matrix_uri::MatrixId;
+
 use super::{StyleKind, TextStyle};
+use crate::ids::UserId;
+use crate::mention::MentionTarget;
 
 /// The text of `html` and its runs of formatting, in UTF-16 offsets of the text.
 #[must_use]
@@ -18,6 +22,14 @@ pub fn parse(html: &str) -> (String, Vec<TextStyle>) {
         writer.node(&node);
     }
     writer.finish()
+}
+
+/// A Matrix link's run: a member's is their pill, a room's or an event's its text in bold.
+fn linked(id: &MatrixId) -> StyleKind {
+    match id {
+        MatrixId::User(user) => StyleKind::Mention(MentionTarget::User(UserId::from(user.as_str()))),
+        _ => StyleKind::Bold,
+    }
 }
 
 /// How an element shows.
@@ -157,8 +169,9 @@ impl Writer {
             MatrixElement::Pre => Some(StyleKind::CodeBlock),
             MatrixElement::Blockquote => Some(StyleKind::Quote),
             MatrixElement::A(anchor) => match anchor.href {
-                // a mention links to matrix.to (or a matrix: address): shown as the name, in bold.
-                Some(AnchorUri::MatrixTo(_) | AnchorUri::Matrix(_)) => Some(StyleKind::Bold),
+                // a link to matrix.to, or a matrix: address.
+                Some(AnchorUri::MatrixTo(uri)) => Some(linked(uri.id())),
+                Some(AnchorUri::Matrix(uri)) => Some(linked(uri.id())),
                 Some(AnchorUri::Other(href)) => Some(StyleKind::Link(href.to_string())),
                 _ => None,
             },
@@ -294,14 +307,38 @@ mod tests {
              hi <a href=\"https://matrix.to/#/@anna:example.org\">Anna</a>",
         );
         assert_eq!(text, "hi Anna");
-        assert_eq!(styles, [style(StyleKind::Bold, 3, 7)]);
+        assert_eq!(styles, [style(anna(), 3, 7)]);
+    }
+
+    fn anna() -> StyleKind {
+        StyleKind::Mention(MentionTarget::User(UserId::from("@anna:example.org")))
     }
 
     #[test]
     fn a_matrix_address_is_a_mention_too() {
         let (text, styles) = parse("hi <a href=\"matrix:u/anna:example.org\">Anna</a>");
         assert_eq!(text, "hi Anna");
-        assert_eq!(styles, [style(StyleKind::Bold, 3, 7)]);
+        assert_eq!(styles, [style(anna(), 3, 7)]);
+    }
+
+    #[test]
+    fn a_bridged_users_pill_names_the_ghost_and_a_rooms_link_is_bold() {
+        let (text, styles) = parse(
+            "<a href=\"https://matrix.to/#/@discord_123:example.org\">Petr</a> in \
+             <a href=\"https://matrix.to/#/!room:example.org\">the room</a>",
+        );
+        assert_eq!(text, "Petr in the room");
+        assert_eq!(
+            styles,
+            [
+                style(
+                    StyleKind::Mention(MentionTarget::User(UserId::from("@discord_123:example.org"))),
+                    0,
+                    4
+                ),
+                style(StyleKind::Bold, 8, 16)
+            ]
+        );
     }
 
     #[test]

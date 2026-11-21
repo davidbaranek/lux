@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lux_core::ids::{ChatId, MediaId, RoomId};
+use lux_core::mention::ComposedText;
 use lux_core::ports::{BackendError, SecretStore};
 use lux_core::timeline::OutgoingAttachment;
 use matrix_sdk::Client;
@@ -24,7 +25,7 @@ use crate::sign_in::restored_client;
 use crate::store::{Process, StoreFolder};
 use crate::timeline::errors::from_send_queue;
 use crate::timeline::media;
-use crate::timeline::send::AttachmentRequest;
+use crate::timeline::send::{AttachmentRequest, text_parts};
 
 /// How long a picture the cache does not have may take to come from the server.
 const PICTURE_TIME: Duration = Duration::from_secs(3);
@@ -87,6 +88,7 @@ impl MatrixShare {
             waiting.insert(handle.transaction_id().to_owned());
         }
         for attachment in attachments {
+            let caption = caption.map(|caption| text_parts(&ComposedText::from(caption), room.own_user_id()));
             let (request, transaction) = AttachmentRequest::of(attachment, caption, None).await?;
             request.send(&room).await?;
             waiting.insert(transaction);

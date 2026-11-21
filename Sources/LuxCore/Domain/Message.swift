@@ -76,6 +76,8 @@ public struct MessageItem: Hashable, Sendable, Identifiable {
     public var quote: Quote?
     /// Your own text message: it can be edited.
     public var isEditable = false
+    /// It mentions you (the push rules highlight it): the thread sets it apart.
+    public var mentionsMe = false
     /// Its event id once the server has it ("" before): what Saved keeps.
     public var eventId = ""
     /// The room it is in: one of a merged chat's (`ThreadModel` sets it).

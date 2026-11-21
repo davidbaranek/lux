@@ -218,7 +218,7 @@ async fn a_sent_text_shows_at_once_then_as_sent() {
     let question = MessageRef::Local(page[0].message.id.clone());
 
     timelines
-        .send_text(&room().into(), "**sure**", Some(&question))
+        .send_text(&room().into(), &"**sure**".into(), Some(&question))
         .await
         .unwrap();
     let page = page_until(&timelines, |page| {
@@ -253,7 +253,10 @@ async fn a_send_that_failed_for_a_moment_goes_on_retry_with_those_queued_after_i
     let timelines = MatrixTimelines::new(client, None);
     snapshot(&timelines).await;
 
-    timelines.send_text(&room().into(), "first", None).await.unwrap();
+    timelines
+        .send_text(&room().into(), &"first".into(), None)
+        .await
+        .unwrap();
     let page = page_until(&timelines, |page| {
         page.iter()
             .any(|message| message.message.body == "first" && message.message.state == SendState::Failed)
@@ -261,7 +264,10 @@ async fn a_send_that_failed_for_a_moment_goes_on_retry_with_those_queued_after_i
     .await;
     let first = page.iter().find(|message| message.message.body == "first").unwrap();
     // the failure turned the room's queue off: what comes next waits.
-    timelines.send_text(&room().into(), "second", None).await.unwrap();
+    timelines
+        .send_text(&room().into(), &"second".into(), None)
+        .await
+        .unwrap();
 
     timelines.retry(&room(), &first.message.id).await.unwrap();
     page_until(&timelines, |page| {
@@ -295,7 +301,7 @@ async fn an_own_message_is_edited_and_reacted_to() {
     let mine = page[0].message.id.clone();
     assert!(page[0].is_editable);
 
-    timelines.edit(&room(), &mine, "typo").await.unwrap();
+    timelines.edit(&room(), &mine, &"typo".into()).await.unwrap();
     let page = page_until(&timelines, body_is("typo")).await;
     assert!(page[0].message.is_edited);
 
@@ -305,7 +311,12 @@ async fn an_own_message_is_edited_and_reacted_to() {
     assert_eq!(page[0].reactions[0].key, "❤️");
 
     // another's message is not the account's to edit.
-    assert!(timelines.edit(&room(), &MessageId::from("$nope"), "x").await.is_err());
+    assert!(
+        timelines
+            .edit(&room(), &MessageId::from("$nope"), &"x".into())
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -335,7 +346,7 @@ async fn a_photo_is_queued_with_its_local_echo_and_uploads() {
         thumbnail: None,
     };
     let states: Vec<SendState> = timelines
-        .send_attachment(&room().into(), &attachment, Some("Trip"), None)
+        .send_attachment(&room().into(), &attachment, Some(&"Trip".into()), None)
         .await
         .unwrap()
         .collect()
@@ -1127,7 +1138,10 @@ async fn a_sent_message_and_those_before_it_keep_their_ids_through_its_echo_and_
         .await;
     let timelines = MatrixTimelines::new(client.clone(), None);
     page_until(&timelines, |page| page.len() == 2).await;
-    timelines.send_text(&room().into(), "hello", None).await.unwrap();
+    timelines
+        .send_text(&room().into(), &"hello".into(), None)
+        .await
+        .unwrap();
     let before = page_until(&timelines, |page| {
         page.iter()
             .any(|message| message.message.body == "hello" && message.message.state == SendState::Sent)
@@ -1201,10 +1215,13 @@ async fn only_reading_a_timeline_opens_it() {
     let timelines = MatrixTimelines::new(client, None);
 
     // a draft is the room's, and opens nothing; nor does sending, through the room's send queue.
-    timelines.save_draft(&room().into(), "later", None).await.unwrap();
+    timelines
+        .save_draft(&room().into(), &"later".into(), None)
+        .await
+        .unwrap();
     assert_eq!(
         timelines.draft(&room().into()).await.unwrap().map(|draft| draft.text),
-        Some("later".to_owned())
+        Some("later".into())
     );
     assert!(matches!(
         timelines.load_older(&room().into(), 50).await,
@@ -1252,7 +1269,7 @@ async fn an_upload_goes_on_once_its_chat_is_closed_and_its_timeline_let_go() {
         thumbnail: None,
     };
     let states = timelines
-        .send_attachment(&room().into(), &attachment, Some("Trip"), None)
+        .send_attachment(&room().into(), &attachment, Some(&"Trip".into()), None)
         .await
         .unwrap();
     // the chat closes, and eight others open after it: its timeline is let go.

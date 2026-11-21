@@ -66,6 +66,7 @@ impl ChatDetails for MatrixAccount {
                     RoomMemberRole::User => Role::Member,
                 },
                 is_own: member.is_account_user(),
+                may_mention_room: member.can_trigger_room_notification(),
             })
             .collect())
     }

@@ -11,7 +11,7 @@ public protocol ThreadScreen: AnyObject {
     /// says, once (`place(_:)`): no other code moves it for the update.
     func show(_ messages: [MessageItem], layouts: [String: MessageLayout], changed: [String], scroll: ScrollIntent)
     /// The draft the chat had, for the composer.
-    func showDraft(_ text: String)
+    func showDraft(_ text: ComposedText)
     /// Where the list is scrolled now.
     var scrollGeometry: ScrollGeometry { get }
     /// The top and bottom of the message's row in the content; nil while it is not in the list.
@@ -173,7 +173,7 @@ public final class ThreadPresenter {
     }
 
     /// Off screen: notifications come again, the draft is kept, and Handoff no longer offers it.
-    public func disappeared(draft: String) {
+    public func disappeared(draft: ComposedText) {
         handoff?.resignCurrent()
         if let thread = model.thread {
             session?.threadsOnScreen.remove(thread.rootEventId)

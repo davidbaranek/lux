@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use lux_core::chat::ScheduledMessage;
 use lux_core::ids::{EventId, RoomId, ScheduledId};
+use lux_core::mention::ComposedText;
 use lux_core::ports::{BackendError, Scheduling};
 use matrix_sdk::HttpError;
 use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event::{UpdateAction, unstable_v2 as update};
@@ -32,7 +33,7 @@ impl Scheduling for MatrixAccount {
     async fn send_later(
         &self,
         room: &RoomId,
-        text: &str,
+        text: &ComposedText,
         reply_to: Option<&EventId>,
         at: SystemTime,
     ) -> Result<ScheduledId, BackendError> {
@@ -45,7 +46,8 @@ impl Scheduling for MatrixAccount {
             .ok()
             .filter(|delay| *delay >= Duration::from_millis(1))
             .ok_or(BackendError::TimePassed)?;
-        let mut content = RoomMessageEventContent::text_plain(text);
+        let mut content: RoomMessageEventContent =
+            crate::timeline::send::text_content(text, target.own_user_id()).with_relation(None);
         if let Some(event) = reply_to
             && let Ok(event) = OwnedEventId::try_from(event.as_str())
         {

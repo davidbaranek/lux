@@ -18,6 +18,7 @@ use lux_core::thread::{
 
 use crate::account::{CoreAccount, CoreAccountError, with_account};
 use crate::chat::{CorePreviewKind, path_text};
+use crate::mention::CoreComposedText;
 use crate::message::{CoreFooter, CoreLink, CoreSeparator, zone};
 use crate::runtime;
 use crate::timeline::{CoreMessage, CoreParticipant, CoreReader, CoreTypist};
@@ -196,8 +197,8 @@ pub enum CoreComposerMode {
     Edit {
         /// The message.
         message_id: String,
-        /// Its text now.
-        original: String,
+        /// Its text now, with its pills.
+        original: CoreComposedText,
     },
 }
 
@@ -215,7 +216,7 @@ impl From<ComposerMode> for CoreComposerMode {
             },
             ComposerMode::Edit { message, original } => Self::Edit {
                 message_id: message.to_string(),
-                original,
+                original: original.into(),
             },
         }
     }
@@ -427,8 +428,8 @@ pub struct CoreUpload {
     pub files: Vec<String>,
     /// Where they go.
     pub room_id: String,
-    /// The first one's text.
-    pub caption: Option<String>,
+    /// The first one's text, with its pills.
+    pub caption: Option<CoreComposedText>,
     /// The message the first one answers.
     pub reply_to: Option<String>,
     /// The Matrix thread they go to, by its root's event id.
@@ -465,7 +466,7 @@ impl ThreadListener for Listener {
         self.0.on_upload(CoreUpload {
             files: upload.files.iter().map(|file| path_text(file)).collect(),
             room_id: upload.room.to_string(),
-            caption: upload.caption,
+            caption: upload.caption.map(CoreComposedText::from),
             reply_to: upload.reply.map(|id| id.to_string()),
             thread_root: upload.thread.map(|root| root.to_string()),
         });
@@ -572,16 +573,16 @@ impl CoreThread {
     }
 
     /// Sends the composer's text, `via` a room of a merged chat if given.
-    pub fn send(&self, text: String, via_room_id: Option<String>) {
-        self.model.send_text(text, via_room_id.map(RoomId::from));
+    pub fn send(&self, text: CoreComposedText, via_room_id: Option<String>) {
+        self.model.send_text(text.into(), via_room_id.map(RoomId::from));
     }
 
     /// Has the server send the composer's text at `at`.
     ///
     /// # Errors
     /// When the server refuses.
-    pub async fn send_later(&self, text: String, at: SystemTime) -> Result<(), CoreAccountError> {
-        Ok(self.model.send_later(text, at).await?)
+    pub async fn send_later(&self, text: CoreComposedText, at: SystemTime) -> Result<(), CoreAccountError> {
+        Ok(self.model.send_later(text.into(), at).await?)
     }
 
     /// Puts files in the composer.
@@ -674,14 +675,14 @@ impl CoreThread {
         self.model.composer_changed(text);
     }
 
-    /// The text the composer had.
-    pub async fn load_draft(&self) -> String {
-        self.model.load_draft().await
+    /// The text the composer had, with its pills.
+    pub async fn load_draft(&self) -> CoreComposedText {
+        self.model.load_draft().await.into()
     }
 
-    /// Keeps the composer's text for the next visit.
-    pub fn save_draft(&self, text: String) {
-        self.model.save_draft(text);
+    /// Keeps the composer's text and its pills for the next visit.
+    pub fn save_draft(&self, text: CoreComposedText) {
+        self.model.save_draft(text.into());
     }
 }
 

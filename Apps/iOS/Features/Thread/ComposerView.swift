@@ -6,12 +6,17 @@ import UniformTypeIdentifiers
 /// answers or edits a message. While nothing is written and the chat has unread messages, the
 /// button is an eye that sends a read receipt; holding it shows `readReceiptsMenu`. The text is
 /// Markdown, shown formatted as it is typed (the marks dimmed); a selection's menu has Format.
-/// A pasted or dropped photo, video or file waits in it as one picked with the + does.
+/// A pasted or dropped photo, video or file waits in it as one picked with the + does. An `@`
+/// and a word ask for the members it offers (`onMentionQuery`); a picked one is a pill, a run of
+/// the text that shows their name and goes whole when an edit touches it (`ComposerPills`).
 final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGestureRecognizerDelegate {
     /// The round buttons beside the field, and the field's one-line height: as Messages has them.
     static let button: CGFloat = 40
 
-    var onSend: ((String) -> Void)?
+    var onSend: ((ComposedText) -> Void)?
+    /// The `@` and the word typed before the cursor changed: nil when there is none.
+    var onMentionQuery: ((MentionQuery?) -> Void)?
+    private var mentionQuery: MentionQuery?
     var onCancelMode: (() -> Void)?
     var onReadReceipt: (() -> Void)?
     /// Photos, videos or files pasted or dropped into the text: they go with the message.
@@ -31,8 +36,11 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     private let modeBar = ModeBar()
     /// An AI action's result over the text, with ✓ and ✕.
     private let reviewBar = ReviewBar()
-    /// The text as written while an AI action's result shows over it; nil otherwise.
-    private var reviewed: String?
+    /// The text as written (with its pills) while an AI action's result shows over it; nil
+    /// otherwise.
+    private var reviewed: ComposedText?
+    /// The result's runs over it: the pills ✓ keeps are those in its kept runs.
+    private var reviewRuns: [TextActionChange] = []
     /// ✓ on an AI action's result: put it in the composer.
     var onAcceptReview: (() -> Void)?
     /// The AI action at work for this review: ended with it, so its result never lands in a
@@ -96,13 +104,34 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     }()
 
     /// The text being written.
-    var text: String {
-        get { textView.text }
+    var text: String { textView.text }
+
+    /// The text being written, with its pills.
+    var composed: ComposedText {
+        get { ComposerPills.composed(textView.textStorage) }
         set {
-            textView.text = newValue
+            textView.attributedText = ComposerPills.attributed(newValue, attributes: baseAttributes)
             restyle()
             refresh()
+            updateMentionQuery()
         }
+    }
+
+    /// Puts the pill of `suggestion` in the place of the `@` and its word at `range`.
+    /// The name and a space go in through the text input (undo takes them back as one), then the
+    /// name's run is marked as the pill.
+    func insertMention(_ suggestion: MentionSuggestion, replacing range: NSRange) {
+        guard NSMaxRange(range) <= textView.textStorage.length else { return }
+        let (target, name) = suggestion.pill
+        let length = (name as NSString).length
+        replace(range, with: name + " ")
+        ComposerPills.mark(textView.textStorage, target, in: NSRange(location: range.location, length: length))
+        textView.selectedRange = NSRange(location: range.location + length + 1, length: 0)
+        textViewDidChange(textView)
+    }
+
+    private var baseAttributes: [NSAttributedString.Key: Any] {
+        [.font: textView.font ?? .preferredFont(forTextStyle: .body), .foregroundColor: UIColor.label]
     }
 
     override init(frame: CGRect) {
@@ -221,8 +250,11 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     /// An AI action works on the text: the bar says so, the text waits as it is and cannot be
     /// changed meanwhile.
     func beginReview(symbol: String, title: String) {
-        reviewed = textView.text
+        reviewed = composed
+        reviewRuns = []
         textView.isEditable = false
+        // no mention is offered over a review.
+        updateMentionQuery()
         reviewBar.showWorking(symbol: symbol, title: title)
         send.isEnabled = false
         UIView.animate(withDuration: 0.2) {
@@ -235,6 +267,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     /// something to apply; or `note` in the bar (a note, no mistakes, why there is none).
     func showReview(_ runs: [TextActionChange], canApply: Bool, note: String?) {
         guard reviewed != nil, reviewTask?.isCancelled == false else { return }
+        reviewRuns = runs
         if canApply, let font = textView.font { textView.attributedText = Self.review(runs, font: font) }
         reviewBar.showResult(note: note, canApply: canApply)
         refresh()
@@ -249,9 +282,15 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
         reviewTask?.cancel()
         reviewTask = nil
         textView.isEditable = true
-        textView.text = original
-        restyle()
-        if let new { replaceText(with: new) } else { refresh() }
+        // the text as written, its pills too; ✓ keeps those the result left as they were.
+        composed = original
+        if let new {
+            replaceText(with: new)
+            for pill in Mention.carried(original.mentions, through: reviewRuns) {
+                ComposerPills.mark(textView.textStorage, pill.target, in: pill.range)
+            }
+            textViewDidChange(textView)
+        }
         UIView.animate(withDuration: 0.2) {
             self.reviewBar.isHidden = true
             self.superview?.layoutIfNeeded()
@@ -351,7 +390,51 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     func textViewDidChange(_ textView: UITextView) {
         restyle()
         refresh()
+        updateMentionQuery()
         onTextChange?(textView.text)
+    }
+
+    /// A deletion that cuts into a pill takes the whole pill; text put into part of one (an
+    /// autocorrection of one of its words) is refused (`ComposerPills.edit`).
+    func textView(_ textView: UITextView, shouldChangeTextInRanges ranges: [NSValue], replacementText text: String) -> Bool {
+        switch ComposerPills.edit(ranges.map(\.rangeValue), replacement: text, in: textView.textStorage) {
+        case .asAsked: return true
+        case .refused: return false
+        case .delete(let grown):
+            // through the text input, so undo takes it back.
+            for range in grown { replace(range, with: "") }
+            return false
+        }
+    }
+
+    /// The caret never rests inside a pill, and what is typed after one is plain text.
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        let selection = textView.selectedRange
+        if selection.length == 0 {
+            let moved = ComposerPills.expanded(selection, in: textView.textStorage)
+            if moved != selection {
+                textView.selectedRange = moved
+                return
+            }
+        }
+        textView.typingAttributes = baseAttributes
+        updateMentionQuery()
+    }
+
+    /// The `@` and the word before the caret, unless a pill holds the `@`.
+    private func updateMentionQuery() {
+        let signpost = Signposts.thread.beginInterval("mention query")
+        defer { Signposts.thread.endInterval("mention query", signpost) }
+        let selection = textView.selectedRange
+        var query: MentionQuery?
+        if reviewed == nil, selection.length == 0, textView.markedTextRange == nil,
+           let found = ComposedText.mentionQuery(in: textView.text, cursor: selection.location),
+           !ComposerPills.ranges(in: textView.textStorage).contains(where: { NSIntersectionRange($0, found.range).length > 0 }) {
+            query = found
+        }
+        guard query != mentionQuery else { return }
+        mentionQuery = query
+        onMentionQuery?(query)
     }
 
     /// A photo, a video or a file goes with the message; text pastes as the text view pastes it.
@@ -368,11 +451,15 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     /// Only attributes change, so the text, the cursor and undo stay as they are.
     private func restyle() {
         guard let font = textView.font else { return }
+        let signpost = Signposts.thread.beginInterval("composer restyle")
+        defer { Signposts.thread.endInterval("composer restyle", signpost) }
         let storage = textView.textStorage
         let all = NSRange(location: 0, length: storage.length)
         let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
+        let pills = ComposerPills.marks(in: storage)
         storage.beginEditing()
         storage.setAttributes(base, range: all)
+        ComposerPills.mark(storage, pills)
         for run in Markdown.runs(in: textView.text) where NSMaxRange(run.range) <= storage.length {
             switch run.kind {
             case .bold: Self.add(.traitBold, to: storage, in: run.range)
@@ -385,6 +472,7 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
             case .mark: storage.addAttribute(.foregroundColor, value: UIColor.tertiaryLabel, range: run.range)
             }
         }
+        ComposerPills.style(storage, tint: tintColor)
         storage.endEditing()
         textView.typingAttributes = base
     }
@@ -413,10 +501,21 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     }
 
     private func toggle(_ mark: String) {
-        let changed = Markdown.toggle(mark, in: textView.text, selection: textView.selectedRange)
-        textView.text = changed.text
+        // a pill is not cut by marks: they go around its whole run, and the text between them
+        // (its pills) stays as it is.
+        let selection = ComposerPills.expanded(textView.selectedRange, in: textView.textStorage)
+        let changed = Markdown.toggleEdits(mark, in: textView.text, selection: selection)
+        for edit in changed.edits { replace(edit.range, with: edit.replacement) }
         textView.selectedRange = changed.selection
         textViewDidChange(textView)
+    }
+
+    /// Replaces `range` through the text input: undo takes it back.
+    private func replace(_ range: NSRange, with text: String) {
+        guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+              let end = textView.position(from: start, offset: range.length),
+              let span = textView.textRange(from: start, to: end) else { return }
+        textView.replace(span, withText: text)
     }
 
     private func refresh() {
@@ -458,8 +557,8 @@ final class ComposerView: UIView, UITextViewDelegate, UITextPasteDelegate, UIGes
     }
 
     private func submit() {
-        onSend?(textView.text)
-        text = ""
+        onSend?(composed)
+        composed = ""
     }
 }
 

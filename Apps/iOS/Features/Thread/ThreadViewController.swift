@@ -24,6 +24,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
     var collectionView: UICollectionView!
     var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private let composer = ComposerView()
+    /// The members an `@` and its word offer, above the composer.
+    private let mentions = MentionSuggestionsView()
+    /// The `@` and the word the suggestions are for.
+    private var mentionQuery: MentionQuery?
     /// Shows while messages come from the server (the opening fill, older messages).
     private let loading = LoadingBubble(text: String(localized: "Loading messages"))
     private let empty = UILabel()
@@ -145,6 +149,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             }
             cell.onQuoteTap = message.quote == nil ? nil : { [weak self] in self?.presenter.jump(toRepliedMessageOf: id) }
             cell.onLink = { url in UIApplication.shared.open(url) }
+            // the cell weakly: its own handler holding it would keep it alive.
+            cell.onMention = { [weak self, weak cell] user in
+                guard let cell else { return }
+                self?.showMember(user, from: cell)
+            }
             cell.onBubbleTap = { [weak self] in
                 guard let self, let message = messages[id] else { return }
                 model.tap(message)
@@ -242,6 +251,13 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         composer.onCancelMode = { [weak self] in self?.model.cancelMode() }
         composer.onReadReceipt = { [weak self] in self?.model.sendReadReceipt() }
         composer.onTextChange = { [weak self] text in self?.model.composerChanged(text) }
+        composer.onMentionQuery = { [weak self] query in self?.mentionQueryChanged(query) }
+        mentions.images = session.images
+        mentions.onPick = { [weak self] suggestion in
+            guard let self, let query = mentionQuery else { return }
+            composer.insertMention(suggestion, replacing: query.range)
+        }
+        mentions.translatesAutoresizingMaskIntoConstraints = false
         typing.images = session.images
         typing.alpha = 0
         typing.translatesAutoresizingMaskIntoConstraints = false
@@ -267,6 +283,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         newPinBar.onJump = { [weak self] pin in self?.presenter.jump(toMessage: pin.link) }
         newPinBar.onSeen = { [weak self] in self?.model.pinsSeen() }
         view.addSubview(newPinBar)
+        view.addSubview(mentions)
         view.addSubview(emojiPicker)
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         let pullDown = composer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
@@ -286,6 +303,10 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             typing.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: BubbleMetrics().sideMargin),
             typing.trailingAnchor.constraint(lessThanOrEqualTo: jumpToBottom.leadingAnchor, constant: -8),
             typing.bottomAnchor.constraint(equalTo: composer.topAnchor, constant: -6),
+            // over the messages, just above the field it fills.
+            mentions.leadingAnchor.constraint(equalTo: composer.leadingAnchor),
+            mentions.trailingAnchor.constraint(equalTo: composer.trailingAnchor),
+            mentions.bottomAnchor.constraint(equalTo: composer.topAnchor, constant: -8),
             jumpToBottom.widthAnchor.constraint(equalToConstant: 44),
             jumpToBottom.heightAnchor.constraint(equalToConstant: 44),
             // above the way down: unread messages are up, the newest down.
@@ -330,7 +351,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        presenter.disappeared(draft: composer.text)
+        presenter.disappeared(draft: composer.composed)
     }
 
     /// The composer's bar says what sending does; an edit puts the message's text in the field.
@@ -342,8 +363,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             composer.setMode(symbol: "arrowshape.turn.up.left", title: String(localized: "Replying to \(preview.senderName)"), detail: preview.body)
             composer.focus()
         case .edit(_, let original):
-            composer.setMode(symbol: "pencil", title: String(localized: "Editing"), detail: original)
-            composer.text = original
+            composer.setMode(symbol: "pencil", title: String(localized: "Editing"), detail: original.text)
+            composer.composed = original
             composer.focus()
         }
     }
@@ -460,7 +481,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
                     presenter.userStartedScrolling()
                     if !presenter.returnToLive() { scrollToBottom(animated: false) }
                 },
-                send: { model.send($0) })
+                send: { model.send(ComposedText($0)) })
         }
     }
 
@@ -536,6 +557,60 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
         networksButton.accessibilityValue = chatTitle.subtitle
     }
 
+    // MARK: Mentions
+
+    /// The members the `@` and its word offer, once the room's are loaded; a newer word's answer
+    /// replaces an older one's.
+    private func mentionQueryChanged(_ query: MentionQuery?) {
+        mentionQuery = query
+        guard let query else { return mentions.show([]) }
+        // the screen's own task, a newer word's replacing it: none outlives the chat.
+        tasks.run("mention suggestions") { [weak self] in
+            guard let self else { return }
+            let found = await model.mentionSuggestions(for: query)
+            guard mentionQuery == query else { return }
+            mentions.show(found)
+        }
+    }
+
+    /// A member's pill was tapped: who it is, and the chat with them (a bridged network's ghost
+    /// too, through its bridge).
+    /// The account's own pill offers no chat (it would be one with itself).
+    private func showMember(_ userId: String, from cell: UIView) {
+        tasks.run("mention: member") { [weak self, weak cell] in
+            guard let self, let cell else { return }
+            let sheet = UIAlertController(title: nil, message: userId, preferredStyle: .actionSheet)
+            if await !model.isAccount(userId) {
+                sheet.addAction(UIAlertAction(title: String(localized: "Message"), style: .default) { [weak self] _ in
+                    self?.openDirectChat(with: userId)
+                })
+            }
+            sheet.addAction(UIAlertAction(title: String(localized: "Copy User ID"), style: .default) { _ in
+                UIPasteboard.general.string = userId
+            })
+            sheet.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+            sheet.popoverPresentationController?.sourceView = cell
+            present(sheet, animated: true)
+        }
+    }
+
+    private func openDirectChat(with userId: String) {
+        tasks.run("mention: direct chat") { [weak self] in
+            guard let self else { return }
+            do {
+                let roomId = try await model.directChat(with: userId)
+                guard let row = await list?.chat(ofRoom: roomId) else { return }
+                navigationController?.pushViewController(ThreadViewController(session: session, row: row, theme: theme, list: list),
+                                                         animated: true)
+            } catch {
+                let alert = UIAlertController(title: String(localized: "Could not start the conversation"),
+                                              message: error.localizedDescription, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
+                present(alert, animated: true)
+            }
+        }
+    }
+
     /// The Matrix thread `message` starts (a new one, to reply in, if it starts none), pushed
     /// over the chat.
     func openThread(of message: MessageItem) {
@@ -594,8 +669,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             UIAction(title: Networks.name(room.network), image: NetworkImage.image(room.network),
                      state: room.id == model.sendRoom ? .on : .off) { [weak self] _ in
                 guard let self else { return }
-                model.send(composer.text, via: room.id)
-                composer.text = ""
+                model.send(composer.composed, via: room.id)
+                composer.composed = ""
                 donateSent()
             }
         }
@@ -610,8 +685,8 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
             let date = time.date()
             return UIAction(title: time.title, subtitle: TimeText.upcoming(date), image: UIImage(systemName: time.symbol)) { [weak self] _ in
                 guard let self else { return }
-                model.sendLater(composer.text, at: date)
-                composer.text = ""
+                model.sendLater(composer.composed, at: date)
+                composer.composed = ""
             }
         }
     }
@@ -715,7 +790,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegateFlow
 }
 
 extension ThreadViewController: ThreadScreen {
-    func showDraft(_ text: String) { composer.text = text }
+    func showDraft(_ text: ComposedText) { composer.composed = text }
 
     /// Runs an AI action over the text written, in place: the composer shows it working, then
     /// the result over the text with ✓ (applied as one edit Undo takes back) and ✕.

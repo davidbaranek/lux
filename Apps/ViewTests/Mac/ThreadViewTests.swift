@@ -194,6 +194,109 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func anAtOffersTheGroupsMembersAndThePickedOneIsAPillThatGoesWhole() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await groupChat(in: session), in: session)
+            let controller = chat.controller, field = controller.field, mentions = controller.mentions
+            try await chat.changes.until { chat.isShown(chat.newest) && !controller.model.isLoading }
+            let shown = mentions.observe(\.isHidden) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
+            defer { shown.invalidate() }
+
+            field.insertText("hi @", replacementRange: NSRange(location: NSNotFound, length: 0))
+            try await chat.changes.until { !mentions.isHidden }
+            let picked = try #require(mentions.selected)
+            guard case .member(let member) = picked else {
+                Issue.record("a member first, not @room")
+                return
+            }
+            // the arrows move the selection, Return picks it.
+            #expect(controller.textView(field, doCommandBy: #selector(NSResponder.moveDown(_:))))
+            #expect(controller.textView(field, doCommandBy: #selector(NSResponder.moveUp(_:))))
+            #expect(controller.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+            try await chat.changes.until { mentions.isHidden }
+            let name = member.name as NSString
+            #expect(field.string == "hi \(member.name) ")
+            #expect(controller.composerField.composed.mentions == [Mention(.user(member.id), NSRange(location: 3, length: name.length))])
+
+            // an autocorrection of a word inside the pill is refused: the pill stays whole.
+            #expect(!controller.textView(field, shouldChangeTextIn: NSRange(location: 4, length: 2), replacementString: "xy"))
+            #expect(field.string == "hi \(member.name) ")
+            // a caret put inside the pill goes to its end.
+            field.setSelectedRange(NSRange(location: 4, length: 0))
+            #expect(field.selectedRange() == NSRange(location: 3 + name.length, length: 0))
+
+            // sent, the message shows the pill.
+            controller.send()
+            try await chat.changes.until { chat.shows("hi \(member.name)") }
+            #expect(controller.model.messages.last?.styles == [TextStyle(.mention(.user(member.id)), NSRange(location: 3, length: name.length))])
+
+            // Backspace takes the space after a pill, then the whole pill, as one.
+            field.insertText("@", replacementRange: NSRange(location: NSNotFound, length: 0))
+            try await chat.changes.until { !mentions.isHidden }
+            #expect(controller.textView(field, doCommandBy: #selector(NSResponder.insertTab(_:))))
+            #expect(controller.composerField.composed.mentions.count == 1)
+            field.deleteBackward(nil)
+            field.deleteBackward(nil)
+            #expect(field.string.isEmpty)
+            #expect(controller.composerField.composed.mentions.isEmpty)
+        }
+    }
+
+    @Test func aChatClosedWithItsMentionListShownIsFreed() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let row = try await groupChat(in: session)
+            /// The chat, its mention list shown and a pill picked, then let go: what it held.
+            @MainActor func shown() async throws -> (controller: ThreadController?, model: ThreadModel?, list: MentionSuggestionsView?) {
+                let chat = try open(row, in: session)
+                let controller = chat.controller, field = controller.field, mentions = controller.mentions
+                try await chat.changes.until { chat.isShown(chat.newest) && !controller.model.isLoading }
+                let shown = mentions.observe(\.isHidden) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
+                defer { shown.invalidate() }
+                field.insertText("@", replacementRange: NSRange(location: NSNotFound, length: 0))
+                try await chat.changes.until { !mentions.isHidden }
+                #expect(controller.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+                field.insertText(" @", replacementRange: NSRange(location: NSNotFound, length: 0))
+                try await chat.changes.until { !mentions.isHidden }
+                return (controller, controller.model, mentions)
+            }
+            weak var controller: ThreadController?
+            weak var model: ThreadModel?
+            weak var list: MentionSuggestionsView?
+            (controller, model, list) = try await shown()
+            // AppKit's autoreleased views go as the main run loop's turn ends.
+            await withCheckedContinuation { done in RunLoop.main.perform { done.resume() } }
+            // nothing it started holds it: the handlers and the suggestions' task hold it weakly.
+            #expect(controller == nil)
+            #expect(model == nil)
+            #expect(list == nil)
+        }
+    }
+
+    @Test func returnSendsAndShiftOrOptionReturnAddsALine() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            let chat = try open(try await readChat(in: session), in: session)
+            let controller = chat.controller, field = controller.field
+            try await chat.changes.until { chat.isShown(chat.newest) && !controller.model.isLoading }
+            field.insertText("first", replacementRange: NSRange(location: NSNotFound, length: 0))
+            // Shift-Return, as the key comes: a line, nothing sent.
+            field.keyDown(with: try returnKey(.shift))
+            field.insertText("second", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(field.string == "first\nsecond")
+            // Option-Return, as AppKit's key bindings name it: a line too.
+            #expect(!controller.textView(field, doCommandBy: #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))))
+            // Return sends the lines.
+            #expect(controller.textView(field, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+            try await chat.changes.until { chat.shows("first\nsecond") }
+            #expect(field.string.isEmpty)
+        }
+    }
+
+    /// Return pressed with `modifiers`, as the text view gets it.
+    private func returnKey(_ modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0,
+                                      context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+    }
+
     @Test func aFilePastedIntoTheComposerWaitsInItAsAPickedOneDoes() async throws {
         try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
             let chat = try open(try await readChat(in: session), in: session)
@@ -362,6 +465,15 @@ struct ThreadViewTests {
         list.reload()
         try await changes.until { list.rows.contains { !$0.isUnread && !$0.isMerged && !$0.isGroup } }
         return try #require(list.rows.first { !$0.isUnread && !$0.isMerged && !$0.isGroup })
+    }
+
+    /// A group of the demo: its members are offered for a mention.
+    private func groupChat(in session: Session) async throws -> ChatRow {
+        let list = ChatListModel(session: session)
+        let changes = list.changes()
+        list.reload()
+        try await changes.until { list.rows.contains { !$0.isMerged && $0.isGroup } }
+        return try #require(list.rows.first { !$0.isMerged && $0.isGroup })
     }
 
     /// The chat open in a second model, as in another window.

@@ -10,6 +10,8 @@ public struct TextStyle: Hashable, Sendable {
         case codeBlock
         case quote
         case link(URL)
+        /// A pill: a member (shown with their name in the room now) or `@room`.
+        case mention(MentionTarget)
     }
 
     public var kind: Kind

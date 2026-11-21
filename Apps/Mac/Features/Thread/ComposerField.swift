@@ -44,11 +44,18 @@ final class ComposerField: NSScrollView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    /// The text being written; set by the app (a draft, an edit, sending), it is not the user's change.
-    var text: String {
-        get { textView.string }
+    /// The text being written.
+    var text: String { textView.string }
+
+    /// The text being written, with its pills; set by the app (a draft, an edit, sending), it is
+    /// not the user's change.
+    var composed: ComposedText {
+        get { textView.textStorage.map(ComposerPills.composed) ?? "" }
         set {
-            textView.string = newValue
+            let font = textView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+            textView.textStorage?.setAttributedString(
+                ComposerPills.attributed(newValue, attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
+            MarkdownStyler.style(textView, font: font)
             textChanged()
         }
     }
@@ -156,6 +163,20 @@ final class ComposerTextView: NSTextView {
             }
             return item.data(forType: NSPasteboard.PasteboardType(type.identifier)).map { .data($0, type: type, name: nil) }
         }
+    }
+
+    /// Shift-Return adds a line, as in Messages. AppKit's key bindings give it no command of its
+    /// own (StandardKeyBinding.dict binds Return to `insertNewline:`, Control-Return to
+    /// `insertLineBreak:`, Option-Return to `insertNewlineIgnoringFieldEditor:`; Shift falls
+    /// through to Return's): here it is Control-Return's `insertLineBreak:`, which the delegate
+    /// takes as a line, never as Send.
+    override func keyDown(with event: NSEvent) {
+        if !hasMarkedText(), event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift,
+           event.charactersIgnoringModifiers == "\r" {
+            doCommand(by: #selector(NSResponder.insertLineBreak(_:)))
+            return
+        }
+        super.keyDown(with: event)
     }
 
     override func draw(_ dirtyRect: NSRect) {

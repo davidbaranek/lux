@@ -29,6 +29,7 @@ use crate::FRAME;
 use crate::actions::Actions;
 use crate::diff;
 use crate::ids::{EventId, MessageId, MessageRef, RoomId, TimelineId};
+use crate::mention::ComposedText;
 use crate::merge;
 use crate::ports::{BackendError, ChatSending, ChatTimelines, Diffs, ThreadBackend, TimelineHold};
 use crate::timeline::{Draft, Focused, Pins, Receipt, TimelineMessage, Typist, Unread};
@@ -60,7 +61,7 @@ enum Event {
     /// Whether the room can have messages sent later.
     CanSendLater(RoomId, bool),
     /// The kept draft.
-    Draft(Option<Draft>, oneshot::Sender<String>),
+    Draft(Option<Draft>, oneshot::Sender<ComposedText>),
     /// A jump's timeline opened around its message in a room (or did not).
     JumpOpened(u64, usize, TimelineId, Result<Focused, BackendError>, jump::Answer),
     /// A jump's messages changed.
@@ -837,7 +838,7 @@ impl<B: ThreadBackend> Thread<B> {
             }
             Intent::Edit(message) => {
                 if let Some(found) = self.message(&message).filter(|found| found.is_editable) {
-                    let original = found.message.body.clone();
+                    let original = ComposedText::of_message(&found.message.body, &found.styles);
                     self.set_mode(ComposerMode::Edit { message, original });
                 }
             }
@@ -845,9 +846,9 @@ impl<B: ThreadBackend> Thread<B> {
             Intent::Send { text, via } => {
                 // what is sent shows among the live rows.
                 self.leave_detached();
-                self.send(text.trim(), via);
+                self.send(text.trimmed(), via);
             }
-            Intent::SendLater(text, at, answer) => self.send_later(text.trim(), at, answer),
+            Intent::SendLater(text, at, answer) => self.send_later(text.trimmed(), at, answer),
             Intent::Attach(files) => {
                 for file in files {
                     if !self.pending_files.contains(&file) {
@@ -916,7 +917,7 @@ impl<B: ThreadBackend> Thread<B> {
                 let (reply, timeline, text) = (
                     self.mode.reply().cloned(),
                     self.timeline(&self.default_room),
-                    text.trim().to_owned(),
+                    text.trimmed(),
                 );
                 self.act(Target::Draft(timeline.clone()), move |backend| async move {
                     backend.timelines().save_draft(&timeline, &text, reply.as_ref()).await
@@ -1073,7 +1074,7 @@ impl<B: ThreadBackend> Thread<B> {
 
     /// Sends what the composer holds: waiting files first (an edit sends none), the text as the
     /// first one's caption; else the text as the mode says.
-    fn send(&mut self, text: &str, via: Option<RoomId>) {
+    fn send(&mut self, text: ComposedText, via: Option<RoomId>) {
         let editing = matches!(self.mode, ComposerMode::Edit { .. });
         if !self.pending_files.is_empty() && !editing {
             let reply = self.mode.reply().cloned();
@@ -1087,7 +1088,7 @@ impl<B: ThreadBackend> Thread<B> {
             let upload = Upload {
                 files: mem::take(&mut self.pending_files),
                 room,
-                caption: (!text.is_empty()).then(|| text.to_owned()),
+                caption: (!text.text.is_empty()).then(|| text.clone()),
                 reply,
                 thread: self.root.clone(),
             };
@@ -1095,13 +1096,12 @@ impl<B: ThreadBackend> Thread<B> {
             self.sending = true;
             return;
         }
-        if text.is_empty() {
+        if text.text.is_empty() {
             return;
         }
         let mode = mem::take(&mut self.mode);
         self.dirty.state = true;
         self.composer_changed("");
-        let text = text.to_owned();
         // a new message comes back as the newest row, its local echo; an edit changes its row.
         self.sending |= !matches!(mode, ComposerMode::Edit { .. });
         match mode {
@@ -1133,8 +1133,13 @@ impl<B: ThreadBackend> Thread<B> {
         }
     }
 
-    fn send_later(&mut self, text: &str, at: std::time::SystemTime, answer: oneshot::Sender<Result<(), BackendError>>) {
-        if text.is_empty() {
+    fn send_later(
+        &mut self,
+        text: ComposedText,
+        at: std::time::SystemTime,
+        answer: oneshot::Sender<Result<(), BackendError>>,
+    ) {
+        if text.text.is_empty() {
             answer.send(Ok(())).other_end_may_be_gone("the caller");
             return;
         }
@@ -1144,7 +1149,7 @@ impl<B: ThreadBackend> Thread<B> {
             .map_or_else(|| self.send_room.clone(), |reply| self.reply_room(reply));
         let reply = reply.and_then(|reply| self.reply_event(&reply));
         self.set_mode(ComposerMode::Message);
-        let (backend, listener, text) = (Arc::clone(&self.backend), Arc::clone(&self.listener), text.to_owned());
+        let (backend, listener) = (Arc::clone(&self.backend), Arc::clone(&self.listener));
         self.actions.push(Target::Sends(room.clone()), async move {
             let sent = backend.send_later(&room, &text, reply.as_ref(), at).await.map(drop);
             // the caller stopped waiting: its failure is the thread's to show.

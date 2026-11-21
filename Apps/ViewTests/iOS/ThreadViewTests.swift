@@ -272,6 +272,66 @@ struct ThreadViewTests {
         }
     }
 
+    @Test func anAtOffersTheGroupsMembersAndThePickedOneIsAPillThatGoesWhole() async throws {
+        try await DemoAccount.with(rooms: 10, messagesPerRoom: 60) { session in
+            // in a window: the text view takes the keyboard's input, as the user types.
+            let chat = try open(try await groupChat(in: session), in: session, inWindow: true)
+            let view = chat.controller.view!
+            let text = try #require(view.descendant(where: { $0.accessibilityIdentifier == "composer" }) as? UITextView)
+            let list = try #require(view.descendant(where: { $0.accessibilityIdentifier == "mention suggestions" }) as? UICollectionView)
+            let suggestions = try #require(view.descendant(where: { $0 is MentionSuggestionsView }) as? MentionSuggestionsView)
+            // the list shows or hides with its layer.
+            let shown = suggestions.layer.observe(\.isHidden) { _, _ in MainActor.assumeIsolated { chat.changes.send() } }
+            defer { shown.invalidate() }
+            // the chat's draft is in (an empty one) before the user types.
+            try await chat.changes.until { chat.isShown(chat.newest) && !chat.controller.model.isLoading }
+
+            text.becomeFirstResponder()
+            text.insertText("hi @")
+            #expect(text.text == "hi @")
+            try await chat.changes.until { !suggestions.isHidden && list.numberOfItems(inSection: 0) > 0 }
+            guard case .member(let member) = suggestions.suggestions.first else {
+                Issue.record("a member first, not @room")
+                return
+            }
+            list.delegate?.collectionView?(list, didSelectItemAt: IndexPath(item: 0, section: 0))
+            let name = (member.name as NSString).length
+            #expect(text.text == "hi \(member.name) ")
+            #expect(ComposerPills.composed(text.attributedText).mentions == [Mention(.user(member.id), NSRange(location: 3, length: name))])
+            #expect(suggestions.isHidden)
+
+            // an autocorrection of a word inside the pill is refused: the pill stays whole.
+            #expect(text.delegate?.textView?(text, shouldChangeTextInRanges: [NSValue(range: NSRange(location: 4, length: 2))],
+                                             replacementText: "xy") == false)
+            #expect(text.text == "hi \(member.name) ")
+            // Backspace takes the space after the pill, then the whole pill, as one.
+            backspace(in: text)
+            backspace(in: text)
+            #expect(text.text == "hi ")
+            #expect(ComposerPills.composed(text.attributedText).mentions.isEmpty)
+        }
+    }
+
+    /// Backspace as the keyboard presses it: the text view's delegate is asked first (a call of
+    /// `deleteBackward` alone does not ask it), and the character goes if it agrees.
+    private func backspace(in text: UITextView) {
+        let caret = text.selectedRange.location
+        guard caret > 0 else { return }
+        let range = (text.text as NSString).rangeOfComposedCharacterSequence(at: caret - 1)
+        if text.delegate?.textView?(text, shouldChangeTextInRanges: [NSValue(range: range)], replacementText: "") ?? true {
+            text.deleteBackward()
+        }
+    }
+
+    /// A group of the demo: its members are offered for a mention.
+    private func groupChat(in session: Session) async throws -> ChatRow {
+        let list = ChatListModel(session: session)
+        let changes = list.changes()
+        list.reload()
+        try await changes.until { list.rows.contains { !$0.isMerged && $0.isGroup } }
+        return try #require(list.rows.first { !$0.isMerged && $0.isGroup })
+    }
+
     private func readChat(in session: Session) async throws -> ChatRow {
         let list = ChatListModel(session: session)
         let changes = list.changes()

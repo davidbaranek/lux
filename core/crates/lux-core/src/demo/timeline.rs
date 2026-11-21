@@ -23,6 +23,7 @@ use super::SentMessages;
 use super::data::stable;
 use super::seeded::{self, text};
 use crate::ids::{ChatId, EventId, MediaId, MessageId, MessageRef, RoomId, TimelineId, UserId};
+use crate::mention::{ComposedText, MentionTarget};
 use crate::message::{self, Attachment, Message, SendState};
 use crate::ports::{
     BackendError, ChatSending, ChatTimelines, DiffStream, PinsStream, RoomChanges, SharedContent, SharedItem,
@@ -32,7 +33,7 @@ use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{
     Draft, FileKind, Focused, IndexHistory, IndexedFile, IndexedImage, IndexedMessage, Media, MessageKind,
     OutgoingAttachment, OutgoingKind, Participant, Picture, PinnedMessage, Pins, Quote, Reaction, Reader, Receipt,
-    SharedPost, ThreadReply, ThreadSummary, TimelineMessage, Typist, Unread, html,
+    SharedPost, StyleKind, TextStyle, ThreadReply, ThreadSummary, TimelineMessage, Typist, Unread, html,
 };
 
 /// The demo account's user.
@@ -47,6 +48,13 @@ const FORMATTED: [&str; 5] = [
     "Run this:<pre><code>swift test --parallel\nswift build -c release</code></pre>",
     "Details on <a href=\"https://example.org/plan\">the plan page</a>, thanks <a href=\"https://matrix.to/#/@anna:demo\">Anna</a>!",
 ];
+
+/// The newest message from others in each chat: it mentions the account, with a pill.
+const MENTIONS_ME: &str =
+    "<a href=\"https://matrix.to/#/@me:demo\">Me</a>, can you look at the <b>budget</b> before Friday?";
+
+/// The one before it: a pill of someone else.
+const MENTIONS_PETR: &str = "Thanks <a href=\"https://matrix.to/#/@friend1:demo\">Petr Svoboda</a>, see you at 5!";
 
 /// How many room changes wait for a slow listener.
 const CHANGES_BUFFER: usize = 256;
@@ -353,6 +361,7 @@ impl DemoTimelines {
             sender_avatar: None,
             is_own: true,
             is_editable: true,
+            mentions_me: false,
             kind: MessageKind::Message,
             media: None,
             styles: Vec::new(),
@@ -824,11 +833,13 @@ impl ChatSending for DemoTimelines {
     async fn send_text(
         &self,
         timeline: &TimelineId,
-        text: &str,
+        composed: &ComposedText,
         reply: Option<&MessageRef>,
     ) -> Result<(), BackendError> {
         let room = &timeline.room;
+        let text = composed.text.as_str();
         let mut message = self.own_message(room, text);
+        message.styles = pill_styles(composed);
         message.message.state = SendState::Sending { upload: None };
         if let Some(reply) = reply {
             message.reply = self.quote(timeline, reply);
@@ -853,16 +864,16 @@ impl ChatSending for DemoTimelines {
     }
 
     /// Only the account's own text messages can be edited, as on a server.
-    async fn edit(&self, room: &RoomId, message: &MessageId, text: &str) -> Result<(), BackendError> {
+    async fn edit(&self, room: &RoomId, message: &MessageId, text: &ComposedText) -> Result<(), BackendError> {
         let (_, _, found) = self.find(room, message)?;
         if !found.is_editable {
             return Err(BackendError::NotAllowed);
         }
         self.edit_message(room, message, |message| {
-            text.clone_into(&mut message.message.body);
+            text.text.clone_into(&mut message.message.body);
             message.message.is_edited = true;
-            message.message.links = message::links(text, &[]);
-            message.styles.clear();
+            message.message.links = message::links(&text.text, &[]);
+            message.styles = pill_styles(text);
         })
     }
 
@@ -928,10 +939,11 @@ impl ChatSending for DemoTimelines {
         &self,
         timeline: &TimelineId,
         attachment: &OutgoingAttachment,
-        caption: Option<&str>,
+        caption: Option<&ComposedText>,
         reply: Option<&MessageRef>,
     ) -> Result<UploadStream, BackendError> {
-        let mut message = self.own_message(&timeline.room, caption.unwrap_or_default());
+        let mut message = self.own_message(&timeline.room, caption.map_or("", |caption| caption.text.as_str()));
+        message.styles = caption.map(pill_styles).unwrap_or_default();
         let picture = |file: &Path, width, height| Picture {
             source: MediaId::from(file.to_string_lossy().into_owned()),
             width,
@@ -978,7 +990,7 @@ impl ChatSending for DemoTimelines {
             None => target.room().cloned(),
         }
         .ok_or_else(|| BackendError::UnknownChat(target.clone()))?;
-        self.send_text(&TimelineId::from(target), &message.message.body, None)
+        self.send_text(&TimelineId::from(target), &message.message.body.as_str().into(), None)
             .await
     }
 
@@ -989,18 +1001,18 @@ impl ChatSending for DemoTimelines {
     async fn save_draft(
         &self,
         timeline: &TimelineId,
-        text: &str,
+        text: &ComposedText,
         reply: Option<&MessageRef>,
     ) -> Result<(), BackendError> {
         let reply = reply.and_then(|reply| self.quote(timeline, reply));
         let mut state = self.state();
-        if text.is_empty() && reply.is_none() {
+        if text.text.is_empty() && reply.is_none() {
             state.drafts.remove(timeline);
         } else {
             state.drafts.insert(
                 timeline.clone(),
                 Draft {
-                    text: text.to_owned(),
+                    text: text.clone(),
                     reply,
                 },
             );
@@ -1085,6 +1097,12 @@ fn attachment_of(media: Option<&Media>) -> Option<Attachment> {
 #[allow(clippy::too_many_lines)]
 fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<TimelineMessage>> {
     let seed = stable(room.as_str()) % 97;
+    // the two newest messages from others (not the shared reel's) have pills, the newest
+    // mentioning the account.
+    let mut from_others = (0..count)
+        .rev()
+        .filter(|index| (index / 3) % 2 != 0 && index + 6 != count);
+    let (mentions_me, mentions_petr) = (from_others.next(), from_others.next());
     (0..count)
         .map(|index| {
             let i = index as u64;
@@ -1173,6 +1191,16 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
             if index % 11 == 3 {
                 (body, styles) = html::parse(seeded::round_name(&FORMATTED, index));
             }
+            if Some(index) == mentions_me || Some(index) == mentions_petr {
+                let html = if Some(index) == mentions_me {
+                    MENTIONS_ME
+                } else {
+                    MENTIONS_PETR
+                };
+                (body, styles) = html::parse(html);
+                media = None;
+            }
+            let mentions_me = !is_own && mentions(&styles, OWN_USER);
             let links = message::links(&body, &styles);
             // the history covers several days.
             let back = Duration::from_secs((count - index) as u64 * 97 * 9);
@@ -1200,6 +1228,7 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
                 sender_avatar,
                 is_own,
                 is_editable: is_own && !matches!(media, Some(Media::Photo { .. } | Media::Video { .. })),
+                mentions_me,
                 kind: MessageKind::Message,
                 media,
                 styles,
@@ -1219,6 +1248,27 @@ fn history(room: &RoomId, count: usize, start: SystemTime) -> Vector<Arc<Timelin
             Arc::new(started)
         })
         .collect()
+}
+
+/// The pills of a message the account sends, as its own HTML would show them.
+fn pill_styles(composed: &ComposedText) -> Vec<TextStyle> {
+    let mut styles: Vec<TextStyle> = composed
+        .mentions
+        .iter()
+        .map(|mention| TextStyle {
+            kind: StyleKind::Mention(mention.target.clone()),
+            range: mention.range.clone(),
+        })
+        .collect();
+    styles.sort_by_key(|style| style.range.start);
+    styles
+}
+
+/// Whether `styles` have a pill of `user`.
+fn mentions(styles: &[TextStyle], user: &str) -> bool {
+    styles
+        .iter()
+        .any(|style| matches!(&style.kind, StyleKind::Mention(MentionTarget::User(found)) if found.as_str() == user))
 }
 
 /// What a bridge says in a thread it made from another network's (mautrix-discord's notice);
@@ -1312,6 +1362,7 @@ fn thread_replies(root: &TimelineMessage) -> Vec<Arc<TimelineMessage>> {
                 sender_avatar: (!notice && !is_own).then(|| MediaId::from(format!("demo-{sender}"))),
                 is_own,
                 is_editable: is_own,
+                mentions_me: false,
                 kind: MessageKind::Message,
                 media: None,
                 styles: Vec::new(),
@@ -1414,9 +1465,13 @@ mod tests {
         let mut messages = demo.messages(&room().into()).await.expect("opens");
         let first = messages.next().await.expect("a reset");
         assert!(matches!(first.as_slice(), [eyeball_im::VectorDiff::Reset { values }] if values.len() == 20));
-        demo.send_text(&room().into(), "hi", Some(&MessageRef::Local("!room1:demo/15".into())))
-            .await
-            .expect("sends");
+        demo.send_text(
+            &room().into(),
+            &"hi".into(),
+            Some(&MessageRef::Local("!room1:demo/15".into())),
+        )
+        .await
+        .expect("sends");
         let sent = messages.next().await.expect("a batch");
         let eyeball_im::VectorDiff::PushBack { value } = &sent[0] else {
             panic!("an append");
@@ -1431,7 +1486,7 @@ mod tests {
     #[tokio::test]
     async fn a_failing_message_retries_and_the_first_unread_is_five_back() {
         let demo = DemoTimelines::new(20);
-        demo.send_text(&room().into(), "this will fail", None)
+        demo.send_text(&room().into(), &"this will fail".into(), None)
             .await
             .expect("queued");
         let (_, _, failed) = demo.find(&room(), &MessageId::from("demo-sent-0")).expect("there");

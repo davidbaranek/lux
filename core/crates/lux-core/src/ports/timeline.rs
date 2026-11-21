@@ -20,6 +20,7 @@ use std::time::SystemTime;
 use futures_core::Stream;
 
 use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
+use crate::mention::ComposedText;
 use crate::message::SendState;
 use crate::timeline::{
     Draft, Focused, ImageSource, IndexHistory, OutgoingAttachment, Pins, Receipt, TimelineMessage, Typist, Unread,
@@ -170,21 +171,21 @@ pub trait ChatTimelines: Send + Sync {
 /// Sending to a chat. Messages go through the room's send queue: the chat shows each at once,
 /// `Sending`, then `Sent` or `Failed`.
 pub trait ChatSending: Send + Sync {
-    /// Sends `text` (Markdown) to the timeline (in a thread, as its reply), answering `reply` if
-    /// given.
+    /// Sends `text` (Markdown, its pills the members and the room it mentions) to the timeline
+    /// (in a thread, as its reply), answering `reply` if given.
     fn send_text(
         &self,
         timeline: &TimelineId,
-        text: &str,
+        text: &ComposedText,
         reply: Option<&MessageRef>,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
-    /// Replaces the text of the account's own message.
+    /// Replaces the text of the account's own message (its pills mention).
     fn edit(
         &self,
         room: &RoomId,
         message: &MessageId,
-        text: &str,
+        text: &ComposedText,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// Deletes a message for everyone.
@@ -211,7 +212,7 @@ pub trait ChatSending: Send + Sync {
         &self,
         timeline: &TimelineId,
         attachment: &OutgoingAttachment,
-        caption: Option<&str>,
+        caption: Option<&ComposedText>,
         reply: Option<&MessageRef>,
     ) -> impl Future<Output = Result<UploadStream, BackendError>> + Send;
 
@@ -232,7 +233,7 @@ pub trait ChatSending: Send + Sync {
     fn save_draft(
         &self,
         timeline: &TimelineId,
-        text: &str,
+        text: &ComposedText,
         reply: Option<&MessageRef>,
     ) -> impl Future<Output = Result<(), BackendError>> + Send;
 

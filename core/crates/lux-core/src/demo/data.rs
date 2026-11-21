@@ -260,6 +260,8 @@ pub(crate) fn members(index: usize, state: Option<&ChatState>) -> Vec<Member> {
             Role::Member
         },
         is_own: true,
+        // a group's admin may notify the whole group.
+        may_mention_room: is_group(index) && is_own_admin(index),
     };
     if !is_group(index) {
         let name = state
@@ -274,6 +276,7 @@ pub(crate) fn members(index: usize, state: Option<&ChatState>) -> Vec<Member> {
                 name,
                 role: Role::Member,
                 is_own: false,
+                may_mention_room: false,
             },
         ];
     }
@@ -295,6 +298,7 @@ pub(crate) fn members(index: usize, state: Option<&ChatState>) -> Vec<Member> {
                 _ => Role::Member,
             },
             is_own: false,
+            may_mention_room: number == 1,
         }
     }));
     members

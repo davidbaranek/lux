@@ -1,0 +1,195 @@
+import AppKit
+import LuxCore
+
+/// The members a mention's word offers, above the composer on glass of the composer's radius:
+/// their picture, name and user id, the best match first, at most five rows tall (the rest
+/// scroll). The selected row is a fill concentric with the glass, `gap` in from its edges. The
+/// first is selected; the
+/// arrow keys move the selection (`move(by:)`) and Return or Tab picks it, as the composer's text
+/// view asks; a click picks a row.
+final class MentionSuggestionsView: NSGlassEffectView, NSTableViewDelegate {
+    var onPick: ((MentionSuggestion) -> Void)?
+    var images: ImagePipeline?
+    /// What shows, in order.
+    private(set) var suggestions: [MentionSuggestion] = []
+    private static let row: CGFloat = 40
+    /// The composer glass' corner radius, which the list's own glass takes.
+    static let radius: CGFloat = 18
+    /// The selected row's gap from the glass' edges, the same all round.
+    static let gap: CGFloat = 6
+    private let table = NSTableView()
+    private let scroll = NSScrollView()
+    private var dataSource: NSTableViewDiffableDataSource<Int, MentionSuggestion>?
+    private lazy var height = heightAnchor.constraint(equalToConstant: 0)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        cornerRadius = Self.radius
+        isHidden = true
+        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("member")))
+        table.headerView = nil
+        table.rowHeight = Self.row
+        table.backgroundColor = .clear
+        table.style = .plain
+        table.intercellSpacing = .zero
+        table.selectionHighlightStyle = .regular
+        table.delegate = self
+        table.target = self
+        table.action = #selector(clicked)
+        table.setAccessibilityIdentifier("mention suggestions")
+        scroll.documentView = table
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        let content = NSView()
+        content.addSubview(scroll)
+        NSLayoutConstraint.activate([
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.gap),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.gap),
+            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.gap),
+            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.gap),
+        ])
+        contentView = content
+        height.isActive = true
+        dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] table, _, _, suggestion in
+            let cell = table.makeView(withIdentifier: SuggestionCell.reuse, owner: nil) as? SuggestionCell ?? SuggestionCell()
+            cell.show(suggestion, images: self?.images)
+            return cell
+        }
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    /// Shows `suggestions`, the first selected; none hides the list.
+    func show(_ suggestions: [MentionSuggestion]) {
+        guard suggestions != self.suggestions else { return }
+        self.suggestions = suggestions
+        var snapshot = NSDiffableDataSourceSnapshot<Int, MentionSuggestion>()
+        snapshot.appendSections([0])
+        snapshot.appendItems(suggestions)
+        dataSource?.apply(snapshot, animatingDifferences: false)
+        height.constant = CGFloat(min(suggestions.count, 5)) * Self.row + 2 * Self.gap
+        isHidden = suggestions.isEmpty
+        if !suggestions.isEmpty {
+            table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            table.scrollRowToVisible(0)
+        }
+    }
+
+    /// The suggestion Return would pick.
+    var selected: MentionSuggestion? {
+        suggestions.indices.contains(table.selectedRow) ? suggestions[table.selectedRow] : nil
+    }
+
+    /// Moves the selection up (-1) or down (1), not past the ends.
+    func move(by step: Int) {
+        guard !suggestions.isEmpty else { return }
+        let row = min(max(table.selectedRow + step, 0), suggestions.count - 1)
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        table.scrollRowToVisible(row)
+    }
+
+    /// The selected row's fill, concentric with the glass.
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        SuggestionRowView(radius: Self.radius - Self.gap)
+    }
+
+    @objc private func clicked() {
+        guard suggestions.indices.contains(table.clickedRow) else { return }
+        onPick?(suggestions[table.clickedRow])
+    }
+}
+
+/// A row whose selection is a rounded fill of its bounds (`radius`, continuous corners) in
+/// `tertiarySystemFill`, not the system's selection colour. A layer draws it, as AppKit's paths
+/// have no continuous corners: `drawSelection(in:)` draws nothing of its own.
+private final class SuggestionRowView: NSTableRowView {
+    private let fill = CALayer()
+
+    init(radius: CGFloat) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        fill.cornerRadius = radius
+        fill.cornerCurve = .continuous
+        fill.isHidden = true
+        layer?.addSublayer(fill)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override var isSelected: Bool {
+        didSet { fill.isHidden = !isSelected }
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {}
+
+    override func layout() {
+        super.layout()
+        fill.frame = bounds
+    }
+
+    override func updateLayer() {
+        super.updateLayer()
+        fill.backgroundColor = NSColor.tertiarySystemFill.cgColor
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+}
+
+/// A suggestion's row: the picture (a megaphone for `@room`), the name, the user id under it.
+private final class SuggestionCell: NSTableCellView {
+    static let reuse = NSUserInterfaceItemIdentifier("mention suggestion")
+    private let avatar = AvatarView(side: 28)
+    private let symbol = NSImageView()
+    private let name = NSTextField(labelWithString: "")
+    private let detail = NSTextField(labelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        identifier = Self.reuse
+        name.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        name.lineBreakMode = .byTruncatingTail
+        detail.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byTruncatingTail
+        symbol.contentTintColor = .controlAccentColor
+        let labels = NSStackView(views: [name, detail])
+        labels.orientation = .vertical
+        labels.alignment = .leading
+        labels.spacing = 0
+        for view in [avatar, symbol, labels] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            avatar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            avatar.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbol.centerXAnchor.constraint(equalTo: avatar.centerXAnchor),
+            symbol.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
+            labels.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 8),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            labels.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    func show(_ suggestion: MentionSuggestion, images: ImagePipeline?) {
+        switch suggestion {
+        case .member(let member):
+            avatar.isHidden = false
+            symbol.isHidden = true
+            avatar.show(member.avatar, name: member.name, images: images)
+            name.stringValue = member.name
+            detail.stringValue = member.id
+        case .room:
+            avatar.isHidden = true
+            symbol.isHidden = false
+            symbol.image = NSImage(systemSymbolName: "megaphone.fill", accessibilityDescription: nil)
+            name.stringValue = "@room"
+            detail.stringValue = String(localized: "Notify everyone in this chat")
+        }
+        setAccessibilityLabel("\(name.stringValue), \(detail.stringValue)")
+    }
+}

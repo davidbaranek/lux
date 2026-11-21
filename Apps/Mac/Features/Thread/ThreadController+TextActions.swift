@@ -68,8 +68,11 @@ extension ThreadController {
     }
 
     private func beginReview(_ action: TextAction) {
-        reviewed = composerField.text
+        reviewed = composerField.composed
+        reviewRuns = []
         field.isEditable = false
+        // no mention is offered over a review.
+        updateMentionQuery()
         reviewBar.onReject = { [weak self] in self?.endReview(applying: nil) }
         reviewBar.showWorking(symbol: action.symbol, title: action.title)
         reviewBar.isHidden = false
@@ -80,8 +83,9 @@ extension ThreadController {
         guard reviewed != nil else { return }
         let applied = result.applied(to: text)
         reviewBar.onAccept = { [weak self] in self?.endReview(applying: applied) }
+        reviewRuns = result.preview(of: text)
         if applied != nil, let font = field.font {
-            field.textStorage?.setAttributedString(Self.review(result.preview(of: text), font: font))
+            field.textStorage?.setAttributedString(Self.review(reviewRuns, font: font))
             // the field takes the result's height, as when the user types.
             _ = composerField.textChanged()
         }
@@ -96,12 +100,17 @@ extension ThreadController {
         reviewTask?.cancel()
         reviewTask = nil
         field.isEditable = true
-        field.string = original
-        if let font = field.font { MarkdownStyler.style(field, font: font) }
-        _ = composerField.textChanged()
+        // the text as written, its pills too; ✓ keeps those the result left as they were.
+        composerField.composed = original
         reviewBar.isHidden = true
         composerContent?.edgeInsets.top = 9
-        if let new { replaceComposerText(with: new) }
+        if let new, let storage = field.textStorage {
+            replaceComposerText(with: new)
+            for pill in Mention.carried(original.mentions, through: reviewRuns) {
+                ComposerPills.mark(storage, pill.target, in: pill.range)
+            }
+            if let font = field.font { MarkdownStyler.style(field, font: font) }
+        }
         view.window?.makeFirstResponder(field)
     }
 

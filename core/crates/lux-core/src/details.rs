@@ -170,6 +170,7 @@ mod tests {
             avatar: None,
             role,
             is_own,
+            may_mention_room: false,
         }
     }
 

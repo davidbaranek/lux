@@ -7,6 +7,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use crate::ids::{MessageId, MessageRef, RoomId};
+use crate::mention::ComposedText;
 use crate::preview::{PreviewKind, PreviewSource as Kind};
 use crate::timeline::{FileKind, Media, MessageKind, Quote, TimelineMessage, Typist};
 
@@ -25,8 +26,8 @@ pub enum ComposerMode {
     Edit {
         /// The message edited.
         message: MessageId,
-        /// Its text now, for the composer to start from.
-        original: String,
+        /// Its text now, with its pills, for the composer to start from.
+        original: ComposedText,
     },
 }
 

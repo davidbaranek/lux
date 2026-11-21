@@ -51,6 +51,8 @@ final class MessageCellView: NSTableCellView {
     var onQuoteTap: (() -> Void)?
     /// A link in the text was clicked.
     var onLink: ((URL) -> Void)?
+    /// A member's pill in the text was clicked: their user id.
+    var onMention: ((String) -> Void)?
     /// "Show more" (or "Show less") under a shared post's caption was clicked.
     var onPostMore: (() -> Void)?
     /// A click on a reaction's chip: gives or takes back that reaction.
@@ -214,14 +216,21 @@ final class MessageCellView: NSTableCellView {
         return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
-    /// A click on a link opens it; elsewhere in the text it does nothing.
+    /// A click on a link opens it, on a member's pill opens the chat with them; elsewhere in the
+    /// text it does nothing.
     @objc private func bodyClicked(_ click: NSClickGestureRecognizer) {
-        guard let message = shown?.0, !message.links.isEmpty else {
+        guard let message = shown?.0, !message.links.isEmpty || !message.styles.isEmpty else {
             onBubbleTap?()
             return
         }
         let index = body.characterIndex(at: click.location(in: body))
-        if let link = message.links.first(where: { NSLocationInRange(index, $0.range) }) { onLink?(link.url) } else { onBubbleTap?() }
+        if let link = message.links.first(where: { NSLocationInRange(index, $0.range) }) {
+            onLink?(link.url)
+        } else if let user = MessageStyling.mentionedUser(at: index, in: message) {
+            onMention?(user)
+        } else {
+            onBubbleTap?()
+        }
     }
 
     /// Draws the eye to the bubble after a jump to it: the bubble takes the accent colour, then
@@ -295,10 +304,12 @@ final class MessageCellView: NSTableCellView {
         if let frame = layout.band {
             band.frame = frame
             // a plain row has no bubble: its band shades while the details show.
-            band.layer?.backgroundColor = message.showsDetail ? NSColor.labelColor.withAlphaComponent(0.07).cgColor : nil
+            band.layer?.backgroundColor = message.mentionsMe ? MessageStyling.mentionTint.withAlphaComponent(0.22).cgColor
+                : message.showsDetail ? NSColor.labelColor.withAlphaComponent(0.07).cgColor : nil
         }
-        // a clicked message darkens while its details show.
-        let fill: NSColor = folded ? .quaternaryLabelColor : own ? accent : .incomingBubble
+        // a clicked message darkens while its details show; one that mentions the account stands out.
+        let fill: NSColor = folded ? .quaternaryLabelColor : own ? accent
+            : message.mentionsMe ? MessageStyling.mentionTint.withAlphaComponent(0.25) : .incomingBubble
         bubble.layer?.backgroundColor = message.isMediaOnly || plain ? nil
             : (message.showsDetail ? fill.blended(withFraction: 0.22, of: .black) ?? fill : fill).cgColor
         place(quote, layout.quote, message.quoteText, text.quote, ink.withAlphaComponent(0.75))

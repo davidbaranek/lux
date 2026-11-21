@@ -75,6 +75,8 @@ pub struct Member {
     pub role: Role,
     /// The account itself.
     pub is_own: bool,
+    /// Their power level lets them mention the whole room (`@room`, `notifications.room`).
+    pub may_mention_room: bool,
 }
 
 /// What a shared item is.

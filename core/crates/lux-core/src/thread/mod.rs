@@ -30,6 +30,7 @@ pub use rows::{RowShows, ThreadRow};
 
 use crate::chat::ChatRoom;
 use crate::ids::{ChatId, EventId, MessageId, MessageRef, RoomId, TimelineId};
+use crate::mention::ComposedText;
 use crate::ports::{BackendError, ThreadBackend};
 use crate::timeline::{PinnedMessage, Typist};
 
@@ -164,8 +165,8 @@ pub struct Upload {
     pub files: Vec<PathBuf>,
     /// Where they go.
     pub room: RoomId,
-    /// The first one's text.
-    pub caption: Option<String>,
+    /// The first one's text, with its pills.
+    pub caption: Option<ComposedText>,
     /// The message the first one answers.
     pub reply: Option<MessageRef>,
     /// The Matrix thread they go to, by its root: the thread shown.
@@ -223,8 +224,8 @@ enum Intent {
     Reply(MessageId),
     Edit(MessageId),
     CancelMode,
-    Send { text: String, via: Option<RoomId> },
-    SendLater(String, SystemTime, oneshot::Sender<Result<(), BackendError>>),
+    Send { text: ComposedText, via: Option<RoomId> },
+    SendLater(ComposedText, SystemTime, oneshot::Sender<Result<(), BackendError>>),
     Attach(Vec<PathBuf>),
     RemovePending(PathBuf),
     Message(MessageAction),
@@ -254,8 +255,8 @@ enum MessageAction {
 /// The composer's kept draft.
 #[derive(Debug)]
 enum DraftIntent {
-    Load(oneshot::Sender<String>),
-    Save(String),
+    Load(oneshot::Sender<ComposedText>),
+    Save(ComposedText),
 }
 
 impl ThreadViewModel {
@@ -379,7 +380,7 @@ impl ThreadViewModel {
 
     /// Sends the composer's text as the mode says (waiting files first, the text their caption);
     /// a new message goes `via` that room if given, else to the send room.
-    pub fn send_text(&self, text: String, via: Option<RoomId>) {
+    pub fn send_text(&self, text: ComposedText, via: Option<RoomId>) {
         self.send(Intent::Send { text, via });
     }
 
@@ -387,7 +388,7 @@ impl ThreadViewModel {
     ///
     /// # Errors
     /// When the server refuses (an encrypted chat, a time past).
-    pub async fn send_later(&self, text: String, at: SystemTime) -> Result<(), BackendError> {
+    pub async fn send_later(&self, text: ComposedText, at: SystemTime) -> Result<(), BackendError> {
         self.ask(|answer| Intent::SendLater(text, at, answer))
             .await
             .unwrap_or(Ok(()))
@@ -484,15 +485,16 @@ impl ThreadViewModel {
         self.send(Intent::ComposerChanged(text));
     }
 
-    /// The text the composer had when the chat was left (its reply becomes the mode).
-    pub async fn load_draft(&self) -> String {
+    /// The text the composer had when the chat was left, with its pills (its reply becomes the
+    /// mode).
+    pub async fn load_draft(&self) -> ComposedText {
         self.ask(|answer| Intent::Draft(DraftIntent::Load(answer)))
             .await
             .unwrap_or_default()
     }
 
     /// Keeps the composer's text (and its reply) for the next visit; an edit is no draft.
-    pub fn save_draft(&self, text: String) {
+    pub fn save_draft(&self, text: ComposedText) {
         self.send(Intent::Draft(DraftIntent::Save(text)));
     }
 }

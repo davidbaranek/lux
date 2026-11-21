@@ -32,6 +32,10 @@ enum MessageStyling {
                 paragraph.headIndent = 10
                 text.addAttributes([.paragraphStyle: paragraph, .foregroundColor: ink.withAlphaComponent(0.7)], range: range)
             case .link: break
+            case .mention:
+                // a pill: its name bold, on a tint of the link's colour (white on the account's own bubble).
+                add(.bold, to: text, in: range)
+                text.addAttributes([.foregroundColor: link, .backgroundColor: link.withAlphaComponent(0.18)], range: range)
             }
         }
         for found in message.links where NSMaxRange(found.range) <= length {
@@ -39,6 +43,17 @@ enum MessageStyling {
         }
         return text
     }
+
+    /// The member a pill at `index` of a message's text names, if one is there.
+    static func mentionedUser(at index: Int, in message: MessageItem) -> String? {
+        for style in message.styles where NSLocationInRange(index, style.range) {
+            if case .mention(.user(let userId)) = style.kind { return userId }
+        }
+        return nil
+    }
+
+    /// A message that mentions the account: its bubble (or a plain row's band) takes this tint.
+    static let mentionTint = PlatformColor.systemOrange
 
     private enum Emphasis { case bold, italic }
 

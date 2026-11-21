@@ -17,6 +17,7 @@ mod intelligence;
 mod list;
 mod log;
 mod markdown;
+mod mention;
 mod message;
 mod organizing;
 mod people;

@@ -11,6 +11,7 @@ use futures_core::Stream;
 
 use crate::chat::{Label, ScheduledMessage, Space};
 use crate::ids::{ChatId, EventId, LabelId, RoomId, ScheduledId};
+use crate::mention::ComposedText;
 use crate::organizer::Organized;
 use crate::places::Arrangement;
 
@@ -131,7 +132,7 @@ pub trait Scheduling: Send + Sync {
     fn send_later(
         &self,
         room: &RoomId,
-        text: &str,
+        text: &ComposedText,
         reply_to: Option<&EventId>,
         at: SystemTime,
     ) -> impl Future<Output = Result<ScheduledId, BackendError>> + Send;
