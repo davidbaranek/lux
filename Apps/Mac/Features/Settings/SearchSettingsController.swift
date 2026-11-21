@@ -1,34 +1,13 @@
 import AppKit
 import LuxCore
+import SwiftUI
 
 /// Search: the index on this Mac (messages, and the photos read for their words), and semantic
 /// search: photos found by what they show and messages by what they mean, by a model on this Mac.
-final class SearchSettingsController: NSViewController {
+final class SearchSettingsController: NSViewController, SearchablePane {
     private let model: SettingsModel
-    private let index = NSTextField(labelWithString: "")
-    /// How far back each chat is read.
-    private lazy var history = NSPopUpButton(frame: .zero, pullsDown: false)
-    /// Where the photos stand now, with a spinner while they are read.
-    private let photoStatus = NSTextField(labelWithString: "")
-    private let photoSpinner = NSProgressIndicator()
-    /// Stop, or read the waiting photos now; hidden when there is nothing to do.
-    private lazy var photoAction = NSButton(title: "", target: self, action: #selector(photoActionClicked))
-    private lazy var looks = NSButton(checkboxWithTitle: String(localized: "Semantic search"), target: self,
-                                      action: #selector(looksChanged))
-    /// Where the model is, under its checkbox while it is on: downloading (with its progress),
-    /// being prepared, ready, or why it could not be had, with Try Again.
-    private let modelStatus = NSTextField(wrappingLabelWithString: "")
-    private let modelProgress = NSProgressIndicator()
-    private lazy var modelState = NSStackView(views: [modelProgress, modelStatus])
-    private lazy var modelRetry = NSButton(title: String(localized: "Try Again"), target: self, action: #selector(retryModel))
-    private let looksNote = NSTextField(wrappingLabelWithString: "")
     private var observation: AnyObject?
-
-    private static let looksAbout = String(localized: """
-        Search always finds words. This also finds photos by what they show ("dog on the beach") and messages by \
-        what they mean ("trip to the mountains"), with a model of about 650 MB read on this Mac. Nothing leaves \
-        this Mac.
-        """)
+    private lazy var form = PaneForm(makeForm())
 
     init(model: SettingsModel) {
         self.model = model
@@ -38,101 +17,110 @@ final class SearchSettingsController: NSViewController {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    var focus: SettingsFocus { form.focus }
+
     override func loadView() {
-        looksNote.textColor = .secondaryLabelColor
-        looksNote.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        looksNote.preferredMaxLayoutWidth = 340
-        looksNote.stringValue = Self.looksAbout
-        photoSpinner.style = .spinning
-        photoSpinner.controlSize = .small
-        photoSpinner.isDisplayedWhenStopped = false
-        let status = NSStackView(views: [photoStatus, photoSpinner])
-        status.spacing = 6
-        modelStatus.textColor = .secondaryLabelColor
-        modelStatus.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        modelStatus.preferredMaxLayoutWidth = 300
-        modelProgress.style = .bar
-        modelProgress.controlSize = .small
-        modelProgress.minValue = 0
-        modelProgress.maxValue = 1
-        modelProgress.widthAnchor.constraint(equalToConstant: 80).isActive = true
-        modelState.spacing = 6
-        modelRetry.controlSize = .small
-        // the model's state and its button go with the checkbox: hidden, they take no room.
-        let semantic = NSStackView(views: [looks, modelState, modelRetry])
-        semantic.orientation = .vertical
-        semantic.alignment = .leading
-        semantic.spacing = 6
-        history.addItems(withTitles: SearchHistory.allCases.map(\.title))
-        history.target = self
-        history.action = #selector(historyChanged)
-        view = settingsForm([
-            [NSTextField(labelWithString: String(localized: "Messages:")), index],
-            [NSTextField(labelWithString: String(localized: "Search back:")), history],
-            [NSTextField(labelWithString: String(localized: "Photos:")), status],
-            [NSGridCell.emptyContentView, photoAction],
-            [NSGridCell.emptyContentView, semantic],
-            [NSGridCell.emptyContentView, looksNote],
-        ])
+        view = form.view
         observation = model.changes.observe { [weak self] in self?.update() }
-        update()
     }
 
     private func update() {
-        index.stringValue = model.searchIndex ?? String(localized: "Opening…")
-        photoStatus.stringValue = model.photoStatus ?? String(localized: "Opening…")
-        if model.isPhotoWorkUnderWay { photoSpinner.startAnimation(nil) } else { photoSpinner.stopAnimation(nil) }
-        photoAction.isHidden = model.photoAction == nil
-        photoAction.title = model.photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now")
-        looks.state = model.searchesPhotosByLook ? .on : .off
-        updateModel()
-        // only when the choice changed: the menu stays as it is while the progress beside it moves.
-        let chosen = SearchHistory.allCases.firstIndex(of: model.searchHistory) ?? 0
-        if history.indexOfSelectedItem != chosen { history.selectItem(at: chosen) }
+        form.show(makeForm())
     }
 
-    /// The model's line: its words, a bar while it downloads (moving on its own while it is
-    /// prepared), and Try Again once it could not be had.
-    private func updateModel() {
-        let status = model.photoModelStatus
-        modelState.isHidden = status == nil
-        if modelStatus.stringValue != status ?? "" { modelStatus.stringValue = status ?? "" }
-        switch model.photoModel {
-        case .downloading(let fraction)?:
-            modelProgress.isHidden = false
-            modelProgress.stopAnimation(nil)
-            modelProgress.isIndeterminate = false
-            modelProgress.doubleValue = fraction
-        case .preparing?:
-            modelProgress.isHidden = false
-            modelProgress.isIndeterminate = true
-            modelProgress.startAnimation(nil)
-        default:
-            modelProgress.stopAnimation(nil)
-            modelProgress.isHidden = true
+    private func makeForm() -> SearchForm {
+        SearchForm(
+            index: model.searchIndex, history: model.searchHistory, photoStatus: model.photoStatus,
+            isPhotoWorkUnderWay: model.isPhotoWorkUnderWay, photoAction: model.photoAction,
+            searchesByLook: model.searchesPhotosByLook, photoModel: model.photoModel,
+            photoModelStatus: model.photoModelStatus, canRetry: model.canRetryPhotoModel,
+            actions: .init(
+                history: { [weak self] in self?.model.searchHistory = $0 },
+                photoAction: { [weak self] in
+                    guard let model = self?.model else { return }
+                    switch model.photoAction {
+                    case .stop?: Task { await model.stopReadingPhotos() }
+                    case .readNow?: model.readPhotosNow()
+                    case nil: break
+                    }
+                },
+                searchByLook: { [weak self] on in
+                    guard let model = self?.model else { return }
+                    Task { await model.setSearchesPhotosByLook(on) }
+                },
+                retry: { [weak self] in self?.model.retryPhotoModel() }
+            )
+        )
+    }
+}
+
+/// The Search pane's form: the messages' index and how far back it reads, the photos, and
+/// semantic search with where its model is.
+struct SearchForm: View {
+    struct Actions {
+        var history: @MainActor (SearchHistory) -> Void
+        var photoAction: @MainActor () -> Void
+        var searchByLook: @MainActor (Bool) -> Void
+        var retry: @MainActor () -> Void
+    }
+
+    let index: String?
+    let history: SearchHistory
+    let photoStatus: String?
+    let isPhotoWorkUnderWay: Bool
+    let photoAction: SettingsModel.PhotoAction?
+    let searchesByLook: Bool
+    let photoModel: PhotoSearch.Looks?
+    let photoModelStatus: String?
+    let canRetry: Bool
+    let actions: Actions
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent(SettingsItem.searchIndex.title, value: index ?? String(localized: "Opening…"))
+                    .settingsRow(.searchIndex)
+                Picker(SettingsItem.searchBack.title, selection: Binding(get: { history }, set: actions.history)) {
+                    ForEach(SearchHistory.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .settingsRow(.searchBack)
+            }
+            Section {
+                LabeledContent(SettingsItem.photos.title) {
+                    HStack {
+                        if isPhotoWorkUnderWay { ProgressView().controlSize(.small) }
+                        Text(photoStatus ?? String(localized: "Opening…"))
+                    }
+                }
+                .settingsRow(.photos)
+                if let photoAction {
+                    HStack {
+                        Spacer()
+                        Button(photoAction == .stop ? String(localized: "Stop Reading") : String(localized: "Read Waiting Photos Now"),
+                               action: actions.photoAction)
+                    }
+                }
+            }
+            Section {
+                Toggle(isOn: Binding(get: { searchesByLook }, set: actions.searchByLook)) { settingsLabel(.semanticSearch) }
+                    .settingsRow(.semanticSearch)
+                // where the model is while semantic search is on: downloading (with its
+                // progress), being prepared, ready, or why it could not be had, with Try Again.
+                if let photoModelStatus {
+                    HStack {
+                        Text(photoModelStatus).foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        switch photoModel {
+                        case .downloading(let fraction)?: ProgressView(value: fraction).frame(width: 100)
+                        case .preparing?: ProgressView().progressViewStyle(.linear).frame(width: 100)
+                        default: EmptyView()
+                        }
+                        if canRetry { Button(String(localized: "Try Again"), action: actions.retry) }
+                    }
+                }
+            }
         }
-        modelRetry.isHidden = !model.canRetryPhotoModel
-    }
-
-    @objc private func historyChanged() {
-        guard let chosen = SearchHistory.allCases[safe: history.indexOfSelectedItem] else { return }
-        model.searchHistory = chosen
-    }
-
-    @objc private func photoActionClicked() {
-        switch model.photoAction {
-        case .stop?: Task { await model.stopReadingPhotos() }
-        case .readNow?: model.readPhotosNow()
-        case nil: break
-        }
-    }
-
-    @objc private func looksChanged() {
-        let on = looks.state == .on
-        Task { await model.setSearchesPhotosByLook(on) }
-    }
-
-    @objc private func retryModel() {
-        model.retryPhotoModel()
+        .formStyle(.grouped)
+        .toggleStyle(.switch)
     }
 }

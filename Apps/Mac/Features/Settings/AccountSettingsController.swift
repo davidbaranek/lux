@@ -1,23 +1,19 @@
 import AppKit
 import LuxCore
+import SwiftUI
 import UniformTypeIdentifiers
 
-/// The account: its picture and name (changed here, seen in every chat), its Matrix ID, and Sign
-/// Out.
-final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
+/// The account: its picture and name (changed here, seen in every chat), its Matrix ID, read
+/// receipts and Sign Out.
+final class AccountSettingsController: NSViewController, SearchablePane {
     private let model: SettingsModel
     private let profile: ProfileModel?
     private var observation: AnyObject?
     private let signOut: () -> Void
     private let images: ImagePipeline?
-    private let avatar = AvatarView(side: 56)
-    private let shownName = NSTextField(labelWithString: "")
-    private let userId = NSTextField(labelWithString: "")
-    private let name = NSTextField()
-    private lazy var choosePicture = NSButton(title: String(localized: "Choose…"), target: self, action: #selector(pickPicture))
-    private lazy var removePicture = NSButton(title: String(localized: "Remove"), target: self, action: #selector(confirmRemovePicture))
-    private let saving = NSProgressIndicator()
-    private lazy var receipts = NSButton(checkboxWithTitle: String(localized: "Send read receipts"), target: self, action: #selector(receiptsChanged))
+    /// Counts the changes that failed: the name field shows the server's name again.
+    private var failures = 0
+    private lazy var form = PaneForm(makeForm())
 
     init(model: SettingsModel, profile: ProfileModel?, images: ImagePipeline?, signOut: @escaping () -> Void) {
         self.model = model
@@ -30,86 +26,45 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    var focus: SettingsFocus { form.focus }
+
     override func loadView() {
-        shownName.font = .systemFont(ofSize: 17, weight: .semibold)
-        userId.textColor = .secondaryLabelColor
-        userId.isSelectable = true
-        let identity = NSStackView(views: [shownName, userId])
-        identity.orientation = .vertical
-        identity.alignment = .leading
-        identity.spacing = 2
-        let header = NSStackView(views: [avatar, identity])
-        header.spacing = 14
-
-        name.placeholderString = String(localized: "Name")
-        name.delegate = self
-        name.target = self
-        name.action = #selector(saveName)
-        name.setAccessibilityIdentifier("profile.name")
-        name.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        let nameNote = note(String(localized: "People see this name and picture in your Matrix chats. Bridged networks such as WhatsApp keep their own."))
-        saving.style = .spinning
-        saving.controlSize = .small
-        saving.isDisplayedWhenStopped = false
-        removePicture.setAccessibilityIdentifier("profile.removePicture")
-        choosePicture.setAccessibilityIdentifier("profile.choosePicture")
-        let pictureButtons = NSStackView(views: [choosePicture, removePicture, saving])
-        pictureButtons.spacing = 8
-
-        let signOutButton = NSButton(title: String(localized: "Sign Out…"), target: self, action: #selector(confirmSignOut))
-        receipts.state = model.sendsReadReceipts ? .on : .off
-        view = settingsForm([
-            [NSGridCell.emptyContentView, header],
-            [NSTextField(labelWithString: String(localized: "Name:")), name],
-            [NSTextField(labelWithString: String(localized: "Picture:")), pictureButtons],
-            [NSGridCell.emptyContentView, nameNote],
-            [NSTextField(labelWithString: String(localized: "Device:")), NSTextField(labelWithString: String(localized: "This Mac"))],
-            [NSTextField(labelWithString: String(localized: "Privacy:")), receipts],
-            [NSGridCell.emptyContentView, note(String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too."))],
-            [NSGridCell.emptyContentView, signOutButton],
-        ])
+        view = form.view
         observation = model.changes.observe { [weak self] in self?.update() }
-        update()
-    }
-
-    private func note(_ text: String) -> NSTextField {
-        let note = NSTextField(wrappingLabelWithString: text)
-        note.textColor = .secondaryLabelColor
-        note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        note.preferredMaxLayoutWidth = 340
-        return note
     }
 
     private func update() {
-        let shown = model.profile
-        shownName.stringValue = shown?.name ?? ""
-        userId.stringValue = shown?.userId ?? ""
-        // the field keeps what the user is typing; it takes the server's name only when untouched.
-        if name.currentEditor() == nil { name.stringValue = shown?.displayName ?? "" }
-        let saving = model.isSavingProfile
-        name.isEnabled = shown?.canChangeName == true && !saving
-        choosePicture.isEnabled = shown?.canChangeAvatar == true && !saving
-        removePicture.isEnabled = shown?.canChangeAvatar == true && shown?.avatar != nil && !saving
-        saving ? self.saving.startAnimation(nil) : self.saving.stopAnimation(nil)
-        avatar.show(shown?.avatar, name: shown?.name ?? "", images: images)
+        form.show(makeForm())
+    }
+
+    private func makeForm() -> AccountForm {
+        AccountForm(
+            profile: model.profile, isSaving: model.isSavingProfile, sendsReadReceipts: model.sendsReadReceipts,
+            failures: failures, images: images,
+            actions: .init(
+                rename: { [weak self] in self?.saveName($0) },
+                choosePicture: { [weak self] in self?.pickPicture() },
+                removePicture: { [weak self] in self?.confirmRemovePicture() },
+                readReceipts: { [weak self] in
+                    self?.model.sendsReadReceipts = $0
+                    self?.update()
+                },
+                signOut: { [weak self] in self?.confirmSignOut() }
+            )
+        )
     }
 
     // MARK: Name
 
     /// Return in the field saves; so does leaving it with a change.
-    @objc private func saveName() {
-        let typed = name.stringValue
+    private func saveName(_ typed: String) {
         guard let profile, !profile.isSaving, typed.trimmingCharacters(in: .whitespacesAndNewlines) != (model.profile?.displayName ?? "") else { return }
         change(String(localized: "The name could not be saved.")) { try await profile.rename(to: typed) }
     }
 
-    func controlTextDidEndEditing(_ notification: Notification) {
-        saveName()
-    }
-
     // MARK: Picture
 
-    @objc private func pickPicture() {
+    private func pickPicture() {
         guard let window = view.window else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
@@ -124,7 +79,7 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
         }
     }
 
-    @objc private func confirmRemovePicture() {
+    private func confirmRemovePicture() {
         guard let window = view.window, let profile else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "Remove your picture?")
@@ -145,8 +100,8 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
                 try await action()
             } catch {
                 Log.app.error("profile change: \(String(describing: error), privacy: .public)")
-                // the field shows the server's name again.
-                name.stringValue = model.profile?.displayName ?? ""
+                failures += 1
+                update()
                 guard let window = view.window else { return }
                 let alert = NSAlert()
                 alert.messageText = title
@@ -158,11 +113,7 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
 
     // MARK: Account
 
-    @objc private func receiptsChanged() {
-        model.sendsReadReceipts = receipts.state == .on
-    }
-
-    @objc private func confirmSignOut() {
+    private func confirmSignOut() {
         let alert = NSAlert()
         alert.messageText = String(localized: "Sign out of this Mac?")
         alert.informativeText = String(localized: "This device leaves the account. Without a recovery key, it cannot read encrypted messages again.")
@@ -175,5 +126,88 @@ final class AccountSettingsController: NSViewController, NSTextFieldDelegate {
             window.close()
             self?.signOut()
         }
+    }
+}
+
+/// The Account pane's form: who the account is, its name and picture, this device and read
+/// receipts, and Sign Out under them.
+struct AccountForm: View {
+    struct Actions {
+        var rename: @MainActor (String) -> Void
+        var choosePicture: @MainActor () -> Void
+        var removePicture: @MainActor () -> Void
+        var readReceipts: @MainActor (Bool) -> Void
+        var signOut: @MainActor () -> Void
+    }
+
+    let profile: Profile?
+    let isSaving: Bool
+    let sendsReadReceipts: Bool
+    let failures: Int
+    let images: ImagePipeline?
+    let actions: Actions
+    /// The name as typed: it takes the server's only while the field is not being edited.
+    @State private var name = ""
+    @FocusState private var editing: Bool
+
+    var body: some View {
+        Form {
+            Section {
+                HStack(spacing: 14) {
+                    Avatar(ref: profile?.avatar, name: profile?.name ?? "", side: 56, images: images)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profile?.name ?? "").font(.title3.weight(.semibold))
+                        Text(profile?.userId ?? "").foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section {
+                TextField(SettingsItem.name.title, text: $name, prompt: Text(SettingsItem.name.title))
+                    .focused($editing)
+                    .onSubmit { actions.rename(name) }
+                    .disabled(profile?.canChangeName != true || isSaving)
+                    .accessibilityIdentifier("profile.name")
+                    .settingsRow(.name)
+                LabeledContent(SettingsItem.picture.title) {
+                    HStack {
+                        if isSaving { ProgressView().controlSize(.small) }
+                        Button(String(localized: "Remove"), action: actions.removePicture)
+                            .disabled(profile?.canChangeAvatar != true || profile?.avatar == nil || isSaving)
+                            .accessibilityIdentifier("profile.removePicture")
+                        Button(String(localized: "Choose…"), action: actions.choosePicture)
+                            .disabled(profile?.canChangeAvatar != true || isSaving)
+                            .accessibilityIdentifier("profile.choosePicture")
+                    }
+                }
+                .settingsRow(.picture)
+            } footer: {
+                Text(SettingsItem.picture.detail ?? "").formFooter()
+            }
+            Section {
+                LabeledContent(SettingsItem.device.title, value: String(localized: "This Mac"))
+                    .settingsRow(.device)
+                Toggle(isOn: Binding(get: { sendsReadReceipts }, set: actions.readReceipts)) { settingsLabel(.readReceipts) }
+                    .settingsRow(.readReceipts)
+            } footer: {
+                HStack {
+                    Spacer()
+                    Button(String(localized: "Sign Out…"), action: actions.signOut)
+                        .settingsRow(.signOut)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .toggleStyle(.switch)
+        .onChange(of: profile?.displayName, initial: true) { if !editing { name = profile?.displayName ?? "" } }
+        .onChange(of: failures) { name = profile?.displayName ?? "" }
+        .onChange(of: editing) { if !editing { actions.rename(name) } }
+    }
+}
+
+extension Text {
+    /// A section's footer, as System Settings sets one under its group.
+    func formFooter() -> some View {
+        font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
     }
 }

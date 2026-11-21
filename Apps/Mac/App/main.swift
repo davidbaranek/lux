@@ -182,7 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // the demo never marks the account's welcome as shown.
             if !LaunchOptions.isDemo { Preferences.shared.networksWelcomed = true }
             guard !networks.offered.isEmpty, networks.hasNoLogins else { return }
-            let welcome = NetworksController(model: networks, mode: .welcome)
+            let welcome = NetworksController(model: networks)
             let sheet = NSWindow(contentViewController: welcome)
             sheet.styleMask = [.titled]
             welcome.onDone = { [weak self, weak sheet] in
@@ -199,7 +199,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings = SettingsWindowController(session: session, model: SettingsModel(session: session), list: list) { [weak self] in
                 self?.signOut(nil)
             }
-            settings?.window?.center()
         }
         settings?.showWindow(nil)
     }

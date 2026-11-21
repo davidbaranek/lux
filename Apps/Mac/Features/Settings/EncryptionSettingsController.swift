@@ -1,32 +1,20 @@
 import AppKit
 import LuxCore
+import SwiftUI
 
 /// Encryption: whether this Mac is verified, the account's devices (verifying one that is not,
 /// signing another out), the key backup with the field for the recovery key that opens it, and
 /// setting recovery up for an account that has none.
-final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate {
+final class EncryptionSettingsController: NSViewController, SearchablePane {
     private let model: SettingsModel
     private let session: Session
-    private let verified = NSTextField(labelWithString: "")
-    private lazy var verify = NSButton(title: String(localized: "Verify This Mac…"), target: self, action: #selector(verifyDevice))
     private var observation: AnyObject?
     private var securityObservation: AnyObject?
-    private lazy var devices = DeviceList(
-        verify: { [weak self] device in self?.verifyOther(device) },
-        signOut: { [weak self] device in self?.signOut(device) }
-    )
     private var activation: NSObjectProtocol?
-    private let status = NSTextField(labelWithString: "")
-    private lazy var setUpRecovery = NSButton(title: String(localized: "Set Up Recovery…"), target: self, action: #selector(startRecoverySetup))
-    private let explanation = NSTextField(wrappingLabelWithString: String(localized: """
-        Encrypted messages from before this device signed in are in your account's key backup. \
-        Enter the recovery key you saved when you set it up (in Lux, Element or another app).
-        """))
-    private let key = NSTextField()
-    private let unlock = NSButton()
-    private let progress = NSProgressIndicator()
-    private let message = NSTextField(wrappingLabelWithString: "")
-    private var keyRows: [NSGridRow] = []
+    private var isRecovering = false
+    /// What the last Unlock said, and whether it failed.
+    private var outcome: (text: String, failed: Bool)?
+    private lazy var form = PaneForm(makeForm())
 
     init(session: Session, model: SettingsModel) {
         self.session = session
@@ -37,46 +25,12 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    var focus: SettingsFocus { form.focus }
+
     override func loadView() {
-        key.placeholderString = "EsT…"
-        key.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        key.delegate = self
-        key.setAccessibilityLabel(String(localized: "Recovery key"))
-        key.widthAnchor.constraint(equalToConstant: 340).isActive = true
-        unlock.title = String(localized: "Unlock")
-        unlock.bezelStyle = .push
-        unlock.keyEquivalent = "\r"
-        unlock.target = self
-        unlock.action = #selector(recover)
-        unlock.isEnabled = false
-        progress.style = .spinning
-        progress.controlSize = .small
-        progress.isDisplayedWhenStopped = false
-        message.preferredMaxLayoutWidth = 340
-        message.textColor = .secondaryLabelColor
-        explanation.preferredMaxLayoutWidth = 340
-        explanation.textColor = .secondaryLabelColor
-        let actions = NSStackView(views: [unlock, progress])
-        let verifyRow = NSStackView(views: [verified, verify])
-        let recoveryRow = NSStackView(views: [status, setUpRecovery])
-        let form = settingsForm([
-            [NSTextField(labelWithString: String(localized: "This Mac:")), verifyRow],
-            [NSTextField(labelWithString: String(localized: "Devices:")), devices],
-            [NSTextField(labelWithString: String(localized: "Key backup:")), recoveryRow],
-            [NSGridCell.emptyContentView, explanation],
-            [NSTextField(labelWithString: String(localized: "Recovery key:")), key],
-            [NSGridCell.emptyContentView, actions],
-            [NSGridCell.emptyContentView, message],
-        ])
-        if let grid = form.subviews.first as? NSGridView {
-            grid.row(at: 1).yPlacement = .top
-            keyRows = (3...5).map { grid.row(at: $0) }
-        }
-        view = form
+        view = form.view
         observation = model.changes.observe { [weak self] in self?.update() }
-        securityObservation = session.security?.changes.observe { [weak self] in self?.updateDevices() }
-        update()
-        updateDevices()
+        securityObservation = session.security?.changes.observe { [weak self] in self?.update() }
         reloadDevices()
         // back from the account page in the browser: a device may have signed out there.
         activation = NotificationCenter.default.addObserver(
@@ -97,34 +51,24 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
     }
 
     private func update() {
-        verified.stringValue = switch model.isVerified {
-        case true?: String(localized: "Verified")
-        case false?: String(localized: "Not verified")
-        case nil: String(localized: "Checking…")
-        }
-        verify.isHidden = model.isVerified != false
-        status.stringValue = model.recovery.title
-        // an account without recovery sets it up; one with it opens it here with the key.
-        let disabled = model.recovery == .disabled
-        setUpRecovery.isHidden = !disabled || model.isVerified != true
-        for row in keyRows { row.isHidden = disabled }
-        let open = model.recovery == .enabled
-        key.isEnabled = !open
-        if open { key.stringValue = "" }
-        unlock.isEnabled = !open && !key.stringValue.isEmpty
-        updateDevices()
+        form.show(makeForm())
     }
 
-    /// The account's devices; verifying one needs a verified Mac.
-    private func updateDevices() {
-        devices.show(session.security?.devices ?? [], canVerify: model.isVerified == true)
+    private func makeForm() -> EncryptionForm {
+        EncryptionForm(
+            isVerified: model.isVerified, devices: session.security?.devices ?? [], recovery: model.recovery,
+            isRecovering: isRecovering, outcome: outcome,
+            actions: .init(
+                verify: { [weak self] in self?.verifyDevice() },
+                verifyDevice: { [weak self] in self?.verifyOther($0) },
+                signOutDevice: { [weak self] in self?.signOut($0) },
+                setUpRecovery: { [weak self] in self?.startRecoverySetup() },
+                recover: { [weak self] in self?.recover(key: $0) }
+            )
+        )
     }
 
-    func controlTextDidChange(_ notification: Notification) {
-        unlock.isEnabled = !key.stringValue.trimmingCharacters(in: .whitespaces).isEmpty && model.recovery != .enabled
-    }
-
-    @objc private func verifyDevice() {
+    private func verifyDevice() {
         let sheet = VerificationController(model: VerificationModel(session: session)) { [weak self] in
             Task { await self?.model.load() }
         }
@@ -188,133 +132,134 @@ final class EncryptionSettingsController: NSViewController, NSTextFieldDelegate 
         NSAlert(error: error).beginSheetModal(for: window)
     }
 
-    @objc private func startRecoverySetup() {
+    private func startRecoverySetup() {
         guard let security = session.security else { return }
         presentAsSheet(RecoverySetupController(security: security))
     }
 
-    @objc private func recover() {
-        unlock.isEnabled = false
-        progress.startAnimation(nil)
-        message.stringValue = ""
-        let text = key.stringValue
+    private func recover(key: String) {
+        isRecovering = true
+        outcome = nil
+        update()
         Task {
             defer {
-                progress.stopAnimation(nil)
+                isRecovering = false
                 update()
             }
             do {
-                try await model.recover(key: text)
-                message.textColor = .secondaryLabelColor
-                message.stringValue = String(localized: "Unlocked. Encrypted messages appear as their chats load.")
+                try await model.recover(key: key)
+                outcome = (String(localized: "Unlocked. Encrypted messages appear as their chats load."), false)
             } catch {
-                message.textColor = .systemRed
-                message.stringValue = error.localizedDescription
+                outcome = (error.localizedDescription, true)
             }
         }
     }
 }
 
-/// The account's devices, in a list of its own height that scrolls: an account can have dozens.
-/// Each other device can be signed out; an unverified one verified.
-private final class DeviceList: NSScrollView, NSTableViewDelegate {
-    private enum Item: Hashable {
-        /// Before the first answer.
-        case loading
-        case device(String)
+/// The Encryption pane's form: this Mac, the account's devices, and the key backup.
+struct EncryptionForm: View {
+    struct Actions {
+        var verify: @MainActor () -> Void
+        var verifyDevice: @MainActor (OwnDevice) -> Void
+        var signOutDevice: @MainActor (OwnDevice) -> Void
+        var setUpRecovery: @MainActor () -> Void
+        var recover: @MainActor (String) -> Void
     }
 
-    private let table = NSTableView()
-    private var dataSource: NSTableViewDiffableDataSource<Int, Item>!
-    private var rows: [OwnDevice] = []
-    private var byId: [String: OwnDevice] = [:]
-    private var canVerify = false
-    private let verify: (OwnDevice) -> Void
-    private let signOut: (OwnDevice) -> Void
+    let isVerified: Bool?
+    let devices: [OwnDevice]
+    let recovery: RecoveryState
+    let isRecovering: Bool
+    let outcome: (text: String, failed: Bool)?
+    let actions: Actions
+    @State private var key = ""
 
-    init(verify: @escaping (OwnDevice) -> Void, signOut: @escaping (OwnDevice) -> Void) {
-        self.verify = verify
-        self.signOut = signOut
-        super.init(frame: .zero)
-        let column = NSTableColumn(identifier: .init("device"))
-        column.resizingMask = .autoresizingMask
-        table.addTableColumn(column)
-        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        table.headerView = nil
-        table.style = .plain
-        table.rowHeight = 30
-        table.selectionHighlightStyle = .none
-        table.usesAlternatingRowBackgroundColors = true
-        table.delegate = self
-        table.setAccessibilityLabel(String(localized: "Devices"))
-        dataSource = NSTableViewDiffableDataSource(tableView: table) { [weak self] _, _, _, item in
-            guard case .device(let id) = item, let self, let device = byId[id] else {
-                return Self.cell([NSTextField(labelWithString: String(localized: "Loading…"))])
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent(SettingsItem.thisMac.title) {
+                    HStack {
+                        Text(verified)
+                        if isVerified == false { Button(String(localized: "Verify This Mac…"), action: actions.verify) }
+                    }
+                }
+                .settingsRow(.thisMac)
             }
-            return view(for: device)
-        }
-        // until the first answer, one row says it is loading.
-        var loading = NSDiffableDataSourceSnapshot<Int, Item>()
-        loading.appendSections([0])
-        loading.appendItems([.loading])
-        dataSource.apply(loading, animatingDifferences: false)
-        documentView = table
-        hasVerticalScroller = true
-        autohidesScrollers = true
-        borderType = .bezelBorder
-        widthAnchor.constraint(equalToConstant: 360).isActive = true
-        // about seven rows; the rest scroll.
-        heightAnchor.constraint(equalToConstant: 216).isActive = true
-    }
-
-    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
-
-    /// The devices as they are now: a device that came or went is a row inserted or removed; only a
-    /// device whose state changed (or every one, when verifying becomes possible) is drawn again.
-    func show(_ devices: [OwnDevice], canVerify: Bool) {
-        guard devices != rows || canVerify != self.canVerify else { return }
-        let old = byId, verifyChanged = canVerify != self.canVerify
-        rows = devices
-        byId = Dictionary(uniqueKeysWithValues: devices.map { ($0.id, $0) })
-        self.canVerify = canVerify
-        var snapshot = NSDiffableDataSourceSnapshot<Int, Item>()
-        snapshot.appendSections([0])
-        snapshot.appendItems(devices.isEmpty ? [.loading] : devices.map { .device($0.id) })
-        let changed = byId.filter { id, device in old[id].map { verifyChanged || $0 != device } ?? false }.map { Item.device($0.key) }
-        snapshot.reloadItems(changed)
-        dataSource.apply(snapshot, animatingDifferences: false)
-    }
-
-    private func view(for device: OwnDevice) -> NSView {
-        let state = NSImageView(image: NSImage(
-            systemSymbolName: device.isVerified ? "checkmark.shield" : "exclamationmark.shield",
-            accessibilityDescription: device.isVerified ? String(localized: "Verified") : String(localized: "Not verified")
-        ) ?? NSImage())
-        state.contentTintColor = device.isVerified ? .systemGreen : .systemOrange
-        let name = NSTextField(labelWithString: device.isThisDevice ? String(localized: "\(device.title) (this Mac)") : device.title)
-        name.lineBreakMode = .byTruncatingTail
-        name.toolTip = device.id
-        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        var views: [NSView] = [state, name, NSView()]
-        if !device.isThisDevice {
-            if !device.isVerified, canVerify {
-                views.append(Self.button(String(localized: "Verify…")) { [weak self] in self?.verify(device) })
+            Section {
+                if devices.isEmpty { Text(String(localized: "Loading…")).foregroundStyle(.secondary) }
+                // verifying another device needs a verified Mac.
+                ForEach(devices) { device in row(device, canVerify: isVerified == true) }
+            } header: {
+                Text(SettingsItem.devices.title).settingsRow(.devices)
             }
-            views.append(Self.button(String(localized: "Sign Out…")) { [weak self] in self?.signOut(device) })
+            Section {
+                LabeledContent(SettingsItem.keyBackup.title) {
+                    HStack {
+                        Text(recovery.title)
+                        // an account without recovery sets it up; one with it opens it here with the key.
+                        if recovery == .disabled, isVerified == true {
+                            Button(String(localized: "Set Up Recovery…"), action: actions.setUpRecovery)
+                        }
+                    }
+                }
+                .settingsRow(.keyBackup)
+                if recovery != .disabled {
+                    TextField(SettingsItem.recoveryKey.title, text: $key, prompt: Text(verbatim: "EsT…"))
+                        .font(.body.monospaced())
+                        .disabled(recovery == .enabled)
+                        .onSubmit(unlock)
+                        .settingsRow(.recoveryKey)
+                    HStack {
+                        if let outcome {
+                            Text(outcome.text).foregroundStyle(outcome.failed ? .red : .secondary)
+                        }
+                        Spacer()
+                        if isRecovering { ProgressView().controlSize(.small) }
+                        Button(String(localized: "Unlock"), action: unlock)
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(recovery == .enabled || isRecovering || key.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+            } footer: {
+                if recovery != .disabled {
+                    Text(SettingsItem.recoveryKey.detail ?? "").formFooter()
+                }
+            }
         }
-        return Self.cell(views)
+        .formStyle(.grouped)
+        .onChange(of: recovery) { if recovery == .enabled { key = "" } }
     }
 
-    private static func cell(_ views: [NSView]) -> NSView {
-        let row = NSStackView(views: views)
-        row.spacing = 6
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
-        return row
+    private var verified: String {
+        switch isVerified {
+        case true?: String(localized: "Verified")
+        case false?: String(localized: "Not verified")
+        case nil: String(localized: "Checking…")
+        }
     }
 
-    private static func button(_ title: String, action: @escaping () -> Void) -> NSButton {
-        let button = ActionButton(title: title, perform: action)
-        button.controlSize = .small
-        return button
+    private func unlock() {
+        guard recovery != .enabled, !isRecovering, !key.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        actions.recover(key)
+    }
+
+    /// A device: whether it is verified, its name, and for another device Verify and Sign Out.
+    private func row(_ device: OwnDevice, canVerify: Bool) -> some View {
+        HStack {
+            Image(systemName: device.isVerified ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                .foregroundStyle(device.isVerified ? .green : .orange)
+                .accessibilityLabel(device.isVerified ? String(localized: "Verified") : String(localized: "Not verified"))
+            Text(device.isThisDevice ? String(localized: "\(device.title) (this Mac)") : device.title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(device.id)
+            Spacer(minLength: 8)
+            if !device.isThisDevice {
+                if !device.isVerified, canVerify {
+                    Button(String(localized: "Verify…")) { actions.verifyDevice(device) }
+                }
+                Button(String(localized: "Sign Out…")) { actions.signOutDevice(device) }
+            }
+        }
     }
 }
