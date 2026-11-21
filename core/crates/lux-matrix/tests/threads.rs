@@ -164,7 +164,8 @@ async fn the_rooms_own_timeline_hides_the_replies_and_sums_them_up_on_the_root()
     assert!(page[1].thread.is_none());
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// one thread: on several, the SDK can answer a send before it tells the timeline of its echo.
+#[tokio::test]
 async fn a_thread_shows_its_root_and_replies_and_sends_its_replies() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;

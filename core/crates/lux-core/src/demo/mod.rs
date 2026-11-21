@@ -135,6 +135,7 @@ impl DemoAccount {
         let spaces: Arc<[Space]> = data::spaces(config.rooms).into();
         let messages_per_room = config.messages_per_room;
         let live_tail = config.live_tail;
+        let start = config.start;
         let security = security::DemoSecurity::new(config.encryption, config.verification_request_after);
         let mut inner = Inner {
             made,
@@ -162,7 +163,10 @@ impl DemoAccount {
         inner.publish_requests();
         inner.publish_organized();
         let inner = Arc::new(Mutex::new(inner));
-        let timelines = DemoTimelines::new(messages_per_room).sending_to(SentMessages(Arc::clone(&inner)));
+        // the chats' messages are dated as their list says: from the account's start.
+        let timelines = DemoTimelines::new(messages_per_room)
+            .starting_at(start)
+            .sending_to(SentMessages(Arc::clone(&inner)));
         timelines
             .live_tail
             .store(live_tail, std::sync::atomic::Ordering::Relaxed);

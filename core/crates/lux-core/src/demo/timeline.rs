@@ -153,6 +153,12 @@ impl DemoTimelines {
         }
     }
 
+    /// Rooms whose newest message is at `start`.
+    pub(crate) fn starting_at(mut self, start: SystemTime) -> Self {
+        self.start = start;
+        self
+    }
+
     /// These timelines tell `account` what the user sends.
     pub(crate) fn sending_to(mut self, account: SentMessages) -> Self {
         self.sent = Some(account);

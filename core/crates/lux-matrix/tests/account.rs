@@ -735,7 +735,8 @@ async fn a_callback_for_another_sign_in_is_refused() {
     lux_core::ports::OAuthSignIn::cancel(&pending).await;
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// one thread: on several, the SDK can answer a send before it tells the timeline of its echo.
+#[tokio::test]
 async fn a_send_that_failed_for_a_moment_goes_out_by_itself_while_the_sync_runs() {
     let server = server().await;
     sync_anna(&server).await;
@@ -824,7 +825,8 @@ async fn until_state(
     .unwrap_or_else(|_| panic!("{body:?} is not {state:?}"));
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// one thread: on several, the SDK can answer a send before it tells the timeline of its echo.
+#[tokio::test]
 async fn a_send_that_failed_offline_waits_for_the_server_and_goes_out_once_it_is_back() {
     let server = server().await;
     sync_anna(&server).await;

@@ -3,7 +3,7 @@
 use crate::gone::OtherEndGone;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use eyeball_im::VectorDiff;
 use jiff::tz::TimeZone;
@@ -57,11 +57,19 @@ fn chat_room(id: &str, network: &str) -> ChatRoom {
     }
 }
 
-async fn open(rooms: Vec<ChatRoom>, messages: usize, receipts: ReadReceipts) -> Opened {
-    let threads = Arc::new(DemoAccount::new(DemoConfig {
+/// The demo of 30 chats of `messages` each, its newest messages at noon of a past day (what is
+/// sent comes after them): what the rows show (a day's separator, the runs it breaks) does not
+/// depend on when the test runs.
+fn demo_config(messages: usize) -> DemoConfig {
+    DemoConfig {
         messages_per_room: messages,
+        start: SystemTime::UNIX_EPOCH + Duration::from_hours(489_924),
         ..DemoConfig::new(30)
-    }));
+    }
+}
+
+async fn open(rooms: Vec<ChatRoom>, messages: usize, receipts: ReadReceipts) -> Opened {
+    let threads = Arc::new(DemoAccount::new(demo_config(messages)));
     open_on(threads, rooms, receipts, None).await
 }
 
@@ -568,10 +576,7 @@ async fn older_messages_show_as_the_user_scrolls_up_until_the_first() {
 
 /// Opens a chat of 100 messages whose first unread one takes `unread` to find.
 fn open_slow(unread: Duration, listed_unread: bool) -> (ThreadViewModel, mpsc::UnboundedReceiver<Heard>) {
-    let threads = Arc::new(DemoAccount::new(DemoConfig {
-        messages_per_room: 100,
-        ..DemoConfig::new(30)
-    }));
+    let threads = Arc::new(DemoAccount::new(demo_config(100)));
     let millis = u64::try_from(unread.as_millis()).unwrap();
     threads.timelines().unread_millis.store(millis, Ordering::Relaxed);
     let (sender, heard) = mpsc::unbounded_channel();
@@ -689,10 +694,7 @@ async fn a_jump_to_a_photo_in_an_album_answers_the_albums_row() {
 
 /// The demo's room `!r:demo` of 30 messages, its newest thread's root being its 22nd.
 fn thread_demo() -> Arc<DemoAccount> {
-    Arc::new(DemoAccount::new(DemoConfig {
-        messages_per_room: 30,
-        ..DemoConfig::new(30)
-    }))
+    Arc::new(DemoAccount::new(demo_config(30)))
 }
 
 #[tokio::test(start_paused = true)]
@@ -844,10 +846,7 @@ async fn reacting_join_thread_to_a_bridges_notice_brings_the_threads_replies() {
 #[tokio::test]
 async fn a_rooms_threads_list_the_latest_active_first_a_page_at_a_time() {
     use crate::ports::ChatDetails;
-    let demo = Arc::new(DemoAccount::new(DemoConfig {
-        messages_per_room: 200,
-        ..DemoConfig::new(30)
-    }));
+    let demo = Arc::new(DemoAccount::new(demo_config(200)));
     let page = demo.threads(&"!room1:demo".into(), None).await.expect("listed");
     assert!(page.threads.len() >= 2);
     let latest = |thread: &crate::ports::ListedThread| thread.summary.latest.as_ref().map(|latest| latest.date);
@@ -860,10 +859,7 @@ async fn a_rooms_threads_list_the_latest_active_first_a_page_at_a_time() {
 /// The demo's `rooms` of `messages` messages each, whose live timelines hold only their newest
 /// `tail` (as a device holds a long chat's latest): an older message is a jump away.
 async fn open_long(rooms: Vec<ChatRoom>, messages: usize, tail: usize) -> Opened {
-    let threads = Arc::new(DemoAccount::new(DemoConfig {
-        messages_per_room: messages,
-        ..DemoConfig::new(30)
-    }));
+    let threads = Arc::new(DemoAccount::new(demo_config(messages)));
     threads.timelines().live_tail.store(tail, Ordering::Relaxed);
     open_on(threads, rooms, ReadReceipts::Automatic, None).await
 }
