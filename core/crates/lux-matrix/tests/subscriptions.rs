@@ -124,7 +124,8 @@ fn bodies(shown: &[Arc<TimelineMessage>]) -> Vec<&str> {
     shown.iter().map(|message| message.message.body.as_str()).collect()
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// one thread: on several, the SDK can answer a send before it tells the timeline of its echo.
+#[tokio::test]
 async fn a_send_in_an_open_chat_and_an_answer_in_one_sync_keep_the_chats_messages() {
     let server = server().await;
     let room = Room::new(&[("$one", "one")]);

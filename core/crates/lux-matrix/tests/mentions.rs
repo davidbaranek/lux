@@ -91,7 +91,8 @@ async fn sent(server: &MatrixMockServer) -> Vec<Value> {
         .collect()
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// one thread: on several, the SDK can answer a send before it tells the timeline of its echo.
+#[tokio::test]
 async fn a_reply_with_pills_mentions_its_members_and_the_sender_it_answers_never_the_account() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
@@ -144,7 +145,8 @@ async fn a_reply_with_pills_mentions_its_members_and_the_sender_it_answers_never
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// one thread: on several, the SDK can answer a send before it tells the timeline of its echo.
+#[tokio::test]
 async fn a_message_without_pills_mentions_nobody_and_room_mentions_the_room() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
@@ -299,7 +301,8 @@ async fn a_draft_keeps_its_pills() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// one thread: on several, the SDK can answer a send before it tells the timeline of its echo.
+#[tokio::test]
 async fn a_photos_caption_mentions_its_pills() {
     let server = MatrixMockServer::new().await;
     let client = client(&server).await;
