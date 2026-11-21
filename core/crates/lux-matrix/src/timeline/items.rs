@@ -65,6 +65,9 @@ pub(crate) struct ItemMapper {
     room_id: RoomId,
     own: OwnedUserId,
     names: HashMap<OwnedUserId, String>,
+    /// The names in the room of the members pills named, none for those it knows by no name:
+    /// each asked once.
+    pill_names: HashMap<OwnedUserId, Option<String>>,
     /// The pictures of the people met in threads' summaries.
     avatars: HashMap<OwnedUserId, Option<MediaId>>,
     /// The room's own timeline: a thread's root carries its summary (a thread's timeline shows
@@ -94,6 +97,7 @@ impl ItemMapper {
             room_id,
             own,
             names: HashMap::new(),
+            pill_names: HashMap::new(),
             avatars: HashMap::new(),
             sums_threads: true,
             asked: HashSet::new(),
@@ -317,14 +321,15 @@ impl ItemMapper {
             let Ok(id) = OwnedUserId::try_from(user.as_str()) else {
                 continue;
             };
-            let name = match self.names.get(&id) {
-                Some(name) => Some(name.clone()),
-                None => match self.room.get_member_no_sync(&id).await {
-                    Ok(Some(member)) => member.display_name().map(str::to_owned).inspect(|name| {
-                        self.names.insert(id.clone(), name.clone());
-                    }),
+            let name = if let Some(known) = self.pill_names.get(&id) {
+                known.clone()
+            } else {
+                let name = match self.room.get_member_no_sync(&id).await {
+                    Ok(Some(member)) => member.display_name().map(str::to_owned),
                     _ => None,
-                },
+                };
+                self.pill_names.insert(id, name.clone());
+                name
             };
             if let Some(name) = name {
                 names.insert(user.clone(), name);

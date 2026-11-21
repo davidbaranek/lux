@@ -1,7 +1,7 @@
 //! A chat's details, as the apps see them: each room's state and networks, the members found as
 //! the user types, what was shared read back page by page, and the details screen's changes.
 
-use lux_core::mention::mention_suggestions;
+use lux_core::mention::Mentionable;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -168,6 +168,8 @@ impl From<&Member> for CoreMember {
 #[derive(uniffi::Object)]
 pub struct CoreMemberList {
     members: Vec<Member>,
+    /// The members folded once for mentions, on the first `@`.
+    mentionable: std::sync::OnceLock<Mentionable>,
 }
 
 /// A Matrix thread of a room, as the room's list of threads shows it.
@@ -206,7 +208,9 @@ impl CoreMemberList {
     /// offers, the best match first, at most `limit`; never the account.
     #[must_use]
     pub fn mention_suggestions(&self, query: &str, limit: u32) -> Vec<CoreMentionSuggestion> {
-        mention_suggestions(&self.members, query, usize::try_from(limit).unwrap_or(usize::MAX))
+        self.mentionable
+            .get_or_init(|| Mentionable::new(&self.members))
+            .suggestions(query, usize::try_from(limit).unwrap_or(usize::MAX))
             .into_iter()
             .map(CoreMentionSuggestion::from)
             .collect()
@@ -397,7 +401,10 @@ impl CoreAccount {
         let room = RoomId::from(room_id);
         let mut members = with_account!(self.backend(), account => account.members(&room).await)?;
         sort_members(&mut members);
-        Ok(Arc::new(CoreMemberList { members }))
+        Ok(Arc::new(CoreMemberList {
+            members,
+            mentionable: std::sync::OnceLock::new(),
+        }))
     }
 
     /// What was shared in the chat `chat_id` (each room of a merged one), of `kind`; with a

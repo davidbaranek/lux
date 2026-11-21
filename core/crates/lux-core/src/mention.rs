@@ -108,7 +108,8 @@ impl ComposedText {
         self.text.trim().is_empty()
     }
 
-    /// The text without white space around it, its pills kept where they are.
+    /// The text without white space around it, its pills kept where they are (a pill whose name
+    /// ends in white space ends where the text does).
     #[must_use]
     pub fn trimmed(&self) -> Self {
         let leading = self.text.len() - self.text.trim_start().len();
@@ -120,8 +121,8 @@ impl ComposedText {
             .iter()
             .filter_map(|mention| {
                 let start = mention.range.start.checked_sub(shift)?;
-                let end = mention.range.end.checked_sub(shift)?;
-                (end <= length).then(|| Mention {
+                let end = mention.range.end.checked_sub(shift)?.min(length);
+                (start < end).then(|| Mention {
                     target: mention.target.clone(),
                     range: start..end,
                 })
@@ -323,42 +324,93 @@ pub enum MentionSuggestion {
     Room,
 }
 
-/// The members (and `@room`) a mention's `query` offers, the best match first, at most `limit`:
-/// those whose name starts with it, then whose name has a word or whose user id starts with it,
-/// then whose name or id holds it, then whose name or id has its letters in order, each by name;
-/// ignoring case and accents. The account is never offered; `@room` only when its power level
-/// allows (`notifications.room`). An empty query offers everyone, by name, `@room` last.
-#[must_use]
-pub fn mention_suggestions(members: &[Member], query: &str, limit: usize) -> Vec<MentionSuggestion> {
-    let query = folded(query.trim_start_matches('@'));
-    let may_mention_room = members.iter().any(|member| member.is_own && member.may_mention_room);
-    let mut ranked: Vec<(u8, String, MentionSuggestion)> = members
-        .iter()
-        .filter(|member| !member.is_own)
-        .filter_map(|member| {
-            let name = folded(&member.name);
-            let id = folded(member.user.as_str().trim_start_matches('@'));
-            let local = folded(member.user.localpart());
-            let tier = rank(&query, &name, &id, &local)?;
-            Some((tier, name, MentionSuggestion::Member(member.clone())))
-        })
-        .collect();
-    if may_mention_room {
-        let tier = if query.is_empty() {
-            Some(u8::MAX)
-        } else {
-            rank(&query, "room", "room", "room")
-        };
-        if let Some(tier) = tier {
-            ranked.push((tier, "room".to_owned(), MentionSuggestion::Room));
+/// A room's members as mentions find them: each one's name, user id and its local part folded
+/// once (without case or accents), for every word typed after an `@` to rank them again.
+#[derive(Debug)]
+pub struct Mentionable {
+    members: Vec<FoldedMember>,
+    may_mention_room: bool,
+}
+
+#[derive(Debug)]
+struct FoldedMember {
+    member: Member,
+    name: String,
+    id: String,
+    local: String,
+}
+
+impl Mentionable {
+    /// `members`, folded; the account among them says whether `@room` is offered.
+    #[must_use]
+    pub fn new(members: &[Member]) -> Self {
+        Self {
+            may_mention_room: members.iter().any(|member| member.is_own && member.may_mention_room),
+            members: members
+                .iter()
+                .filter(|member| !member.is_own)
+                .map(|member| FoldedMember {
+                    name: folded(&member.name),
+                    id: folded(member.user.as_str().trim_start_matches('@')),
+                    local: folded(member.user.localpart()),
+                    member: member.clone(),
+                })
+                .collect(),
         }
     }
-    ranked.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
-    ranked
-        .into_iter()
-        .take(limit)
-        .map(|(_, _, suggestion)| suggestion)
-        .collect()
+
+    /// The members (and `@room`) a mention's `query` offers, the best match first, at most
+    /// `limit`: those whose name starts with it, then whose name has a word or whose user id
+    /// starts with it, then whose name or id holds it, then whose name or id has its letters in
+    /// order, each by name; ignoring case and accents. The account is never offered; `@room` only
+    /// when its power level allows (`notifications.room`). An empty query offers everyone, by
+    /// name, `@room` last.
+    #[must_use]
+    pub fn suggestions(&self, query: &str, limit: usize) -> Vec<MentionSuggestion> {
+        let query = folded(query.trim_start_matches('@'));
+        // (tier, folded name, the member's index; none for `@room`): only those shown are cloned.
+        let mut ranked: Vec<(u8, &str, Option<usize>)> = self
+            .members
+            .iter()
+            .enumerate()
+            .filter_map(|(index, folded)| {
+                let tier = rank(&query, &folded.name, &folded.id, &folded.local)?;
+                Some((tier, folded.name.as_str(), Some(index)))
+            })
+            .collect();
+        if self.may_mention_room {
+            let tier = if query.is_empty() {
+                Some(u8::MAX)
+            } else {
+                rank(&query, "room", "room", "room")
+            };
+            if let Some(tier) = tier {
+                ranked.push((tier, "room", None));
+            }
+        }
+        let limit = limit.min(ranked.len());
+        if limit < ranked.len() {
+            ranked.select_nth_unstable_by(limit, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+            ranked.truncate(limit);
+        }
+        ranked.sort_unstable_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        ranked
+            .into_iter()
+            .filter_map(|(_, _, index)| match index {
+                Some(index) => self
+                    .members
+                    .get(index)
+                    .map(|folded| MentionSuggestion::Member(folded.member.clone())),
+                None => Some(MentionSuggestion::Room),
+            })
+            .collect()
+    }
+}
+
+/// `Mentionable::suggestions` of `members`, folded for this one query.
+#[must_use]
+pub fn mention_suggestions(members: &[Member], query: &str, limit: usize) -> Vec<MentionSuggestion> {
+    Mentionable::new(members).suggestions(query, limit)
 }
 
 /// How well a folded `query` matches a folded name, id and its local part: lower is better; none
@@ -630,6 +682,15 @@ mod tests {
                 mentions: vec![pill(user("@anna:a.b"), 3..7)],
             }
         );
+    }
+
+    #[test]
+    fn a_pill_whose_name_ends_in_white_space_is_kept_where_the_text_ends() {
+        let composed = ComposedText {
+            text: "hi Anna ".to_owned(),
+            mentions: vec![pill(user("@anna:a.b"), 3..8)],
+        };
+        assert_eq!(composed.trimmed().mentions, [pill(user("@anna:a.b"), 3..7)]);
     }
 
     #[test]
