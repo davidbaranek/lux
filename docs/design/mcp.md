@@ -53,6 +53,21 @@ What the code does now, where it differs from the proposal below:
     send report whether they happened.
 - **Limits on what a client sends**: lines over 256 KiB end the connection; texts, search words
   and reasons are capped; a client that leaves while Lux asks ends its approval.
+- **Organizing** (grant `organize`, between drafts and sending): `organize_chats` (read, unread,
+  low_priority, inbox, archive, pin, unpin, mute, unmute), `set_notifications` (all, mentions,
+  off, default) and `set_chat_style` (bubbles, plain, default) each take up to 500 chat ids and
+  answer which were done and which not, with why; a hidden chat is as one not there. They call
+  what the chat list's menu calls (`ChatActions::change`, so `read` sends a read receipt as the
+  user's settings say; `ChatDetails::set_notifications`), and the per-chat style the app keeps.
+  `list_chats` filters by space (its chats and those of the spaces inside it), label, folder,
+  network and unread, up to 500, so "every chat of space X to mentions, in bubbles" is one list
+  and two organizing calls. Leaving or deleting a chat is not there: nothing an agent does is
+  destructive (MCP's `destructiveHint` is false on every tool; `readOnlyHint` and
+  `idempotentHint` come from each tool's spec).
+- **Settings an agent may change**: `get_settings` (read) and `change_setting` (organize) over
+  an explicit list the app keeps: `chat_style`, `read_receipts`, `search_history`. Not the
+  account, its encryption, AI's switches or the agents' own permissions, so an agent cannot
+  widen its own grant.
 - **Settings › Agents** (Mac): the switch (under AI), the commands to copy (`claude mcp add …`),
   Install Skill… (a short `SKILL.md`: what Lux is and how its permissions work, written to the
   skills folder the user picks, as the sandbox requires), **Add to Claude Desktop…** (an `.mcpb`
@@ -289,7 +304,7 @@ The first call of a session waits while Lux shows a dialog, in front, with:
   progress message and in the error of the waiting call: "Approve in Lux, code K7-Q2"). The
   user approves only a dialog whose code is the one in front of them, so a dialog cannot be for
   some other process's request. It is a check for the user's eyes, as a Bluetooth pairing code.
-- **Access**: Read only · Read and drafts · Read, drafts and sending (below). Preset from
+- **Access**: Read only · Read and drafts · Read, drafts and organizing · Read, drafts and sending (below). Preset from
   Settings › AI › Agents, changeable here.
 - **Scope**: the networks and chats from Settings (default: all but the hidden), changeable
   with "Choose chats…".

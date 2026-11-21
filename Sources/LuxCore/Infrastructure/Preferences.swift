@@ -41,7 +41,7 @@ public final class Preferences {
     }
 
     /// The agents the user approved for always, by client name, and what each may do
-    /// (`read`, `drafts`, `send`).
+    /// (`read`, `drafts`, `organize`, `send`, `autoSend`).
     public var approvedAgents: [String: String] {
         get { defaults.dictionary(forKey: "approvedAgents") as? [String: String] ?? [:] }
         set { defaults.set(newValue, forKey: "approvedAgents") }

@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use lux_agent::{
-    Agent, AgentBackend, Approval, ApprovalAnswer, Approver, BackendError, ChatSummary, Grant, LogEntry, MessageHit,
-    SendOutcome, bind, serve,
+    Agent, AgentBackend, Approval, ApprovalAnswer, Approver, BackendError, ChatStyle, ChatSummary, Folder, Grant,
+    LogEntry, MessageHit, Notifications, Organize, Place, SendOutcome, Setting, bind, serve,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
@@ -36,6 +36,18 @@ fn chat(id: &str, rooms: &[&str], name: &str, unread: u32, seconds: u64) -> Chat
         unread,
         muted: false,
         last_activity: Some(at(seconds)),
+        folder: Folder::Inbox,
+        pinned: false,
+        notifications: Some(Notifications::Default),
+        spaces: Vec::new(),
+        labels: Vec::new(),
+    }
+}
+
+fn place(id: &str, name: &str) -> Place {
+    Place {
+        id: id.to_owned(),
+        name: name.to_owned(),
     }
 }
 
@@ -55,6 +67,10 @@ struct Account {
     drafts: Mutex<Vec<(String, String)>>,
     sent: Mutex<Vec<(String, String)>>,
     log: Mutex<Vec<LogEntry>>,
+    /// What the organizing tools did, in order: (chat, what).
+    organized: Mutex<Vec<(String, String)>>,
+    /// The settings, as the app has them.
+    settings: Mutex<Vec<(String, String)>>,
 }
 
 /// The account, shared with the test.
@@ -66,11 +82,16 @@ impl AgentBackend for Shared {
     }
 
     async fn chats(&self) -> Result<Vec<ChatSummary>, BackendError> {
-        Ok(vec![
-            chat("family", &["!a", "!b"], "Family", 2, 5),
-            chat("bank", &["!secret"], "Bank", 1, 9),
-            chat("work", &["!w"], "Work", 0, 1),
-        ])
+        let mut family = chat("family", &["!a", "!b"], "Family", 2, 5);
+        family.labels = vec![place("label-1", "Home")];
+        let mut work = chat("work", &["!w"], "Work", 0, 1);
+        work.spaces = vec![place("!acme", "Acme")];
+        let mut design = chat("design", &["!d"], "Design", 3, 2);
+        design.spaces = vec![place("!acme", "Acme")];
+        design.folder = Folder::LowPriority;
+        let mut bank = chat("bank", &["!secret"], "Bank", 1, 9);
+        bank.spaces = vec![place("!acme", "Acme")];
+        Ok(vec![family, bank, work, design])
     }
 
     async fn search(&self, _query: String, _rooms: Vec<String>, _limit: u32) -> Result<Vec<MessageHit>, BackendError> {
@@ -105,6 +126,51 @@ impl AgentBackend for Shared {
 
     async fn confirm_send(&self, _chat: String, _text: String, _client: String) -> Result<SendOutcome, BackendError> {
         Ok(SendOutcome::Cancelled)
+    }
+
+    async fn organize(&self, chat: String, change: Organize) -> Result<(), BackendError> {
+        if chat == "design" && change == Organize::Pin {
+            return Err(BackendError {
+                reason: "the server refused".to_owned(),
+            });
+        }
+        self.0.organized.lock().unwrap().push((chat, format!("{change:?}")));
+        Ok(())
+    }
+
+    async fn set_notifications(&self, chat: String, notifications: Notifications) -> Result<(), BackendError> {
+        self.0
+            .organized
+            .lock()
+            .unwrap()
+            .push((chat, format!("{notifications:?}")));
+        Ok(())
+    }
+
+    async fn set_chat_style(&self, chat: String, style: ChatStyle) -> Result<(), BackendError> {
+        self.0.organized.lock().unwrap().push((chat, format!("{style:?}")));
+        Ok(())
+    }
+
+    async fn settings(&self) -> Result<Vec<Setting>, BackendError> {
+        let mut settings = self.0.settings.lock().unwrap().clone();
+        if settings.is_empty() {
+            settings = vec![("chat_style".to_owned(), "bubbles".to_owned())];
+        }
+        Ok(settings
+            .into_iter()
+            .map(|(name, value)| Setting {
+                name,
+                description: "How chats look".to_owned(),
+                value,
+                choices: vec!["bubbles".to_owned(), "plain".to_owned()],
+            })
+            .collect())
+    }
+
+    async fn change_setting(&self, name: String, value: String) -> Result<(), BackendError> {
+        *self.0.settings.lock().unwrap() = vec![(name, value)];
+        Ok(())
     }
 
     fn log(&self, entry: LogEntry) {
@@ -219,7 +285,7 @@ async fn a_session_reads_what_it_may_and_never_a_hidden_chat() {
         .iter()
         .map(|chat| chat["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["Family", "Work"]);
+    assert_eq!(names, ["Family", "Design", "Work"]);
 
     let found = client.call(2, "search_messages", json!({ "query": "code" })).await;
     let texts: Vec<&str> = found["result"]["value"]["messages"]
@@ -431,4 +497,173 @@ async fn an_approval_stops_waiting_when_its_client_leaves() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     panic!("the approval still waits for a client that left");
+}
+
+fn ids(value: &Value, list: &str) -> Vec<String> {
+    value[list]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map_or_else(|| item["chat_id"].as_str().unwrap().to_owned(), ToOwned::to_owned)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn organizing_needs_its_grant_and_settings_read_with_reading() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::Drafts,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    })
+    .await;
+    let read = client
+        .call(1, "organize_chats", json!({ "chat_ids": ["work"], "action": "read" }))
+        .await;
+    assert_eq!(read["error"]["code"], "insufficient_grant");
+    let change = client
+        .call(2, "change_setting", json!({ "name": "chat_style", "value": "plain" }))
+        .await;
+    assert_eq!(change["error"]["code"], "insufficient_grant");
+    let settings = client.call(3, "get_settings", json!({})).await;
+    assert_eq!(settings["result"]["value"]["settings"][0]["name"], "chat_style");
+    assert!(account.organized.lock().unwrap().is_empty());
+    drop(server);
+}
+
+#[tokio::test]
+async fn a_spaces_chats_are_listed_then_organized_in_one_call() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::Organize,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    })
+    .await;
+    // by the space's name, any case; the hidden chat in it is not there.
+    let listed = client.call(1, "list_chats", json!({ "space": "acme" })).await;
+    let chats: Vec<String> = listed["result"]["value"]["chats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chat| chat["chat_id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(chats, ["design", "work"]);
+    assert_eq!(listed["result"]["value"]["chats"][0]["spaces"], json!(["Acme"]));
+    assert_eq!(listed["result"]["value"]["chats"][0]["folder"], "low_priority");
+
+    let mut asked = chats.clone();
+    asked.extend(["!w".to_owned(), "bank".to_owned(), "nope".to_owned()]);
+    let notified = client
+        .call(
+            2,
+            "set_notifications",
+            json!({ "chat_ids": asked, "notifications": "mentions" }),
+        )
+        .await;
+    // a room id stands for its chat, done once; a hidden chat is as one not there.
+    assert_eq!(ids(&notified["result"]["value"], "done"), ["design", "work"]);
+    assert_eq!(ids(&notified["result"]["value"], "failed"), ["bank", "nope"]);
+    let styled = client
+        .call(3, "set_chat_style", json!({ "chat_ids": chats, "style": "bubbles" }))
+        .await;
+    assert_eq!(ids(&styled["result"]["value"], "done"), ["design", "work"]);
+    assert_eq!(
+        *account.organized.lock().unwrap(),
+        [
+            ("design".to_owned(), "Mentions".to_owned()),
+            ("work".to_owned(), "Mentions".to_owned()),
+            ("design".to_owned(), "Bubbles".to_owned()),
+            ("work".to_owned(), "Bubbles".to_owned()),
+        ]
+    );
+    let log = account.log.lock().unwrap();
+    assert_eq!(log[1].chats, ["design", "work"]);
+    drop(log);
+    drop(server);
+}
+
+#[tokio::test]
+async fn each_chat_is_done_on_its_own_and_a_refusal_is_said() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::Organize,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    })
+    .await;
+    let pinned = client
+        .call(
+            1,
+            "organize_chats",
+            json!({ "chat_ids": ["design", "work"], "action": "pin" }),
+        )
+        .await;
+    assert_eq!(ids(&pinned["result"]["value"], "done"), ["work"]);
+    assert_eq!(pinned["result"]["value"]["failed"][0]["reason"], "the server refused");
+
+    let unread = client
+        .call(2, "list_chats", json!({ "unread_only": true, "folder": "inbox" }))
+        .await;
+    let unread: Vec<String> = unread["result"]["value"]["chats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chat| chat["chat_id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(unread, ["family"]);
+    let read = client
+        .call(3, "organize_chats", json!({ "chat_ids": unread, "action": "read" }))
+        .await;
+    assert_eq!(ids(&read["result"]["value"], "done"), ["family"]);
+    assert_eq!(
+        account.organized.lock().unwrap()[1],
+        ("family".to_owned(), "Read".to_owned())
+    );
+
+    let none = client
+        .call(4, "organize_chats", json!({ "chat_ids": [], "action": "archive" }))
+        .await;
+    assert_eq!(none["error"]["code"], "invalid_arguments");
+    let leave = client
+        .call(5, "organize_chats", json!({ "chat_ids": ["work"], "action": "leave" }))
+        .await;
+    assert_eq!(leave["error"]["code"], "invalid_arguments");
+    let too_many: Vec<String> = (0..501).map(|n| format!("!{n}")).collect();
+    let many = client
+        .call(6, "organize_chats", json!({ "chat_ids": too_many, "action": "read" }))
+        .await;
+    assert_eq!(many["error"]["code"], "invalid_arguments");
+    drop(server);
+}
+
+#[tokio::test]
+async fn a_setting_takes_only_its_choices() {
+    let (account, _user, mut client, _folder, server) = session(User {
+        first: Grant::Organize,
+        more: None,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    })
+    .await;
+    let wrong = client
+        .call(1, "change_setting", json!({ "name": "chat_style", "value": "comic" }))
+        .await;
+    assert_eq!(wrong["error"]["code"], "invalid_arguments");
+    let unknown = client
+        .call(2, "change_setting", json!({ "name": "encryption", "value": "off" }))
+        .await;
+    assert_eq!(unknown["error"]["code"], "invalid_arguments");
+    let changed = client
+        .call(3, "change_setting", json!({ "name": "chat_style", "value": "plain" }))
+        .await;
+    assert_eq!(changed["result"]["value"]["settings"][0]["value"], "plain");
+    assert_eq!(
+        *account.settings.lock().unwrap(),
+        [("chat_style".to_owned(), "plain".to_owned())]
+    );
+    drop(server);
 }
