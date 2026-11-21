@@ -23,7 +23,10 @@ mod text;
 mod tools;
 
 pub use agent::{Agent, Session};
-pub use backend::{AgentBackend, BackendError, ChatSummary, LogEntry, MessageHit, SendOutcome};
+pub use backend::{
+    AgentBackend, BackendError, ChatStyle, ChatSummary, Folder, LogEntry, MessageHit, Notifications, Organize, Place,
+    SendOutcome, Setting,
+};
 pub use client::{run_client, skill};
 pub use protocol::{ClientHello, ClientKind, Grant};
 pub use server::{Approval, ApprovalAnswer, Approver, bind, serve};

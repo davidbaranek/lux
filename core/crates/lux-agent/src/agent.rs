@@ -7,12 +7,15 @@ use std::time::{Duration, Instant, SystemTime};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::backend::{AgentBackend, ChatSummary, LogEntry, MessageHit, SendOutcome};
+use std::future::Future;
+
+use crate::backend::{AgentBackend, BackendError, ChatSummary, LogEntry, MessageHit, SendOutcome};
 use crate::protocol::Grant;
 use crate::text::plain;
 use crate::tools::{
-    ChatOut, Chats, Compose, Confirm, ListChats, MessageOut, Messages, Prepared, ReadChat, SearchMessages, Status,
-    ToolError, ToolErrorCode, tools,
+    ChangeSetting, ChatOut, Chats, Compose, Confirm, Failure, ListChats, MessageOut, Messages, Nothing, OrganizeChats,
+    Organized, Prepared, ReadChat, SearchMessages, SetChatStyle, SetNotifications, Settings, Status, ToolError,
+    ToolErrorCode, tools,
 };
 
 /// Calls a session may make in a minute.
@@ -30,6 +33,9 @@ const MAX_TEXT: usize = 10_000;
 const MAX_QUERY: usize = 1_000;
 const MAX_REASON: usize = 500;
 const MAX_OTHER: usize = 256;
+
+/// The most chats one organizing call takes, and the most `list_chats` gives.
+const MAX_CHATS: usize = 500;
 
 /// A message waiting for the preview's Send.
 struct Pending {
@@ -201,6 +207,40 @@ impl<B: AgentBackend> Agent<B> {
             }
             "send_message" => serde_json::to_value(self.send_message(session, parse(arguments)?, entry).await?),
             "prepare_send" => serde_json::to_value(self.prepare_send(session, parse(arguments)?, entry).await?),
+            "organize_chats" => {
+                let organize: OrganizeChats = parse(arguments)?;
+                let action = organize.action;
+                serde_json::to_value(
+                    self.each_chat(organize.chat_ids, entry, |chat| self.backend.organize(chat, action))
+                        .await?,
+                )
+            }
+            "set_notifications" => {
+                let set: SetNotifications = parse(arguments)?;
+                let notifications = set.notifications;
+                serde_json::to_value(
+                    self.each_chat(set.chat_ids, entry, |chat| {
+                        self.backend.set_notifications(chat, notifications)
+                    })
+                    .await?,
+                )
+            }
+            "set_chat_style" => {
+                let set: SetChatStyle = parse(arguments)?;
+                let style = set.style;
+                serde_json::to_value(
+                    self.each_chat(set.chat_ids, entry, |chat| self.backend.set_chat_style(chat, style))
+                        .await?,
+                )
+            }
+            "get_settings" => {
+                let Nothing {} = parse(arguments)?;
+                serde_json::to_value(self.settings().await?)
+            }
+            "change_setting" => {
+                let change: ChangeSetting = parse(arguments)?;
+                serde_json::to_value(self.change_setting(change).await?)
+            }
             "confirm_send" => serde_json::to_value(self.confirm_send(session, parse(arguments)?, entry).await?),
             _ => {
                 return Err(ToolError::new(
@@ -300,6 +340,79 @@ impl<B: AgentBackend> Agent<B> {
         Ok(Status { status: "sent" })
     }
 
+    /// Does `action` to each of `ids` AI may see, one after another: the chats done, and those not
+    /// (not there, kept from AI, or refused), with why.
+    async fn each_chat<F, Fut>(&self, ids: Vec<String>, entry: &mut LogEntry, action: F) -> Result<Organized, ToolError>
+    where
+        F: Fn(String) -> Fut,
+        Fut: Future<Output = Result<(), BackendError>>,
+    {
+        if ids.is_empty() || ids.len() > MAX_CHATS {
+            return Err(ToolError::new(
+                ToolErrorCode::InvalidArguments,
+                format!("`chat_ids` takes 1 to {MAX_CHATS} chats"),
+            ));
+        }
+        let chats = self.chats().await?;
+        let mut organized = Organized {
+            done: Vec::new(),
+            failed: Vec::new(),
+        };
+        let mut seen = HashSet::new();
+        for id in ids {
+            let Some(chat) = chats.iter().find(|chat| chat.id == id || chat.rooms.contains(&id)) else {
+                organized.failed.push(Failure {
+                    reason: format!("no chat `{id}`"),
+                    chat_id: id,
+                });
+                continue;
+            };
+            if !seen.insert(chat.id.clone()) {
+                continue;
+            }
+            match action(chat.id.clone()).await {
+                Ok(()) => organized.done.push(chat.id.clone()),
+                Err(error) => organized.failed.push(Failure {
+                    chat_id: chat.id.clone(),
+                    reason: error.reason,
+                }),
+            }
+        }
+        entry.chats.clone_from(&organized.done);
+        Ok(organized)
+    }
+
+    async fn settings(&self) -> Result<Settings, ToolError> {
+        Ok(Settings {
+            settings: self.backend.settings().await.map_err(unavailable)?,
+        })
+    }
+
+    /// Sets a setting to one of its choices; the settings as they are then.
+    async fn change_setting(&self, change: ChangeSetting) -> Result<Settings, ToolError> {
+        let settings = self.backend.settings().await.map_err(unavailable)?;
+        let setting = settings
+            .iter()
+            .find(|setting| setting.name == change.name)
+            .ok_or_else(|| {
+                ToolError::new(
+                    ToolErrorCode::InvalidArguments,
+                    format!("no setting `{}`: get_settings lists them", change.name),
+                )
+            })?;
+        if !setting.choices.contains(&change.value) {
+            return Err(ToolError::new(
+                ToolErrorCode::InvalidArguments,
+                format!("`{}` takes {}", change.name, setting.choices.join(", ")),
+            ));
+        }
+        self.backend
+            .change_setting(change.name, change.value)
+            .await
+            .map_err(failed)?;
+        self.settings().await
+    }
+
     /// The chats AI may see.
     async fn chats(&self) -> Result<Vec<ChatSummary>, ToolError> {
         let hidden = self.backend.hidden().await.map_err(unavailable)?;
@@ -321,15 +434,23 @@ impl<B: AgentBackend> Agent<B> {
 
     async fn list_chats(&self, list: ListChats) -> Result<Chats, ToolError> {
         let mut chats = self.chats().await?;
+        let names = |places: &[crate::backend::Place], wanted: &str| {
+            places
+                .iter()
+                .any(|place| place.id == wanted || place.name.eq_ignore_ascii_case(wanted))
+        };
         chats.retain(|chat| {
             (!list.unread_only || chat.unread > 0)
                 && list
                     .network
                     .as_ref()
                     .is_none_or(|network| chat.network.eq_ignore_ascii_case(network))
+                && list.space.as_deref().is_none_or(|space| names(&chat.spaces, space))
+                && list.label.as_deref().is_none_or(|label| names(&chat.labels, label))
+                && list.folder.is_none_or(|folder| chat.folder == folder)
         });
         chats.sort_by_key(|chat| std::cmp::Reverse(chat.last_activity));
-        chats.truncate(limit(list.limit, 30, 100));
+        chats.truncate(limit(list.limit, 30, MAX_CHATS));
         Ok(Chats {
             chats: chats.into_iter().map(chat_out).collect(),
         })
@@ -420,6 +541,19 @@ pub(crate) fn check_lengths(arguments: &Value) -> Result<(), ToolError> {
         return Ok(());
     };
     for (name, value) in object {
+        if let Some(items) = value.as_array() {
+            let too_long = items.len() > MAX_CHATS
+                || items
+                    .iter()
+                    .any(|item| item.as_str().is_some_and(|item| item.chars().count() > MAX_OTHER));
+            if too_long {
+                return Err(ToolError::new(
+                    ToolErrorCode::InvalidArguments,
+                    format!("`{name}` takes at most {MAX_CHATS} items of {MAX_OTHER} characters"),
+                ));
+            }
+            continue;
+        }
         let Some(text) = value.as_str() else { continue };
         let most = match name.as_str() {
             "text" => MAX_TEXT,
@@ -443,11 +577,11 @@ fn limit(asked: Option<u32>, default: usize, most: usize) -> usize {
         .clamp(1, most)
 }
 
-fn unavailable(error: crate::backend::BackendError) -> ToolError {
+fn unavailable(error: BackendError) -> ToolError {
     ToolError::new(ToolErrorCode::Unavailable, error.reason)
 }
 
-fn failed(error: crate::backend::BackendError) -> ToolError {
+fn failed(error: BackendError) -> ToolError {
     ToolError::new(ToolErrorCode::Failed, error.reason)
 }
 
@@ -466,6 +600,11 @@ fn chat_out(chat: ChatSummary) -> ChatOut {
         unread: chat.unread,
         muted: chat.muted,
         last_activity: chat.last_activity.map(time),
+        folder: chat.folder,
+        pinned: chat.pinned,
+        notifications: chat.notifications,
+        spaces: chat.spaces.into_iter().map(|space| plain(&space.name)).collect(),
+        labels: chat.labels.into_iter().map(|label| plain(&label.name)).collect(),
     }
 }
 

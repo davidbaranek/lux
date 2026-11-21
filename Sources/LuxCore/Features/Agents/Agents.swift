@@ -4,12 +4,13 @@ import LuxBindings
 
 /// What an agent's session may do, each more than the one before.
 public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
-    case read, drafts, send, autoSend
+    case read, drafts, organize, send, autoSend
 
     public var title: String {
         switch self {
         case .read: String(localized: "Read only")
         case .drafts: String(localized: "Read and write drafts")
+        case .organize: String(localized: "Read, write drafts and organize chats and settings")
         case .send: String(localized: "Read, write drafts and ask to send")
         case .autoSend: String(localized: "Read, write drafts and send on its own")
         }
@@ -19,8 +20,9 @@ public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
         switch self {
         case .read: 0
         case .drafts: 1
-        case .send: 2
-        case .autoSend: 3
+        case .organize: 2
+        case .send: 3
+        case .autoSend: 4
         }
     }
 
@@ -30,6 +32,7 @@ public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
         switch self {
         case .read: .read
         case .drafts: .drafts
+        case .organize: .organize
         case .send: .send
         case .autoSend: .autoSend
         }
@@ -39,6 +42,7 @@ public enum AgentGrant: String, CaseIterable, Sendable, Comparable {
         self = switch grant {
         case .read: .read
         case .drafts: .drafts
+        case .organize: .organize
         case .send: .send
         case .autoSend: .autoSend
         }
@@ -221,6 +225,47 @@ public final class Agents {
         await presenter?.allowSend(text, inRoom: room, client: client) ?? false
     }
 
+    // MARK: The settings an agent may read and change: how chats look, read receipts, search's
+    // reach. Not the account, its encryption, AI's switches or the agents' own permissions.
+
+    fileprivate var settings: [CoreAgentSetting] {
+        let preferences = session.preferences
+        return [
+            CoreAgentSetting(name: "chat_style", description: "How every chat draws its messages on this device, unless one has its own.",
+                             value: preferences.chatStyle.rawValue, choices: ChatStyle.allCases.map(\.rawValue)),
+            CoreAgentSetting(name: "read_receipts", description: "Whether reading a chat tells the others it was read.",
+                             value: preferences.sendsReadReceipts ? "on" : "off", choices: ["on", "off"]),
+            CoreAgentSetting(name: "search_history", description: "How far back search reads each chat on this device.",
+                             value: preferences.searchHistory.rawValue, choices: SearchHistory.allCases.map(\.rawValue)),
+        ]
+    }
+
+    /// Sets a setting the core checked against its choices.
+    fileprivate func changeSetting(_ name: String, to value: String) -> Bool {
+        let preferences = session.preferences
+        switch name {
+        case "chat_style":
+            guard let style = ChatStyle(rawValue: value) else { return false }
+            preferences.chatStyle = style
+        case "read_receipts":
+            guard value == "on" || value == "off" else { return false }
+            preferences.sendsReadReceipts = value == "on"
+        case "search_history":
+            guard let history = SearchHistory(rawValue: value) else { return false }
+            if let search = session.search { search.readHistory(history) } else { preferences.searchHistory = history }
+        default:
+            return false
+        }
+        return true
+    }
+
+    fileprivate func setChatStyle(_ style: String?, in chatId: String) -> Bool {
+        let chatStyle = style.flatMap(ChatStyle.init(rawValue:))
+        guard style == nil || chatStyle != nil else { return false }
+        session.preferences.setChatStyle(chatStyle, in: chatId)
+        return true
+    }
+
     fileprivate func record(_ entry: CoreAgentLogEntry) {
         activity.insert(AgentActivity(date: .now, client: entry.client, tool: entry.tool, chats: entry.chats.count,
                                       messages: Int(entry.messages), refused: entry.refused), at: 0)
@@ -276,6 +321,22 @@ private final class AgentHost: CoreAgentHost {
     func confirmSend(roomId: String, text: String, client: String, reply: CoreAgentSendReply) {
         Task { @MainActor [agents] in
             reply.answer(allowed: await agents.allowSend(text, inRoom: roomId, client: client))
+        }
+    }
+
+    func settings(reply: CoreAgentSettingsReply) {
+        Task { @MainActor [agents] in reply.settings(settings: agents.settings) }
+    }
+
+    func changeSetting(name: String, value: String, reply: CoreAgentChangeReply) {
+        Task { @MainActor [agents] in
+            if agents.changeSetting(name, to: value) { reply.done() } else { reply.failed(reason: "no such setting or value") }
+        }
+    }
+
+    func setChatStyle(chatId: String, style: String?, reply: CoreAgentChangeReply) {
+        Task { @MainActor [agents] in
+            if agents.setChatStyle(style, in: chatId) { reply.done() } else { reply.failed(reason: "no such style") }
         }
     }
 

@@ -11,6 +11,9 @@ pub enum Grant {
     Read,
     /// Also put a draft in a chat's composer, where the user sees it.
     Drafts,
+    /// Also organize chats (read or unread, the folders, pinned, muted, notifications, how a chat
+    /// looks) and change the app's own settings an agent may.
+    Organize,
     /// Also ask to send a message; each one waits for the user's click (in Lux, or on the MCP
     /// client's preview).
     Send,

@@ -9,11 +9,12 @@ use std::time::SystemTime;
 
 use futures_util::StreamExt;
 use lux_agent::{
-    Agent, AgentBackend, Approval, ApprovalAnswer, Approver, BackendError, ChatSummary, ClientKind, Grant, LogEntry,
-    MessageHit, SendOutcome,
+    Agent, AgentBackend, Approval, ApprovalAnswer, Approver, BackendError, ChatStyle, ChatSummary, ClientKind,
+    Folder as AgentFolder, Grant, LogEntry, MessageHit, Notifications, Organize, Place, SendOutcome, Setting,
 };
+use lux_core::chat::{Chat, Folder, NotificationMode};
 use lux_core::ids::{ChatId, RoomId};
-use lux_core::ports::Organizing;
+use lux_core::ports::{ChatActions, ChatChange, ChatDetails, Organizing, Spaces};
 use lux_store::TextSearch;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -29,6 +30,8 @@ pub enum CoreAgentGrant {
     Read,
     /// Also write drafts.
     Drafts,
+    /// Also organize the chats and change the app's settings an agent may.
+    Organize,
     /// Also ask to send, each message after the user's click.
     Send,
     /// Also send on its own, in a chat it read, a few an hour.
@@ -40,6 +43,7 @@ impl From<Grant> for CoreAgentGrant {
         match grant {
             Grant::Read => Self::Read,
             Grant::Drafts => Self::Drafts,
+            Grant::Organize => Self::Organize,
             Grant::Send => Self::Send,
             Grant::AutoSend => Self::AutoSend,
         }
@@ -51,6 +55,7 @@ impl From<CoreAgentGrant> for Grant {
         match grant {
             CoreAgentGrant::Read => Self::Read,
             CoreAgentGrant::Drafts => Self::Drafts,
+            CoreAgentGrant::Organize => Self::Organize,
             CoreAgentGrant::Send => Self::Send,
             CoreAgentGrant::AutoSend => Self::AutoSend,
         }
@@ -149,6 +154,48 @@ impl CoreAgentSendReply {
     }
 }
 
+/// One of the app's settings an agent may read and change.
+#[derive(uniffi::Record)]
+pub struct CoreAgentSetting {
+    /// Its name, for the tools (`chat_style`).
+    pub name: String,
+    /// What it is, for the model.
+    pub description: String,
+    /// Its value now.
+    pub value: String,
+    /// The values it takes.
+    pub choices: Vec<String>,
+}
+
+/// Where the app gives its settings.
+#[derive(uniffi::Object)]
+pub struct CoreAgentSettingsReply(Reply<Vec<CoreAgentSetting>>);
+
+#[uniffi::export]
+impl CoreAgentSettingsReply {
+    /// The settings as they are now.
+    pub fn settings(&self, settings: Vec<CoreAgentSetting>) {
+        self.0.send(settings);
+    }
+}
+
+/// Where the app says whether a change it was asked for is done.
+#[derive(uniffi::Object)]
+pub struct CoreAgentChangeReply(Reply<Result<(), String>>);
+
+#[uniffi::export]
+impl CoreAgentChangeReply {
+    /// Done.
+    pub fn done(&self) {
+        self.0.send(Ok(()));
+    }
+
+    /// Not done, and why.
+    pub fn failed(&self, reason: String) {
+        self.0.send(Err(reason));
+    }
+}
+
 /// Where the app says whether it showed a draft.
 #[derive(uniffi::Object)]
 pub struct CoreAgentDraftReply(Reply<Result<(), String>>);
@@ -201,6 +248,16 @@ pub trait CoreAgentHost: Send + Sync {
     /// or Cancel through `reply`. The core sends it, as text alone: nothing of the composer's.
     fn confirm_send(&self, room_id: String, text: String, client: String, reply: Arc<CoreAgentSendReply>);
 
+    /// The app's settings an agent may read and change, through `reply`.
+    fn settings(&self, reply: Arc<CoreAgentSettingsReply>);
+
+    /// Sets the setting `name` to `value` (one of its choices); whether it did through `reply`.
+    fn change_setting(&self, name: String, value: String, reply: Arc<CoreAgentChangeReply>);
+
+    /// Sets how the chat `chat_id` draws its messages on this device: `bubbles`, `plain`, or none
+    /// to follow the app's setting; whether it did through `reply`.
+    fn set_chat_style(&self, chat_id: String, style: Option<String>, reply: Arc<CoreAgentChangeReply>);
+
     /// Keeps `entry` in the activity log.
     fn log(&self, entry: CoreAgentLogEntry);
 }
@@ -222,6 +279,29 @@ impl AppBackend {
                 reason: format!("no chat `{id}`"),
             })
     }
+}
+
+/// A space or a label, as the tools give it.
+fn place(id: &str, name: &str) -> Place {
+    Place {
+        id: id.to_owned(),
+        name: name.to_owned(),
+    }
+}
+
+/// The places (spaces or labels) `chat` is in: by its id, or any of a merged chat's rooms.
+fn within(chat: &Chat, places: &[(Place, HashSet<ChatId>)]) -> Vec<Place> {
+    places
+        .iter()
+        .filter(|(_, chats)| {
+            chats.contains(&chat.id)
+                || chat
+                    .rooms
+                    .iter()
+                    .any(|room| chats.contains(&ChatId::from(room.id.as_str())))
+        })
+        .map(|(place, _)| place.clone())
+        .collect()
 }
 
 /// A chat's rooms: a merged chat's, or any other chat's own (whose id is its room's).
@@ -263,22 +343,150 @@ impl AgentBackend for AppBackend {
     }
 
     async fn chats(&self) -> Result<Vec<ChatSummary>, BackendError> {
+        let spaces: Vec<(Place, HashSet<ChatId>)> = {
+            let mut spaces = with_account!(self.account.backend(), account => account.spaces());
+            spaces
+                .next()
+                .await
+                .map(|spaces| {
+                    spaces
+                        .iter()
+                        .map(|space| (place(space.id.as_str(), &space.name), space.chats.clone()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let labels: Vec<(Place, HashSet<ChatId>)> = {
+            let mut organized = with_account!(self.account.backend(), account => account.organized());
+            organized
+                .next()
+                .await
+                .map(|organized| {
+                    organized
+                        .labels
+                        .iter()
+                        .map(|label| (place(label.id.as_str(), &label.name), label.chats.clone()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
         Ok(self
             .account
-            .chats()
+            .current_chats()
             .await
-            .into_iter()
-            .map(|chat| ChatSummary {
-                rooms: rooms(&chat),
-                network: self.host.network_name(chat.network.clone()),
-                id: chat.id,
-                name: chat.name,
-                is_group: chat.is_group,
-                unread: chat.unread_count.max(u32::from(chat.is_marked_unread)),
-                muted: chat.is_muted,
-                last_activity: chat.date,
+            .iter()
+            .map(|chat| {
+                let core = CoreChat::from(chat.as_ref());
+                ChatSummary {
+                    rooms: rooms(&core),
+                    network: self.host.network_name(core.network),
+                    spaces: within(chat, &spaces),
+                    labels: within(chat, &labels),
+                    folder: match chat.folder {
+                        Folder::Inbox => AgentFolder::Inbox,
+                        Folder::LowPriority => AgentFolder::LowPriority,
+                        Folder::Archive => AgentFolder::Archive,
+                    },
+                    pinned: chat.pinned.is_some(),
+                    notifications: chat.notifications.map(|mode| match mode {
+                        NotificationMode::Default => Notifications::Default,
+                        NotificationMode::All => Notifications::All,
+                        NotificationMode::Mentions => Notifications::Mentions,
+                        NotificationMode::Off => Notifications::Off,
+                    }),
+                    id: core.id,
+                    name: core.name,
+                    is_group: core.is_group,
+                    unread: core.unread_count.max(u32::from(core.is_marked_unread)),
+                    muted: core.is_muted,
+                    last_activity: core.date,
+                }
             })
             .collect())
+    }
+
+    /// As the chat list's menu does it: `inbox` takes a chat out of Low Priority or the archive,
+    /// whichever it is in.
+    async fn organize(&self, chat: String, change: Organize) -> Result<(), BackendError> {
+        let id = ChatId::from(chat.as_str());
+        let change = match change {
+            Organize::Read => ChatChange::Read,
+            Organize::Unread => ChatChange::Unread,
+            Organize::LowPriority => ChatChange::LowPriority,
+            Organize::Archive => ChatChange::Archive,
+            Organize::Pin => ChatChange::Pin,
+            Organize::Unpin => ChatChange::Unpin,
+            Organize::Mute => ChatChange::Mute,
+            Organize::Unmute => ChatChange::Unmute,
+            Organize::Inbox => {
+                let chats = self.account.current_chats().await;
+                match chats.iter().find(|shown| shown.id == id).map(|shown| shown.folder) {
+                    Some(Folder::Archive) => ChatChange::Unarchive,
+                    Some(Folder::LowPriority) => ChatChange::Inbox,
+                    Some(Folder::Inbox) => return Ok(()),
+                    None => {
+                        return Err(BackendError {
+                            reason: format!("no chat `{chat}`"),
+                        });
+                    }
+                }
+            }
+        };
+        with_account!(self.account.backend(), account => account.change(&id, change).await).map_err(|error| {
+            BackendError {
+                reason: error.to_string(),
+            }
+        })
+    }
+
+    async fn set_notifications(&self, chat: String, notifications: Notifications) -> Result<(), BackendError> {
+        let id = ChatId::from(chat.as_str());
+        let mode = match notifications {
+            Notifications::Default => NotificationMode::Default,
+            Notifications::All => NotificationMode::All,
+            Notifications::Mentions => NotificationMode::Mentions,
+            Notifications::Off => NotificationMode::Off,
+        };
+        with_account!(self.account.backend(), account => account.set_notifications(&id, mode).await).map_err(|error| {
+            BackendError {
+                reason: error.to_string(),
+            }
+        })
+    }
+
+    async fn set_chat_style(&self, chat: String, style: ChatStyle) -> Result<(), BackendError> {
+        let style = match style {
+            ChatStyle::Bubbles => Some("bubbles".to_owned()),
+            ChatStyle::Plain => Some("plain".to_owned()),
+            ChatStyle::Default => None,
+        };
+        let (reply, done) = Reply::new();
+        self.host
+            .set_chat_style(chat, style, Arc::new(CoreAgentChangeReply(reply)));
+        done.await.map_err(gone)?.map_err(|reason| BackendError { reason })
+    }
+
+    async fn settings(&self) -> Result<Vec<Setting>, BackendError> {
+        let (reply, settings) = Reply::new();
+        self.host.settings(Arc::new(CoreAgentSettingsReply(reply)));
+        Ok(settings
+            .await
+            .map_err(gone)?
+            .into_iter()
+            .map(|setting| Setting {
+                name: setting.name,
+                description: setting.description,
+                value: setting.value,
+                choices: setting.choices,
+            })
+            .collect())
+    }
+
+    async fn change_setting(&self, name: String, value: String) -> Result<(), BackendError> {
+        let (reply, done) = Reply::new();
+        self.host
+            .change_setting(name, value, Arc::new(CoreAgentChangeReply(reply)));
+        done.await.map_err(gone)?.map_err(|reason| BackendError { reason })
     }
 
     async fn search(&self, query: String, rooms: Vec<String>, limit: u32) -> Result<Vec<MessageHit>, BackendError> {

@@ -23,6 +23,102 @@ pub struct ChatSummary {
     pub muted: bool,
     /// Its last message's time.
     pub last_activity: Option<SystemTime>,
+    /// The folder it is in.
+    pub folder: Folder,
+    /// Pinned on top of the inbox.
+    pub pinned: bool,
+    /// When its messages notify; none when a merged chat's rooms are set apart.
+    pub notifications: Option<Notifications>,
+    /// The spaces it is in (theirs, and those around them).
+    pub spaces: Vec<Place>,
+    /// The labels it is in.
+    pub labels: Vec<Place>,
+}
+
+/// A space or a label, as a chat is in it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
+pub struct Place {
+    /// Its id.
+    pub id: String,
+    /// Its name.
+    pub name: String,
+}
+
+/// Where a chat is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Folder {
+    /// The inbox.
+    Inbox,
+    /// Low Priority.
+    LowPriority,
+    /// The archive.
+    Archive,
+}
+
+/// When a chat's messages notify.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Notifications {
+    /// As the account's settings say for a chat of its kind.
+    Default,
+    /// Every message.
+    All,
+    /// Only mentions of the user and their keywords.
+    Mentions,
+    /// Nothing (a mention still shows in the list).
+    Off,
+}
+
+/// One of a chat's organizing actions, as the chat list's menu has them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Organize {
+    /// Read up to its newest message (a read receipt goes, as the user's settings say), and not
+    /// marked unread.
+    Read,
+    /// Marked unread.
+    Unread,
+    /// Into Low Priority.
+    LowPriority,
+    /// Back to the inbox (out of Low Priority or the archive).
+    Inbox,
+    /// Into the archive, until a newer message.
+    Archive,
+    /// Pinned on top of the inbox.
+    Pin,
+    /// Unpinned.
+    Unpin,
+    /// Its messages notify nothing.
+    Mute,
+    /// Its messages notify as before muting.
+    Unmute,
+}
+
+/// How a chat draws its messages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatStyle {
+    /// In bubbles.
+    Bubbles,
+    /// As plain rows.
+    Plain,
+    /// As the app's setting says (`chat_style`).
+    Default,
+}
+
+/// One of the app's settings an agent may read and change: its name, value and the values it
+/// takes.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
+pub struct Setting {
+    /// Its name, for `change_setting`.
+    pub name: String,
+    /// What it is, for the model.
+    pub description: String,
+    /// Its value now.
+    pub value: String,
+    /// The values it takes.
+    pub choices: Vec<String>,
 }
 
 /// A message from the index on this device.
@@ -115,6 +211,26 @@ pub trait AgentBackend: Send + Sync + 'static {
         text: String,
         client: String,
     ) -> impl Future<Output = Result<SendOutcome, BackendError>> + Send;
+
+    /// Does `change` to the chat (to each of a merged chat's rooms), as the chat list's menu
+    /// does.
+    fn organize(&self, chat: String, change: Organize) -> impl Future<Output = Result<(), BackendError>> + Send;
+
+    /// Sets when the chat's messages notify.
+    fn set_notifications(
+        &self,
+        chat: String,
+        notifications: Notifications,
+    ) -> impl Future<Output = Result<(), BackendError>> + Send;
+
+    /// Sets how the chat draws its messages on this device.
+    fn set_chat_style(&self, chat: String, style: ChatStyle) -> impl Future<Output = Result<(), BackendError>> + Send;
+
+    /// The app's settings an agent may read and change, as they are now.
+    fn settings(&self) -> impl Future<Output = Result<Vec<Setting>, BackendError>> + Send;
+
+    /// Sets the setting `name` to `value`, one of its choices.
+    fn change_setting(&self, name: String, value: String) -> impl Future<Output = Result<(), BackendError>> + Send;
 
     /// Keeps `entry` in the activity log.
     fn log(&self, entry: LogEntry);

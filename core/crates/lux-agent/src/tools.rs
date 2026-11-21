@@ -4,6 +4,7 @@ use schemars::generate::SchemaSettings;
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
+use crate::backend::{ChatStyle, Folder, Notifications, Organize, Setting};
 use crate::protocol::Grant;
 
 /// One tool, as MCP lists it and `lux schema` prints it.
@@ -21,6 +22,10 @@ pub struct ToolSpec {
     pub output_schema: serde_json::Value,
     /// What a session needs to call it.
     pub grant: Grant,
+    /// It changes nothing (MCP's `readOnlyHint`).
+    pub read_only: bool,
+    /// Calling it again with the same arguments changes nothing more (`idempotentHint`).
+    pub idempotent: bool,
 }
 
 /// Why a call failed.
@@ -73,8 +78,84 @@ pub(crate) struct ListChats {
     pub unread_only: bool,
     /// Only one network's chats, by name (`WhatsApp`, `Signal`, `Matrix`).
     pub network: Option<String>,
-    /// At most this many, the most recent first (default 30, at most 100).
+    /// Only the chats of a space (those of the spaces inside it too), by its name or id.
+    pub space: Option<String>,
+    /// Only the chats of a label, by its name or id.
+    pub label: Option<String>,
+    /// Only the chats in a folder.
+    pub folder: Option<Folder>,
+    /// At most this many, the most recent first (default 30, at most 500).
     pub limit: Option<u32>,
+}
+
+/// `organize_chats`'s arguments.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OrganizeChats {
+    /// The chats, by their `chat_id` (at most 500).
+    pub chat_ids: Vec<String>,
+    /// What to do to each.
+    pub action: Organize,
+}
+
+/// `set_notifications`'s arguments.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SetNotifications {
+    /// The chats, by their `chat_id` (at most 500).
+    pub chat_ids: Vec<String>,
+    /// When their messages notify.
+    pub notifications: Notifications,
+}
+
+/// `set_chat_style`'s arguments.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SetChatStyle {
+    /// The chats, by their `chat_id` (at most 500).
+    pub chat_ids: Vec<String>,
+    /// How they draw their messages on this device.
+    pub style: ChatStyle,
+}
+
+/// `change_setting`'s arguments.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChangeSetting {
+    /// The setting's name, as `get_settings` gives it.
+    pub name: String,
+    /// One of its choices.
+    pub value: String,
+}
+
+/// No arguments.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Nothing {}
+
+/// An organizing tool's answer: the chats done, and those that were not, with why.
+#[derive(Debug, Serialize, JsonSchema)]
+pub(crate) struct Organized {
+    /// The chats done.
+    pub done: Vec<String>,
+    /// The chats not done.
+    pub failed: Vec<Failure>,
+}
+
+/// A chat an organizing tool could not do.
+#[derive(Debug, Serialize, JsonSchema)]
+pub(crate) struct Failure {
+    /// The chat.
+    pub chat_id: String,
+    /// Why.
+    pub reason: String,
+}
+
+/// `get_settings`'s answer.
+#[derive(Debug, Serialize, JsonSchema)]
+pub(crate) struct Settings {
+    /// The settings an agent may read and change.
+    pub settings: Vec<Setting>,
 }
 
 /// `search_messages`'s arguments.
@@ -128,6 +209,16 @@ pub(crate) struct ChatOut {
     pub muted: bool,
     /// Its last message's time, RFC 3339.
     pub last_activity: Option<String>,
+    /// The folder it is in.
+    pub folder: Folder,
+    /// Pinned on top of the inbox.
+    pub pinned: bool,
+    /// When its messages notify; none when a merged chat's rooms are set apart.
+    pub notifications: Option<Notifications>,
+    /// The spaces it is in, by name.
+    pub spaces: Vec<String>,
+    /// The labels it is in, by name.
+    pub labels: Vec<String>,
 }
 
 /// A message, as the tools give it.
@@ -207,7 +298,7 @@ fn schema<T: JsonSchema>() -> serde_json::Value {
 /// Every tool, in the order they are listed.
 #[must_use]
 pub fn tools() -> Vec<ToolSpec> {
-    vec![
+    [
         ToolSpec {
             name: "list_chats",
             title: "List chats",
@@ -216,6 +307,8 @@ pub fn tools() -> Vec<ToolSpec> {
             input_schema: schema::<ListChats>(),
             output_schema: schema::<Chats>(),
             grant: Grant::Read,
+            read_only: true,
+            idempotent: true,
         },
         ToolSpec {
             name: "search_messages",
@@ -225,6 +318,8 @@ pub fn tools() -> Vec<ToolSpec> {
             input_schema: schema::<SearchMessages>(),
             output_schema: schema::<Messages>(),
             grant: Grant::Read,
+            read_only: true,
+            idempotent: true,
         },
         ToolSpec {
             name: "read_chat",
@@ -234,6 +329,8 @@ pub fn tools() -> Vec<ToolSpec> {
             input_schema: schema::<ReadChat>(),
             output_schema: schema::<Messages>(),
             grant: Grant::Read,
+            read_only: true,
+            idempotent: true,
         },
         ToolSpec {
             name: "draft_reply",
@@ -243,6 +340,8 @@ pub fn tools() -> Vec<ToolSpec> {
             input_schema: schema::<Compose>(),
             output_schema: schema::<Status>(),
             grant: Grant::Drafts,
+            read_only: false,
+            idempotent: true,
         },
         ToolSpec {
             name: "send_message",
@@ -253,6 +352,74 @@ pub fn tools() -> Vec<ToolSpec> {
             input_schema: schema::<Compose>(),
             output_schema: schema::<Status>(),
             grant: Grant::Send,
+            read_only: false,
+            idempotent: false,
+        },
+    ]
+    .into_iter()
+    .chain(organizing_tools())
+    .collect()
+}
+
+/// The tools that organize the chats and the settings.
+fn organizing_tools() -> Vec<ToolSpec> {
+    vec![
+        ToolSpec {
+            name: "organize_chats",
+            title: "Organize chats",
+            description: "Does one action to many chats at once, as the chat list's menu does: `read` (sends read \
+                receipts as the user's settings say), `unread`, `low_priority`, `inbox`, `archive`, `pin`, `unpin`, \
+                `mute`, `unmute`. For a request about many chats (\"mark everything read\", \"all of space X to Low \
+                Priority\"), list them with list_chats' filters first, then pass all their ids in one call. Answers \
+                which were done and which not.",
+            input_schema: schema::<OrganizeChats>(),
+            output_schema: schema::<Organized>(),
+            grant: Grant::Organize,
+            read_only: false,
+            idempotent: true,
+        },
+        ToolSpec {
+            name: "set_notifications",
+            title: "Set chats' notifications",
+            description: "Sets when many chats' messages notify: `all`, `mentions` (of the user and their \
+                keywords), `off`, or `default` (the account's setting for a chat of its kind).",
+            input_schema: schema::<SetNotifications>(),
+            output_schema: schema::<Organized>(),
+            grant: Grant::Organize,
+            read_only: false,
+            idempotent: true,
+        },
+        ToolSpec {
+            name: "set_chat_style",
+            title: "Set chats' style",
+            description: "Sets how many chats draw their messages on this device: `bubbles`, `plain` rows, or \
+                `default` (the app's `chat_style` setting).",
+            input_schema: schema::<SetChatStyle>(),
+            output_schema: schema::<Organized>(),
+            grant: Grant::Organize,
+            read_only: false,
+            idempotent: true,
+        },
+        ToolSpec {
+            name: "get_settings",
+            title: "Read Lux's settings",
+            description: "The app's settings an agent may read and change, each with its value now and the values \
+                it takes. The account, its encryption and the agents' own permissions are not among them.",
+            input_schema: schema::<Nothing>(),
+            output_schema: schema::<Settings>(),
+            grant: Grant::Read,
+            read_only: true,
+            idempotent: true,
+        },
+        ToolSpec {
+            name: "change_setting",
+            title: "Change a setting",
+            description: "Sets one of the settings get_settings gives to one of its choices.",
+            input_schema: schema::<ChangeSetting>(),
+            output_schema: schema::<Settings>(),
+            grant: Grant::Organize,
+            read_only: false,
+            idempotent: true,
         },
     ]
 }
@@ -261,9 +428,11 @@ pub fn tools() -> Vec<ToolSpec> {
 #[must_use]
 pub(crate) fn instructions() -> String {
     format!(
-        "Lux is the user's chat app. These tools read their chats on this Mac and write drafts; sending waits \
-         for the user. {OTHERS_WORDS} A call refused with insufficient_grant can be asked again with \
-         request_access."
+        "Lux is the user's chat app. These tools read their chats on this Mac, write drafts, organize the chats \
+         (read, folders, pinned, muted, notifications, style; many at once) and change some of Lux's settings; \
+         sending waits for the user. For a request about many chats, filter list_chats (space, label, folder, \
+         network, unread) and pass all the ids to one organizing call. {OTHERS_WORDS} A call refused with \
+         insufficient_grant can be asked again with request_access."
     )
 }
 
@@ -271,7 +440,7 @@ pub(crate) fn instructions() -> String {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RequestAccess {
-    /// What to ask the user for: `read`, `drafts` or `send`.
+    /// What to ask the user for: `read`, `drafts`, `organize` or `send`.
     pub grant: Grant,
     /// Why, in a sentence the user reads.
     pub reason: String,
@@ -282,11 +451,13 @@ pub(crate) fn request_access_spec() -> ToolSpec {
     ToolSpec {
         name: "request_access",
         title: "Ask for more access",
-        description: "Asks the user in Lux for more than this session may do (drafts, or asking to send), with the \
-            reason given. Call it only after a tool was refused with insufficient_grant.",
+        description: "Asks the user in Lux for more than this session may do (drafts, organizing, or asking to send), \
+            with the reason given. Call it only after a tool was refused with insufficient_grant.",
         input_schema: schema::<RequestAccess>(),
         output_schema: schema::<GrantOut>(),
         grant: Grant::Read,
+        read_only: false,
+        idempotent: false,
     }
 }
 
