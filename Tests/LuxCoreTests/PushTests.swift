@@ -1,6 +1,7 @@
 import Foundation
 import LuxBindings
 import Testing
+import UserNotifications
 @testable import LuxCore
 
 struct PushTests {
@@ -53,6 +54,23 @@ struct PushTests {
         // a message in the chat's own timeline names no thread.
         let plain = PushedMessage(notification(room: "!r:server", chat: "Crew", isGroup: true, kind: .text(text: "hi")))
         #expect(PushPayload(userInfo: plain.userInfo)?.threadRoot == nil)
+    }
+
+    /// A push the rules say does not notify (an encrypted chat's reaction, which the server cannot
+    /// read): dropped with Apple's filtering entitlement; without it, the neutral text in the
+    /// notification list only, never a sound or a lit screen.
+    @Test func aPushNotToBeShownIsDroppedOrQuiet() {
+        let neutral = UNMutableNotificationContent()
+        neutral.body = "New message"
+        neutral.sound = .default
+        neutral.threadIdentifier = "!a:server"
+        let dropped = PushNotifications.notShown(neutral, dropping: true)
+        #expect(dropped.body.isEmpty && dropped.title.isEmpty && dropped.sound == nil)
+        let quiet = PushNotifications.notShown(neutral, dropping: false)
+        #expect(quiet.body == "New message" && quiet.threadIdentifier == "!a:server")
+        #expect(quiet.sound == nil && quiet.interruptionLevel == .passive)
+        // the neutral text a failure shows is left as it was.
+        #expect(neutral.sound == .default && neutral.interruptionLevel == .active)
     }
 
     private func notification(room: String, chat: String, isGroup: Bool, kind: CorePreviewKind) -> CoreNotification {

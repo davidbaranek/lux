@@ -18,6 +18,24 @@ public enum PushNotifications {
                                        options: [])]
     }
 
+    /// `content` in the notification list only: without a sound, and without lighting the screen
+    /// (`.passive`).
+    public static func quiet(_ content: UNNotificationContent) -> UNNotificationContent {
+        guard let quiet = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+        quiet.interruptionLevel = .passive
+        quiet.sound = nil
+        return quiet.copy() as? UNNotificationContent ?? quiet
+    }
+
+    /// What the extension hands back for a pushed event that is not to be shown (the push rules
+    /// say it does not notify, as for a reaction or a bot's notice in an encrypted chat, which the
+    /// server cannot read and so pushes; or it was deleted): nothing where the extension may drop
+    /// it (Apple's filtering entitlement, `dropping`), else the system shows whatever it is handed,
+    /// so the `neutral` text, [quiet](quiet(_:)), as the push rules ask.
+    public static func notShown(_ neutral: UNNotificationContent, dropping: Bool) -> UNNotificationContent {
+        dropping ? UNNotificationContent() : quiet(neutral)
+    }
+
     /// The room a notification is for: a pushed message's, or a reminder's.
     public static func room(of userInfo: [AnyHashable: Any]) -> String? {
         PushPayload(userInfo: userInfo)?.roomId ?? userInfo["roomId"] as? String
