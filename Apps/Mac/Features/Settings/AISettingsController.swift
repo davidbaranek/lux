@@ -4,11 +4,11 @@ import SwiftUI
 
 /// AI: the one switch for AI in Lux, Apple Intelligence's state on this Mac, and under them the
 /// agents on this Mac (`AgentsSettings`).
-final class AISettingsController: NSViewController {
+final class AISettingsController: NSViewController, SearchablePane {
     private let actions: TextActions
     private let agents: AgentsSettings
     private var observation: AnyObject?
-    private lazy var form = NSHostingView.pane(makeForm())
+    private lazy var form = PaneForm(makeForm())
 
     init(session: Session) {
         actions = session.textActions
@@ -20,8 +20,12 @@ final class AISettingsController: NSViewController {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    func reveal(_ item: SettingsItem) {
+        form.focus.reveal(item)
+    }
+
     override func loadView() {
-        view = form
+        view = form.view
         observation = actions.changes.observe { [weak self] in self?.update() }
         agents.onChange = { [weak self] in self?.update() }
         agents.load()
@@ -34,7 +38,7 @@ final class AISettingsController: NSViewController {
     }
 
     private func update() {
-        form.rootView = makeForm()
+        form.show(makeForm())
     }
 
     private func makeForm() -> AIForm {
@@ -51,17 +55,13 @@ struct AIForm: View {
     var body: some View {
         Form {
             Section {
-                Toggle(isOn: Binding(get: { isOn }, set: turn)) {
-                    Text(String(localized: "AI features"))
-                    Text(String(localized: """
-                        Proofread and format a message from the + or the composer's menu in a chat. Off, no AI in Lux \
-                        reads anything.
-                        """))
-                }
+                Toggle(isOn: Binding(get: { isOn }, set: turn)) { settingsLabel(.aiFeatures) }
+                    .settingsRow(.aiFeatures)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "Apple Intelligence"))
+                    Text(SettingsItem.appleIntelligence.title)
                     Text(status).font(.callout).foregroundStyle(.secondary)
                 }
+                .settingsRow(.appleIntelligence)
             }
             agents
         }

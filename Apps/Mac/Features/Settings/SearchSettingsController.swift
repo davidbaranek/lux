@@ -4,10 +4,10 @@ import SwiftUI
 
 /// Search: the index on this Mac (messages, and the photos read for their words), and semantic
 /// search: photos found by what they show and messages by what they mean, by a model on this Mac.
-final class SearchSettingsController: NSViewController {
+final class SearchSettingsController: NSViewController, SearchablePane {
     private let model: SettingsModel
     private var observation: AnyObject?
-    private lazy var form = NSHostingView.pane(makeForm())
+    private lazy var form = PaneForm(makeForm())
 
     init(model: SettingsModel) {
         self.model = model
@@ -17,13 +17,17 @@ final class SearchSettingsController: NSViewController {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    func reveal(_ item: SettingsItem) {
+        form.focus.reveal(item)
+    }
+
     override func loadView() {
-        view = form
+        view = form.view
         observation = model.changes.observe { [weak self] in self?.update() }
     }
 
     private func update() {
-        form.rootView = makeForm()
+        form.show(makeForm())
     }
 
     private func makeForm() -> SearchForm {
@@ -76,18 +80,21 @@ struct SearchForm: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent(String(localized: "Messages"), value: index ?? String(localized: "Opening…"))
-                Picker(String(localized: "Search back"), selection: Binding(get: { history }, set: actions.history)) {
+                LabeledContent(SettingsItem.searchIndex.title, value: index ?? String(localized: "Opening…"))
+                    .settingsRow(.searchIndex)
+                Picker(SettingsItem.searchBack.title, selection: Binding(get: { history }, set: actions.history)) {
                     ForEach(SearchHistory.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
+                .settingsRow(.searchBack)
             }
             Section {
-                LabeledContent(String(localized: "Photos")) {
+                LabeledContent(SettingsItem.photos.title) {
                     HStack {
                         if isPhotoWorkUnderWay { ProgressView().controlSize(.small) }
                         Text(photoStatus ?? String(localized: "Opening…"))
                     }
                 }
+                .settingsRow(.photos)
                 if let photoAction {
                     HStack {
                         Spacer()
@@ -97,14 +104,8 @@ struct SearchForm: View {
                 }
             }
             Section {
-                Toggle(isOn: Binding(get: { searchesByLook }, set: actions.searchByLook)) {
-                    Text(String(localized: "Semantic search"))
-                    Text(String(localized: """
-                        Search always finds words. This also finds photos by what they show ("dog on the beach") and messages by \
-                        what they mean ("trip to the mountains"), with a model of about 650 MB read on this Mac. Nothing leaves \
-                        this Mac.
-                        """))
-                }
+                Toggle(isOn: Binding(get: { searchesByLook }, set: actions.searchByLook)) { settingsLabel(.semanticSearch) }
+                    .settingsRow(.semanticSearch)
                 // where the model is while semantic search is on: downloading (with its
                 // progress), being prepared, ready, or why it could not be had, with Try Again.
                 if let photoModelStatus {

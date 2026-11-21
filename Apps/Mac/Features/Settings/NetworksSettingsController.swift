@@ -5,10 +5,10 @@ import SwiftUI
 /// Networks: the networks the account's server bridges, one row each with its logo, whether the
 /// account is signed in there, and a button to sign in or out. A server that offers none, or a
 /// bridge that does not answer, says so, with the guide for its admin.
-final class NetworksSettingsController: NSViewController {
+final class NetworksSettingsController: NSViewController, SearchablePane {
     private let model: NetworksModel
     private var observation: AnyObject?
-    private lazy var form = NSHostingView.pane(makeForm())
+    private lazy var form = PaneForm(makeForm())
 
     init(model: NetworksModel) {
         self.model = model
@@ -18,14 +18,18 @@ final class NetworksSettingsController: NSViewController {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    func reveal(_ item: SettingsItem) {
+        form.focus.reveal(item)
+    }
+
     override func loadView() {
-        view = form
+        view = form.view
         observation = model.changes.observe { [weak self] in self?.update() }
         Task { await model.load() }
     }
 
     private func update() {
-        form.rootView = makeForm()
+        form.show(makeForm())
     }
 
     private func makeForm() -> NetworksForm {
@@ -81,8 +85,7 @@ struct NetworksForm: View {
                     ForEach(offers, id: \.self, content: row)
                 }
             } footer: {
-                Text(String(localized: "Your server's bridges connect these networks. Signing out here disconnects the network from your account, on every device."))
-                    .formFooter()
+                Text(SettingsItem.networks.detail ?? "").formFooter().settingsRow(.networks)
             }
         }
         .formStyle(.grouped)

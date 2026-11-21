@@ -51,6 +51,50 @@ struct SettingsViewTests {
         }
     }
 
+    @Test func searchListsTheSettingsFoundAndOnePickedOpensItsPane() async throws {
+        try await withSettings { session, defaults in
+            let settings = open(session, defaults)
+            let window = try #require(settings.window)
+            let field = try #require(find(NSSearchField.self, in: window.contentView) { $0.identifier?.rawValue == "settings.search" })
+            let list = try #require(find(NSTableView.self, in: field.superview) { _ in true })
+            await settled(window)
+            #expect(list.numberOfRows == SettingsPane.allCases.count - 1, "the panes, Appearance aside (no chat list)")
+
+            // "Key backup" and "Recovery key", under their pane's heading.
+            field.stringValue = "recovery key"
+            #expect(NSApp.sendAction(try #require(field.action), to: field.target, from: field))
+            await settled(window)
+            #expect(list.numberOfRows == 3, "\(list.numberOfRows) rows")
+
+            list.selectRowIndexes([2], byExtendingSelection: false)
+            await settled(window)
+            #expect(window.title == SettingsPane.encryption.title)
+            #expect(shows(.encryption, in: window))
+
+            field.stringValue = "no such setting"
+            #expect(NSApp.sendAction(try #require(field.action), to: field.target, from: field))
+            await settled(window)
+            #expect(list.numberOfRows == 0)
+        }
+    }
+
+    /// SwiftUI has made its views again from what the window controller gave it.
+    private func settled(_ window: NSWindow) async {
+        for _ in 0..<3 {
+            await Task.yield()
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+    }
+
+    private func find<View: NSView>(_ type: View.Type, in root: NSView?, where test: (View) -> Bool) -> View? {
+        guard let root else { return nil }
+        if let view = root as? View, test(view) { return view }
+        for subview in root.subviews {
+            if let found = find(type, in: subview, where: test) { return found }
+        }
+        return nil
+    }
+
     /// Runs `test` over a demo session, with defaults (where Settings keeps its pane) of the test's own.
     private func withSettings(_ test: @MainActor (Session, UserDefaults) async throws -> Void) async throws {
         try await DemoAccount.with(rooms: 5) { session in

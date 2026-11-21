@@ -5,11 +5,11 @@ import SwiftUI
 /// Appearance: the colour of the places without their own (the account keeps it, so every device
 /// shows it; a place's own colour is in its menu on the rail), and how chats draw their messages
 /// (on this device).
-final class AppearanceSettingsController: NSViewController {
+final class AppearanceSettingsController: NSViewController, SearchablePane {
     private let list: ChatListModel
     /// The colour as chosen here: the list has it a moment later.
     private lazy var theme = list.defaultTheme
-    private lazy var form = NSHostingView.pane(makeForm())
+    private lazy var form = PaneForm(makeForm())
 
     init(list: ChatListModel) {
         self.list = list
@@ -19,8 +19,12 @@ final class AppearanceSettingsController: NSViewController {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    func reveal(_ item: SettingsItem) {
+        form.focus.reveal(item)
+    }
+
     override func loadView() {
-        view = form
+        view = form.view
     }
 
     private func makeForm() -> AppearanceForm {
@@ -30,11 +34,11 @@ final class AppearanceSettingsController: NSViewController {
                 guard let self else { return }
                 self.theme = theme
                 list.setDefaultTheme(theme)
-                form.rootView = makeForm()
+                form.show(makeForm())
             },
             chooseStyle: { [weak self] style in
                 Preferences.shared.chatStyle = style
-                if let self { form.rootView = makeForm() }
+                if let self { form.show(makeForm()) }
             }
         )
     }
@@ -54,14 +58,15 @@ struct AppearanceForm: View {
                     Divider()
                     ForEach(PlaceTheme.allCases.filter { $0 != .neutral }, id: \.self, content: swatch)
                 } label: {
-                    Text(String(localized: "Places’ colour"))
-                    Text(String(localized: "For places without their own colour. Right-click a place in the rail to give it one."))
+                    settingsLabel(.placesColour)
                 }
+                .settingsRow(.placesColour)
             }
-            Section(String(localized: "Messages")) {
+            Section(SettingsItem.messageStyle.title) {
                 ChatStyleChoice(style: chatStyle, choose: chooseStyle)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
+                    .settingsRow(.messageStyle)
             }
         }
         .formStyle(.grouped)

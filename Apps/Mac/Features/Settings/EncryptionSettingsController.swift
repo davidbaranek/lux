@@ -5,7 +5,7 @@ import SwiftUI
 /// Encryption: whether this Mac is verified, the account's devices (verifying one that is not,
 /// signing another out), the key backup with the field for the recovery key that opens it, and
 /// setting recovery up for an account that has none.
-final class EncryptionSettingsController: NSViewController {
+final class EncryptionSettingsController: NSViewController, SearchablePane {
     private let model: SettingsModel
     private let session: Session
     private var observation: AnyObject?
@@ -14,7 +14,7 @@ final class EncryptionSettingsController: NSViewController {
     private var isRecovering = false
     /// What the last Unlock said, and whether it failed.
     private var outcome: (text: String, failed: Bool)?
-    private lazy var form = NSHostingView.pane(makeForm())
+    private lazy var form = PaneForm(makeForm())
 
     init(session: Session, model: SettingsModel) {
         self.session = session
@@ -25,8 +25,12 @@ final class EncryptionSettingsController: NSViewController {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    func reveal(_ item: SettingsItem) {
+        form.focus.reveal(item)
+    }
+
     override func loadView() {
-        view = form
+        view = form.view
         observation = model.changes.observe { [weak self] in self?.update() }
         securityObservation = session.security?.changes.observe { [weak self] in self?.update() }
         reloadDevices()
@@ -49,7 +53,7 @@ final class EncryptionSettingsController: NSViewController {
     }
 
     private func update() {
-        form.rootView = makeForm()
+        form.show(makeForm())
     }
 
     private func makeForm() -> EncryptionForm {
@@ -175,20 +179,23 @@ struct EncryptionForm: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent(String(localized: "This Mac")) {
+                LabeledContent(SettingsItem.thisMac.title) {
                     HStack {
                         Text(verified)
                         if isVerified == false { Button(String(localized: "Verify This Mac…"), action: actions.verify) }
                     }
                 }
+                .settingsRow(.thisMac)
             }
-            Section(String(localized: "Devices")) {
+            Section {
                 if devices.isEmpty { Text(String(localized: "Loading…")).foregroundStyle(.secondary) }
                 // verifying another device needs a verified Mac.
                 ForEach(devices) { device in row(device, canVerify: isVerified == true) }
+            } header: {
+                Text(SettingsItem.devices.title).settingsRow(.devices)
             }
             Section {
-                LabeledContent(String(localized: "Key backup")) {
+                LabeledContent(SettingsItem.keyBackup.title) {
                     HStack {
                         Text(recovery.title)
                         // an account without recovery sets it up; one with it opens it here with the key.
@@ -197,11 +204,13 @@ struct EncryptionForm: View {
                         }
                     }
                 }
+                .settingsRow(.keyBackup)
                 if recovery != .disabled {
-                    TextField(String(localized: "Recovery key"), text: $key, prompt: Text(verbatim: "EsT…"))
+                    TextField(SettingsItem.recoveryKey.title, text: $key, prompt: Text(verbatim: "EsT…"))
                         .font(.body.monospaced())
                         .disabled(recovery == .enabled)
                         .onSubmit(unlock)
+                        .settingsRow(.recoveryKey)
                     HStack {
                         if let outcome {
                             Text(outcome.text).foregroundStyle(outcome.failed ? .red : .secondary)
@@ -215,11 +224,7 @@ struct EncryptionForm: View {
                 }
             } footer: {
                 if recovery != .disabled {
-                    Text(String(localized: """
-                        Encrypted messages from before this device signed in are in your account's key backup. \
-                        Enter the recovery key you saved when you set it up (in Lux, Element or another app).
-                        """))
-                    .formFooter()
+                    Text(SettingsItem.recoveryKey.detail ?? "").formFooter()
                 }
             }
         }

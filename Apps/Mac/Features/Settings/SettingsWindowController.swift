@@ -43,15 +43,19 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     }
 }
 
-/// The Settings window (Lux > Settings…, Cmd-,), as System Settings is: the panes in a sidebar,
-/// the chosen one beside it with its title and back and forward in the toolbar. One window,
-/// reused; it opens on the pane it showed last, at the size it had.
+/// The Settings window (Lux > Settings…, Cmd-,), as System Settings is: the panes in a sidebar
+/// under a search field, the chosen one beside it with its title and back and forward in the
+/// toolbar. Search lists the settings that match, by pane, in the sidebar; one picked opens its pane
+/// at its row. One window, reused; it opens on the pane it showed last, at the size it had.
 final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
     private let panes: [SettingsPane: NSViewController]
     private let order: [SettingsPane]
     private let defaults: UserDefaults
     private let content = PaneContainer()
-    private let sidebar = NSHostingController(rootView: SettingsSidebar(panes: [], selected: nil, select: { _ in }))
+    private let sidebar = SettingsSidebarController()
+    /// What the search field asks, and the setting last picked from what it found.
+    private var query = ""
+    private var found: SettingsItem?
     /// The panes shown, in order, and which of them shows now: back and forward walk them.
     private var history: [SettingsPane] = []
     private var position = -1
@@ -85,8 +89,8 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         let split = NSSplitViewController()
         let side = NSSplitViewItem(sidebarWithViewController: sidebar)
         side.canCollapse = false
-        side.minimumThickness = 200
-        side.maximumThickness = 280
+        side.minimumThickness = 220
+        side.maximumThickness = 320
         split.addSplitViewItem(side)
         split.addSplitViewItem(NSSplitViewItem(viewController: content))
         split.splitView.autosaveName = "SettingsSidebar"
@@ -97,6 +101,8 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         window.setContentSize(NSSize(width: 715, height: 640))
         window.contentMinSize = NSSize(width: 600, height: 420)
         super.init(window: window)
+        sidebar.search.target = self
+        sidebar.search.action = #selector(searched(_:))
 
         let toolbar = NSToolbar(identifier: "Settings")
         toolbar.delegate = self
@@ -127,6 +133,20 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         display()
     }
 
+    /// Shows `item`'s pane scrolled to its row, as a search result does when it is picked.
+    func show(_ item: SettingsItem) {
+        found = item
+        show(item.pane)
+        updateSidebar()
+        (panes[item.pane] as? SearchablePane)?.reveal(item)
+    }
+
+    @objc private func searched(_ sender: NSSearchField) {
+        query = sender.stringValue.trimmingCharacters(in: .whitespaces)
+        found = nil
+        updateSidebar()
+    }
+
     @objc private func navigate(_ sender: NSToolbarItemGroup) {
         let step = sender.selectedIndex == 0 ? -1 : 1
         guard history.indices.contains(position + step) else { return }
@@ -138,10 +158,22 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         guard let pane = current, let controller = panes[pane] else { return }
         content.show(controller, id: pane.rawValue)
         window?.title = pane.title
-        sidebar.rootView = SettingsSidebar(panes: order, selected: pane) { [weak self] in self?.show($0) }
+        updateSidebar()
         navigation.subitems[0].isEnabled = position > 0
         navigation.subitems[1].isEnabled = position < history.count - 1
         defaults.set(pane.rawValue, forKey: Self.lastPane)
+    }
+
+    /// The panes, or while searching what search found.
+    private func updateSidebar() {
+        let results = query.isEmpty ? [] : SettingsItem.matching(query, in: order)
+        let selected: SettingsSidebar.Row? = query.isEmpty ? current.map { .pane($0) } : found.map { .item($0) }
+        sidebar.list.rootView = SettingsSidebar(panes: query.isEmpty ? order : [], results: results, selected: selected) { [weak self] row in
+            switch row {
+            case .pane(let pane): self?.show(pane)
+            case .item(let item): self?.show(item)
+            }
+        }
     }
 
     // MARK: NSToolbarDelegate
@@ -183,20 +215,78 @@ private final class PaneContainer: NSViewController {
     }
 }
 
-/// The panes, each a symbol on its coloured tile beside its name.
+/// The sidebar: the search field over the list, under the window's title bar, as System Settings
+/// has it.
+private final class SettingsSidebarController: NSViewController {
+    let search = NSSearchField()
+    let list = NSHostingController(rootView: SettingsSidebar(panes: [], results: [], selected: nil, select: { _ in }))
+
+    override func loadView() {
+        search.placeholderString = String(localized: "Search")
+        search.controlSize = .large
+        search.sendsSearchStringImmediately = true
+        search.identifier = NSUserInterfaceItemIdentifier("settings.search")
+        let view = NSView()
+        addChild(list)
+        for subview in [search, list.view] {
+            subview.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(subview)
+        }
+        // the field spans what a selected row does, as System Settings' does: the sidebar list
+        // style insets its rows' selection by 10 points.
+        let inset: CGFloat = 10
+        NSLayoutConstraint.activate([
+            search.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            search.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: inset),
+            search.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -inset),
+            list.view.topAnchor.constraint(equalToSystemSpacingBelow: search.bottomAnchor, multiplier: 1),
+            list.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            list.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            list.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        self.view = view
+    }
+}
+
+/// The panes, each a symbol on its coloured tile beside its name; while searching, the settings
+/// found, under their panes.
 struct SettingsSidebar: View {
+    enum Row: Hashable {
+        case pane(SettingsPane)
+        case item(SettingsItem)
+    }
+
     let panes: [SettingsPane]
-    let selected: SettingsPane?
-    let select: @MainActor (SettingsPane) -> Void
+    let results: [SettingsItem]
+    let selected: Row?
+    let select: @MainActor (Row) -> Void
 
     var body: some View {
-        List(selection: Binding(get: { selected }, set: { if let pane = $0 { select(pane) } })) {
+        List(selection: Binding(get: { selected }, set: { if let row = $0 { select(row) } })) {
             ForEach(panes) { pane in
                 Label { Text(pane.title) } icon: { SymbolTile(symbol: pane.symbol, color: pane.color) }
-                    .tag(pane)
+                    .tag(Row.pane(pane))
+            }
+            // each pane's name over what was found in it. Not a `Section`: a sidebar's sections
+            // fold, and one made anew while typing comes folded.
+            ForEach(results) { item in
+                if item == results.first(where: { $0.pane == item.pane }) {
+                    Text(item.pane.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .selectionDisabled()
+                        .padding(.top, 6)
+                }
+                Label { Text(item.title) } icon: { SymbolTile(symbol: item.pane.symbol, color: item.pane.color) }
+                    .tag(Row.item(item))
             }
         }
         .listStyle(.sidebar)
+        .overlay {
+            if panes.isEmpty, results.isEmpty {
+                Text(String(localized: "No Results")).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
@@ -211,15 +301,6 @@ struct SymbolTile: View {
             .foregroundStyle(.white)
             .frame(width: 20, height: 20)
             .background(color.gradient, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-    }
-}
-
-extension NSHostingView {
-    /// A Settings pane's grouped form, at the size the window gives it rather than its own.
-    static func pane(_ form: Content) -> NSHostingView<Content> {
-        let view = NSHostingView(rootView: form)
-        view.sizingOptions = []
-        return view
     }
 }
 

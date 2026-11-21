@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// The account: its picture and name (changed here, seen in every chat), its Matrix ID, read
 /// receipts and Sign Out.
-final class AccountSettingsController: NSViewController {
+final class AccountSettingsController: NSViewController, SearchablePane {
     private let model: SettingsModel
     private let profile: ProfileModel?
     private var observation: AnyObject?
@@ -13,7 +13,7 @@ final class AccountSettingsController: NSViewController {
     private let images: ImagePipeline?
     /// Counts the changes that failed: the name field shows the server's name again.
     private var failures = 0
-    private lazy var form = NSHostingView.pane(makeForm())
+    private lazy var form = PaneForm(makeForm())
 
     init(model: SettingsModel, profile: ProfileModel?, images: ImagePipeline?, signOut: @escaping () -> Void) {
         self.model = model
@@ -26,13 +26,17 @@ final class AccountSettingsController: NSViewController {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    func reveal(_ item: SettingsItem) {
+        form.focus.reveal(item)
+    }
+
     override func loadView() {
-        view = form
+        view = form.view
         observation = model.changes.observe { [weak self] in self?.update() }
     }
 
     private func update() {
-        form.rootView = makeForm()
+        form.show(makeForm())
     }
 
     private func makeForm() -> AccountForm {
@@ -161,12 +165,13 @@ struct AccountForm: View {
                 .padding(.vertical, 4)
             }
             Section {
-                TextField(String(localized: "Name"), text: $name, prompt: Text(String(localized: "Name")))
+                TextField(SettingsItem.name.title, text: $name, prompt: Text(SettingsItem.name.title))
                     .focused($editing)
                     .onSubmit { actions.rename(name) }
                     .disabled(profile?.canChangeName != true || isSaving)
                     .accessibilityIdentifier("profile.name")
-                LabeledContent(String(localized: "Picture")) {
+                    .settingsRow(.name)
+                LabeledContent(SettingsItem.picture.title) {
                     HStack {
                         if isSaving { ProgressView().controlSize(.small) }
                         Button(String(localized: "Remove"), action: actions.removePicture)
@@ -177,20 +182,20 @@ struct AccountForm: View {
                             .accessibilityIdentifier("profile.choosePicture")
                     }
                 }
+                .settingsRow(.picture)
             } footer: {
-                Text(String(localized: "People see this name and picture in your Matrix chats. Bridged networks such as WhatsApp keep their own."))
-                    .formFooter()
+                Text(SettingsItem.picture.detail ?? "").formFooter()
             }
             Section {
-                LabeledContent(String(localized: "Device"), value: String(localized: "This Mac"))
-                Toggle(isOn: Binding(get: { sendsReadReceipts }, set: actions.readReceipts)) {
-                    Text(String(localized: "Send read receipts"))
-                    Text(String(localized: "Others see when you have read their messages, on WhatsApp and Instagram too."))
-                }
+                LabeledContent(SettingsItem.device.title, value: String(localized: "This Mac"))
+                    .settingsRow(.device)
+                Toggle(isOn: Binding(get: { sendsReadReceipts }, set: actions.readReceipts)) { settingsLabel(.readReceipts) }
+                    .settingsRow(.readReceipts)
             } footer: {
                 HStack {
                     Spacer()
                     Button(String(localized: "Sign Out…"), action: actions.signOut)
+                        .settingsRow(.signOut)
                 }
             }
         }

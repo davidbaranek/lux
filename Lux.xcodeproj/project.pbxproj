@@ -150,6 +150,7 @@
 		BC9F0E1D1E882AE86E84B643 /* LuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = 587B21A79B35B390D241914E /* LuxCore */; };
 		BCC7AFFF52283FE7CFFA26FD /* EditChatController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE318413E2F507F57F29C300 /* EditChatController.swift */; };
 		BD62BA28B3BEC0CE0DA7413B /* ConversationDonation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8B1BFB5D49F42FE2D1A8FE /* ConversationDonation.swift */; };
+		BE824B2F6B55C262B7A6F141 /* SettingsSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8706DC59ED53954321F4394 /* SettingsSearch.swift */; };
 		BEBADB4F59591F45FB7A35F4 /* Lux-iOS-Notifications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E3280A12939AF3F7D291E91C /* Lux-iOS-Notifications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BED26E2D602865890B92AF7C /* Networks.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7175CD37D14C455234289062 /* Networks.xcassets */; };
 		BF426102B9FBC3A10280E7DA /* PinnedGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2C0133C1B24AE10B6EC954 /* PinnedGridView.swift */; };
@@ -457,6 +458,7 @@
 		E3633EB47A1DD6D7C2A8AEDA /* VerificationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationController.swift; sourceTree = "<group>"; };
 		E3ED44BAF9870039CBBE2D09 /* MessageText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageText.swift; sourceTree = "<group>"; };
 		E7B20AF00D700E184F762839 /* PhotoGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoGridView.swift; sourceTree = "<group>"; };
+		E8706DC59ED53954321F4394 /* SettingsSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearch.swift; sourceTree = "<group>"; };
 		E889EBAD13A8573958DF1452 /* ConfirmIdentityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmIdentityViewController.swift; sourceTree = "<group>"; };
 		E8CEDE7F2FF46DA53A4C8D0C /* ThreadSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadSummaryView.swift; sourceTree = "<group>"; };
 		E9BC36F4F3BEDEEDA5776AA5 /* ThreadsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadsViewController.swift; sourceTree = "<group>"; };
@@ -924,6 +926,7 @@
 				14D2ED23A21F330C15FC0B65 /* EncryptionSettingsController.swift */,
 				72098D35CD0001888F7F1CDB /* NetworksSettingsController.swift */,
 				80D030C126F85C86D0EA1320 /* SearchSettingsController.swift */,
+				E8706DC59ED53954321F4394 /* SettingsSearch.swift */,
 				BA2F4B259355AE02261CBB0B /* SettingsWindowController.swift */,
 			);
 			path = Settings;
@@ -1458,6 +1461,7 @@
 				6663B8F79407333B1217E1A2 /* SearchViews.swift in Sources */,
 				33F7078A1F50A8F134CD743A /* SectionHeader.swift in Sources */,
 				BC0306C758185E08AECE4715 /* SendLaterMenu.swift in Sources */,
+				BE824B2F6B55C262B7A6F141 /* SettingsSearch.swift in Sources */,
 				39E0ADF22084E1A99A293F55 /* SettingsWindowController.swift in Sources */,
 				9D0FFDEEFE4F3E82502A4DAB /* SharedPane.swift in Sources */,
 				CCED9DD67B5C2015BE31E9D2 /* SidebarController.swift in Sources */,

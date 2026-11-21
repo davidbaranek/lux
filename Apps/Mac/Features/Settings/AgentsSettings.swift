@@ -168,26 +168,29 @@ struct AgentsSections: View {
     var body: some View {
         Section(String(localized: "Agents")) {
             Toggle(isOn: Binding(get: { isOn }, set: actions.turn)) {
-                Text(String(localized: "Allow AI agents on this Mac"))
+                Text(SettingsItem.agents.title)
                 Text(status)
             }
             .disabled(!aiIsOn)
+            .settingsRow(.agents)
         }
         Section {
-            copyable(String(localized: "Command"), Agents.command)
-            copyable(String(localized: "MCP server"), "\(Agents.command) mcp")
-            copyable(String(localized: "Claude Code"), "claude mcp add lux -- \(Agents.command) mcp")
-            LabeledContent(String(localized: "Claude Desktop")) {
+            copyable(.command, Agents.command)
+            copyable(.mcpServer, "\(Agents.command) mcp")
+            copyable(.claudeCode, "claude mcp add lux -- \(Agents.command) mcp")
+            LabeledContent(SettingsItem.claudeDesktop.title) {
                 Button(String(localized: "Add to Claude Desktop…"), action: actions.addToClaudeDesktop)
             }
-            LabeledContent(String(localized: "Skill")) {
+            .settingsRow(.claudeDesktop)
+            LabeledContent(SettingsItem.skill.title) {
                 Button(String(localized: "Install Skill…"), action: actions.installSkill)
             }
+            .settingsRow(.skill)
         } header: {
             Text(String(localized: "Set Up"))
         }
         Section(String(localized: "Privacy")) {
-            LabeledContent(String(localized: "Hidden from AI")) {
+            LabeledContent(SettingsItem.hiddenFromAI.title) {
                 Menu(hidden.isEmpty ? String(localized: "No chats") : String(localized: "\(hidden.count) chats")) {
                     Button(String(localized: "Add a Chat…"), action: actions.hide)
                     if !hidden.isEmpty { Divider() }
@@ -197,7 +200,8 @@ struct AgentsSections: View {
                 }
                 .fixedSize()
             }
-            LabeledContent(String(localized: "Always allowed")) {
+            .settingsRow(.hiddenFromAI)
+            LabeledContent(SettingsItem.alwaysAllowed.title) {
                 Menu(approved.isEmpty ? String(localized: "None") : approved.map(\.client).joined(separator: ", ")) {
                     ForEach(approved, id: \.self) { entry in
                         Button(String(localized: "Forget \(entry.client) (\(entry.grant))")) { actions.forget(entry.client) }
@@ -206,29 +210,33 @@ struct AgentsSections: View {
                 .fixedSize()
                 .disabled(approved.isEmpty)
             }
+            .settingsRow(.alwaysAllowed)
         }
-        Section(String(localized: "Lately")) {
+        Section {
             if activity.isEmpty { Text(String(localized: "Nothing yet.")).foregroundStyle(.secondary) }
             ForEach(activity.indices, id: \.self) { line in
                 Text(activity[line]).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
+        } header: {
+            Text(SettingsItem.lately.title).settingsRow(.lately)
         }
     }
 
-    /// `text` under its title, selectable, with a Copy button.
-    private func copyable(_ title: String, _ text: String) -> some View {
+    /// `text` under its setting's title, selectable, with a Copy button.
+    private func copyable(_ item: SettingsItem, _ text: String) -> some View {
         LabeledContent {
             Button(String(localized: "Copy")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
         } label: {
-            Text(title)
+            Text(item.title)
             Text(text)
                 .font(.callout.monospaced())
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
         }
+        .settingsRow(item)
     }
 }
