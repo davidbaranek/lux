@@ -39,15 +39,25 @@ What the code does now, where it differs from the proposal below:
   again with the agent's reason; three refusals end the session.
 - **Drafts and sending**: a draft opens the chat with the text in its composer. Sending, by the
   session's grant:
-  - *ask to send*: in a client that draws MCP Apps (`io.modelcontextprotocol/ui` in its
-    capabilities), `send_message` shows a preview (`ui://lux/send.html`) with Send; its token is
-    in the result's `_meta`, and Send calls `confirm_send`, an app-only tool
-    (`_meta.ui.visibility: ["app"]`) the host never lists to the model. Checked on Claude Code
-    2.1.310: the app-only tool is not offered to the model, and `_meta` does not reach it, while
-    `structuredContent` does (so the token is never there). Elsewhere (the CLI, a client without
-    MCP Apps), Lux asks Send / Cancel;
-  - *send on its own*: only in a chat the session read (`read_chat`), at most 10 an hour; any
-    other message is asked as above.
+  - *ask to send*: Lux asks Send / Cancel. In a client that draws MCP Apps
+    (`io.modelcontextprotocol/ui` in its capabilities, said in the session's hello),
+    `send_message` first shows a preview (`ui://lux/send.html`) with Send; its token is in the
+    result's `_meta`, and Send calls `confirm_send`, an app-only tool (`_meta.ui.visibility:
+    ["app"]`) the host never lists to the model. Checked on Claude Code 2.1.310: the app-only tool
+    is not offered to the model, and `_meta` does not reach it, while `structuredContent` does.
+    The token is still no proof of a click (any process on the socket could read it), so the
+    preview's Send opens Lux's Send / Cancel too, and a session without previews may not prepare
+    one;
+  - *send on its own*: only in a chat its client read (`read_chat`) in the last hour, at most 10
+    an hour and 3 in one chat, a preview's Send counted too; any other message is asked as above.
+    The limits are the client's across its sessions (each CLI command is one).
+  - Lux sends the text alone, from the core (`send_now`, back once the server has it): nothing of
+    the composer's (its files, a reply or an edit) goes with it.
+- **Approvals**: a client approved before (for always, or a CLI command in the last 30 minutes)
+  is let in silently to read only, with a notification; its name is its own word, so anything
+  more is asked. The match code is shown as the call's progress, or, for a client without
+  progress, in the first call's error while the approval waits. A client that leaves ends its
+  approval; lines over 256 KiB end the connection, and texts, words and reasons are capped.
 - **Settings › Agents** (Mac): the switch (under AI), the commands to copy (`claude mcp add …`),
   Install Skill… (a short `SKILL.md`: what Lux is and how its permissions work, written to the
   skills folder the user picks, as the sandbox requires), **Add to Claude Desktop…** (an `.mcpb`

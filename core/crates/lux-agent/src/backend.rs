@@ -76,8 +76,9 @@ pub struct BackendError {
 
 /// The account as the tools reach it: in the app, its chats and its index on this device.
 pub trait AgentBackend: Send + Sync + 'static {
-    /// The chats kept from AI, by chat id or room: the user's, on every device.
-    fn hidden(&self) -> impl Future<Output = HashSet<String>> + Send;
+    /// The chats kept from AI, by chat id or room: the user's, on every device. An error when
+    /// they cannot be known: no chat is shown then.
+    fn hidden(&self) -> impl Future<Output = Result<HashSet<String>, BackendError>> + Send;
 
     /// Every chat, as the list has them.
     fn chats(&self) -> impl Future<Output = Result<Vec<ChatSummary>, BackendError>> + Send;

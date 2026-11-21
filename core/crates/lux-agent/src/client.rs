@@ -6,18 +6,19 @@ use std::sync::Arc;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData, Implementation, ListToolsResult,
-    MetaObject, PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
-    ReadResourceResult, ResourceContents, ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
+    MetaObject, PaginatedRequestParams, ProgressNotificationParam, ProtocolVersion, ReadResourceRequestParams,
+    ReadResourceResponse, ReadResourceResult, ResourceContents, ServerCapabilities, ServerConfig, Tool,
+    ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, ServiceExt};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::Mutex;
 
-use crate::protocol::{ClientHello, ClientKind, ClientMessage, Grant, ServerMessage};
+use crate::protocol::{ClientHello, ClientKind, ClientMessage, Grant, ServerMessage, read_line};
 use crate::tools::{RequestAccess, ToolErrorCode, ToolSpec, instructions, request_access_spec, tools};
 
 /// Runs the `lux` binary's `arguments` (after `agent`) against the app's socket at `socket`, and
@@ -103,8 +104,11 @@ async fn command(arguments: &[String], socket: &Path) -> Result<Option<Value>, S
         ),
         folder: std::env::current_dir().ok().map(|folder| folder.display().to_string()),
         wants: Some(wants),
+        previews: false,
     };
-    let mut connection = Connection::open(socket, hello).await?;
+    let (connection, code) = Connection::start(socket, hello).await?;
+    eprintln!("lux: approve this in Lux, code {code}");
+    let mut connection = connection.granted().await?;
     connection
         .call(tool, call)
         .await
@@ -183,7 +187,7 @@ impl Flags {
 
 /// An approved session with the app.
 struct Connection {
-    lines: Lines<BufReader<OwnedReadHalf>>,
+    lines: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
     next: u64,
     /// The socket broke (Lux quit or restarted): the next call opens a new session.
@@ -191,24 +195,33 @@ struct Connection {
 }
 
 impl Connection {
-    /// Connects, says who it is, and waits for the user's approval in Lux (the match code on
-    /// stderr meanwhile).
-    async fn open(socket: &Path, hello: ClientHello) -> Result<Self, String> {
+    /// Connects and says who it is: the match code Lux's approval shows, which the user should
+    /// see here too.
+    async fn start(socket: &Path, hello: ClientHello) -> Result<(Self, String), String> {
         let stream = UnixStream::connect(socket)
             .await
             .map_err(|_| "Lux is not open, or AI agents are off in its Settings".to_owned())?;
         let (read, write) = stream.into_split();
         let mut connection = Self {
-            lines: BufReader::new(read).lines(),
+            lines: BufReader::new(read),
             write,
             next: 1,
             closed: false,
         };
         connection.send(&ClientMessage::Hello(hello)).await?;
+        match connection.receive().await? {
+            ServerMessage::Waiting { code } => Ok((connection, code)),
+            ServerMessage::Refused { reason } => Err(reason),
+            _ => Err("unexpected answer".to_owned()),
+        }
+    }
+
+    /// Waits for the user's approval in Lux.
+    async fn granted(mut self) -> Result<Self, String> {
         loop {
-            match connection.receive().await? {
-                ServerMessage::Waiting { code } => eprintln!("lux: approve this in Lux, code {code}"),
-                ServerMessage::Granted { .. } => return Ok(connection),
+            match self.receive().await? {
+                ServerMessage::Waiting { .. } => {}
+                ServerMessage::Granted { .. } => return Ok(self),
                 ServerMessage::Refused { reason } => return Err(reason),
                 ServerMessage::Result { .. } | ServerMessage::Error { .. } => {
                     return Err("unexpected answer".to_owned());
@@ -228,7 +241,7 @@ impl Connection {
     const CLOSED: &str = "Lux closed the session (it quit or restarted): call again for a new one";
 
     async fn receive(&mut self) -> Result<ServerMessage, String> {
-        let line = self.lines.next_line().await.ok().flatten();
+        let line = read_line(&mut self.lines).await.ok().flatten();
         self.closed |= line.is_none();
         let line = line.ok_or(Self::CLOSED)?;
         serde_json::from_str(&line).map_err(|error| error.to_string())
@@ -283,13 +296,21 @@ impl Connection {
 /// call, so the approval shows when the agent first needs it.
 struct McpFront {
     socket: PathBuf,
-    connection: Mutex<Option<Connection>>,
+    connection: Mutex<Link>,
+}
+
+/// The MCP front's session with the app.
+enum Link {
+    None,
+    /// Waiting for the user's approval in Lux, the code told in an earlier call's answer.
+    Approving(tokio::task::JoinSet<Result<Connection, String>>),
+    Open(Connection),
 }
 
 async fn serve_mcp(socket: PathBuf) -> Result<(), String> {
     let front = McpFront {
         socket,
-        connection: Mutex::new(None),
+        connection: Mutex::new(Link::None),
     };
     let service = front
         .serve(rmcp::transport::stdio())
@@ -375,7 +396,7 @@ impl ServerHandler for McpFront {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let mut connection = self.connection.lock().await;
-        if connection.is_none() {
+        if let Link::None = &*connection {
             let client = context
                 .peer
                 .peer_info()
@@ -386,28 +407,43 @@ impl ServerHandler for McpFront {
                 command: None,
                 folder: None,
                 wants: None,
+                previews: draws_apps(&context),
             };
-            match Connection::open(&self.socket, hello).await {
-                Ok(opened) => *connection = Some(opened),
+            let (started, code) = match Connection::start(&self.socket, hello).await {
+                Ok(started) => started,
                 Err(error) => return Ok(CallToolResult::error(vec![ContentBlock::text(error)]).into()),
+            };
+            // the user sees the code here as Lux shows it: as the call's progress, or, for a
+            // client that shows none, in this call's answer while the approval waits.
+            let mut approving = tokio::task::JoinSet::new();
+            approving.spawn(started.granted());
+            *connection = Link::Approving(approving);
+            if !show_code(&context, &code).await {
+                let words = format!(
+                    "Lux asks the user to approve this session, with the code {code}: tell them the code, then call again."
+                );
+                return Ok(CallToolResult::error(vec![ContentBlock::text(words)]).into());
             }
         }
-        let Some(open) = connection.as_mut() else {
+        if let Link::Approving(approving) = &mut *connection {
+            let opened = approving.join_next().await.map_or_else(
+                || Err("no session".to_owned()),
+                |joined| joined.map_err(|error| error.to_string())?,
+            );
+            match opened {
+                Ok(opened) => *connection = Link::Open(opened),
+                Err(error) => {
+                    *connection = Link::None;
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(error)]).into());
+                }
+            }
+        }
+        let Link::Open(open) = &mut *connection else {
             return Ok(CallToolResult::error(vec![ContentBlock::text("no session")]).into());
         };
         let arguments = Value::Object(request.arguments.unwrap_or_default());
         // a client that draws MCP Apps shows the preview with Send; another, Lux asks.
-        let draws_apps = context
-            .peer
-            .peer_info()
-            .and_then(|info| {
-                info.capabilities
-                    .extensions
-                    .as_ref()
-                    .map(|extensions| extensions.contains_key(APPS_EXTENSION))
-            })
-            .unwrap_or(false);
-        let prepares = request.name == "send_message" && draws_apps;
+        let prepares = request.name == "send_message" && draws_apps(&context);
         let answer = if prepares {
             open.call("prepare_send", arguments).await
         } else if request.name == "request_access" {
@@ -419,7 +455,7 @@ impl ServerHandler for McpFront {
             open.call(&request.name, arguments).await
         };
         if open.closed {
-            *connection = None;
+            *connection = Link::None;
         }
         Ok(match answer {
             Ok(waiting) if prepares => preview(&waiting),
@@ -453,6 +489,31 @@ impl ServerHandler for McpFront {
     }
 }
 
+/// Whether the client draws MCP Apps, as its capabilities say.
+fn draws_apps(context: &RequestContext<RoleServer>) -> bool {
+    context
+        .peer
+        .peer_info()
+        .and_then(|info| {
+            info.capabilities
+                .extensions
+                .as_ref()
+                .map(|extensions| extensions.contains_key(APPS_EXTENSION))
+        })
+        .unwrap_or(false)
+}
+
+/// The match code to the user while Lux asks, as the call's progress: whether the client asked
+/// for progress, so it was shown.
+async fn show_code(context: &RequestContext<RoleServer>, code: &str) -> bool {
+    let Some(token) = context.meta.get_progress_token() else {
+        return false;
+    };
+    let mut progress = ProgressNotificationParam::new(token, 0.0);
+    progress.message = Some(format!("Approve this in Lux: the dialog shows the code {code}."));
+    context.peer.notify_progress(progress).await.is_ok()
+}
+
 fn failure(code: ToolErrorCode, message: &str) -> CallToolResponse {
     let code = serde_json::to_value(code).unwrap_or_default();
     CallToolResult::structured_error(json!({ "code": code, "message": message })).into()
@@ -465,7 +526,8 @@ fn preview(prepared: &Value) -> CallToolResponse {
     let words = if status == "sent" {
         "Sent: this session may send on its own in this chat."
     } else {
-        "Shown to the user with a Send button; nothing is sent unless they press it."
+        "Shown to the user with a Send button; nothing is sent unless they press it (and allow it in Lux, unless \
+         this session may send on its own)."
     };
     let mut result = CallToolResult::success(vec![ContentBlock::text(words)]);
     result.structured_content = Some(json!({ "status": status }));

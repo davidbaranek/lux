@@ -15,14 +15,25 @@ use crate::tools::{
     ToolError, ToolErrorCode, tools,
 };
 
-/// Calls a session may make in a minute.
+/// Calls a client may make in a minute.
 const CALLS_PER_MINUTE: usize = 60;
 
-/// Messages a session that sends on its own may send in an hour; more are asked.
+/// Messages a client that sends on its own may send in an hour, and in one chat; more are asked.
 const SENT_PER_HOUR: usize = 10;
+const SENT_PER_CHAT_PER_HOUR: usize = 3;
+
+/// How long a chat a client read stays one it may send in on its own.
+const READ_FOR: Duration = Duration::from_hours(1);
 
 /// How long a preview's Send stays good.
 const PREPARED_FOR: Duration = Duration::from_mins(10);
+
+/// The longest a call's text may be, in characters: a message's, a search's words, a reason;
+/// any other string argument (an id, a time, a network).
+const MAX_TEXT: usize = 10_000;
+const MAX_QUERY: usize = 1_000;
+pub(crate) const MAX_REASON: usize = 500;
+const MAX_OTHER: usize = 256;
 
 /// A message waiting for the preview's Send.
 struct Pending {
@@ -36,48 +47,22 @@ pub struct Session {
     /// The client, as the approval showed it.
     pub client: String,
     grant: Mutex<Grant>,
-    calls: Mutex<VecDeque<Instant>>,
-    /// The chats it read (`read_chat`): the only ones it may send in on its own.
-    read: Mutex<HashSet<String>>,
-    /// When it sent on its own, the last hour's.
-    sent: Mutex<VecDeque<Instant>>,
+    /// It draws MCP Apps: it may prepare a message for its preview's Send.
+    previews: bool,
     /// Messages waiting for the preview's Send, by token.
     pending: Mutex<HashMap<String, Pending>>,
 }
 
 impl Session {
-    /// `client`'s session, granted `grant`.
+    /// `client`'s session, granted `grant`; `previews` when it draws MCP Apps.
     #[must_use]
-    pub fn new(client: String, grant: Grant) -> Self {
+    pub fn new(client: String, grant: Grant, previews: bool) -> Self {
         Self {
             client,
             grant: Mutex::new(grant),
-            calls: Mutex::new(VecDeque::new()),
-            read: Mutex::new(HashSet::new()),
-            sent: Mutex::new(VecDeque::new()),
+            previews,
             pending: Mutex::new(HashMap::new()),
         }
-    }
-
-    /// Whether it may send in `chat` on its own now, and counts it if so: allowed to, the chat
-    /// read in this session, and fewer than [`SENT_PER_HOUR`] in the last hour.
-    fn take_auto_send(&self, chat: &str) -> bool {
-        if self.grant() < Grant::AutoSend || !self.read.lock().is_ok_and(|read| read.contains(chat)) {
-            return false;
-        }
-        let Ok(mut sent) = self.sent.lock() else { return false };
-        let now = Instant::now();
-        while sent
-            .front()
-            .is_some_and(|&at| now.duration_since(at) > Duration::from_secs(3600))
-        {
-            sent.pop_front();
-        }
-        if sent.len() >= SENT_PER_HOUR {
-            return false;
-        }
-        sent.push_back(now);
-        true
     }
 
     /// What it may do now.
@@ -92,22 +77,40 @@ impl Session {
             *current = grant;
         }
     }
+}
 
-    /// Whether one more call fits in the last minute's.
-    fn take_call(&self) -> bool {
-        let Ok(mut calls) = self.calls.lock() else { return false };
-        let now = Instant::now();
-        while calls
+/// What one client did lately, across its sessions: each CLI command is a session, and an MCP
+/// client opens a new one when Lux restarts, so the limits are the client's, not a session's.
+#[derive(Default)]
+struct Record {
+    calls: VecDeque<Instant>,
+    /// The chats it read, and when.
+    read: HashMap<String, Instant>,
+    /// What it sent without Lux asking: when, in which chat.
+    sent: VecDeque<(Instant, String)>,
+}
+
+impl Record {
+    fn prune(&mut self, now: Instant) {
+        while self
+            .calls
             .front()
             .is_some_and(|&call| now.duration_since(call) > Duration::from_secs(60))
         {
-            calls.pop_front();
+            self.calls.pop_front();
         }
-        if calls.len() >= CALLS_PER_MINUTE {
-            return false;
+        self.read.retain(|_, &mut at| now.duration_since(at) < READ_FOR);
+        while self
+            .sent
+            .front()
+            .is_some_and(|(at, _)| now.duration_since(*at) > Duration::from_hours(1))
+        {
+            self.sent.pop_front();
         }
-        calls.push_back(now);
-        true
+    }
+
+    fn is_empty(&self) -> bool {
+        self.calls.is_empty() && self.read.is_empty() && self.sent.is_empty()
     }
 }
 
@@ -115,12 +118,73 @@ impl Session {
 /// The chats kept from AI are as if they were not there: the backend says which, on each call.
 pub struct Agent<B> {
     backend: B,
+    /// Each client's calls, reads and sends lately, by its name.
+    records: Mutex<HashMap<String, Record>>,
 }
 
 impl<B: AgentBackend> Agent<B> {
     /// The tools over `backend`.
     pub fn new(backend: B) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            records: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// `client`'s record, pruned, for `change`; records left empty go.
+    fn with_record<T>(&self, client: &str, change: impl FnOnce(&mut Record, Instant) -> T) -> Option<T> {
+        let mut records = self.records.lock().ok()?;
+        let now = Instant::now();
+        let record = records.entry(client.to_owned()).or_default();
+        record.prune(now);
+        let value = change(record, now);
+        records.retain(|_, record| {
+            record.prune(now);
+            !record.is_empty()
+        });
+        Some(value)
+    }
+
+    /// Whether one more call of the session's client fits in the last minute's.
+    fn take_call(&self, session: &Session) -> bool {
+        self.with_record(&session.client, |record, now| {
+            if record.calls.len() >= CALLS_PER_MINUTE {
+                return false;
+            }
+            record.calls.push_back(now);
+            true
+        })
+        .unwrap_or(false)
+    }
+
+    /// Whether the session may send in `chat` without Lux asking, and counts it if so: allowed
+    /// to send on its own, under the hour's limits (all chats, and this one), and, unless the
+    /// user clicked a preview's Send, the chat read in the last hour.
+    fn take_send(&self, session: &Session, chat: &str, clicked: bool) -> bool {
+        if session.grant() < Grant::AutoSend {
+            return false;
+        }
+        self.with_record(&session.client, |record, now| {
+            let in_chat = record.sent.iter().filter(|(_, sent)| sent == chat).count();
+            if (!clicked && !record.read.contains_key(chat))
+                || record.sent.len() >= SENT_PER_HOUR
+                || in_chat >= SENT_PER_CHAT_PER_HOUR
+            {
+                return false;
+            }
+            record.sent.push_back((now, chat.to_owned()));
+            true
+        })
+        .unwrap_or(false)
+    }
+
+    /// Notes that the session's client read `chats`.
+    fn mark_read(&self, session: &Session, chats: &[String]) {
+        self.with_record(&session.client, |record, now| {
+            for chat in chats {
+                record.read.insert(chat.clone(), now);
+            }
+        });
     }
 
     /// `tool`'s answer to `arguments` for `session`: refused over the session's grant or its
@@ -171,7 +235,14 @@ impl<B: AgentBackend> Agent<B> {
                 ),
             ));
         }
-        if !session.take_call() {
+        if matches!(tool, "prepare_send" | "confirm_send") && !session.previews {
+            return Err(ToolError::new(
+                ToolErrorCode::InvalidArguments,
+                "this session shows no previews: call send_message",
+            ));
+        }
+        check_lengths(&arguments)?;
+        if !self.take_call(session) {
             return Err(ToolError::new(
                 ToolErrorCode::RateLimited,
                 "too many calls: wait a minute",
@@ -213,13 +284,25 @@ impl<B: AgentBackend> Agent<B> {
     ) -> Result<Status, ToolError> {
         let chat = self.chat(&compose.chat_id).await?;
         entry.chats.push(chat.id.clone());
-        if session.take_auto_send(&chat.id) {
-            self.backend.send(chat.id, compose.text).await.map_err(failed)?;
+        self.send_or_ask(session, chat.id, compose.text, false).await
+    }
+
+    /// Sends where the session may without Lux asking (`clicked`: the user pressed a preview's
+    /// Send), else asks the user in Lux.
+    async fn send_or_ask(
+        &self,
+        session: &Session,
+        chat: String,
+        text: String,
+        clicked: bool,
+    ) -> Result<Status, ToolError> {
+        if self.take_send(session, &chat, clicked) {
+            self.backend.send(chat, text).await.map_err(failed)?;
             return Ok(Status { status: "sent" });
         }
         let outcome = self
             .backend
-            .confirm_send(chat.id, compose.text, session.client.clone())
+            .confirm_send(chat, text, session.client.clone())
             .await
             .map_err(failed)?;
         Ok(Status {
@@ -231,7 +314,9 @@ impl<B: AgentBackend> Agent<B> {
     }
 
     /// The MCP preview's message: sent on its own where the session may, else kept for the
-    /// preview's Send, with a one-time token.
+    /// preview's Send, with a one-time token. The token is no proof of a click (any session that
+    /// shows previews could read it): its Send is counted as the session's own, and asked in Lux
+    /// for a session that may not send on its own.
     async fn prepare_send(
         &self,
         session: &Session,
@@ -240,7 +325,7 @@ impl<B: AgentBackend> Agent<B> {
     ) -> Result<Prepared, ToolError> {
         let chat = self.chat(&compose.chat_id).await?;
         entry.chats.push(chat.id.clone());
-        if session.take_auto_send(&chat.id) {
+        if self.take_send(session, &chat.id, false) {
             self.backend.send(chat.id, compose.text.clone()).await.map_err(failed)?;
             return Ok(Prepared {
                 status: "sent",
@@ -288,13 +373,12 @@ impl<B: AgentBackend> Agent<B> {
             .filter(|waiting| waiting.at.elapsed() < PREPARED_FOR)
             .ok_or_else(|| ToolError::new(ToolErrorCode::NotFound, "this message is no longer waiting to be sent"))?;
         entry.chats.push(waiting.chat.clone());
-        self.backend.send(waiting.chat, waiting.text).await.map_err(failed)?;
-        Ok(Status { status: "sent" })
+        self.send_or_ask(session, waiting.chat, waiting.text, true).await
     }
 
     /// The chats AI may see.
     async fn chats(&self) -> Result<Vec<ChatSummary>, ToolError> {
-        let hidden = self.backend.hidden().await;
+        let hidden = self.backend.hidden().await.map_err(unavailable)?;
         let chats = self.backend.chats().await.map_err(unavailable)?;
         Ok(chats
             .into_iter()
@@ -387,9 +471,7 @@ impl<B: AgentBackend> Agent<B> {
             .filter_map(|hit| message_out(hit, &chats))
             .collect();
         entry.chats = chats.iter().map(|chat| chat.id.clone()).collect();
-        if let Ok(mut read) = session.read.lock() {
-            read.extend(entry.chats.iter().cloned());
-        }
+        self.mark_read(session, &entry.chats);
         entry.messages = u32::try_from(messages.len()).unwrap_or(u32::MAX);
         Ok(Messages { messages })
     }
@@ -403,6 +485,30 @@ fn parse<T: DeserializeOwned>(arguments: Value) -> Result<T, ToolError> {
     };
     serde_json::from_value(arguments)
         .map_err(|error| ToolError::new(ToolErrorCode::InvalidArguments, error.to_string()))
+}
+
+/// Refuses a call whose string arguments are longer than such an argument is: a message's
+/// text, a search's words, a reason, an id.
+pub(crate) fn check_lengths(arguments: &Value) -> Result<(), ToolError> {
+    let Some(object) = arguments.as_object() else {
+        return Ok(());
+    };
+    for (name, value) in object {
+        let Some(text) = value.as_str() else { continue };
+        let most = match name.as_str() {
+            "text" => MAX_TEXT,
+            "query" => MAX_QUERY,
+            "reason" => MAX_REASON,
+            _ => MAX_OTHER,
+        };
+        if text.chars().count() > most {
+            return Err(ToolError::new(
+                ToolErrorCode::InvalidArguments,
+                format!("`{name}` is longer than {most} characters"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn limit(asked: Option<u32>, default: usize, most: usize) -> usize {

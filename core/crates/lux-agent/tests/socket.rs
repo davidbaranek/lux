@@ -54,6 +54,8 @@ fn message(id: &str, room: &str, text: &str, seconds: u64) -> MessageHit {
 struct Account {
     drafts: Mutex<Vec<(String, String)>>,
     sent: Mutex<Vec<(String, String)>>,
+    /// Messages Lux asked the user about (the fake user cancels each).
+    asked: Mutex<Vec<(String, String)>>,
     log: Mutex<Vec<LogEntry>>,
 }
 
@@ -61,8 +63,8 @@ struct Account {
 struct Shared(Arc<Account>);
 
 impl AgentBackend for Shared {
-    async fn hidden(&self) -> HashSet<String> {
-        HashSet::from(["!secret".to_owned()])
+    async fn hidden(&self) -> Result<HashSet<String>, BackendError> {
+        Ok(HashSet::from(["!secret".to_owned()]))
     }
 
     async fn chats(&self) -> Result<Vec<ChatSummary>, BackendError> {
@@ -103,7 +105,8 @@ impl AgentBackend for Shared {
         Ok(())
     }
 
-    async fn confirm_send(&self, _chat: String, _text: String, _client: String) -> Result<SendOutcome, BackendError> {
+    async fn confirm_send(&self, chat: String, text: String, _client: String) -> Result<SendOutcome, BackendError> {
+        self.0.asked.lock().unwrap().push((chat, text));
         Ok(SendOutcome::Cancelled)
     }
 
@@ -117,10 +120,34 @@ struct User {
     first: Grant,
     more: Option<Grant>,
     asked: Mutex<Vec<Approval>>,
+    /// An approval stopped waiting (its client left).
+    dropped: Arc<std::sync::atomic::AtomicBool>,
+}
+
+fn user(first: Grant, more: Option<Grant>) -> User {
+    User {
+        first,
+        more,
+        asked: Mutex::default(),
+        dropped: Arc::default(),
+    }
+}
+
+/// Notes, when dropped, that the approval stopped waiting.
+struct Waiting(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 impl Approver for User {
     async fn approve(&self, approval: Approval) -> ApprovalAnswer {
+        if approval.hello.client == "never answered" {
+            let _waiting = Waiting(Arc::clone(&self.dropped));
+            std::future::pending::<()>().await;
+        }
         let more = approval.grant.is_some() && approval.reason.is_some();
         self.asked.lock().unwrap().push(approval);
         match (more, self.more) {
@@ -162,38 +189,53 @@ impl Client {
     }
 }
 
-async fn session(
-    user: User,
-) -> (
-    Arc<Account>,
-    Arc<User>,
-    Client,
-    tempfile::TempDir,
-    tokio::task::JoinSet<()>,
-) {
-    let folder = tempfile::tempdir().unwrap();
-    let path = folder.path().join("agents.sock");
-    let account = Arc::new(Account::default());
-    let agent = Arc::new(Agent::new(Shared(Arc::clone(&account))));
-    let user = Arc::new(user);
-    let mut server = tokio::task::JoinSet::new();
-    server.spawn(serve(bind(&path).unwrap(), agent, Arc::clone(&user)));
-    let mut client = Client::connect(&path).await;
-    let hello = json!({ "hello": { "kind": "mcp", "client": "claude-ai", "command": null, "folder": null } });
-    let waiting = client.send(hello).await;
-    assert_eq!(waiting["waiting"]["code"].as_str().unwrap().len(), 5);
-    assert_eq!(client.receive().await["granted"]["grant"], json!(user.first));
-    (account, user, client, folder, server)
+/// The app's side, serving a made-up account to the approvals of `user`.
+struct App {
+    account: Arc<Account>,
+    user: Arc<User>,
+    path: std::path::PathBuf,
+    _folder: tempfile::TempDir,
+    _server: tokio::task::JoinSet<()>,
+}
+
+impl App {
+    fn new(user: User) -> Self {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("agents.sock");
+        let account = Arc::new(Account::default());
+        let agent = Arc::new(Agent::new(Shared(Arc::clone(&account))));
+        let user = Arc::new(user);
+        let mut server = tokio::task::JoinSet::new();
+        server.spawn(serve(bind(&path).unwrap(), agent, Arc::clone(&user)));
+        Self {
+            account,
+            user,
+            path,
+            _folder: folder,
+            _server: server,
+        }
+    }
+
+    /// A session of `client`, approved; `previews` when it draws MCP Apps.
+    async fn connect(&self, client: &str, previews: bool) -> Client {
+        let mut connection = Client::connect(&self.path).await;
+        let hello = json!({ "hello": { "kind": "mcp", "client": client, "command": null, "folder": null, "previews": previews } });
+        let waiting = connection.send(hello).await;
+        assert_eq!(waiting["waiting"]["code"].as_str().unwrap().len(), 5);
+        assert_eq!(connection.receive().await["granted"]["grant"], json!(self.user.first));
+        connection
+    }
+}
+
+async fn session(user: User) -> (Arc<Account>, Arc<User>, Client, App) {
+    let app = App::new(user);
+    let client = app.connect("claude-ai", false).await;
+    (Arc::clone(&app.account), Arc::clone(&app.user), client, app)
 }
 
 #[tokio::test]
 async fn a_session_reads_what_it_may_and_never_a_hidden_chat() {
-    let (account, user, mut client, _folder, server) = session(User {
-        first: Grant::Read,
-        more: None,
-        asked: Mutex::default(),
-    })
-    .await;
+    let (account, user, mut client, app) = session(user(Grant::Read, None)).await;
     assert_eq!(user.asked.lock().unwrap()[0].hello.client, "claude-ai");
 
     let chats = client.call(1, "list_chats", json!({})).await;
@@ -245,17 +287,12 @@ async fn a_session_reads_what_it_may_and_never_a_hidden_chat() {
     assert!(log.iter().all(|entry| entry.client == "claude-ai"));
     assert!(log[4].refused.is_some());
     drop(log);
-    drop(server);
+    drop(app);
 }
 
 #[tokio::test]
 async fn more_asked_for_and_granted_lets_a_session_draft_and_ask_to_send() {
-    let (account, user, mut client, _folder, server) = session(User {
-        first: Grant::Read,
-        more: Some(Grant::Send),
-        asked: Mutex::default(),
-    })
-    .await;
+    let (account, user, mut client, app) = session(user(Grant::Read, Some(Grant::Send))).await;
     let more = client
         .send(json!({ "request_access": { "id": 1, "grant": "send", "reason": "to answer Mum" } }))
         .await;
@@ -275,17 +312,12 @@ async fn more_asked_for_and_granted_lets_a_session_draft_and_ask_to_send() {
         .call(3, "send_message", json!({ "chat_id": "family", "text": "On my way" }))
         .await;
     assert_eq!(sent["result"]["value"]["status"], "cancelled");
-    drop(server);
+    drop(app);
 }
 
 #[tokio::test]
 async fn a_session_that_sends_on_its_own_does_so_only_in_a_chat_it_read() {
-    let (account, _user, mut client, _folder, server) = session(User {
-        first: Grant::AutoSend,
-        more: None,
-        asked: Mutex::default(),
-    })
-    .await;
+    let (account, _user, mut client, app) = session(user(Grant::AutoSend, None)).await;
     // not read yet: asked in Lux (the fake user cancels).
     let asked = client
         .call(1, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
@@ -299,17 +331,26 @@ async fn a_session_that_sends_on_its_own_does_so_only_in_a_chat_it_read() {
         .await;
     assert_eq!(sent["result"]["value"]["status"], "sent");
     assert_eq!(account.sent.lock().unwrap()[0], ("family".to_owned(), "Hi".to_owned()));
-    drop(server);
+    drop(app);
 }
 
 #[tokio::test]
-async fn a_preview_sends_once_with_its_token() {
-    let (account, _user, mut client, _folder, server) = session(User {
-        first: Grant::Send,
-        more: None,
-        asked: Mutex::default(),
-    })
-    .await;
+async fn a_preview_is_only_for_a_session_that_shows_one() {
+    let app = App::new(user(Grant::AutoSend, None));
+    let mut client = app.connect("claude-ai", false).await;
+    let prepared = client
+        .call(1, "prepare_send", json!({ "chat_id": "work", "text": "Done" }))
+        .await;
+    assert_eq!(prepared["error"]["code"], "invalid_arguments");
+    let confirmed = client.call(2, "confirm_send", json!({ "token": "0".repeat(32) })).await;
+    assert_eq!(confirmed["error"]["code"], "invalid_arguments");
+    assert!(app.account.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_previews_token_is_no_click_lux_asks_a_session_that_may_not_send_on_its_own() {
+    let app = App::new(user(Grant::Send, None));
+    let mut client = app.connect("claude-ai", true).await;
     let prepared = client
         .call(1, "prepare_send", json!({ "chat_id": "work", "text": "Done" }))
         .await;
@@ -317,14 +358,134 @@ async fn a_preview_sends_once_with_its_token() {
     assert_eq!(prepared["result"]["value"]["chat"], "Work");
     let token = prepared["result"]["value"]["token"].as_str().unwrap().to_owned();
     assert_eq!(token.len(), 32);
-    assert!(account.sent.lock().unwrap().is_empty());
 
     let wrong = client.call(2, "confirm_send", json!({ "token": "nope" })).await;
     assert_eq!(wrong["error"]["code"], "not_found");
-    let sent = client.call(3, "confirm_send", json!({ "token": token })).await;
-    assert_eq!(sent["result"]["value"]["status"], "sent");
+    // the agent itself confirms with the token it read: Lux asks, the user cancels.
+    let confirmed = client.call(3, "confirm_send", json!({ "token": token })).await;
+    assert_eq!(confirmed["result"]["value"]["status"], "cancelled");
+    assert!(app.account.sent.lock().unwrap().is_empty());
+    assert_eq!(
+        app.account.asked.lock().unwrap()[0],
+        ("work".to_owned(), "Done".to_owned())
+    );
     let again = client.call(4, "confirm_send", json!({ "token": token })).await;
     assert_eq!(again["error"]["code"], "not_found");
-    assert_eq!(account.sent.lock().unwrap().len(), 1);
-    drop(server);
+}
+
+#[tokio::test]
+async fn a_previews_send_counts_against_the_hours_limits() {
+    let app = App::new(user(Grant::AutoSend, None));
+    let mut client = app.connect("claude-ai", true).await;
+    let mut statuses = Vec::new();
+    for id in 0..4 {
+        let prepared = client
+            .call(id * 2, "prepare_send", json!({ "chat_id": "work", "text": "Done" }))
+            .await;
+        let token = prepared["result"]["value"]["token"].as_str().unwrap().to_owned();
+        let confirmed = client.call(id * 2 + 1, "confirm_send", json!({ "token": token })).await;
+        statuses.push(confirmed["result"]["value"]["status"].as_str().unwrap().to_owned());
+    }
+    // three in a chat an hour without asking; the fourth is asked in Lux.
+    assert_eq!(statuses, ["sent", "sent", "sent", "cancelled"]);
+    assert_eq!(app.account.sent.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn the_limits_and_the_chats_read_are_the_clients_across_its_sessions() {
+    let app = App::new(user(Grant::AutoSend, None));
+    let mut first = app.connect("claude-ai", false).await;
+    first.call(1, "read_chat", json!({ "chat_id": "family" })).await;
+    drop(first);
+
+    // a new session of the same client (a CLI command, or Lux restarted) still read the chat.
+    let mut second = app.connect("claude-ai", false).await;
+    let sent = second
+        .call(1, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+        .await;
+    assert_eq!(sent["result"]["value"]["status"], "sent");
+    for id in 2..4 {
+        second
+            .call(id, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+            .await;
+    }
+    drop(second);
+
+    // the chat's three an hour are spent, whichever session asks.
+    let mut third = app.connect("claude-ai", false).await;
+    let asked = third
+        .call(1, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+        .await;
+    assert_eq!(asked["result"]["value"]["status"], "cancelled");
+    assert_eq!(app.account.sent.lock().unwrap().len(), 3);
+
+    // another client read nothing.
+    let mut other = app.connect("codex", false).await;
+    let asked = other
+        .call(1, "send_message", json!({ "chat_id": "family", "text": "Hi" }))
+        .await;
+    assert_eq!(asked["result"]["value"]["status"], "cancelled");
+}
+
+#[tokio::test]
+async fn calls_a_minute_are_the_clients_across_its_sessions() {
+    let app = App::new(user(Grant::Read, None));
+    let mut first = app.connect("claude-ai", false).await;
+    for id in 0..60 {
+        let chats = first.call(id, "list_chats", json!({})).await;
+        assert!(chats["result"].is_object());
+    }
+    drop(first);
+    let mut second = app.connect("claude-ai", false).await;
+    let refused = second.call(1, "list_chats", json!({})).await;
+    assert_eq!(refused["error"]["code"], "rate_limited");
+}
+
+#[tokio::test]
+async fn a_text_longer_than_a_message_is_refused() {
+    let app = App::new(user(Grant::Drafts, None));
+    let mut client = app.connect("claude-ai", false).await;
+    let long = "a".repeat(10_001);
+    let draft = client
+        .call(1, "draft_reply", json!({ "chat_id": "work", "text": long }))
+        .await;
+    assert_eq!(draft["error"]["code"], "invalid_arguments");
+    let query = client
+        .call(2, "search_messages", json!({ "query": "a".repeat(1_001) }))
+        .await;
+    assert_eq!(query["error"]["code"], "invalid_arguments");
+    assert!(app.account.drafts.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_line_longer_than_the_most_ends_the_connection_unread() {
+    let app = App::new(user(Grant::Read, None));
+    let mut client = Client::connect(&app.path).await;
+    // a quarter of a megabyte and more, with no newline: the app stops reading and closes.
+    let chunk = vec![b'a'; 64 * 1024];
+    for _ in 0..5 {
+        if client.write.write_all(&chunk).await.is_err() {
+            break;
+        }
+    }
+    let closed = tokio::time::timeout(Duration::from_secs(5), client.lines.next_line()).await;
+    assert!(matches!(closed, Ok(Ok(None) | Err(_))));
+    assert!(app.user.asked.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_approval_stops_waiting_when_its_client_leaves() {
+    let app = App::new(user(Grant::Read, None));
+    let mut client = Client::connect(&app.path).await;
+    let hello = json!({ "hello": { "kind": "mcp", "client": "never answered", "command": null, "folder": null } });
+    let waiting = client.send(hello).await;
+    assert!(waiting["waiting"].is_object());
+    drop(client);
+    for _ in 0..50 {
+        if app.user.dropped.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the approval still waits for a client that left");
 }
