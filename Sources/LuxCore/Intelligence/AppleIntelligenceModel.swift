@@ -43,7 +43,11 @@ final class AppleIntelligenceModel: CoreLanguageModel {
         let prompt = request.prompt
         Task {
             do {
-                reply.answer(json: try await session.respond(to: prompt, schema: schema).content.jsonString)
+                // the schema constrains the answer as it is generated; written into the prompt too
+                // (the framework's default), the model copies it into a long text's answer and
+                // writes on until its context is full.
+                let answer = try await session.respond(to: prompt, schema: schema, includeSchemaInPrompt: false)
+                reply.answer(json: answer.content.jsonString)
             } catch {
                 reply.fail(error: Self.modelError(error))
             }
