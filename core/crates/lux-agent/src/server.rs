@@ -146,7 +146,7 @@ async fn connection<B: AgentBackend, A: Approver>(
         None => return Ok(()),
     };
     send(&mut write, &ServerMessage::Granted { grant }).await?;
-    let session = Session::new(hello.client.clone(), grant, hello.previews);
+    let session = Session::new(hello.client.clone(), grant);
     let mut refusals = 0;
     while let Some(line) = read_line(&mut lines).await? {
         let answer = match serde_json::from_str::<ClientMessage>(&line) {

@@ -88,9 +88,6 @@ public protocol AgentsPresenter: AnyObject {
     /// Opens the chat of `roomId` and asks the user whether `text` may be sent, asked by
     /// `client`. The core sends it, on its own: nothing of the composer's goes with it.
     func allowSend(_ text: String, inRoom roomId: String, client: String) async -> Bool
-    /// Tells the user Lux let `client` in without asking: approved for always, or a command a
-    /// while ago.
-    func noteSilentApproval(of client: String, grant: AgentGrant)
 }
 
 /// Agents on this Mac: the `Lux agent` CLI and MCP server reach the account through a socket in
@@ -193,27 +190,17 @@ public final class Agents {
 
     // MARK: The host's calls, on the main actor
 
-    /// The most Lux lets in without asking: a client's name is its own word, so a client approved
-    /// before (for always, or a command a while ago) is let in to read only, and the user told.
-    private nonisolated static let silentMost = AgentGrant.read
-
-    /// What Lux lets a client in to without asking: approved `before` (for always, or a command a
-    /// while ago), wanting no more than reading, and not asking for more; none when it must ask.
-    nonisolated static func silentGrant(before: AgentGrant?, wanted: AgentGrant?, asksMore: Bool) -> AgentGrant? {
-        guard let before, !asksMore, (wanted ?? .read) <= silentMost else { return nil }
-        return min(before, silentMost)
-    }
-
     fileprivate func approve(_ approval: CoreAgentApproval) async -> AgentDecision {
         guard session.textActions.isOn, isOn, let presenter else { return .deny }
         let wanted = approval.grant.map(AgentGrant.init)
+        if let approved = session.preferences.approvedAgents[approval.client].flatMap(AgentGrant.init(rawValue:)),
+           approval.reason == nil, wanted.map({ $0 <= approved }) ?? true {
+            return .allow(approved, always: true)
+        }
         let key = "\(approval.client)\u{0}\(approval.folder ?? "")"
-        recentCLI = recentCLI.filter { $0.value.until > .now }
-        let before = session.preferences.approvedAgents[approval.client].flatMap(AgentGrant.init(rawValue:))
-            ?? (approval.isCli ? recentCLI[key]?.grant : nil)
-        if let grant = Self.silentGrant(before: before, wanted: wanted, asksMore: approval.reason != nil) {
-            presenter.noteSilentApproval(of: approval.client, grant: grant)
-            return .allow(grant, always: false)
+        if approval.isCli, approval.reason == nil, let recent = recentCLI[key], recent.until > .now,
+           wanted.map({ $0 <= recent.grant }) ?? true {
+            return .allow(recent.grant, always: false)
         }
         let request = AgentRequest(client: approval.client, isCLI: approval.isCli, command: approval.command,
                                    folder: approval.folder, code: approval.code, grant: wanted ?? .read, reason: approval.reason)

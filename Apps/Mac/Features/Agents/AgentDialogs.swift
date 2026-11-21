@@ -1,6 +1,5 @@
 import AppKit
 import LuxCore
-import UserNotifications
 
 /// What the agents ask of the user, on the main window: the approval with its match code, a
 /// draft put in a chat, a message to send after the user's click.
@@ -60,13 +59,6 @@ final class AgentDialogs: AgentsPresenter {
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
         return await present(alert) == .alertFirstButtonReturn
-    }
-
-    func noteSilentApproval(of client: String, grant: AgentGrant) {
-        let content = UNMutableNotificationContent()
-        content.title = String(localized: "\(client) is reading your chats")
-        content.body = String(localized: "Lux let it in as before: \(grant.title). Settings › AI lists what it did.")
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "agent-\(client)", content: content, trigger: nil))
     }
 
     /// `alert` as a sheet on the window, or on its own without one.

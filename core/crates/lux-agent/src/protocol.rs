@@ -11,12 +11,11 @@ pub enum Grant {
     Read,
     /// Also put a draft in a chat's composer, where the user sees it.
     Drafts,
-    /// Also ask to send a message; each one waits for the user's Send in Lux (a preview's Send
-    /// only opens it there).
+    /// Also ask to send a message; each one waits for the user's click (in Lux, or on the MCP
+    /// client's preview).
     Send,
-    /// Also send on its own: only in a chat its client read in the last hour, at most ten an hour
-    /// and three in one chat (a preview's Send counts too); any other message is asked as with
-    /// `Send`.
+    /// Also send on its own: only in a chat it read in this session, at most a few an hour; any
+    /// other message is asked as with `Send`.
     AutoSend,
 }
 
@@ -45,10 +44,6 @@ pub struct ClientHello {
     /// What its command needs (`lux draft`: drafts), so the approval offers it.
     #[serde(default)]
     pub wants: Option<Grant>,
-    /// It draws MCP Apps: a message to send may wait for its preview's Send. Other sessions may
-    /// not prepare one.
-    #[serde(default)]
-    pub previews: bool,
 }
 
 /// The longest line either side reads: a message's text and its JSON fit many times over; more
