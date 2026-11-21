@@ -129,7 +129,13 @@ jobs:
         run: test -x /opt/homebrew/opt/llvm@20/bin/llvm-symbolizer
       - name: Test under Thread Sanitizer
         shell: bash
-        run: swift test --sanitize=thread --scratch-path .build/tsan 2>&1 | xcrun swift-demangle
+        # as many tests at once as the runner has cores. Under the sanitizer every test costs several
+        # times its work, and the stores the tests open each run on a thread of their own, outside
+        # Swift's pool: all 276 at once kept the 3 cores busy with them for some 10 s, the main
+        # actor waited its turn, and a test waiting 10 s for it failed.
+        run: |
+          export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=$(sysctl -n hw.ncpu)
+          swift test --sanitize=thread --scratch-path .build/tsan 2>&1 | xcrun swift-demangle
         env:
           # one false race, on the runner's macOS, is suppressed (Tests/tsan-suppressions.txt).
           TSAN_OPTIONS: >-
