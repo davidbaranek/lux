@@ -1,9 +1,4 @@
-Novinky
-- Mac: Nastavení vypadá jako Systémové nastavení, s postranním panelem a hledáním (Cmd-F).
-- Mac: AI agenti umí organizovat chaty: označit přečtené, přesunout do Low Priority nebo Archivu, připnout, ztlumit, nastavit oznámení a styl, i u mnoha chatů najednou.
-
 Opravy
-- Reakce a zprávy botů v šifrovaných chatech už neukazují hlasité oznámení „New message“.
-- Mac: vybraný řádek v nabídce @ je zaoblený jako na iPhonu.
+- Formátovat se u dlouhé zprávy už nenačítá donekonečna: odpoví za pár sekund.
 
-Vyzkoušejte prosím: Nastavení na Macu a hledání v něm; požádat agenta, ať označí nepřečtené chaty jako přečtené.
+Vyzkoušejte prosím: Formátovat a Opravit u dlouhé zprávy s emoji a odrážkami.
