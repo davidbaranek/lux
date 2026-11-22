@@ -63,7 +63,8 @@ async fn command(arguments: &[String], socket: &Path) -> Result<Option<Value>, S
             return Ok(None);
         }
         "mcp" => {
-            serve_mcp(socket.to_path_buf()).await?;
+            let (input, output) = rmcp::transport::stdio();
+            serve_mcp(socket.to_path_buf(), input, output).await?;
             return Ok(None);
         }
         "chats" => {
@@ -230,9 +231,9 @@ impl Connection {
     /// Connects, says who it is, and waits for the user's approval in Lux (the match code on
     /// stderr meanwhile).
     async fn open(socket: &Path, hello: ClientHello) -> Result<Self, String> {
-        let stream = UnixStream::connect(socket)
-            .await
-            .map_err(|_| "Lux is not open, or AI agents are off in its Settings".to_owned())?;
+        let stream = UnixStream::connect(socket).await.map_err(|_| {
+            "Lux is not open, or AI agents are off: open Lux and turn on agents in Settings › AI".to_owned()
+        })?;
         let (read, write) = stream.into_split();
         let mut connection = Self {
             lines: BufReader::new(read),
@@ -322,15 +323,23 @@ struct McpFront {
     connection: Mutex<Option<Connection>>,
 }
 
-async fn serve_mcp(socket: PathBuf) -> Result<(), String> {
+/// `lux mcp` over `input` and `output` (stdio, or a test's pipe) until the client closes them.
+/// It answers `initialize`, the tools and the preview from the binary alone, whatever the app's
+/// state; Lux's socket at `socket` is reached at the first tool call, and again once it was
+/// closed. A call while Lux is not open is the call's error, never the server's end.
+///
+/// # Errors
+/// When the client's first message is not `initialize`, or the transport fails.
+pub async fn serve_mcp<R, W>(socket: PathBuf, input: R, output: W) -> Result<(), String>
+where
+    R: tokio::io::AsyncRead + Send + Unpin + 'static,
+    W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+{
     let front = McpFront {
         socket,
         connection: Mutex::new(None),
     };
-    let service = front
-        .serve(rmcp::transport::stdio())
-        .await
-        .map_err(|error| error.to_string())?;
+    let service = front.serve((input, output)).await.map_err(|error| error.to_string())?;
     service.waiting().await.map_err(|error| error.to_string())?;
     Ok(())
 }
